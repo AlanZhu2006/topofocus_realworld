@@ -16,3 +16,9 @@
   calibration ID before Foxglove fusion.
 - Retain the latest camera message for Foxglove reconnects and replace the
   unverified fused dashboard panel with two centered per-robot maps.
+- Split Foxglove geometry from semantic overlays, reduce evidence before
+  assigning colors, and add current-camera/trail/legend status channels.
+- Add bounded live-spool occupancy sweeps, raw-vs-thresholded RedNet
+  diagnostics, and a read-only operator moved-map acceptance gate.
+- Reuse the existing board-calibration flow while recording a common
+  calibration ID and input provenance hashes.

@@ -6,12 +6,13 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 
 ## 当前结论（2026-07-22）
 
-- Hub 的协议、spool、单机语义映射、前沿/VLM 决策、Foxglove relay、TinyNav 原生 occupancy 适配器及 fail-closed 守门器已实现；本机测试基线为 154 项通过。
+- Hub 的协议、spool、单机语义映射、前沿/VLM 决策、Foxglove relay、TinyNav 原生 occupancy 适配器及 fail-closed 守门器已实现；本机测试基线为 165 项通过。
 - 实时地图现要求稳定姿态窗和三帧 RANSAC 地面共识，过滤静止重复帧，以可逆 log-odds 融合障碍；位姿跳变会锁止当前地图而不是继续污染。
 - WSJ 的稳定观测路径为 D435i 双红外 + RGB + IMU、TinyNav 修复后的 perception。修复避免重型 stereo inference 阻塞 IMU 回调，并在无效 IMU 区间后重新锚定。
 - 原生 BuildMap 静止门禁已验证保存；刚结束的 2026-07-21 21:35 会话保存 161 个 pose、1024.75 秒，优化路径累计 0.1294 m、首尾仅 0.00155 m，属于静止抖动测试，不是受控移动测试。
 - Hub 和机器人端默认均禁止 `GOAL`。没有通过 G5 真机安全门禁，不得宣称已完成自主双机导航。
 - Foxglove 当前显示两张独立地图；融合除共同 frame 外还要求相同的显式标定 ID。当前 WSJ v3/Yunji 会话未重新标定，融合保持关闭。
+- Foxglove 默认使用独立几何频道（灰未知、白自由、黑障碍），语义叠加在真实相机门禁通过前保持隐藏；离线参数扫描和移动验收工具已加入。
 
 ## 从干净克隆开始
 
@@ -80,6 +81,7 @@ bash hub/robot_overlay/start_go2_observation.sh \
 - [传输协议](hub/docs/TRANSPORT.md)
 - [坐标系约束](hub/docs/COORDINATE_FRAMES.md)
 - [实时地图与 Foxglove 契约](hub/docs/LIVE_MAPPING.md)
+- [离线地图诊断、移动验收和既有标定脚本复用](hub/docs/OFFLINE_MAP_VALIDATION.md)
 - [来源与第三方说明](SOURCE_MANIFEST.md)
 
 任何让机器人运动的工作都必须另行通过标定、replay、超时/断网、急停和 HIL 门禁；克隆或运行本仓库的默认脚本本身不构成运动授权。

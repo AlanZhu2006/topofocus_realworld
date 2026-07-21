@@ -19,6 +19,7 @@ two observations it reads.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -28,6 +29,18 @@ WORKSPACE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WORKSPACE / "hub" / "src"))
 
 from focus_hub.calibration import compute_shared_frame_transform  # noqa: E402
+
+
+def file_artifact(path: Path) -> dict:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "path": str(path.resolve()),
+        "size_bytes": path.stat().st_size,
+        "sha256": digest.hexdigest(),
+    }
 
 
 def latest_observation(spool_root: Path, robot_id: str) -> dict:
@@ -40,6 +53,7 @@ def latest_observation(spool_root: Path, robot_id: str) -> dict:
     metadata_path = candidates[-1] / "metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     metadata["_source_path"] = str(metadata_path)
+    metadata["_source_artifact"] = file_artifact(metadata_path)
     return metadata
 
 
@@ -61,6 +75,14 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--transform-version", required=True,
                          help="new transform_version label to stamp on the calibrated frame")
+    parser.add_argument(
+        "--calibration-id",
+        default=None,
+        help=(
+            "explicit shared_frame_calibration_id to bind both map daemons; "
+            "defaults to --transform-version for backward-compatible calls"
+        ),
+    )
     parser.add_argument("--offset-file", type=Path, default=None,
                          help="JSON file with a measured 16-element row-major 4x4 matrix "
                               "from the reference robot's pose to the other robot's pose "
@@ -68,6 +90,10 @@ def main() -> int:
     parser.add_argument("--max-sync-skew-s", type=float, default=5.0,
                          help="error out if the two observations' capture times differ by more than this")
     args = parser.parse_args()
+
+    calibration_id = args.calibration_id or args.transform_version
+    if not calibration_id.strip():
+        parser.error("--calibration-id/--transform-version must be non-empty")
 
     if args.output.exists():
         print(f"refusing to overwrite existing output: {args.output}", file=sys.stderr)
@@ -100,6 +126,7 @@ def main() -> int:
         "reference_robot": args.reference_robot,
         "other_robot": args.other_robot,
         "transform_version": args.transform_version,
+        "shared_frame_calibration_id": calibration_id,
         "sync_skew_s": round(skew_s, 6),
         "sync_capture_time_ns": {
             args.reference_robot: reference_obs["capture_time_ns"],
@@ -121,6 +148,14 @@ def main() -> int:
             "child_frame": f"{args.other_robot}_odom",
             "matrix": list(transform),
         },
+        "input_provenance": {
+            "reference_observation_metadata": reference_obs["_source_artifact"],
+            "other_observation_metadata": other_obs["_source_artifact"],
+            "reference_to_other_offset": (
+                file_artifact(args.offset_file) if args.offset_file is not None else None
+            ),
+            "status": "observed_spooled_metadata_and_operator_supplied_offset",
+        },
         "note": (
             "reference robot's own poses need no further transform (shared_world is "
             "defined as the reference robot's own local pose frame by convention); "
@@ -131,7 +166,7 @@ def main() -> int:
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(output, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"wrote {args.output}")
+    print(f"wrote {args.output} (shared_frame_calibration_id={calibration_id})")
     return 0
 
 

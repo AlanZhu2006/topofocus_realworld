@@ -85,7 +85,9 @@
       "scene": {},
       "transforms": {},
       "topics": {
-        "/wsj/semantic_map": { "visible": true }
+        "/wsj/geometry_map": { "visible": true },
+        "/wsj/map_pose": { "visible": true },
+        "/wsj/semantic_map": { "visible": false }
       },
       "layers": {},
       "publish": {
@@ -115,7 +117,9 @@
       "scene": {},
       "transforms": {},
       "topics": {
-        "/yunji/semantic_map": { "visible": true }
+        "/yunji/geometry_map": { "visible": true },
+        "/yunji/map_pose": { "visible": true },
+        "/yunji/semantic_map": { "visible": false }
       },
       "layers": {},
       "publish": {

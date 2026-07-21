@@ -61,15 +61,23 @@ sys.path.insert(0, str(WORKSPACE / "hub" / "src"))
 import foxglove  # noqa: E402
 from foxglove.channels import (  # noqa: E402
     CompressedImageChannel, FrameTransformChannel, GridChannel, LogChannel,
+    SceneUpdateChannel,
 )
 from foxglove.messages import (  # noqa: E402
-    CompressedImage, FrameTransform, Grid, Log, LogLevel, PackedElementField,
-    PackedElementFieldNumericType, Pose, Quaternion, Timestamp, Vector2, Vector3,
+    Color, CompressedImage, CubePrimitive, FrameTransform, Grid, LinePrimitive,
+    LinePrimitiveLineType, Log, LogLevel, PackedElementField,
+    PackedElementFieldNumericType, Point3, Pose, Quaternion, SceneEntity, SceneUpdate,
+    TextPrimitive, Timestamp, Vector2, Vector3,
 )
 
 from focus_hub.central_mapping import HM3D_CATEGORY_NAMES  # noqa: E402
-from focus_hub.frontiers import _category_palette  # noqa: E402
 from focus_hub.fusion import align_and_fuse_grids  # noqa: E402
+from focus_hub.map_visualization import (  # noqa: E402
+    colorize_geometry_grid,
+    colorize_semantic_grid,
+    downsample_evidence_grid,
+    semantic_evidence_cells,
+)
 from focus_hub.map_snapshot import (  # noqa: E402
     MapSnapshot,
     load_map_snapshot,
@@ -84,11 +92,16 @@ class RobotSource:
     snapshot_dir: Path
     camera_channel: CompressedImageChannel
     map_channel: GridChannel
+    geometry_channel: GridChannel
+    pose_channel: SceneUpdateChannel
     status_channel: LogChannel
     last_map_published_at_s: float = 0.0
     last_camera_pushed_at_ns: int | None = None
     camera_frames_pushed: int = 0
     last_camera_message: CompressedImage | None = None
+    trajectory_xy_m: list[tuple[float, float]] = field(default_factory=list)
+    trajectory_frame_id: str | None = None
+    last_map_stats: dict[str, int] | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -113,49 +126,22 @@ def colorize_grid(grid: np.ndarray, category_names: tuple[str, ...]) -> np.ndarr
     (h, w, 4) uint8 RGBA array -- kept in sync with that function's palette
     so the dashboard's colors match any saved decision-map PNGs.
     """
-    obstacle = grid[0] > 0.5
-    explored = grid[1] > 0.5
-    cat = grid[2:2 + len(category_names)]
-    h, w = obstacle.shape
-    rgb = np.full((h, w, 3), 96, dtype=np.uint8)          # unknown: dark grey
-    rgb[explored] = (235, 235, 235)                        # explored free: light
-    rgb[obstacle] = (40, 40, 40)                            # obstacle: near-black
-    if len(category_names) > 0:
-        palette = _category_palette(len(category_names))
-        has_category = cat.max(axis=0) > 0.1
-        best_category = cat.argmax(axis=0)
-        rgb[has_category] = palette[best_category[has_category]][:, ::-1]  # BGR -> RGB
-    alpha = np.full((h, w, 1), 255, dtype=np.uint8)
-    alpha[~explored & ~obstacle & (cat.max(axis=0) <= 0.1 if len(category_names) else True)] = 60
-    return np.concatenate([rgb, alpha], axis=-1)
-
-
-def downsample_rgba(rgba: np.ndarray, factor: int) -> np.ndarray:
-    """Block-averages an (h, w, 4) uint8 RGBA image by an integer factor.
-
-    A 520x520 map at 4 bytes/cell is ~1 MiB per message -- too much to push
-    once a second to a remote viewer over a real (non-loopback) network link
-    (this is exactly the "consider the delay" requirement: the map is by far
-    the biggest payload of the three channels, and doesn't need sub-second
-    freshness the way the camera feed does). Any leftover rows/cols that
-    don't divide evenly by `factor` are cropped, not padded.
-    """
-    if factor <= 1:
-        return rgba
-    h, w = rgba.shape[:2]
-    h2, w2 = h - h % factor, w - w % factor
-    cropped = rgba[:h2, :w2].astype(np.float32)
-    pooled = cropped.reshape(h2 // factor, factor, w2 // factor, factor, 4).mean(axis=(1, 3))
-    return pooled.astype(np.uint8)
+    return colorize_semantic_grid(grid, category_names)
 
 
 def grid_to_message(
     grid: np.ndarray, origin_xy_m: tuple[float, float], resolution_m: float,
     category_names: tuple[str, ...], downsample_factor: int = 1,
     frame_id: str = "shared_world",
+    *, view: str = "semantic",
 ) -> Grid:
-    rgba = colorize_grid(grid, category_names)
-    rgba = downsample_rgba(rgba, downsample_factor)
+    reduced = downsample_evidence_grid(grid, downsample_factor)
+    if view == "semantic":
+        rgba = colorize_semantic_grid(reduced, category_names)
+    elif view == "geometry":
+        rgba = colorize_geometry_grid(reduced)
+    else:
+        raise ValueError(f"unknown map view {view!r}")
     resolution_m *= downsample_factor
     h, w = rgba.shape[:2]
     fields = [
@@ -189,7 +175,7 @@ def load_grid_npz(
 
 def build_grid_message(
     npz_path: Path, category_names: tuple[str, ...], downsample_factor: int = 1,
-    *, allow_legacy: bool = False,
+    *, allow_legacy: bool = False, view: str = "semantic",
 ) -> Grid | None:
     loaded = load_grid_npz(npz_path, allow_legacy=allow_legacy)
     if loaded is None:
@@ -201,6 +187,7 @@ def build_grid_message(
         category_names,
         downsample_factor,
         loaded.frame_id,
+        view=view,
     )
 
 
@@ -217,18 +204,46 @@ def map_poll_loop(
             if now_s - source.last_map_published_at_s < interval_s:
                 continue
             try:
-                grid_msg = build_grid_message(
+                snapshot = load_grid_npz(
                     source.snapshot_dir / "central_map.npz",
-                    category_names,
-                    downsample,
                     allow_legacy=allow_legacy,
                 )
+                if snapshot is None:
+                    semantic_msg = None
+                    geometry_msg = None
+                else:
+                    semantic_msg = grid_to_message(
+                        snapshot.grid,
+                        snapshot.origin_xy_m,
+                        snapshot.resolution_m,
+                        category_names,
+                        downsample,
+                        snapshot.frame_id,
+                        view="semantic",
+                    )
+                    geometry_msg = grid_to_message(
+                        snapshot.grid,
+                        snapshot.origin_xy_m,
+                        snapshot.resolution_m,
+                        category_names,
+                        downsample,
+                        snapshot.frame_id,
+                        view="geometry",
+                    )
+                    stats = {
+                        "obstacle_cells": int(np.count_nonzero(snapshot.grid[0] > 0.5)),
+                        "explored_cells": int(np.count_nonzero(snapshot.grid[1] > 0.5)),
+                        "semantic_cells": semantic_evidence_cells(snapshot.grid),
+                    }
+                    with source.lock:
+                        source.last_map_stats = stats
             except (OSError, EOFError, ValueError, zipfile.BadZipFile) as exc:
                 # pipeline.py's save() writes atomically (temp file +
                 # os.replace) so this shouldn't happen -- kept as defense in
                 # depth so one bad read skips this cycle instead of killing
                 # the thread a client may be actively depending on.
-                grid_msg = None
+                semantic_msg = None
+                geometry_msg = None
                 source.status_channel.log(Log(
                     timestamp=now_ts(),
                     level=LogLevel.Error,
@@ -236,8 +251,9 @@ def map_poll_loop(
                     message=f"map publish blocked: {exc}",
                 ))
                 source.last_map_published_at_s = now_s
-            if grid_msg is not None:
-                source.map_channel.log(grid_msg)
+            if semantic_msg is not None and geometry_msg is not None:
+                source.map_channel.log(semantic_msg)
+                source.geometry_channel.log(geometry_msg)
                 source.last_map_published_at_s = now_s
         time.sleep(min(interval_s, 1.0))
 
@@ -324,6 +340,94 @@ def frame_tree_loop(channel: FrameTransformChannel, *, interval_s: float = 5.0) 
         time.sleep(interval_s)
 
 
+def update_pose_scene(source: RobotSource, status: dict) -> SceneUpdate | None:
+    """Update a relay-lifetime camera trail and return its scene message.
+
+    The wire contract currently exposes camera XY but not a separately
+    calibrated body pose.  The marker is therefore labelled as a camera
+    position and deliberately carries no fabricated heading.
+    """
+    xy = status.get("last_camera_xy_m")
+    frame_id = status.get("frame_id")
+    if (
+        not isinstance(xy, list)
+        or len(xy) != 2
+        or not all(isinstance(value, (int, float)) and np.isfinite(value) for value in xy)
+        or not isinstance(frame_id, str)
+        or not frame_id
+    ):
+        return None
+    point = (float(xy[0]), float(xy[1]))
+    with source.lock:
+        if source.trajectory_frame_id != frame_id:
+            source.trajectory_xy_m.clear()
+            source.trajectory_frame_id = frame_id
+        if (
+            not source.trajectory_xy_m
+            or np.linalg.norm(
+                np.asarray(point) - np.asarray(source.trajectory_xy_m[-1])
+            ) >= 0.05
+        ):
+            source.trajectory_xy_m.append(point)
+        trail = tuple(source.trajectory_xy_m[-2000:])
+
+    identity = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+    origin_pose = Pose(
+        position=Vector3(x=0.0, y=0.0, z=0.0), orientation=identity
+    )
+    marker_pose = Pose(
+        position=Vector3(x=point[0], y=point[1], z=0.08),
+        orientation=identity,
+    )
+    lines = []
+    if len(trail) >= 2:
+        lines.append(LinePrimitive(
+            type=LinePrimitiveLineType.LineStrip,
+            pose=origin_pose,
+            thickness=0.05,
+            scale_invariant=False,
+            points=[Point3(x=x, y=y, z=0.05) for x, y in trail],
+            color=Color(r=0.10, g=0.45, b=1.0, a=1.0),
+        ))
+    entity = SceneEntity(
+        timestamp=now_ts(),
+        frame_id=frame_id,
+        id=f"{source.name}-camera-trail",
+        frame_locked=True,
+        lines=lines,
+        cubes=[CubePrimitive(
+            pose=marker_pose,
+            size=Vector3(x=0.28, y=0.28, z=0.16),
+            color=Color(r=0.90, g=0.10, b=0.10, a=1.0),
+        )],
+        texts=[TextPrimitive(
+            pose=Pose(
+                position=Vector3(x=point[0], y=point[1], z=0.32),
+                orientation=identity,
+            ),
+            billboard=True,
+            font_size=14.0,
+            scale_invariant=True,
+            color=Color(r=0.90, g=0.10, b=0.10, a=1.0),
+            text=f"{source.name} camera",
+        )],
+    )
+    return SceneUpdate(entities=[entity])
+
+
+def legend_loop(channel: LogChannel, *, interval_s: float = 30.0) -> None:
+    message = (
+        "MAP LEGEND: gray=unknown; white=observed free; black=current geometric "
+        "obstacle; blue=camera trail since relay start; red=current camera XY. "
+        "Semantic overlay is a separate, hidden-by-default topic."
+    )
+    while True:
+        channel.log(Log(
+            timestamp=now_ts(), level=LogLevel.Info, name="map-legend", message=message
+        ))
+        time.sleep(interval_s)
+
+
 def status_loop(sources: list[RobotSource], *, interval_s: float) -> None:
     """Background thread: republishes staleness for both channels. Camera
     staleness comes from real push timestamps (in-memory, set by the HTTP
@@ -337,6 +441,7 @@ def status_loop(sources: list[RobotSource], *, interval_s: float) -> None:
             with source.lock:
                 camera_pushed_at = source.last_camera_pushed_at_ns
                 frames_pushed = source.camera_frames_pushed
+                map_stats = dict(source.last_map_stats) if source.last_map_stats else None
             camera_age_s = (now_ns - camera_pushed_at) / 1e9 if camera_pushed_at else None
 
             snapshot_status = None
@@ -382,6 +487,19 @@ def status_loop(sources: list[RobotSource], *, interval_s: float) -> None:
                 if blocked:
                     parts.append(f"MAPPING HALTED: {blocked}")
                     level = LogLevel.Error
+                scene = update_pose_scene(source, snapshot_status)
+                if scene is not None:
+                    source.pose_channel.log(scene)
+
+            if map_stats is not None:
+                obstacle = map_stats["obstacle_cells"]
+                explored = map_stats["explored_cells"]
+                ratio = 100.0 * obstacle / explored if explored else 0.0
+                parts.append(
+                    f"geometry {obstacle}/{explored} obstacle/explored ({ratio:.1f}%)"
+                )
+                semantic = map_stats["semantic_cells"]
+                parts.append(f"semantic evidence {semantic} cells")
 
             source.status_channel.log(Log(
                 timestamp=now_ts(), level=level, message=" ".join(parts), name=source.name))
@@ -508,6 +626,8 @@ def main() -> int:
             robot_id=robot_id, name=name, snapshot_dir=snapshot_dir,
             camera_channel=CompressedImageChannel(f"/{name}/camera"),
             map_channel=GridChannel(f"/{name}/semantic_map"),
+            geometry_channel=GridChannel(f"/{name}/geometry_map"),
+            pose_channel=SceneUpdateChannel(f"/{name}/map_pose"),
             status_channel=LogChannel(f"/{name}/status"),
         ))
         print(f"  robot_id={robot_id} name={name} snapshot_dir={snapshot_dir}")
@@ -533,6 +653,11 @@ def main() -> int:
         target=camera_latch_loop,
         args=(sources,),
         kwargs={"interval_s": args.camera_latch_interval_s},
+        daemon=True,
+    ).start()
+    threading.Thread(
+        target=legend_loop,
+        args=(LogChannel("/map/legend"),),
         daemon=True,
     ).start()
 

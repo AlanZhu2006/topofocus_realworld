@@ -57,10 +57,16 @@ the same non-empty `shared_frame_calibration_id` and frame ID.
 
 ## Dashboard interpretation
 
-- dark gray, translucent: unknown/unobserved;
-- light gray/white: explored free space;
-- near-black: current obstacle evidence;
-- palette colors: semantic category evidence.
+- `/<name>/geometry_map` is the default dashboard layer:
+  dark gray/translucent is unknown, light gray/white is explored free space,
+  and near-black is current obstacle evidence;
+- `/<name>/semantic_map` is a separate combined layer and is hidden by default
+  while the live semantic-quality gate remains open;
+- `/<name>/map_pose` draws a red current camera XY and a blue relay-lifetime
+  camera trail. It is not a calibrated body footprint or heading;
+- evidence is max-reduced before categorical color assignment. The previous
+  RGBA block average could invent irregular blended colors which were not
+  semantic classes.
 
 A stationary depth camera naturally produces one fan-shaped observed sector.
 It cannot yield a complete room outline. Movement tests require an operator at
@@ -70,3 +76,7 @@ The relay retains the latest JPEG and republishes it with its original
 timestamp for late/reconnected Foxglove subscribers. Status age is based only
 on real camera pushes and the actual map file mtime, so this retention does not
 claim a stale image is fresh.
+
+Offline parameter replay, RedNet confidence diagnosis, the operator-present
+moved-map acceptance gate and reuse of the existing board calibration scripts
+are documented in [OFFLINE_MAP_VALIDATION.md](OFFLINE_MAP_VALIDATION.md).

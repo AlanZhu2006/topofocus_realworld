@@ -60,4 +60,5 @@ bash hub/robot_overlay/verify_go2.sh --hardware --tests
 - [坐标系](docs/COORDINATE_FRAMES.md)
 - [TinyNav 原生地图适配](docs/TINYNAV_NATIVE_MAP_ADAPTER.md)
 - [实时地图、Foxglove 与融合契约](docs/LIVE_MAPPING.md)
+- [离线地图诊断、移动验收与既有标定脚本复用](docs/OFFLINE_MAP_VALIDATION.md)
 - [WSJ 初始审计](docs/ROBOT_WSJ_AUDIT.md)

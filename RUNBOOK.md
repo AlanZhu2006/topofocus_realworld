@@ -121,7 +121,8 @@ bash hub/scripts/focus_hub_down.sh   # stop; preserves runtime/{spool,state,toke
 hub/.venv/bin/python hub/tools/calibrate_shared_frame.py \
   --spool hub/runtime/spool --reference-robot robot-0 --other-robot robot-1 \
   --output hub/runtime/shared_frame_<date>.json \
-  --transform-version shared-frame-<date>-v1
+  --transform-version shared-frame-<date>-v1 \
+  --calibration-id shared-frame-<date>-v1
 
 # Live multi-robot dashboard (this machine): run one hub_pipeline_daemon.py
 # per robot with periodic snapshotting enabled, then foxglove_relay.py
@@ -156,6 +157,10 @@ hub/.venv/bin/python hub/tools/foxglove_relay.py \
 # --shared-frame-calibration-id may the relay add --fuse. A common frame name
 # or two transform_version strings alone are insufficient.
 ```
+
+The bounded live-spool parameter/RedNet diagnostics, operator-present moved
+map gate, and existing board-calibration reuse sequence are documented in
+`hub/docs/OFFLINE_MAP_VALIDATION.md`.
 
 The e2e safety lane must end with the hub rejecting GOAL publishes (HTTP 409)
 under the default `allow_goal=false` policy; only the explicitly-labelled
