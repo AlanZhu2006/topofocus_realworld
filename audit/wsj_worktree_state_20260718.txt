@@ -1,0 +1,26 @@
+933fce54ae65e775a1262c346180341f5657c0e4
+ M DEPLOYMENT.md
+ M scripts/run_go2_cmd_bridge.sh
+ M tool/validate_tinynav_bag.py
+?? docs/semantic_mapping_design.md
+?? docs/semantic_mapping_experiments.md
+?? docs/semantic_mapping_frames.md
+?? docs/semantic_mapping_known_issues.md
+?? docs/semantic_mapping_phase1_live.png
+?? docs/semantic_mapping_phase3_live.png
+?? docs/semantic_mapping_phase3_overlay.png
+?? docs/semantic_mapping_phase4_voxels.png
+?? docs/semantic_mapping_phase5_bev.png
+?? docs/semantic_mapping_repo_audit.md
+?? docs/semantic_mapping_results.md
+?? docs/semantic_mapping_topics.md
+?? scripts/export_semantic_bev.py
+?? scripts/precompute_semantic_masks.py
+?? scripts/prepare_segformer_trt.sh
+?? scripts/run_realsense_semantic_sensor.sh
+?? scripts/run_semantic_pointcloud.sh
+?? scripts/run_semantic_rosbag_record.sh
+?? scripts/stop_tinynav_semantic_nav.sh
+?? scripts/tinynav_semantic_auto_map.sh
+?? scripts/tinynav_semantic_auto_nav.sh
+?? semantic_mapping/

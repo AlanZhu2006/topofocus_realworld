@@ -1,0 +1,13 @@
+[Unit]
+Description=Increase usbfs_memory_mb for RealSense USB3 camera streaming
+DefaultDependencies=no
+After=sysinit.target
+Before=basic.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 1000 > /sys/module/usbcore/parameters/usbfs_memory_mb'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,76 @@
+# Large assets and machine-generated evidence stay outside Git. Their required
+# names, sizes and checksums are recorded under manifests/ and audit/.
+/artifacts/
+/data/
+/logs/
+/hub/runtime/
+
+# Local Python environments and caches.
+/.venv/
+/hub/.venv/
+/.uv-cache/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.ipynb_checkpoints/
+
+# ROS/colcon/CMake products.
+**/install/
+**/log/
+**/.colcon/
+CMakeFiles/
+CMakeCache.txt
+
+# Runtime databases, maps and transient process output.
+*.log
+*.pid
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+/core
+core.[0-9]*
+/hub/robot_overlay/rehearsal_tinynav_db_*/
+/hub/robot_overlay/rehearsal_semantic_output_*/
+/hub/robot_overlay/focus_ros_sender_metrics.json
+/hub/robot_overlay/focus_ros_sender_window.log
+
+# Secrets and per-machine configuration. Commit only the matching examples.
+.env
+.env.*
+!.env.example
+**/.token
+**/.robot_token
+**/.admin_token
+**/admin_token
+**/tokens.json
+**/credentials.json
+**/secrets.json
+*.pem
+*.key
+/hub/config/robots.json
+/hub/config/robots.local.json
+/hub/robot_overlay/go2.env
+
+# Local agent/editor state.
+/.claude/
+/_scratch/
+/AL.md
+/CLAUDE_HANDOFF_PROMPT.md
+/HANDOFF_PROMPT.md
+/experiment.md
+/result.md
+/research-state.yaml
+/.vscode/
+/.idea/
+*.swp
+*~
+.DS_Store

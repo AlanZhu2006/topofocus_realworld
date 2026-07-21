@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-18T00:00:00+08:00",
+  "status": "observed",
+  "git_policy": "external_only",
+  "prepared_source": "GPU:/home/chatsign/data/data-002/focus_realworld_workspace/artifacts/",
+  "artifacts": [
+    {
+      "name": "RedNet HM3D semantic map checkpoint",
+      "path": "artifacts/checkpoints/rednet_semmap_mp3d_40.pth",
+      "bytes": 656550984,
+      "sha256": "f94d1c62a73bc05690ae29200d3dbd033ff243e7ce91755d1cd928bde844f995"
+    },
+    {
+      "name": "YOLOv10m checkpoint",
+      "path": "artifacts/vision/yolov10m.pt",
+      "bytes": 33643667,
+      "sha256": "6dc78f7a88591cec1e8716b8f5c7e3aefa9206684f025d202be34439ccb329a0"
+    },
+    {
+      "name": "OpenAI CLIP ViT-B/32 checkpoint",
+      "path": "artifacts/vision/ViT-B-32.pt",
+      "bytes": 353976522,
+      "sha256": "40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af"
+    },
+    {
+      "name": "GLM-4V-9B Hugging Face cache",
+      "path": "artifacts/models/hf_cache/hub/models--THUDM--glm-4v-9b",
+      "directory_bytes": 27815640073,
+      "revision": "3376fea6e54db68587a89bf1ac27a6889bafb867",
+      "blob_count": 23,
+      "model_shards": 15,
+      "integrity": "Every 64-character blob filename matched its SHA-256; see audit/G0_LOCAL_VERIFICATION.md"
+    }
+  ],
+  "excluded": [
+    "HM3D and Matterport scene datasets",
+    "ObjectNav dataset archives",
+    "HPC overlay filesystem",
+    "CUDA SIF image",
+    "robot recordings, maps and runtime state"
+  ]
+}

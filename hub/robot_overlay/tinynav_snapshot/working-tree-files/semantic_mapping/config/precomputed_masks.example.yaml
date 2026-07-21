@@ -1,0 +1,9 @@
+version: 1
+semantic_classes_version: 1
+frames:
+  - timestamp_ns: 1721210400000000000
+    label: labels/1721210400000000000.npy
+    confidence: confidence/1721210400000000000.npy
+  - timestamp_ns: 1721210400200000000
+    label: labels/1721210400200000000.npy
+    confidence: confidence/1721210400200000000.npy

@@ -1,0 +1,38 @@
+voxel:
+  resolution_m: 0.05
+  free_update: -0.40
+  occupied_update: 0.85
+  occupancy_min_log_odds: -4.0
+  occupancy_max_log_odds: 4.0
+  truncation_distance_m: 0.05
+
+occupancy:
+  free_threshold: 0.30
+  occupied_threshold: 0.70
+
+semantic:
+  min_confidence: 0.50
+  min_observations: 2
+  depth_decay_m: 4.0
+  bev_min_cell_confidence: 0.50
+  floor_class_name: floor
+
+keyframe:
+  translation_threshold_m: 0.20
+  rotation_threshold_deg: 10.0
+  max_interval_sec: 1.0
+  pose_jump_translation_m: 0.50
+  pose_jump_yaw_deg: 20.0
+
+bev:
+  resolution_m: 0.05
+  ground_z: 0.0
+  ground_min_z_relative: -0.10
+  ground_max_z_relative: 0.15
+  collision_min_z_relative: 0.10
+  collision_max_z_relative: 0.75
+  semantic_min_z_relative: 0.05
+  semantic_max_z_relative: 1.50
+  ignore_above_z_relative: 1.80
+  padding_cells: 1
+  exclude_ground_band_from_collision: true

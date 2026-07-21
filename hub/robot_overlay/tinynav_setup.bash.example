@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Source this file from an interactive shell. Override TINYNAV_WORKSPACE and
+# TINYNAV_ROOT before sourcing when the checkout is not under /home/nvidia.
+
+_focus_had_nounset=0
+case $- in
+  *u*) _focus_had_nounset=1; set +u ;;
+esac
+
+TINYNAV_WORKSPACE="${TINYNAV_WORKSPACE:-/home/nvidia/twork}"
+TINYNAV_ROOT="${TINYNAV_ROOT:-$TINYNAV_WORKSPACE/tinynav-topofocus}"
+
+source /opt/ros/humble/setup.bash
+source "$TINYNAV_WORKSPACE/message_filters_ws/install/local_setup.bash"
+source "$TINYNAV_WORKSPACE/realsense_ws/install/setup.bash"
+
+export PATH="/usr/src/tensorrt/bin:${PATH}"
+export PYTHONPATH="$TINYNAV_WORKSPACE/gtsam/build/python:$TINYNAV_ROOT:${PYTHONPATH:-}"
+
+if [[ "$_focus_had_nounset" == "1" ]]; then
+  set -u
+fi
+unset _focus_had_nounset

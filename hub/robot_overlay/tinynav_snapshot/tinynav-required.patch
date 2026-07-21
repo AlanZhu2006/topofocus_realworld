@@ -1,0 +1,5094 @@
+diff --git a/.gitignore b/.gitignore
+index 5978491c1a8da9d68b55ac3c5db4bafd4df6393c..9e98272a195fc70b4704d7d32be72b41a7f1bd5d 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -142,3 +142,5 @@ log/
+ # Output result
+ tinynav_db/
+ tinynav_temp/
++tinynav_temp_nav_auto/
++*.db
+diff --git a/DEPLOYMENT.md b/DEPLOYMENT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..bd303a0271e740a4f20d663564a0f1562ea1780a
+--- /dev/null
++++ b/DEPLOYMENT.md
+@@ -0,0 +1,407 @@
++# TinyNav + RealSense D435i + Unitree Go2 Deployment
++
++Last updated: 2026-06-16
++
++This document records the current Jetson deployment used for TinyNav mapping,
++localization, RViz inspection, and Unitree Go2 `/cmd_vel` execution.
++
++## Machine State
++
++- User: `nvidia`
++- Workspace: `/home/nvidia/twork`
++- TinyNav repository: `/home/nvidia/twork/tinynav`
++- Compatibility symlink: `/tinynav -> /home/nvidia/twork/tinynav`
++- ROS: ROS 2 Humble
++- Camera: Intel RealSense D435i
++- Current camera firmware: `5.17.0.10`
++- Current camera transport: USB 3.x, verified at `5000M`
++- VNC endpoint: use the Jetson LAN IP plus port `5901`
++- VNC password: set locally with `TINYNAV_VNC_PASSWORD`; do not commit it
++
++Environment entry point:
++
++```bash
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++```
++
++The setup file sources ROS Humble, the local `message_filters_ws`, the local
++`realsense_ws`, TensorRT tools, and the GTSAM Python binding path.
++
++## Repository Additions
++
++The deployment keeps TinyNav core logic close to the upstream baseline. The
++local additions are operational scripts and diagnostics:
++
++- `scripts/tinynav_auto_map.sh`: record a RealSense bag, validate it, build a map, update `output/latest_map`, and clean runtime caches.
++- `scripts/tinynav_auto_nav.sh`: start the minimal navigation stack from `output/latest_map`.
++- `scripts/tinynav_baseline_build_map.sh`: upstream-style offline map build wrapper using the same node layout as `run_rosbag_build_map.sh`, but with local bag/map paths.
++- `scripts/tinynav_baseline_nav.sh`: upstream-style navigation wrapper using the same node layout as `run_navigation.sh`, but with a real map path and optional Go2 bridge.
++- `scripts/tinynav_baseline_3dgs.sh`: upstream-style 3DGS wrapper using the same Nerfstudio commands as `run_3dgs_generation.sh`, but with a real map path.
++- `scripts/run_realsense_sensor.sh`: RealSense launch with D435i USB3 TinyNav streams.
++- `scripts/run_go2_cmd_bridge.sh`: bridge ROS `/cmd_vel` to the previous Go2 SDK2 bridge.
++- `scripts/run_keyboard_teleop.sh`: keyboard `/cmd_vel` test through the same bridge path.
++- `scripts/run_visible_vnc.sh`: visible TigerVNC desktop for RViz on headless Jetson.
++- `tool/rviz_goal_to_poi.py`: convert RViz `2D Goal Pose` into TinyNav `pois.json` plus `/mapping/cmd_pois`.
++- `tool/static_occupancy_grid_publisher.py`: publish the saved TinyNav map as `/mapping/static_occupancy_grid`.
++- `tool/map_keyframe_publisher.py`: publish saved map keyframe trajectory and markers for localization diagnostics.
++- `tool/keyboard_cmd_vel.py`: keyboard teleop node.
++- `tool/go2_cmd_bridge.py`: ROS `/cmd_vel` to Unitree SDK2 `SportClient.Move()` bridge, adapted from the previous Go2 navigation project.
++- `tool/validate_tinynav_bag.py`: validate required TinyNav bag streams and timestamp gaps.
++- `docs/vis_with_global_map.rviz`: RViz config with global map, map keyframes, current pose, relocalization, local planning, and camera panels.
++
++## Large Files Policy
++
++Do not commit runtime data or generated engines:
++
++- `output/`
++- `tinynav_temp_nav_auto/`
++- `tinynav_db/`
++- `tinynav_temp/`
++- `*.db`
++- `*.plan`
++- `*.engine`
++- rosbags under `/home/nvidia/.local/share/tinynav/rosbags`
++
++Large model files should be obtained from the upstream TinyNav repository or
++generated locally with TensorRT. Current local maps and bags are deployment
++artifacts, not source files.
++
++## RealSense Configuration
++
++The current stable camera launch is:
++
++```bash
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++bash scripts/run_realsense_sensor.sh
++```
++
++Equivalent launch parameters:
++
++```bash
++ros2 launch realsense2_camera rs_launch.py \
++  initial_reset:=true \
++  tf_publish_rate:=1.0 \
++  publish_tf:=true \
++  enable_depth:=true \
++  enable_color:=true \
++  enable_infra1:=true \
++  enable_infra2:=true \
++  enable_gyro:=true \
++  enable_accel:=true \
++  unite_imu_method:=2 \
++  depth_module.depth_profile:=848x480x30 \
++  depth_module.infra_profile:=848x480x30 \
++  rgb_camera.color_profile:=848x480x30
++```
++
++The mapping scripts validate these required streams:
++
++- `/camera/camera/infra1/image_rect_raw`
++- `/camera/camera/infra2/image_rect_raw`
++- `/camera/camera/depth/image_rect_raw`
++- `/camera/camera/color/image_raw`
++- `/camera/camera/infra1/camera_info`
++- `/camera/camera/infra2/camera_info`
++- `/camera/camera/color/camera_info`
++- `/camera/camera/imu`
++- `/tf_static`
++
++Timestamp gaps on image streams cause bad maps. The auto-map script validates
++the bag before building.
++
++## Mapping Flow
++
++Run:
++
++```bash
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++bash scripts/tinynav_auto_map.sh
++```
++
++The script:
++
++1. Starts or reuses a valid RealSense node.
++2. Records a timestamped bag under `/home/nvidia/.local/share/tinynav/rosbags`.
++3. Validates required topics and timestamp continuity.
++4. Stops RealSense before offline build to avoid duplicate `/camera` publishers.
++5. Runs TinyNav map building.
++6. Updates `/home/nvidia/twork/tinynav/output/latest_map`.
++7. Removes runtime temp DBs after a successful build.
++
++## Upstream-Style Baseline Flow
++
++The upstream scripts are kept unchanged. For direct baseline reproduction, use
++the local `tinynav_baseline_*` wrappers. They copy the upstream script content
++and tmux node layout, but replace hard-coded demo paths with real arguments.
++
++Record a bag with the upstream-style recorder:
++
++```bash
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++bash scripts/run_map_record.sh
++```
++
++Build that bag with upstream-style visualization:
++
++```bash
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++bash scripts/tinynav_baseline_build_map.sh \
++  --bag /home/nvidia/.local/share/tinynav/rosbags/<bag_name> \
++  --map-dir /home/nvidia/twork/tinynav/output/<map_name>
++```
++
++This opens the same baseline components as `run_rosbag_build_map.sh`:
++
++- `build_map_node.py`
++- `perception_node.py` or `looper_bridge_node.py`
++- RViz with `/tinynav/docs/vis.rviz`
++
++Run upstream-style navigation:
++
++```bash
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++bash scripts/run_realsense_sensor.sh
++# in another terminal
++bash scripts/tinynav_baseline_nav.sh --map /home/nvidia/twork/tinynav/output/latest_map
++```
++
++Use the Go2 bridge with the same baseline navigation stack:
++
++```bash
++bash scripts/tinynav_baseline_nav.sh \
++  --map /home/nvidia/twork/tinynav/output/latest_map \
++  --with-go2
++```
++
++Generate a Gaussian splat from a built map:
++
++```bash
++bash scripts/tinynav_baseline_3dgs.sh \
++  --map /home/nvidia/twork/tinynav/output/latest_map \
++  --install-deps
++```
++
++Good map collection practice:
++
++- Walk slowly.
++- Use clear translational motion; do not only rotate in place.
++- Keep textured objects in view.
++- Avoid glass, mirrors, pure white walls, overexposure, and fast shakes.
++- Include a loop closure when possible.
++
++## Navigation Flow
++
++Run:
++
++```bash
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++bash scripts/tinynav_auto_nav.sh
++```
++
++By default this starts:
++
++- RealSense if needed
++- `perception_node.py`
++- `planning_node.py`
++- `map_node.py --tinynav_map_path output/latest_map`
++- `cmd_vel_control.py`
++- Go2 `/cmd_vel` bridge
++- RViz goal-to-POI bridge
++- static global occupancy publisher
++- map keyframe diagnostics publisher
++- RViz on TigerVNC display `:1`
++
++Useful options:
++
++```bash
++bash scripts/tinynav_auto_nav.sh --no-go2
++bash scripts/tinynav_auto_nav.sh --map /path/to/map
++TINYNAV_RVIZ_CONFIG=/tinynav/docs/vis.rviz bash scripts/tinynav_auto_nav.sh
++```
++
++Default RViz config:
++
++```text
++/tinynav/docs/vis_with_global_map.rviz
++```
++
++This config includes global map diagnostics that the upstream baseline RViz file
++does not show by default.
++
++## RViz Goal Handling
++
++TinyNav does not use Nav2 action goals. The current interaction path is:
++
++```text
++RViz 2D Goal Pose
++  -> /goal_pose
++  -> tool/rviz_goal_to_poi.py
++  -> map/pois.json
++  -> /mapping/cmd_pois
++  -> map_node.py
++```
++
++Each RViz goal replaces the active POI list with one target unless the bridge is
++started with `--append`.
++
++## How To Judge Localization
++
++Do not judge localization from the blocky occupancy grid alone. It is a low
++resolution 2D projection of TinyNav's 3D occupancy state and is mainly useful
++for planning context.
++
++Use these RViz layers instead:
++
++- `Map Keyframe Path`: saved map keyframe trajectory from `poses.npy`.
++- `Map Keyframes`: yellow keyframe line and sampled arrows.
++- `Current Pose In Map`: current estimated pose in the saved map frame.
++- `Relocalization Successes`: successful `/map/relocalization` poses.
++- `Global Plan`: `/mapping/global_plan`.
++- `Local Trajectory`: `/planning/trajectory_path`.
++
++Healthy localization looks like:
++
++- current pose stays near the saved keyframe path when operating in mapped areas;
++- current pose moves smoothly without large jumps;
++- successful relocalization messages appear after restart or after moving to a mapped place;
++- global plan and local trajectory do not cut through obvious obstacles.
++
++Useful checks:
++
++```bash
++ros2 topic echo /mapping/current_pose_in_map
++ros2 topic echo /map/relocalization
++ros2 topic echo /mapping/nav_progress
++ros2 topic echo /planning/trajectory_path
++tmux capture-pane -pt tinynav_nav_auto:map -S -300 | rg "relocaliz|nav done|not enough|PnP"
++```
++
++Goal success is not a Nav2 action result. TinyNav publishes a transient
++`/mapping/nav_done` boolean and logs:
++
++```text
++All POIs have been visited, nav done
++```
++
++Listen before a run if the one-shot result matters:
++
++```bash
++ros2 topic echo /mapping/nav_done
++```
++
++## Unitree Go2 Bridge
++
++The Go2 control path intentionally uses the previous project's README bridge,
++not TinyNav's built-in Unitree platform code:
++
++```text
++TinyNav /cmd_vel
++  -> go2_cmd_bridge.py
++  -> unitree_sdk2py.go2.sport.SportClient.Move(vx, vy, vyaw)
++```
++
++Network setup:
++
++```bash
++sudo ip addr add 192.168.123.100/24 dev eth0 2>/dev/null || true
++sudo ip link set eth0 up
++ping -I eth0 -c 1 192.168.123.161
++```
++
++Manual bridge:
++
++```bash
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++export UNITREE_NET_IF=eth0
++export GO2_CMD_TOPIC=/cmd_vel
++export GO2_MAX_VX=0.45
++export GO2_MAX_VY=0.25
++export GO2_MAX_WZ=0.80
++export GO2_MIN_CMD_V=0.10
++export GO2_MIN_CMD_W=0.20
++bash scripts/run_go2_cmd_bridge.sh
++```
++
++Manual teleop through the same bridge:
++
++```bash
++bash scripts/run_keyboard_teleop.sh --topic /cmd_vel --linear-speed 0.30 --angular-speed 0.55
++```
++
++Navigation mode uses more conservative defaults:
++
++- `GO2_MAX_VX=0.30`
++- `GO2_MAX_VY=0.00`
++- `GO2_MAX_WZ=0.70`
++- `GO2_MIN_CMD_V=0.10`
++- `GO2_MIN_CMD_W=0.20`
++
++## VNC / RViz
++
++The real GNOME desktop on `DISPLAY=:0` is black when HDMI is disconnected,
++because Xorg starts with no active display mode. For reliable headless RViz use
++TigerVNC:
++
++```bash
++export TINYNAV_VNC_PASSWORD='<private-vnc-password>'
++bash /home/nvidia/twork/tinynav/scripts/run_visible_vnc.sh
++```
++
++Connect to:
++
++```text
++<jetson-lan-ip>:5901
++password: value of TINYNAV_VNC_PASSWORD
++```
++
++RViz runs on:
++
++```bash
++export DISPLAY=:1
++export XAUTHORITY=/home/nvidia/.Xauthority
++```
++
++If openbox places RViz partly offscreen:
++
++```bash
++DISPLAY=:1 XAUTHORITY=/home/nvidia/.Xauthority wmctrl -r RViz -e 0,0,0,1280,720
++```
++
++## Current Known Limits
++
++- Map quality still depends heavily on recording motion and visual texture.
++- Repeated `not enough landmarks` or `no valid PnP relocalization candidate found`
++  means global visual relocalization is weak.
++- The static occupancy layer is blocky by design; use keyframe trajectory and
++  current pose overlays for localization evaluation.
++- Runtime maps, bags, and temp DBs are intentionally not versioned.
++
++## Minimal Daily Commands
++
++```bash
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++
++# Build a fresh map.
++bash scripts/tinynav_auto_map.sh
++
++# Navigate with Go2 bridge.
++bash scripts/tinynav_auto_nav.sh
++
++# Navigate without commanding Go2.
++bash scripts/tinynav_auto_nav.sh --no-go2
++
++# Attach logs.
++tmux attach -t tinynav_nav_auto
++
++# Stop.
++tmux kill-session -t tinynav_nav_auto
++```
+diff --git a/command.txt b/command.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..284c3e3aeefb8100222da91ad76df89536cb3d21
+--- /dev/null
++++ b/command.txt
+@@ -0,0 +1,366 @@
++TinyNav Jetson command reference
++Last updated: 2026-06-16
++Repo: /home/nvidia/twork/tinynav
++Symlink: /tinynav
++
++===============================================================================
++0. Base environment
++===============================================================================
++
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++
++# Optional Python venv activation for direct Python work.
++source /home/nvidia/twork/tinynav/.venv/bin/activate
++
++# Quick status.
++git status --short
++ros2 topic list | sort
++
++===============================================================================
++1. Minimal daily flow
++===============================================================================
++
++# Build a fresh map from RealSense.
++# Walk slowly. Press Ctrl-C once to stop recording; the script then validates
++# the bag and builds the map.
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++bash scripts/tinynav_auto_map.sh
++
++# Latest map symlink.
++ls -lah /home/nvidia/twork/tinynav/output/latest_map
++
++# Start navigation using output/latest_map.
++# This starts RViz, TinyNav nodes, RViz-goal-to-POI bridge, diagnostics, and
++# the Go2 bridge by default.
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++bash scripts/tinynav_auto_nav.sh
++
++# Start navigation without sending /cmd_vel to Go2.
++bash scripts/tinynav_auto_nav.sh --no-go2
++
++# Use a specific map.
++bash scripts/tinynav_auto_nav.sh --map /home/nvidia/twork/tinynav/output/latest_map
++
++# Attach / stop.
++tmux attach -t tinynav_nav_auto
++tmux kill-session -t tinynav_nav_auto
++
++===============================================================================
++2. RealSense
++===============================================================================
++
++source /home/nvidia/twork/tinynav_setup.bash
++
++# Device, firmware, USB speed.
++rs-fw-update -l
++rs-enumerate-devices | rg -i 'name|serial|firmware|usb|product'
++lsusb -t
++
++# Start TinyNav RealSense profile.
++cd /home/nvidia/twork/tinynav
++bash scripts/run_realsense_sensor.sh
++
++# Equivalent launch arguments.
++ros2 launch realsense2_camera rs_launch.py \
++  initial_reset:=true \
++  tf_publish_rate:=1.0 \
++  publish_tf:=true \
++  enable_depth:=true \
++  enable_color:=true \
++  enable_infra1:=true \
++  enable_infra2:=true \
++  enable_gyro:=true \
++  enable_accel:=true \
++  unite_imu_method:=2 \
++  depth_module.depth_profile:=848x480x30 \
++  depth_module.infra_profile:=848x480x30 \
++  rgb_camera.color_profile:=848x480x30
++
++# Check stream health.
++ros2 topic hz /camera/camera/infra1/image_rect_raw
++ros2 topic hz /camera/camera/infra2/image_rect_raw
++ros2 topic hz /camera/camera/depth/image_rect_raw
++ros2 topic hz /camera/camera/color/image_raw
++ros2 topic hz /camera/camera/imu
++
++===============================================================================
++3. Mapping details
++===============================================================================
++
++# Automatic mapping is preferred.
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++bash scripts/tinynav_auto_map.sh
++
++# Validate an existing bag manually.
++uv run python tool/validate_tinynav_bag.py \
++  /home/nvidia/.local/share/tinynav/rosbags/<bag_name>
++
++# Inspect bag.
++ros2 bag info /home/nvidia/.local/share/tinynav/rosbags/<bag_name>
++
++# Inspect latest map.
++python3 - <<'PY'
++from pathlib import Path
++import numpy as np
++p = Path('/home/nvidia/twork/tinynav/output/latest_map')
++for f in ['poses.npy', 'mapping_continuous_odom.npy', 'occupancy_grid.npy',
++          'occupancy_meta.npy', 'sdf_map.npy', 'intrinsics.npy']:
++    x = np.load(p / f, allow_pickle=True)
++    print(f, 'shape=', getattr(x, 'shape', None), 'dtype=', getattr(x, 'dtype', None))
++PY
++
++===============================================================================
++4. Upstream-style baseline wrappers
++===============================================================================
++
++# These scripts keep upstream scripts unchanged, but copy the upstream node
++# layout into our parameterized wrappers.
++
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++
++# Official-style recording:
++#   pane 0: run_realsense_sensor.sh
++#   pane 1: run_rosbag_record.sh
++bash scripts/run_map_record.sh
++
++# Official-style offline map build with RViz:
++#   build_map_node.py
++#   perception_node.py
++#   RViz /tinynav/docs/vis.rviz
++bash scripts/tinynav_baseline_build_map.sh \
++  --bag /home/nvidia/.local/share/tinynav/rosbags/<bag_name> \
++  --map-dir /home/nvidia/twork/tinynav/output/<map_name>
++
++tmux attach -t tinynav_baseline_build_map
++
++# Official-style navigation:
++#   perception_node.py
++#   planning_node.py
++#   map_node.py
++#   cmd_vel_control.py
++#   RViz /tinynav/docs/vis.rviz
++#   pub_pois.py
++#
++# Start RealSense first in another terminal/session.
++bash scripts/run_realsense_sensor.sh
++bash scripts/tinynav_baseline_nav.sh --map /home/nvidia/twork/tinynav/output/latest_map
++
++# Same baseline navigation, but also send /cmd_vel to Go2.
++bash scripts/tinynav_baseline_nav.sh \
++  --map /home/nvidia/twork/tinynav/output/latest_map \
++  --with-go2
++
++tmux attach -t tinynav_baseline_nav
++
++# Official-style 3DGS generation from a built map.
++# This may install Nerfstudio/3DGS dependencies and can be heavy on Jetson.
++bash scripts/tinynav_baseline_3dgs.sh \
++  --map /home/nvidia/twork/tinynav/output/latest_map \
++  --install-deps
++
++===============================================================================
++5. Navigation details
++===============================================================================
++
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++
++# Default full stack.
++bash scripts/tinynav_auto_nav.sh
++
++# No robot motion, RViz/ROS only.
++bash scripts/tinynav_auto_nav.sh --no-go2
++
++# Use upstream baseline RViz instead of the diagnostic RViz.
++TINYNAV_RVIZ_CONFIG=/tinynav/docs/vis.rviz bash scripts/tinynav_auto_nav.sh
++
++# Windows in tmux.
++tmux list-windows -t tinynav_nav_auto
++tmux capture-pane -pt tinynav_nav_auto:camera -S -160
++tmux capture-pane -pt tinynav_nav_auto:perception -S -160
++tmux capture-pane -pt tinynav_nav_auto:planning -S -160
++tmux capture-pane -pt tinynav_nav_auto:map -S -260
++tmux capture-pane -pt tinynav_nav_auto:control -S -160
++tmux capture-pane -pt tinynav_nav_auto:go2-bridge -S -160
++tmux capture-pane -pt tinynav_nav_auto:rviz -S -120
++
++===============================================================================
++6. RViz goal to TinyNav POI
++===============================================================================
++
++# In RViz, use "2D Goal Pose". The bridge converts /goal_pose into:
++#   <map>/pois.json
++#   /mapping/cmd_pois
++#   /rviz_goal_pose_marker
++#   /rviz_goal_marker
++
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++uv run python tool/rviz_goal_to_poi.py \
++  --tinynav_map_path /home/nvidia/twork/tinynav/output/latest_map \
++  --z 0.0 \
++  --marker-z-offset 1.5
++
++# Append instead of replacing the active single POI.
++uv run python tool/rviz_goal_to_poi.py \
++  --tinynav_map_path /home/nvidia/twork/tinynav/output/latest_map \
++  --append \
++  --z 0.0
++
++# Inspect current POIs.
++cat /home/nvidia/twork/tinynav/output/latest_map/pois.json
++ros2 topic echo /mapping/cmd_pois
++
++===============================================================================
++7. Localization and goal-success diagnostics
++===============================================================================
++
++source /home/nvidia/twork/tinynav_setup.bash
++
++# Current pose in the saved map frame.
++ros2 topic echo /mapping/current_pose_in_map
++
++# Successful visual relocalization poses. If this is quiet, global relocalization
++# is not currently succeeding.
++ros2 topic echo /map/relocalization
++
++# Navigation progress.
++ros2 topic echo /mapping/nav_progress
++
++# Goal success. This is not latched; start listening before a run.
++ros2 topic echo /mapping/nav_done
++
++# Local and global planning outputs.
++ros2 topic echo /mapping/global_plan
++ros2 topic echo /planning/trajectory_path
++ros2 topic echo /cmd_vel
++
++# Log checks.
++tmux capture-pane -pt tinynav_nav_auto:map -S -5000 | rg 'nav done|All POIs|relocaliz|not enough|PnP'
++tmux capture-pane -pt tinynav_nav_auto:go2-bridge -S -200 | rg 'Move|Released|StopMove'
++
++===============================================================================
++8. RViz diagnostic layers
++===============================================================================
++
++# Default diagnostic RViz:
++#   /tinynav/docs/vis_with_global_map.rviz
++#
++# Important layers:
++#   Static Global Map          /mapping/static_occupancy_grid
++#   Map Keyframe Path          /mapping/map_keyframe_path
++#   Map Keyframes              /mapping/map_keyframe_markers
++#   Current Pose In Map        /mapping/current_pose_in_map
++#   Relocalization Successes   /map/relocalization
++#   Global Plan                /mapping/global_plan
++#   Local Trajectory           /planning/trajectory_path
++
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++
++# Start static map publisher.
++uv run python tool/static_occupancy_grid_publisher.py \
++  --tinynav-map-path /home/nvidia/twork/tinynav/output/latest_map \
++  --topic /mapping/static_occupancy_grid \
++  --frame-id world \
++  --z 0.0
++
++# Start saved map keyframe publisher.
++uv run python tool/map_keyframe_publisher.py \
++  --tinynav-map-path /home/nvidia/twork/tinynav/output/latest_map \
++  --frame-id world
++
++===============================================================================
++9. VNC and RViz
++===============================================================================
++
++# Current stable headless display:
++#   address: <jetson-lan-ip>:5901
++#   password: set locally with TINYNAV_VNC_PASSWORD; do not commit it
++#   display: :1
++#   server: TigerVNC
++#
++# The real GNOME :0 desktop is black when HDMI is disconnected. Use :1.
++
++export TINYNAV_VNC_PASSWORD='<private-vnc-password>'
++bash /home/nvidia/twork/tinynav/scripts/run_visible_vnc.sh
++vncserver -list
++ss -ltnp | rg ':5901|Xtigervnc'
++
++# Start RViz manually in VNC.
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++export DISPLAY=:1
++export XAUTHORITY=/home/nvidia/.Xauthority
++export QT_X11_NO_MITSHM=1
++export LIBGL_ALWAYS_SOFTWARE=1
++ros2 run rviz2 rviz2 -d /tinynav/docs/vis_with_global_map.rviz
++
++# Move RViz onscreen if openbox places it at the corner.
++DISPLAY=:1 XAUTHORITY=/home/nvidia/.Xauthority wmctrl -r RViz -e 0,0,0,1280,720
++
++# Screenshot from server side.
++DISPLAY=:1 XAUTHORITY=/home/nvidia/.Xauthority scrot /tmp/vnc_rviz.png
++file /tmp/vnc_rviz.png
++
++===============================================================================
++10. Unitree Go2 bridge and keyboard test
++===============================================================================
++
++# Wired Go2 network. The static IP command is temporary and disappears after
++# reboot. Do not run teleop and TinyNav navigation at the same time unless you
++# intentionally want multiple /cmd_vel publishers.
++
++sudo ip addr add 192.168.123.100/24 dev eth0 2>/dev/null || true
++sudo ip link set eth0 up
++ping -I eth0 -c 1 192.168.123.161
++
++# Start Go2 bridge in foreground.
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++export UNITREE_NET_IF=eth0
++export GO2_CMD_TOPIC=/cmd_vel
++export GO2_MAX_VX=0.45
++export GO2_MAX_VY=0.25
++export GO2_MAX_WZ=0.80
++export GO2_MIN_CMD_V=0.10
++export GO2_MIN_CMD_W=0.20
++export GO2_LOG_COMMANDS=true
++bash scripts/run_go2_cmd_bridge.sh
++
++# Keyboard teleop in another terminal.
++source /home/nvidia/twork/tinynav_setup.bash
++cd /home/nvidia/twork/tinynav
++bash scripts/run_keyboard_teleop.sh --topic /cmd_vel --linear-speed 0.30 --angular-speed 0.55
++
++# Controls:
++#   w/s       forward/backward
++#   q/e       strafe left/right
++#   a/d       turn left/right
++#   space/x   stop
++#   +/-       speed scale
++#   h         help
++#   Ctrl-C    stop and exit
++
++===============================================================================
++11. Stop and cleanup
++===============================================================================
++
++tmux kill-session -t tinynav_nav_auto
++tmux kill-session -t tinynav_usb3_camera
++tmux kill-session -t tinynav_auto_map_camera
++vncserver -kill :1
++
++# Runtime data is intentionally ignored by git:
++#   output/
++#   tinynav_temp_nav_auto/
++#   tinynav_db/
++#   tinynav_temp/
++#   *.db
++#   *.plan
++#   *.engine
+diff --git a/docs/vis_with_global_map.rviz b/docs/vis_with_global_map.rviz
+new file mode 100644
+index 0000000000000000000000000000000000000000..d94e213fdc73bd9f5164164f8c0002e1c668eb41
+--- /dev/null
++++ b/docs/vis_with_global_map.rviz
+@@ -0,0 +1,906 @@
++Panels:
++  - Class: rviz_common/Displays
++    Help Height: 114
++    Name: Displays
++    Property Tree Widget:
++      Expanded:
++        - /Global Options1
++        - /Perception1/Local Cloud1/Autocompute Value Bounds1
++        - /Planning1
++        - /Planning1/3DGridMap1/Autocompute Value Bounds1
++      Splitter Ratio: 0.5
++    Tree Height: 114
++  - Class: rviz_common/Selection
++    Name: Selection
++  - Class: rviz_common/Tool Properties
++    Expanded:
++      - /2D Goal Pose1
++      - /Publish Point1
++    Name: Tool Properties
++    Splitter Ratio: 0.5886790156364441
++  - Class: rviz_common/Views
++    Expanded:
++      - /Current View1
++    Name: Views
++    Splitter Ratio: 0.5
++  - Class: rviz_common/Time
++    Experimental: false
++    Name: Time
++    SyncMode: 0
++    SyncSource: PointCloud2
++Visualization Manager:
++  Class: ""
++  Displays:
++    - Alpha: 0.5
++      Cell Size: 1
++      Class: rviz_default_plugins/Grid
++      Color: 160; 160; 164
++      Enabled: true
++      Line Style:
++        Line Width: 0.029999999329447746
++        Value: Lines
++      Name: Grid
++      Normal Cell Count: 0
++      Offset:
++        X: 0
++        Y: 0
++        Z: 0
++      Plane: XY
++      Plane Cell Count: 10
++      Reference Frame: <Fixed Frame>
++      Value: true
++    - Class: rviz_default_plugins/TF
++      Enabled: true
++      Frame Timeout: 10000
++      Frames:
++        All Enabled: true
++        base_footprint:
++          Value: true
++        base_link:
++          Value: true
++        camera:
++          Value: true
++        camera_color_frame:
++          Value: true
++        camera_color_optical_frame:
++          Value: true
++        camera_depth_frame:
++          Value: true
++        camera_depth_optical_frame:
++          Value: true
++        camera_imu_frame:
++          Value: true
++        camera_left_ir_frame:
++          Value: true
++        camera_left_ir_optical_frame:
++          Value: true
++        camera_link:
++          Value: true
++        camera_right_ir_frame:
++          Value: true
++        camera_right_ir_optical_frame:
++          Value: true
++        imu_link:
++          Value: true
++        lf_foot_link:
++          Value: true
++        lf_hip_link:
++          Value: true
++        lf_lower_leg_link:
++          Value: true
++        lf_upper_leg_link:
++          Value: true
++        lh_foot_link:
++          Value: true
++        lh_hip_link:
++          Value: true
++        lh_lower_leg_link:
++          Value: true
++        lh_upper_leg_link:
++          Value: true
++        map:
++          Value: true
++        odom:
++          Value: true
++        rf_foot_link:
++          Value: true
++        rf_hip_link:
++          Value: true
++        rf_lower_leg_link:
++          Value: true
++        rf_upper_leg_link:
++          Value: true
++        rh_foot_link:
++          Value: true
++        rh_hip_link:
++          Value: true
++        rh_lower_leg_link:
++          Value: true
++        rh_upper_leg_link:
++          Value: true
++        trunk:
++          Value: true
++        world:
++          Value: true
++      Marker Scale: 1
++      Name: TF
++      Show Arrows: false
++      Show Axes: true
++      Show Names: false
++      Tree:
++        world:
++          {}
++      Update Interval: 0
++      Value: true
++    - Class: rviz_common/Group
++      Displays:
++        - Class: rviz_default_plugins/Image
++          Enabled: true
++          Max Value: 1
++          Median window: 5
++          Min Value: 0
++          Name: Image
++          Normalize Range: true
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /slam/disparity_vis
++          Value: true
++        - Alpha: 1
++          Auto Size:
++            Auto Size Factor: 1
++            Value: false
++          Autocompute Intensity Bounds: true
++          Autocompute Value Bounds:
++            Max Value: 3
++            Min Value: -3
++            Value: false
++          Axis: Z
++          CameraInfo Topic: /slam/camera_info
++          Channel Name: intensity
++          Class: rviz_default_plugins/DepthCloud
++          Color: 255; 255; 255
++          Color Image Topic: ""
++          Color Transformer: AxisColor
++          Color Transport Hint: raw
++          Decay Time: 0
++          Depth Map Topic: /slam/depth
++          Depth Map Transport Hint: raw
++          Enabled: true
++          Invert Rainbow: false
++          Max Color: 255; 255; 255
++          Max Intensity: 4096
++          Min Color: 0; 0; 0
++          Min Intensity: 0
++          Name: Local Cloud
++          Occlusion Compensation:
++            Occlusion Time-Out: 30
++            Value: false
++          Position Transformer: XYZ
++          Queue Size: 1
++          Reliability Policy: Best effort
++          Selectable: true
++          Size (Pixels): 1
++          Size (m): 0.0023361763451248407
++          Style: Squares
++          Topic Filter: true
++          Use Fixed Frame: true
++          Use rainbow: true
++          Value: true
++        - Angle Tolerance: 0.10000000149011612
++          Class: rviz_default_plugins/Odometry
++          Covariance:
++            Orientation:
++              Alpha: 0.5
++              Color: 255; 255; 127
++              Color Style: Unique
++              Frame: Local
++              Offset: 1
++              Scale: 1
++              Value: true
++            Position:
++              Alpha: 0.30000001192092896
++              Color: 204; 51; 204
++              Scale: 1
++              Value: true
++            Value: true
++          Enabled: true
++          Keep: 100
++          Name: Odometry
++          Position Tolerance: 0.10000000149011612
++          Shape:
++            Alpha: 1
++            Axes Length: 1
++            Axes Radius: 0.10000000149011612
++            Color: 255; 25; 0
++            Head Length: 0.30000001192092896
++            Head Radius: 0.10000000149011612
++            Shaft Length: 1
++            Shaft Radius: 0.05000000074505806
++            Value: Arrow
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /slam/odometry
++          Value: true
++      Enabled: false
++      Name: Perception
++    - Class: rviz_common/Group
++      Displays:
++        - Alpha: 0.699999988079071
++          Autocompute Intensity Bounds: true
++          Autocompute Value Bounds:
++            Max Value: 4
++            Min Value: 0.5
++            Value: false
++          Axis: Z
++          Channel Name: z
++          Class: rviz_default_plugins/PointCloud2
++          Color: 142; 0; 0
++          Color Transformer: Intensity
++          Decay Time: 0
++          Enabled: true
++          Invert Rainbow: false
++          Max Color: 0; 255; 0
++          Max Intensity: -0.30000001192092896
++          Min Color: 116; 0; 0
++          Min Intensity: -1
++          Name: 3DGridMap
++          Position Transformer: XYZ
++          Selectable: true
++          Size (Pixels): 3
++          Size (m): 0.07000000029802322
++          Style: Boxes
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /planning/occupied_voxels
++          Use Fixed Frame: true
++          Use rainbow: false
++          Value: true
++        - Alpha: 1
++          Buffer Length: 1
++          Class: rviz_default_plugins/Path
++          Color: 25; 255; 0
++          Enabled: true
++          Head Diameter: 0.30000001192092896
++          Head Length: 0.20000000298023224
++          Length: 0.30000001192092896
++          Line Style: Lines
++          Line Width: 0.029999999329447746
++          Name: Path
++          Offset:
++            X: 0
++            Y: 0
++            Z: 0
++          Pose Color: 255; 85; 255
++          Pose Style: None
++          Radius: 0.029999999329447746
++          Shaft Diameter: 0.10000000149011612
++          Shaft Length: 0.10000000149011612
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /planning/trajectory_path
++          Value: true
++        - Angle Tolerance: 0.10000000149011612
++          Class: rviz_default_plugins/Odometry
++          Covariance:
++            Orientation:
++              Alpha: 0.5
++              Color: 255; 255; 127
++              Color Style: Unique
++              Frame: Local
++              Offset: 1
++              Scale: 1
++              Value: true
++            Position:
++              Alpha: 0.30000001192092896
++              Color: 204; 51; 204
++              Scale: 1
++              Value: true
++            Value: true
++          Enabled: true
++          Keep: 1
++          Name: TargetPose
++          Position Tolerance: 0.10000000149011612
++          Shape:
++            Alpha: 1
++            Axes Length: 1
++            Axes Radius: 0.10000000149011612
++            Color: 255; 25; 0
++            Head Length: 0.30000001192092896
++            Head Radius: 0.10000000149011612
++            Shaft Length: 1
++            Shaft Radius: 0.05000000074505806
++            Value: Axes
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /control/target_pose
++          Value: true
++        - Alpha: 0.699999988079071
++          Class: rviz_default_plugins/Map
++          Color Scheme: map
++          Draw Behind: false
++          Enabled: false
++          Name: 2DGridMap
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /planning/occupancy_grid
++          Update Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /planning/occupancy_grid_updates
++          Use Timestamp: false
++          Value: false
++        - Class: rviz_default_plugins/Image
++          Enabled: false
++          Max Value: 1
++          Median window: 5
++          Min Value: 0
++          Name: HeightMap
++          Normalize Range: true
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /planning/height_map
++          Value: false
++        - Class: rviz_default_plugins/Image
++          Enabled: false
++          Max Value: 1
++          Median window: 5
++          Min Value: 0
++          Name: TrajScores
++          Normalize Range: true
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /planning/score_traj
++          Value: false
++        - Alpha: 1
++          Autocompute Intensity Bounds: true
++          Autocompute Value Bounds:
++            Max Value: -0.5
++            Min Value: -0.5
++            Value: true
++          Axis: Z
++          Channel Name: intensity
++          Class: rviz_default_plugins/PointCloud2
++          Color: 255; 255; 255
++          Color Transformer: RGB8
++          Decay Time: 0
++          Enabled: true
++          Invert Rainbow: false
++          Max Color: 255; 255; 255
++          Max Intensity: 4096
++          Min Color: 0; 0; 0
++          Min Intensity: 0
++          Name: PointCloud2
++          Position Transformer: XYZ
++          Selectable: true
++          Size (Pixels): 3
++          Size (m): 0.10000000149011612
++          Style: Boxes
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /planning/occupied_voxels_with_esdf
++          Use Fixed Frame: true
++          Use rainbow: true
++          Value: true
++        - Alpha: 0.5
++          Class: rviz_default_plugins/Map
++          Color Scheme: map
++          Draw Behind: false
++          Enabled: true
++          Name: ObstacleMask
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /planning/obstacle_mask
++          Update Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /planning/obstacle_mask_updates
++          Use Timestamp: false
++          Value: true
++        - Alpha: 1
++          Autocompute Intensity Bounds: true
++          Autocompute Value Bounds:
++            Max Value: 10
++            Min Value: -10
++            Value: true
++          Axis: Z
++          Channel Name: intensity
++          Class: rviz_default_plugins/PointCloud
++          Color: 255; 255; 0
++          Color Transformer: FlatColor
++          Decay Time: 0
++          Enabled: true
++          Invert Rainbow: false
++          Max Color: 255; 255; 255
++          Max Intensity: 4096
++          Min Color: 0; 0; 0
++          Min Intensity: 0
++          Name: Footprint
++          Position Transformer: XYZ
++          Selectable: true
++          Size (Pixels): 3
++          Size (m): 0.05000000074505806
++          Style: Points
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /planning/footprint
++          Use Fixed Frame: true
++          Use rainbow: true
++          Value: true
++      Enabled: true
++      Name: Planning
++    - Class: rviz_common/Group
++      Displays:
++        - Alpha: 0.44999998807907104
++          Class: rviz_default_plugins/Map
++          Color Scheme: map
++          Draw Behind: true
++          Enabled: true
++          Name: Static Global Map
++          Topic:
++            Depth: 1
++            Durability Policy: Transient Local
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /mapping/static_occupancy_grid
++          Update Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /mapping/static_occupancy_grid_updates
++          Use Timestamp: false
++          Value: true
++        - Class: rviz_default_plugins/MarkerArray
++          Enabled: true
++          Name: Map Keyframes
++          Namespaces:
++            map_keyframe_arrows: true
++            map_keyframes: true
++          Topic:
++            Depth: 1
++            Durability Policy: Transient Local
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /mapping/map_keyframe_markers
++          Value: true
++        - Alpha: 1
++          Buffer Length: 1
++          Class: rviz_default_plugins/Path
++          Color: 255; 255; 0
++          Enabled: true
++          Head Diameter: 0.30000001192092896
++          Head Length: 0.20000000298023224
++          Length: 0.30000001192092896
++          Line Style: Lines
++          Line Width: 0.05000000074505806
++          Name: Map Keyframe Path
++          Offset:
++            X: 0
++            Y: 0
++            Z: 0
++          Pose Color: 255; 255; 0
++          Pose Style: None
++          Radius: 0.029999999329447746
++          Shaft Diameter: 0.10000000149011612
++          Shaft Length: 0.10000000149011612
++          Topic:
++            Depth: 1
++            Durability Policy: Transient Local
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /mapping/map_keyframe_path
++          Value: true
++        - Alpha: 1
++          Angle Tolerance: 0.10000000149011612
++          Class: rviz_default_plugins/Odometry
++          Color: 0; 255; 255
++          Covariance:
++            Orientation:
++              Alpha: 0.5
++              Color: 255; 255; 127
++              Color Style: Unique
++              Frame: Local
++              Offset: 1
++              Scale: 1
++              Value: false
++            Position:
++              Alpha: 0.30000001192092896
++              Color: 204; 51; 204
++              Scale: 1
++              Value: false
++            Value: false
++          Enabled: true
++          Keep: 1
++          Name: Current Pose In Map
++          Position Tolerance: 0.10000000149011612
++          Shape: Arrow
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /mapping/current_pose_in_map
++          Value: true
++        - Class: rviz_default_plugins/MarkerArray
++          Enabled: true
++          Name: Current Pose Marker
++          Namespaces:
++            current_pose: true
++          Topic:
++            Depth: 1
++            Durability Policy: Transient Local
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /mapping/current_pose_marker
++          Value: true
++        - Alpha: 1
++          Angle Tolerance: 0.10000000149011612
++          Class: rviz_default_plugins/Odometry
++          Color: 255; 0; 255
++          Covariance:
++            Orientation:
++              Alpha: 0.5
++              Color: 255; 255; 127
++              Color Style: Unique
++              Frame: Local
++              Offset: 1
++              Scale: 1
++              Value: false
++            Position:
++              Alpha: 0.30000001192092896
++              Color: 204; 51; 204
++              Scale: 1
++              Value: false
++            Value: false
++          Enabled: true
++          Keep: 20
++          Name: Relocalization Successes
++          Position Tolerance: 0.10000000149011612
++          Shape: Arrow
++          Topic:
++            Depth: 20
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /map/relocalization
++          Value: true
++        - Class: rviz_default_plugins/MarkerArray
++          Enabled: true
++          Name: MarkerArray
++          Namespaces:
++            {}
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /mapping/pointcloud_markers
++          Value: true
++        - Alpha: 1
++          Autocompute Intensity Bounds: true
++          Autocompute Value Bounds:
++            Max Value: 1.9213783740997314
++            Min Value: -0.31803208589553833
++            Value: true
++          Axis: Z
++          Channel Name: intensity
++          Class: rviz_default_plugins/PointCloud2
++          Color: 255; 255; 255
++          Color Transformer: AxisColor
++          Decay Time: 0
++          Enabled: false
++          Invert Rainbow: false
++          Max Color: 255; 255; 255
++          Max Intensity: 4096
++          Min Color: 0; 0; 0
++          Min Intensity: 0
++          Name: PointCloud2
++          Position Transformer: XYZ
++          Selectable: true
++          Size (Pixels): 3
++          Size (m): 1
++          Style: Flat Squares
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /mapping/global_map
++          Use Fixed Frame: true
++          Use rainbow: true
++          Value: false
++        - Alpha: 1
++          Buffer Length: 1
++          Class: rviz_default_plugins/Path
++          Color: 0; 0; 255
++          Enabled: true
++          Head Diameter: 0.30000001192092896
++          Head Length: 0.20000000298023224
++          Length: 0.30000001192092896
++          Line Style: Lines
++          Line Width: 0.029999999329447746
++          Name: Path
++          Offset:
++            X: 0
++            Y: 0
++            Z: 0
++          Pose Color: 255; 85; 255
++          Pose Style: None
++          Radius: 0.029999999329447746
++          Shaft Diameter: 0.10000000149011612
++          Shaft Length: 0.10000000149011612
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /mapping/global_plan
++          Value: true
++        - Alpha: 1
++          Buffer Length: 1
++          Class: rviz_default_plugins/Path
++          Color: 25; 255; 0
++          Enabled: true
++          Head Diameter: 0.30000001192092896
++          Head Length: 0.20000000298023224
++          Length: 0.30000001192092896
++          Line Style: Lines
++          Line Width: 0.029999999329447746
++          Name: Path
++          Offset:
++            X: 0
++            Y: 0
++            Z: 0
++          Pose Color: 255; 85; 255
++          Pose Style: None
++          Radius: 0.029999999329447746
++          Shaft Diameter: 0.10000000149011612
++          Shaft Length: 0.10000000149011612
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            Filter size: 10
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /mapping/pose_graph_trajectory
++          Value: true
++      Enabled: true
++      Name: Mapping Group
++    - Class: rviz_common/Group
++      Displays:
++        - Class: rviz_default_plugins/Image
++          Enabled: true
++          Max Value: 1
++          Median window: 5
++          Min Value: 0
++          Name: gray image
++          Normalize Range: true
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /camera/camera/infra1/image_rect_raw
++          Value: true
++        - Class: rviz_default_plugins/Image
++          Enabled: true
++          Max Value: 1
++          Median window: 5
++          Min Value: 0
++          Name: color image
++          Normalize Range: true
++          Topic:
++            Depth: 5
++            Durability Policy: Volatile
++            History Policy: Keep Last
++            Reliability Policy: Reliable
++            Value: /camera/camera/color/image_raw
++          Value: true
++      Enabled: true
++      Name: Sensors
++    - Alpha: 1
++      Autocompute Intensity Bounds: true
++      Autocompute Value Bounds:
++        Max Value: 10
++        Min Value: -10
++        Value: true
++      Axis: Z
++      Channel Name: intensity
++      Class: rviz_default_plugins/PointCloud2
++      Color: 255; 255; 255
++      Color Transformer: RGB8
++      Decay Time: 0
++      Enabled: false
++      Invert Rainbow: false
++      Max Color: 255; 255; 255
++      Max Intensity: 4096
++      Min Color: 0; 0; 0
++      Min Intensity: 0
++      Name: PointCloud2
++      Position Transformer: XYZ
++      Selectable: true
++      Size (Pixels): 3
++      Size (m): 0.009999999776482582
++      Style: Flat Squares
++      Topic:
++        Depth: 5
++        Durability Policy: Volatile
++        Filter size: 10
++        History Policy: Keep Last
++        Reliability Policy: Reliable
++        Value: /slam/global_cloud
++      Use Fixed Frame: true
++      Use rainbow: true
++      Value: false
++    - Alpha: 1
++      Buffer Length: 1
++      Class: rviz_default_plugins/Path
++      Color: 25; 255; 0
++      Enabled: true
++      Head Diameter: 0.30000001192092896
++      Head Length: 0.20000000298023224
++      Length: 0.30000001192092896
++      Line Style: Lines
++      Line Width: 0.029999999329447746
++      Name: Path
++      Offset:
++        X: 0
++        Y: 0
++        Z: 0
++      Pose Color: 255; 85; 255
++      Pose Style: None
++      Radius: 0.029999999329447746
++      Shaft Diameter: 0.10000000149011612
++      Shaft Length: 0.10000000149011612
++      Topic:
++        Depth: 5
++        Durability Policy: Volatile
++        Filter size: 10
++        History Policy: Keep Last
++        Reliability Policy: Reliable
++        Value: /slam/global_cloud_path
++      Value: true
++  Enabled: true
++  Global Options:
++    Background Color: 48; 48; 48
++    Fixed Frame: world
++    Frame Rate: 30
++  Name: root
++  Tools:
++    - Class: rviz_default_plugins/Interact
++      Hide Inactive Objects: true
++    - Class: rviz_default_plugins/MoveCamera
++    - Class: rviz_default_plugins/Select
++    - Class: rviz_default_plugins/FocusCamera
++    - Class: rviz_default_plugins/Measure
++      Line color: 128; 128; 0
++    - Class: rviz_default_plugins/SetInitialPose
++      Covariance x: 0.25
++      Covariance y: 0.25
++      Covariance yaw: 0.06853891909122467
++      Topic:
++        Depth: 5
++        Durability Policy: Volatile
++        History Policy: Keep Last
++        Reliability Policy: Reliable
++        Value: /initialpose
++    - Class: rviz_default_plugins/SetGoal
++      Topic:
++        Depth: 5
++        Durability Policy: Volatile
++        History Policy: Keep Last
++        Reliability Policy: Reliable
++        Value: /goal_pose
++    - Class: rviz_default_plugins/PublishPoint
++      Single click: true
++      Topic:
++        Depth: 5
++        Durability Policy: Volatile
++        History Policy: Keep Last
++        Reliability Policy: Reliable
++        Value: /clicked_point
++  Transformation:
++    Current:
++      Class: rviz_default_plugins/TF
++  Value: true
++  Views:
++    Current:
++      Class: rviz_default_plugins/ThirdPersonFollower
++      Distance: 4.001773357391357
++      Enable Stereo Rendering:
++        Stereo Eye Separation: 0.05999999865889549
++        Stereo Focal Distance: 1
++        Swap Stereo Eyes: false
++        Value: false
++      Focal Point:
++        X: 0
++        Y: 0
++        Z: 0
++      Focal Shape Fixed Size: false
++      Focal Shape Size: 0.05000000074505806
++      Invert Z Axis: false
++      Name: Current View
++      Near Clip Distance: 0.009999999776482582
++      Pitch: 1.289795994758606
++      Target Frame: world
++      Value: ThirdPersonFollower (rviz_default_plugins)
++      Yaw: 4.973613262176514
++    Saved: ~
++Window Geometry:
++  Displays:
++    collapsed: false
++  Height: 749
++  HeightMap:
++    collapsed: false
++  Hide Left Dock: false
++  Hide Right Dock: false
++  Image:
++    collapsed: false
++  QMainWindow State: 000000ff00000000fd00000004000000000000019a00000221fc0200000011fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000008e00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c0061007900730100000058000001380000013800fffffffb0000000a0049006d0061006700650000000210000001380000003a00fffffffb0000000a0049006d00610067006500000008e8fffffff20000000000000000fb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb00000014005400720061006a00530063006f0072006500730000000225000000280000003a00fffffffb0000000a0049006d006100670065010000065a000000eb0000000000000000fb0000000a0049006d0061006700650100000326000000ca0000000000000000fb00000012004800650069006700680074004d006100700000000241000001450000003a00fffffffb0000000c00430061006d00650072006101000007e2000000f80000000000000000fb000000160063006f006c006f007200200069006d006100670065010000019a0000006b0000003a00fffffffb00000014006700720061007900200069006d006100670065010000020f0000006a0000003a00ffffff000000010000014d00000221fc0200000004fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073010000005800000221000000f400fffffffb0000000a0049006d0061006700650100000198000002580000000000000000fb0000001200530065006c0065006300740069006f006e010000025a000000b20000000000000000000000020000073a000000a9fc0100000002fb0000000a0049006d0061006700650300000571000000e2000001da0000014afb0000000a00560069006500770073030000004e00000080000002e10000019700000003000004f800000046fc0100000002fb0000000800540069006d00650100000000000004f8000003af00fffffffb0000000800540069006d00650100000000000004500000000000000000000001fd0000022100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
++  Selection:
++    collapsed: false
++  Time:
++    collapsed: false
++  Tool Properties:
++    collapsed: false
++  TrajScores:
++    collapsed: false
++  Views:
++    collapsed: false
++  Width: 1272
++  X: 1280
++  Y: 782
++  color image:
++    collapsed: false
++  gray image:
++    collapsed: false
+diff --git a/scripts/run_go2_cmd_bridge.sh b/scripts/run_go2_cmd_bridge.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..b7799a220ef6f6f1663252ae4edcf6a239e9efef
+--- /dev/null
++++ b/scripts/run_go2_cmd_bridge.sh
+@@ -0,0 +1,95 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
++SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
++BRIDGE_SCRIPT="${GO2_CMD_BRIDGE_SCRIPT:-$ROOT_DIR/tool/go2_cmd_bridge.py}"
++CYCLONEDDS_HOME="${CYCLONEDDS_HOME:-/home/nvidia/twork/cyclonedds/install}"
++
++UNITREE_NET_IF="${UNITREE_NET_IF:-eth0}"
++UNITREE_SDK2PY_PATH="${UNITREE_SDK2PY_PATH:-}"
++GO2_CMD_TOPIC="${GO2_CMD_TOPIC:-/cmd_vel}"
++GO2_MAX_VX="${GO2_MAX_VX:-0.45}"
++GO2_MAX_VY="${GO2_MAX_VY:-0.25}"
++GO2_MAX_WZ="${GO2_MAX_WZ:-0.80}"
++GO2_X_SIGN="${GO2_X_SIGN:-1.0}"
++GO2_Y_SIGN="${GO2_Y_SIGN:-1.0}"
++GO2_WZ_SIGN="${GO2_WZ_SIGN:-1.0}"
++GO2_SWAP_XY="${GO2_SWAP_XY:-false}"
++GO2_DEADBAND_V="${GO2_DEADBAND_V:-0.01}"
++GO2_DEADBAND_W="${GO2_DEADBAND_W:-0.02}"
++GO2_MIN_CMD_V="${GO2_MIN_CMD_V:-0.10}"
++GO2_MIN_CMD_W="${GO2_MIN_CMD_W:-0.20}"
++GO2_SEND_ZERO_WHEN_IDLE="${GO2_SEND_ZERO_WHEN_IDLE:-false}"
++GO2_REMOTE_PRIORITY="${GO2_REMOTE_PRIORITY:-true}"
++GO2_REMOTE_TOPIC="${GO2_REMOTE_TOPIC:-rt/lowstate}"
++GO2_REMOTE_DEADBAND="${GO2_REMOTE_DEADBAND:-0.12}"
++GO2_REMOTE_HOLD_SEC="${GO2_REMOTE_HOLD_SEC:-0.8}"
++GO2_LOG_COMMANDS="${GO2_LOG_COMMANDS:-true}"
++GO2_LOG_INTERVAL_SEC="${GO2_LOG_INTERVAL_SEC:-0.2}"
++
++source_setup() {
++  local had_nounset=0
++  case $- in
++    *u*) had_nounset=1; set +u ;;
++  esac
++  source "$SETUP_FILE"
++  if [[ "$had_nounset" == "1" ]]; then
++    set -u
++  fi
++}
++
++if [[ ! -f "$BRIDGE_SCRIPT" ]]; then
++  echo "Go2 bridge script not found: $BRIDGE_SCRIPT" >&2
++  exit 1
++fi
++
++if ! ip -o -4 addr show dev "$UNITREE_NET_IF" >/dev/null 2>&1; then
++  echo "No IPv4 address on $UNITREE_NET_IF." >&2
++  echo "For the current Go2 setup, run this transient network setup first:" >&2
++  echo "  sudo ip addr add 192.168.123.100/24 dev $UNITREE_NET_IF" >&2
++  echo "  sudo ip link set $UNITREE_NET_IF up" >&2
++  exit 1
++fi
++
++source_setup
++cd "$ROOT_DIR"
++
++export CYCLONEDDS_HOME
++export CMAKE_PREFIX_PATH="$CYCLONEDDS_HOME${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
++export LD_LIBRARY_PATH="$CYCLONEDDS_HOME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
++
++echo "Starting README Go2 cmd_vel bridge"
++echo "  bridge:    $BRIDGE_SCRIPT"
++echo "  topic:     $GO2_CMD_TOPIC"
++echo "  interface: $UNITREE_NET_IF"
++echo "  cyclone:   $CYCLONEDDS_HOME"
++echo "  limits:    vx=$GO2_MAX_VX vy=$GO2_MAX_VY wz=$GO2_MAX_WZ"
++echo "  floors:    v=$GO2_MIN_CMD_V w=$GO2_MIN_CMD_W"
++echo "  remote:    priority=$GO2_REMOTE_PRIORITY topic=$GO2_REMOTE_TOPIC deadband=$GO2_REMOTE_DEADBAND hold=${GO2_REMOTE_HOLD_SEC}s"
++
++exec uv run --extra unitree python "$BRIDGE_SCRIPT" \
++  --net-if "$UNITREE_NET_IF" \
++  --sdk-path "$UNITREE_SDK2PY_PATH" \
++  --ros-args \
++  -p cmd_vel_topic:="$GO2_CMD_TOPIC" \
++  -p max_vx:="$GO2_MAX_VX" \
++  -p max_vy:="$GO2_MAX_VY" \
++  -p max_wz:="$GO2_MAX_WZ" \
++  -p x_sign:="$GO2_X_SIGN" \
++  -p y_sign:="$GO2_Y_SIGN" \
++  -p wz_sign:="$GO2_WZ_SIGN" \
++  -p swap_xy:="$GO2_SWAP_XY" \
++  -p deadband_v:="$GO2_DEADBAND_V" \
++  -p deadband_w:="$GO2_DEADBAND_W" \
++  -p min_cmd_v:="$GO2_MIN_CMD_V" \
++  -p min_cmd_w:="$GO2_MIN_CMD_W" \
++  -p enabled:=true \
++  -p send_zero_when_idle:="$GO2_SEND_ZERO_WHEN_IDLE" \
++  -p remote_priority:="$GO2_REMOTE_PRIORITY" \
++  -p remote_topic:="$GO2_REMOTE_TOPIC" \
++  -p remote_deadband:="$GO2_REMOTE_DEADBAND" \
++  -p remote_hold_sec:="$GO2_REMOTE_HOLD_SEC" \
++  -p log_commands:="$GO2_LOG_COMMANDS" \
++  -p log_interval_sec:="$GO2_LOG_INTERVAL_SEC"
+diff --git a/scripts/run_keyboard_teleop.sh b/scripts/run_keyboard_teleop.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..bf24cdc8e11587cb1d54852decbe7414d60b8705
+--- /dev/null
++++ b/scripts/run_keyboard_teleop.sh
+@@ -0,0 +1,22 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
++SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
++
++source_setup() {
++  local had_nounset=0
++  case $- in
++    *u*) had_nounset=1; set +u ;;
++  esac
++  source "$SETUP_FILE"
++  if [[ "$had_nounset" == "1" ]]; then
++    set -u
++  fi
++}
++
++source_setup
++cd "$ROOT_DIR"
++
++exec uv run python "$ROOT_DIR/tool/keyboard_cmd_vel.py" "$@"
+diff --git a/scripts/run_real_desktop_vnc.sh b/scripts/run_real_desktop_vnc.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..41e104e77f1f3dde2d125df9d7de631de8f70bd6
+--- /dev/null
++++ b/scripts/run_real_desktop_vnc.sh
+@@ -0,0 +1,33 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++DISPLAY_ID="${TINYNAV_VNC_DISPLAY:-:0}"
++XAUTHORITY_FILE="${TINYNAV_VNC_XAUTHORITY:-/run/user/1000/gdm/Xauthority}"
++VNC_PORT="${TINYNAV_VNC_PORT:-5901}"
++VNC_PASSWORD="${TINYNAV_VNC_PASSWORD:?Set TINYNAV_VNC_PASSWORD locally; do not commit it}"
++VNC_RESOLUTION="${TINYNAV_VNC_RESOLUTION:-1280x720}"
++PASS_FILE="${TINYNAV_VNC_PASS_FILE:-/home/nvidia/.vnc/x11vnc.pass}"
++LOG_FILE="${TINYNAV_VNC_LOG_FILE:-/home/nvidia/.vnc/x11vnc-real.log}"
++SESSION_NAME="${TINYNAV_VNC_SESSION:-vnc_real_desktop}"
++
++mkdir -p "$(dirname "$PASS_FILE")"
++x11vnc -storepasswd "$VNC_PASSWORD" "$PASS_FILE" >/dev/null
++chmod 600 "$PASS_FILE"
++
++vncserver -kill :1 >/dev/null 2>&1 || true
++rm -f /home/nvidia/.vnc/tegra-ubuntu:5901.pid
++
++DISPLAY="$DISPLAY_ID" XAUTHORITY="$XAUTHORITY_FILE" \
++  xrandr --fb "$VNC_RESOLUTION" >/dev/null 2>&1 || true
++
++tmux kill-session -t "$SESSION_NAME" >/dev/null 2>&1 || true
++tmux new-session -d -s "$SESSION_NAME" -n x11vnc \
++  "bash -lc 'DISPLAY=\"$DISPLAY_ID\" XAUTHORITY=\"$XAUTHORITY_FILE\" x11vnc -display \"$DISPLAY_ID\" -auth \"$XAUTHORITY_FILE\" -rfbauth \"$PASS_FILE\" -rfbport \"$VNC_PORT\" -forever -shared -noxdamage -repeat -o \"$LOG_FILE\"'"
++
++sleep 1
++echo "Real desktop VNC started:"
++echo "  display:    $DISPLAY_ID"
++echo "  xauthority: $XAUTHORITY_FILE"
++echo "  port:       $VNC_PORT"
++echo "  password:   configured via TINYNAV_VNC_PASSWORD"
++echo "  resolution: $(DISPLAY="$DISPLAY_ID" XAUTHORITY="$XAUTHORITY_FILE" xdpyinfo 2>/dev/null | awk '/dimensions:/ {print $2; exit}')"
+diff --git a/scripts/run_realsense_sensor.sh b/scripts/run_realsense_sensor.sh
+index 549002dd85253bb6122579c85081bc3bf202d79f..70d44c6fb2a7c418109934d944d52bb514052031 100755
+--- a/scripts/run_realsense_sensor.sh
++++ b/scripts/run_realsense_sensor.sh
+@@ -30,8 +30,15 @@ echo "RealSense firmware $FW_VERSION detected."
+ 
+ ros2 launch realsense2_camera rs_launch.py \
+ 	initial_reset:=true \
+-	depth_module.auto_exposure_limit:=1000 \
+ 	tf_publish_rate:=1.0 \
+ 	publish_tf:=true \
+-	rgb_camera.color_profile:=640x360x30 \
++	enable_depth:=true \
++	enable_color:=true \
++	enable_infra1:=true \
++	enable_infra2:=true \
++	enable_gyro:=true \
++	enable_accel:=true \
++	depth_module.depth_profile:=848x480x30 \
++	depth_module.infra_profile:=848x480x30 \
++	rgb_camera.color_profile:=848x480x30 \
+ 	unite_imu_method:=2
+diff --git a/scripts/run_rosbag_record.sh b/scripts/run_rosbag_record.sh
+index b70b8d462eff485079d9fcf1f52ffebe980a143d..fb5a7764e5667d010356de9188a8bcf7225a37df 100755
+--- a/scripts/run_rosbag_record.sh
++++ b/scripts/run_rosbag_record.sh
+@@ -4,6 +4,23 @@ set -euo pipefail
+ # Usage: run_rosbag_record.sh [--output DIR]
+ #   If --output is not given, a timestamped dir is created under XDG_DATA_HOME/tinynav/rosbags.
+ 
++SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
++
++source_setup() {
++    local had_nounset=0
++    case $- in
++        *u*) had_nounset=1; set +u ;;
++    esac
++    source "$SETUP_FILE"
++    if [[ "$had_nounset" == "1" ]]; then
++        set -u
++    fi
++}
++
++if [[ -f "$SETUP_FILE" ]]; then
++    source_setup
++fi
++
+ output_dir=""
+ while [[ $# -gt 0 ]]; do
+     case "$1" in
+diff --git a/scripts/run_rviz_vnc.sh b/scripts/run_rviz_vnc.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..1fa71af436f03ffdde3bb5b7437e578447314ec3
+--- /dev/null
++++ b/scripts/run_rviz_vnc.sh
+@@ -0,0 +1,91 @@
++#!/usr/bin/env bash
++set -uo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
++SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
++
++display="${TINYNAV_RVIZ_DISPLAY:-:1}"
++if [[ -n "${TINYNAV_RVIZ_XAUTHORITY:-}" ]]; then
++  xauthority="$TINYNAV_RVIZ_XAUTHORITY"
++elif [[ -f "/run/user/$(id -u)/gdm/Xauthority" ]]; then
++  xauthority="/run/user/$(id -u)/gdm/Xauthority"
++else
++  xauthority="/home/nvidia/.Xauthority"
++fi
++
++rviz_config="${TINYNAV_RVIZ_CONFIG:-/tinynav/docs/vis_with_global_map.rviz}"
++log_dir="${TINYNAV_LOG_DIR:-$ROOT_DIR/logs}"
++restart="${TINYNAV_RVIZ_RESTART:-true}"
++
++mkdir -p "$log_dir"
++log_file="$log_dir/rviz.log"
++
++source_setup() {
++  local had_nounset=0
++  case $- in
++    *u*) had_nounset=1; set +u ;;
++  esac
++  source "$SETUP_FILE"
++  if [[ "$had_nounset" == "1" ]]; then
++    set -u
++  fi
++}
++
++wait_for_display() {
++  local deadline=$((SECONDS + 20))
++  while (( SECONDS < deadline )); do
++    if DISPLAY="$display" XAUTHORITY="$xauthority" xrandr >/dev/null 2>&1; then
++      return 0
++    fi
++    sleep 1
++  done
++  return 1
++}
++
++source_setup
++cd "$ROOT_DIR"
++
++export DISPLAY="$display"
++export XAUTHORITY="$xauthority"
++export QT_X11_NO_MITSHM=1
++export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
++
++echo "RViz launcher"
++echo "  display:    $DISPLAY"
++echo "  xauthority: $XAUTHORITY"
++echo "  config:     $rviz_config"
++echo "  log:        $log_file"
++echo "  restart:    $restart"
++
++if ! wait_for_display; then
++  echo "RViz display is not reachable: DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY" | tee -a "$log_file" >&2
++  sleep infinity
++fi
++
++while true; do
++  {
++    echo
++    echo "===== RViz start $(date -Is) ====="
++    echo "DISPLAY=$DISPLAY"
++    echo "XAUTHORITY=$XAUTHORITY"
++    echo "config=$rviz_config"
++  } >> "$log_file"
++
++  (
++    sleep 6
++    wmctrl -r RViz -b remove,maximized_vert,maximized_horz >/dev/null 2>&1 || true
++    wmctrl -r RViz -e 0,0,0,1280,720 >/dev/null 2>&1 || true
++  ) &
++
++  ros2 run rviz2 rviz2 -d "$rviz_config" 2>&1 | tee -a "$log_file"
++  rviz_status="${PIPESTATUS[0]}"
++  echo "===== RViz exit $(date -Is), status=$rviz_status =====" | tee -a "$log_file"
++
++  if [[ "$restart" != "true" ]]; then
++    break
++  fi
++  sleep 3
++done
++
++sleep infinity
+diff --git a/scripts/run_visible_vnc.sh b/scripts/run_visible_vnc.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..404e2b12a12add65e81a81e209ba3424bedafbd5
+--- /dev/null
++++ b/scripts/run_visible_vnc.sh
+@@ -0,0 +1,37 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++DISPLAY_NUM="${TINYNAV_VNC_DISPLAY_NUM:-1}"
++GEOMETRY="${TINYNAV_VNC_GEOMETRY:-1280x720}"
++DEPTH="${TINYNAV_VNC_DEPTH:-24}"
++if [[ -z "${TINYNAV_VNC_PASSWORD:-}" ]]; then
++  echo "TINYNAV_VNC_PASSWORD is not set."
++  echo "Start with: TINYNAV_VNC_PASSWORD='<private-password>' $0"
++  exit 1
++fi
++PASSWORD="$TINYNAV_VNC_PASSWORD"
++HOST_IP="${TINYNAV_VNC_HOST:-$(hostname -I | awk '{print $1}')}"
++PASS_FILE="/home/nvidia/.vnc/passwd"
++
++mkdir -p /home/nvidia/.vnc
++printf '%s' "$PASSWORD" | vncpasswd -f > "$PASS_FILE"
++chmod 600 "$PASS_FILE"
++
++tmux kill-session -t vnc_real_desktop >/dev/null 2>&1 || true
++pkill -f x11vnc >/dev/null 2>&1 || true
++
++vncserver -kill ":$DISPLAY_NUM" >/dev/null 2>&1 || true
++pkill -f "Xtigervnc :$DISPLAY_NUM" >/dev/null 2>&1 || true
++rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
++rm -f "/home/nvidia/.vnc/tegra-ubuntu:$((5900 + DISPLAY_NUM)).pid"
++
++vncserver ":$DISPLAY_NUM" \
++  -geometry "$GEOMETRY" \
++  -depth "$DEPTH" \
++  -localhost no
++
++echo "Visible VNC started:"
++echo "  address: ${HOST_IP:-<jetson-ip>}:$((5900 + DISPLAY_NUM))"
++echo "  display: :$DISPLAY_NUM"
++echo "  password: set by TINYNAV_VNC_PASSWORD"
++echo "  geometry: $GEOMETRY"
+diff --git a/scripts/tinynav_auto_map.sh b/scripts/tinynav_auto_map.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..30cdf29fbf94fb2b00ca220f3c91d52cc84a478e
+--- /dev/null
++++ b/scripts/tinynav_auto_map.sh
+@@ -0,0 +1,311 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
++SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
++SESSION_NAME="${TINYNAV_CAMERA_SESSION:-tinynav_usb3_camera}"
++
++timestamp="$(date +%Y%m%d_%H%M%S)"
++bag_dir="${XDG_DATA_HOME:-$HOME/.local/share}/tinynav/rosbags/map_record_${timestamp}"
++map_dir="$ROOT_DIR/output/map_record_${timestamp}"
++play_rate="1.0"
++keep_camera="false"
++from_bag=""
++clean_temp="true"
++
++source_setup() {
++  local had_nounset=0
++  case $- in
++    *u*) had_nounset=1; set +u ;;
++  esac
++  source "$SETUP_FILE"
++  if [[ "$had_nounset" == "1" ]]; then
++    set -u
++  fi
++}
++
++usage() {
++  cat <<EOF
++Usage: $0 [--bag-dir DIR] [--map-dir DIR] [--play-rate RATE] [--keep-camera] [--keep-temp]
++       $0 --from-bag DIR [--map-dir DIR] [--play-rate RATE] [--keep-temp]
++
++Records a RealSense mapping bag, then builds a TinyNav map from it.
++Stop recording with Ctrl-C once you have walked the mapping trajectory.
++With --from-bag, skips recording and only builds a map from an existing bag.
++
++Outputs:
++  bag:      $bag_dir
++  map:      $map_dir
++  symlink:  $ROOT_DIR/output/latest_map
++
++By default, successful map builds remove TinyNav runtime temp DBs:
++  $ROOT_DIR/tinynav_temp
++  $ROOT_DIR/tinynav_temp_gpu_current
++  $ROOT_DIR/tinynav_temp_nav_auto
++Use --keep-temp to keep them for debugging.
++EOF
++}
++
++while [[ $# -gt 0 ]]; do
++  case "$1" in
++    --bag-dir) bag_dir="$2"; shift 2 ;;
++    --from-bag) from_bag="$2"; bag_dir="$2"; shift 2 ;;
++    --map-dir) map_dir="$2"; shift 2 ;;
++    --play-rate) play_rate="$2"; shift 2 ;;
++    --keep-camera) keep_camera="true"; shift ;;
++    --keep-temp) clean_temp="false"; shift ;;
++    -h|--help) usage; exit 0 ;;
++    *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
++  esac
++done
++
++source_setup
++cd "$ROOT_DIR"
++
++camera_started_here="false"
++perception_pid=""
++
++camera_running() {
++  ros2 node list 2>/dev/null | grep -qx "/camera/camera"
++}
++
++start_camera() {
++  echo "Starting USB3 RealSense in tmux session: $SESSION_NAME"
++  tmux kill-session -t "$SESSION_NAME" >/dev/null 2>&1 || true
++  tmux new-session -d -s "$SESSION_NAME" \
++    "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && bash scripts/run_realsense_sensor.sh'"
++  camera_started_here="true"
++}
++
++wait_for_topic() {
++  local topic="$1"
++  local timeout_s="${2:-30}"
++  local start
++  start="$(date +%s)"
++  until ros2 topic list 2>/dev/null | grep -qx "$topic"; do
++    if (( "$(date +%s)" - start >= timeout_s )); then
++      echo "Timed out waiting for $topic" >&2
++      return 1
++    fi
++    sleep 1
++  done
++}
++
++wait_for_message() {
++  local topic="$1"
++  local timeout_s="${2:-8}"
++  timeout "$timeout_s" ros2 topic echo --once "$topic" >/dev/null 2>&1
++}
++
++camera_streams_ready() {
++  local timeout_s="${1:-8}"
++  local topic
++  local required_topics=(
++    "/camera/camera/infra1/image_rect_raw"
++    "/camera/camera/infra2/image_rect_raw"
++    "/camera/camera/depth/image_rect_raw"
++    "/camera/camera/color/image_raw"
++    "/camera/camera/infra1/camera_info"
++    "/camera/camera/infra2/camera_info"
++    "/camera/camera/color/camera_info"
++    "/camera/camera/imu"
++  )
++
++  for topic in "${required_topics[@]}"; do
++    echo "Checking stream: $topic"
++    if ! wait_for_message "$topic" "$timeout_s"; then
++      echo "No message received from $topic within ${timeout_s}s" >&2
++      return 1
++    fi
++  done
++}
++
++stop_known_camera_sessions() {
++  tmux kill-session -t "$SESSION_NAME" >/dev/null 2>&1 || true
++  tmux kill-session -t tinynav_usb3_camera >/dev/null 2>&1 || true
++  tmux kill-session -t tinynav_auto_map_camera >/dev/null 2>&1 || true
++}
++
++realsense_process_running() {
++  pgrep -f 'realsense2_camera|rs_launch.py|run_realsense_sensor.sh' >/dev/null 2>&1
++}
++
++wait_for_camera_node_gone() {
++  local timeout_s="${1:-12}"
++  local start
++  start="$(date +%s)"
++
++  until ! camera_running; do
++    if (( "$(date +%s)" - start >= timeout_s )); then
++      if realsense_process_running; then
++        return 1
++      fi
++
++      echo "ROS still lists /camera/camera, but no RealSense process is running; refreshing ROS daemon discovery."
++      ros2 daemon stop >/dev/null 2>&1 || true
++      sleep 2
++      ros2 daemon start >/dev/null 2>&1 || true
++      sleep 2
++      ! camera_running
++      return
++    fi
++    sleep 1
++  done
++}
++
++ensure_camera_streams() {
++  if camera_running; then
++    echo "Using existing RealSense node: /camera/camera"
++    if camera_streams_ready 8; then
++      return 0
++    fi
++
++    echo "Existing RealSense node is not publishing all required streams; restarting managed camera session."
++    stop_known_camera_sessions
++    if ! wait_for_camera_node_gone 15; then
++      echo "A RealSense node is still running outside the managed tmux sessions." >&2
++      echo "Stop that node, then rerun this script." >&2
++      return 1
++    fi
++  fi
++
++  start_camera
++  wait_for_topic "/camera/camera/infra1/image_rect_raw" 60
++  wait_for_topic "/camera/camera/infra2/image_rect_raw" 60
++  wait_for_topic "/camera/camera/imu" 60
++  camera_streams_ready 15
++}
++
++stop_camera_if_owned() {
++  if [[ "$camera_started_here" == "true" && "$keep_camera" != "true" ]]; then
++    tmux kill-session -t "$SESSION_NAME" >/dev/null 2>&1 || true
++  fi
++}
++
++stop_perception_if_running() {
++  if [[ -n "$perception_pid" ]]; then
++    kill "$perception_pid" >/dev/null 2>&1 || true
++    wait "$perception_pid" >/dev/null 2>&1 || true
++    perception_pid=""
++  fi
++}
++
++cleanup() {
++  stop_perception_if_running
++  stop_camera_if_owned
++}
++
++trap cleanup EXIT
++
++cleanup_runtime_temp() {
++  if [[ "$clean_temp" != "true" ]]; then
++    echo "Keeping TinyNav runtime temp DBs because --keep-temp was set."
++    return 0
++  fi
++
++  local temp_dirs=(
++    "$ROOT_DIR/tinynav_temp"
++    "$ROOT_DIR/tinynav_temp_gpu_current"
++    "$ROOT_DIR/tinynav_temp_nav_auto"
++  )
++  local dir
++
++  echo
++  echo "Cleaning TinyNav runtime temp DBs..."
++  for dir in "${temp_dirs[@]}"; do
++    if [[ -e "$dir" ]]; then
++      du -sh "$dir" 2>/dev/null || true
++      rm -rf --one-file-system "$dir"
++      echo "  removed: $dir"
++    fi
++  done
++}
++
++mkdir -p "$(dirname "$bag_dir")" "$(dirname "$map_dir")" "$ROOT_DIR/output"
++
++if [[ -z "$from_bag" ]]; then
++  echo "Checking RealSense streams..."
++  ensure_camera_streams
++
++  echo
++  echo "Recording mapping bag:"
++  echo "  $bag_dir"
++  echo "Move through the mapping area now. Press Ctrl-C once to stop recording and start map building."
++  echo
++
++  set +e
++  bash "$ROOT_DIR/scripts/run_rosbag_record.sh" --output "$bag_dir"
++  record_status=$?
++  set -e
++
++  if [[ "$record_status" -ne 0 && "$record_status" -ne 130 && "$record_status" -ne 143 ]]; then
++    echo "rosbag recording failed with status $record_status" >&2
++    exit "$record_status"
++  fi
++else
++  if [[ ! -d "$bag_dir" ]]; then
++    echo "Bag directory does not exist: $bag_dir" >&2
++    exit 1
++  fi
++  echo "Building from existing bag:"
++  echo "  $bag_dir"
++fi
++
++echo
++echo "Recording stopped. Bag info:"
++ros2 bag info "$bag_dir" || true
++
++echo
++python3 "$ROOT_DIR/tool/validate_tinynav_bag.py" --bag "$bag_dir"
++
++if [[ "$keep_camera" != "true" ]]; then
++  echo "Stopping RealSense before offline map build to avoid duplicate /camera publishers."
++  stop_known_camera_sessions
++  camera_started_here="false"
++  if ! wait_for_camera_node_gone 15; then
++    echo "A /camera/camera node is still running outside the managed tmux sessions." >&2
++    echo "Stop that camera node before offline map building; duplicate /camera publishers break timestamp sync." >&2
++    exit 1
++  fi
++else
++  echo "Keeping RealSense running; make sure no offline bag is being played into the same /camera topics."
++fi
++
++echo
++echo "Building TinyNav map:"
++echo "  $map_dir"
++rm -rf "$map_dir"
++
++echo "Starting perception_node for offline odometry/keyframes..."
++(
++  source_setup
++  cd "$ROOT_DIR"
++  uv run python /tinynav/tinynav/core/perception_node.py
++) &
++perception_pid=$!
++sleep 5
++
++uv run python /tinynav/tinynav/core/build_map_node.py \
++  --bag_file "$bag_dir" \
++  --map_save_path "$map_dir" \
++  --play_rate "$play_rate"
++stop_perception_if_running
++
++for required in poses.npy intrinsics.npy occupancy_grid.npy occupancy_meta.npy sdf_map.npy; do
++  if [[ ! -f "$map_dir/$required" ]]; then
++    echo "Map build did not produce $required; latest_map was not updated." >&2
++    exit 1
++  fi
++done
++
++ln -sfn "$map_dir" "$ROOT_DIR/output/latest_map"
++cleanup_runtime_temp
++
++echo
++echo "Map build finished."
++echo "  map:     $map_dir"
++echo "  latest:  $ROOT_DIR/output/latest_map"
++echo
++echo "Start navigation with:"
++echo "  bash $ROOT_DIR/scripts/tinynav_auto_nav.sh --map $ROOT_DIR/output/latest_map"
+diff --git a/scripts/tinynav_auto_nav.sh b/scripts/tinynav_auto_nav.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..fabac3d03919dca601f70b91d572d8abcb3cadc3
+--- /dev/null
++++ b/scripts/tinynav_auto_nav.sh
+@@ -0,0 +1,309 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
++SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
++SESSION_NAME="${TINYNAV_NAV_SESSION:-tinynav_nav_auto}"
++map_path="$ROOT_DIR/output/latest_map"
++nav_db_path="$ROOT_DIR/tinynav_temp_nav_auto"
++start_rviz="true"
++start_go2="true"
++display="${TINYNAV_RVIZ_DISPLAY:-:1}"
++default_xauthority="/home/nvidia/.Xauthority"
++if [[ -f "/run/user/$(id -u)/gdm/Xauthority" ]]; then
++  default_xauthority="/run/user/$(id -u)/gdm/Xauthority"
++fi
++rviz_xauthority="${TINYNAV_RVIZ_XAUTHORITY:-$default_xauthority}"
++rviz_config="${TINYNAV_RVIZ_CONFIG:-/tinynav/docs/vis_with_global_map.rviz}"
++go2_net_if="${UNITREE_NET_IF:-eth0}"
++
++source_setup() {
++  local had_nounset=0
++  case $- in
++    *u*) had_nounset=1; set +u ;;
++  esac
++  source "$SETUP_FILE"
++  if [[ "$had_nounset" == "1" ]]; then
++    set -u
++  fi
++}
++
++usage() {
++  cat <<EOF
++Usage: $0 [--map DIR] [--session NAME] [--no-rviz] [--no-go2] [--go2-net-if IFACE]
++
++Starts the minimal TinyNav navigation stack:
++  RealSense if needed
++  perception_node
++  planning_node
++  map_node
++  cmd_vel_control
++  Go2 cmd_vel bridge
++  rviz_goal_to_poi
++  static_occupancy_grid_publisher
++  RViz
++
++Default map:
++  $map_path
++EOF
++}
++
++while [[ $# -gt 0 ]]; do
++  case "$1" in
++    --map) map_path="$2"; shift 2 ;;
++    --session) SESSION_NAME="$2"; shift 2 ;;
++    --no-rviz) start_rviz="false"; shift ;;
++    --no-go2) start_go2="false"; shift ;;
++    --go2-net-if) go2_net_if="$2"; shift 2 ;;
++    -h|--help) usage; exit 0 ;;
++    *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
++  esac
++done
++
++source_setup
++cd "$ROOT_DIR"
++
++if [[ ! -d "$map_path" ]]; then
++  echo "Map directory does not exist: $map_path" >&2
++  echo "Build one first with: bash $ROOT_DIR/scripts/tinynav_auto_map.sh" >&2
++  exit 1
++fi
++
++for required in poses.npy intrinsics.npy occupancy_grid.npy occupancy_meta.npy sdf_map.npy; do
++  if [[ ! -f "$map_path/$required" ]]; then
++    echo "Map is missing $required: $map_path" >&2
++    exit 1
++  fi
++done
++
++camera_running() {
++  ros2 node list 2>/dev/null | grep -qx "/camera/camera"
++}
++
++wait_for_camera_node_gone() {
++  local timeout_s="${1:-15}"
++  local start
++  start="$(date +%s)"
++  while camera_running; do
++    if (( "$(date +%s)" - start >= timeout_s )); then
++      return 1
++    fi
++    sleep 1
++  done
++}
++
++wait_for_message() {
++  local topic="$1"
++  local timeout_s="${2:-8}"
++  timeout "$timeout_s" ros2 topic echo --once "$topic" >/dev/null 2>&1
++}
++
++camera_streams_ready() {
++  local timeout_s="${1:-8}"
++  local topic
++  local required_topics=(
++    "/camera/camera/infra1/image_rect_raw"
++    "/camera/camera/infra2/image_rect_raw"
++    "/camera/camera/depth/image_rect_raw"
++    "/camera/camera/color/image_raw"
++    "/camera/camera/infra1/camera_info"
++    "/camera/camera/infra2/camera_info"
++    "/camera/camera/color/camera_info"
++    "/camera/camera/imu"
++  )
++
++  for topic in "${required_topics[@]}"; do
++    echo "Checking stream: $topic"
++    if ! wait_for_message "$topic" "$timeout_s"; then
++      echo "No message received from $topic within ${timeout_s}s" >&2
++      return 1
++    fi
++  done
++}
++
++stop_known_camera_sessions() {
++  tmux kill-session -t tinynav_usb3_camera >/dev/null 2>&1 || true
++  tmux kill-session -t tinynav_auto_map_camera >/dev/null 2>&1 || true
++}
++
++wait_for_topic() {
++  local topic="$1"
++  local timeout_s="${2:-45}"
++  local start
++  start="$(date +%s)"
++  until ros2 topic list 2>/dev/null | grep -qx "$topic"; do
++    if (( "$(date +%s)" - start >= timeout_s )); then
++      echo "Timed out waiting for $topic" >&2
++      return 1
++    fi
++    sleep 1
++  done
++}
++
++ensure_go2_network() {
++  if ip -o -4 addr show dev "$go2_net_if" | grep -q "192\\.168\\.123\\."; then
++    return 0
++  fi
++
++  echo "Adding temporary Go2 address 192.168.123.100/24 to $go2_net_if"
++  sudo ip addr add 192.168.123.100/24 dev "$go2_net_if" 2>/dev/null || true
++  sudo ip link set "$go2_net_if" up
++}
++
++vnc_display_ready() {
++  DISPLAY="$display" XAUTHORITY="$rviz_xauthority" xrandr >/dev/null 2>&1
++}
++
++ensure_vnc_display() {
++  if [[ "$display" != ":1" ]]; then
++    return 0
++  fi
++
++  if vnc_display_ready; then
++    echo "Using existing VNC display $display"
++    return 0
++  fi
++
++  if systemctl --user cat tinynav-vnc.service >/dev/null 2>&1; then
++    if systemctl --user is-active --quiet tinynav-vnc.service 2>/dev/null; then
++      echo "Restarting tinynav-vnc.service for RViz display $display"
++      systemctl --user restart tinynav-vnc.service
++    else
++      echo "Starting tinynav-vnc.service for RViz display $display"
++      systemctl --user start tinynav-vnc.service
++    fi
++    sleep 3
++    if vnc_display_ready; then
++      return 0
++    fi
++  fi
++
++  if [[ -n "${TINYNAV_VNC_PASSWORD:-}" ]]; then
++    bash "$ROOT_DIR/scripts/run_visible_vnc.sh"
++    sleep 2
++    vnc_display_ready
++    return
++  fi
++
++  echo "VNC display $display is not ready." >&2
++  echo "Start it with: systemctl --user start tinynav-vnc.service" >&2
++  echo "Or set TINYNAV_VNC_PASSWORD and run scripts/run_visible_vnc.sh." >&2
++  return 1
++}
++
++wait_for_rviz() {
++  local timeout_s="${1:-25}"
++  local start
++  start="$(date +%s)"
++  until pgrep -u "$(id -u)" -f "rviz2.*${rviz_config}" >/dev/null 2>&1; do
++    if (( "$(date +%s)" - start >= timeout_s )); then
++      echo "RViz did not start within ${timeout_s}s." >&2
++      echo "Check: $ROOT_DIR/logs/rviz.log" >&2
++      echo "Attach: tmux attach -t $SESSION_NAME" >&2
++      return 1
++    fi
++    sleep 1
++  done
++}
++
++tmux kill-session -t "$SESSION_NAME" >/dev/null 2>&1 || true
++if [[ "$start_go2" == "true" ]]; then
++  tmux kill-session -t go2_cmd_bridge >/dev/null 2>&1 || true
++  ensure_go2_network
++  if ! ping -I "$go2_net_if" -c 1 -W 1 192.168.123.161 >/dev/null 2>&1; then
++    echo "Go2 is not reachable at 192.168.123.161 through $go2_net_if." >&2
++    echo "Use --no-go2 to start navigation without sending /cmd_vel to the base." >&2
++    exit 1
++  fi
++fi
++
++if [[ "$start_rviz" == "true" ]]; then
++  ensure_vnc_display
++fi
++
++camera_mode="start"
++if camera_running; then
++  echo "Found existing RealSense node: /camera/camera"
++  if camera_streams_ready 8; then
++    camera_mode="existing"
++  else
++    echo "Existing RealSense node is not publishing all required streams; restarting managed camera session."
++    stop_known_camera_sessions
++    if ! wait_for_camera_node_gone 15; then
++      echo "A RealSense node is still running outside the managed tmux sessions." >&2
++      echo "Stop that node, then rerun this script." >&2
++      exit 1
++    fi
++  fi
++fi
++
++if [[ "$camera_mode" == "existing" ]]; then
++  tmux new-session -d -s "$SESSION_NAME" -n camera \
++    "bash -lc 'echo \"Using existing RealSense node /camera/camera\"; echo \"Do not start another RealSense launch while this is running.\"; sleep infinity'"
++else
++  tmux new-session -d -s "$SESSION_NAME" -n camera \
++    "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && bash scripts/run_realsense_sensor.sh'"
++fi
++
++echo "Waiting for camera topics..."
++wait_for_topic "/camera/camera/infra1/image_rect_raw" 60
++wait_for_topic "/camera/camera/infra2/image_rect_raw" 60
++wait_for_topic "/camera/camera/imu" 60
++camera_streams_ready 15
++
++tmux new-window -t "$SESSION_NAME" -n perception \
++  "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && uv run python /tinynav/tinynav/core/perception_node.py'"
++
++tmux new-window -t "$SESSION_NAME" -n planning \
++  "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && uv run python /tinynav/tinynav/core/planning_node.py'"
++
++tmux new-window -t "$SESSION_NAME" -n map \
++  "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && uv run python /tinynav/tinynav/core/map_node.py --tinynav_db_path \"$nav_db_path\" --tinynav_map_path \"$map_path\"'"
++
++tmux new-window -t "$SESSION_NAME" -n control \
++  "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && uv run python /tinynav/tinynav/platforms/cmd_vel_control.py'"
++
++if [[ "$start_go2" == "true" ]]; then
++  tmux new-window -t "$SESSION_NAME" -n go2-bridge \
++    "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && export UNITREE_NET_IF=\"$go2_net_if\" GO2_CMD_TOPIC=/cmd_vel GO2_MAX_VX=0.30 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.70 GO2_MIN_CMD_V=0.10 GO2_MIN_CMD_W=0.20 GO2_REMOTE_PRIORITY=true GO2_REMOTE_TOPIC=rt/lowstate GO2_REMOTE_DEADBAND=0.12 GO2_REMOTE_HOLD_SEC=0.8 GO2_LOG_COMMANDS=true && bash scripts/run_go2_cmd_bridge.sh'"
++fi
++
++tmux new-window -t "$SESSION_NAME" -n rviz-goal \
++  "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && uv run python /tinynav/tool/rviz_goal_to_poi.py --tinynav_map_path \"$map_path\" --z 0.0 --marker-z-offset 1.5'"
++
++tmux new-window -t "$SESSION_NAME" -n static-map \
++  "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && uv run python /tinynav/tool/static_occupancy_grid_publisher.py --tinynav-map-path \"$map_path\" --topic /mapping/static_occupancy_grid --frame-id map --z 0.0'"
++
++tmux new-window -t "$SESSION_NAME" -n map-keyframes \
++  "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && uv run python /tinynav/tool/map_keyframe_publisher.py --tinynav-map-path \"$map_path\" --frame-id map'"
++
++tmux new-window -t "$SESSION_NAME" -n pose-marker \
++  "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && uv run python /tinynav/tool/current_pose_marker.py --pose-topic /mapping/current_pose_in_map --marker-topic /mapping/current_pose_marker --frame-id map'"
++
++if [[ "$start_rviz" == "true" ]]; then
++  tmux new-window -t "$SESSION_NAME" -n rviz \
++    "bash -lc 'source \"$SETUP_FILE\" && cd \"$ROOT_DIR\" && TINYNAV_RVIZ_DISPLAY=\"$display\" TINYNAV_RVIZ_XAUTHORITY=\"$rviz_xauthority\" TINYNAV_RVIZ_CONFIG=\"$rviz_config\" bash scripts/run_rviz_vnc.sh'"
++  wait_for_rviz 30
++fi
++
++tmux new-window -t "$SESSION_NAME" -n monitor \
++  "bash -lc 'source \"$SETUP_FILE\" && watch -n 1 \"ros2 topic hz /cmd_vel --window 10 2>/dev/null | tail -5; echo; ros2 topic echo --once /mapping/nav_progress 2>/dev/null || true\"'"
++
++tmux select-window -t "$SESSION_NAME":map >/dev/null 2>&1 || true
++
++echo
++echo "TinyNav navigation started."
++echo "  session: $SESSION_NAME"
++echo "  map:     $map_path"
++echo "  go2:     $start_go2"
++echo "  rviz:    $rviz_config"
++if [[ "$start_go2" == "true" ]]; then
++  echo "  go2 net: $go2_net_if -> 192.168.123.161"
++fi
++echo
++echo "Attach:"
++echo "  tmux attach -d -t $SESSION_NAME"
++echo
++echo "Stop:"
++echo "  tmux kill-session -t $SESSION_NAME"
+diff --git a/scripts/tinynav_baseline_3dgs.sh b/scripts/tinynav_baseline_3dgs.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..f2675a53d1026134aecc413ef05a2474b9e4734d
+--- /dev/null
++++ b/scripts/tinynav_baseline_3dgs.sh
+@@ -0,0 +1,83 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
++SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
++
++map_path="${TINYNAV_MAP_PATH:-$ROOT_DIR/output/latest_map}"
++output_path="${TINYNAV_3DGS_OUTPUT:-$map_path}"
++install_deps="false"
++
++usage() {
++  cat <<EOF
++Usage: $0 [--map DIR] [--output DIR] [--install-deps]
++
++Official-baseline-style 3DGS generation without modifying upstream scripts.
++This copies the commands from scripts/run_3dgs_generation.sh, but parameterizes
++the hard-coded map path:
++  convert_to_nerf_format.py
++  ns-train splatfacto
++  ns-export gaussian-splat
++
++Default:
++  --map     $map_path
++  --output  same as --map
++EOF
++}
++
++while [[ $# -gt 0 ]]; do
++  case "$1" in
++    --map) map_path="$2"; output_path="${TINYNAV_3DGS_OUTPUT:-$2}"; shift 2 ;;
++    --output) output_path="$2"; shift 2 ;;
++    --install-deps) install_deps="true"; shift ;;
++    -h|--help) usage; exit 0 ;;
++    *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
++  esac
++done
++
++if [[ ! -d "$map_path" ]]; then
++  echo "Map directory does not exist: $map_path" >&2
++  exit 1
++fi
++
++source_setup() {
++  local had_nounset=0
++  case $- in
++    *u*) had_nounset=1; set +u ;;
++  esac
++  source "$SETUP_FILE"
++  if [[ "$had_nounset" == "1" ]]; then
++    set -u
++  fi
++}
++
++source_setup
++cd "$ROOT_DIR"
++
++if [[ "$install_deps" == "true" ]]; then
++  uv pip install ".[3dgs]"
++fi
++
++uv run python tool/convert_to_nerf_format.py --map-dir "$map_path"
++
++MAX_JOBS=1 uv run ns-train splatfacto \
++  --output-dir "$output_path" \
++  --experiment-name experiment \
++  --method-name splatfacto \
++  --timestamp 0 \
++  --pipeline.model.cull_alpha_thresh=0.005 \
++  --pipeline.model.use_scale_regularization True \
++  --viewer.quit-on-train-completion True \
++  nerfstudio-data \
++  --data "$map_path" \
++  --center-method none \
++  --auto-scale-poses False \
++  --orientation_method none
++
++uv run ns-export gaussian-splat \
++  --load-config "$output_path/experiment/splatfacto/0/config.yml" \
++  --output-dir "$output_path"
++
++echo "3DGS export finished:"
++echo "  output: $output_path"
+diff --git a/scripts/tinynav_baseline_build_map.sh b/scripts/tinynav_baseline_build_map.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..78e02db8dd9b094fc6ca08f39112fa907d420de7
+--- /dev/null
++++ b/scripts/tinynav_baseline_build_map.sh
+@@ -0,0 +1,125 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
++SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
++SESSION_NAME="${TINYNAV_BASELINE_BUILD_SESSION:-tinynav_baseline_build_map}"
++
++timestamp="$(date +%Y%m%d_%H%M%S)"
++bag_path="${TINYNAV_BAG_PATH:-}"
++map_save_path="${TINYNAV_MAP_SAVE_PATH:-$ROOT_DIR/output/baseline_map_${timestamp}}"
++mode="${TINYNAV_BUILD_MODE:-perception}"
++play_rate="${TINYNAV_PLAY_RATE:-1.0}"
++rviz_config="${TINYNAV_RVIZ_CONFIG:-/tinynav/docs/vis.rviz}"
++display="${TINYNAV_RVIZ_DISPLAY:-${DISPLAY:-:1}}"
++rviz_xauthority="${TINYNAV_RVIZ_XAUTHORITY:-/home/nvidia/.Xauthority}"
++start_rviz="true"
++update_latest="true"
++
++usage() {
++  cat <<EOF
++Usage: $0 --bag DIR [--map-dir DIR] [--mode perception|looper_direct] [--play-rate RATE] [--no-rviz] [--no-latest]
++
++Official-baseline-style offline map build without modifying upstream scripts.
++This copies the node layout from scripts/run_rosbag_build_map.sh:
++  build_map_node + perception/looper source + RViz docs/vis.rviz
++
++Required:
++  --bag DIR        Existing rosbag directory
++
++Defaults:
++  --map-dir        $map_save_path
++  --mode           perception
++  --play-rate      1.0
++  RViz config      $rviz_config
++
++Output:
++  map directory    --map-dir value
++  latest symlink   $ROOT_DIR/output/latest_map, unless --no-latest is set
++EOF
++}
++
++while [[ $# -gt 0 ]]; do
++  case "$1" in
++    --bag|--bag-dir) bag_path="$2"; shift 2 ;;
++    --map-dir|--map-save-path) map_save_path="$2"; shift 2 ;;
++    --mode) mode="$2"; shift 2 ;;
++    --play-rate) play_rate="$2"; shift 2 ;;
++    --no-rviz) start_rviz="false"; shift ;;
++    --no-latest) update_latest="false"; shift ;;
++    -h|--help) usage; exit 0 ;;
++    *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
++  esac
++done
++
++if [[ -z "$bag_path" ]]; then
++  echo "Missing --bag DIR" >&2
++  usage >&2
++  exit 1
++fi
++
++if [[ ! -d "$bag_path" ]]; then
++  echo "Bag directory does not exist: $bag_path" >&2
++  exit 1
++fi
++
++case "$mode" in
++  perception)
++    source_cmd="uv run python /tinynav/tinynav/core/perception_node.py"
++    ;;
++  looper_direct)
++    source_cmd="uv run python /tinynav/tool/looper_bridge_node.py"
++    ;;
++  *)
++    echo "Unsupported mode: $mode" >&2
++    echo "Use perception or looper_direct." >&2
++    exit 1
++    ;;
++esac
++
++mkdir -p "$(dirname "$map_save_path")" "$ROOT_DIR/output"
++
++q_setup="$(printf '%q' "$SETUP_FILE")"
++q_root="$(printf '%q' "$ROOT_DIR")"
++q_bag="$(printf '%q' "$bag_path")"
++q_map="$(printf '%q' "$map_save_path")"
++q_rate="$(printf '%q' "$play_rate")"
++q_rviz="$(printf '%q' "$rviz_config")"
++q_display="$(printf '%q' "$display")"
++q_xauth="$(printf '%q' "$rviz_xauthority")"
++
++latest_cmd=""
++if [[ "$update_latest" == "true" ]]; then
++  latest_cmd="&& for f in poses.npy intrinsics.npy occupancy_grid.npy occupancy_meta.npy sdf_map.npy; do test -f ${q_map}/\$f; done && ln -sfn ${q_map} ${q_root}/output/latest_map && echo latest_map updated: ${q_root}/output/latest_map"
++fi
++
++build_cmd="source ${q_setup} && cd ${q_root} && rm -rf ${q_map} && uv run python /tinynav/tinynav/core/build_map_node.py --map_save_path ${q_map} --bag_file ${q_bag} --play_rate ${q_rate} ${latest_cmd}"
++source_pane_cmd="source ${q_setup} && cd ${q_root} && ${source_cmd}"
++if [[ "$start_rviz" == "true" ]]; then
++  rviz_cmd="source ${q_setup} && export DISPLAY=${q_display} XAUTHORITY=${q_xauth} QT_X11_NO_MITSHM=1 LIBGL_ALWAYS_SOFTWARE=1 && cd ${q_root} && ros2 run rviz2 rviz2 -d ${q_rviz}"
++else
++  rviz_cmd="echo RViz disabled by --no-rviz; sleep infinity"
++fi
++
++tmux kill-session -t "$SESSION_NAME" >/dev/null 2>&1 || true
++
++# This intentionally mirrors upstream scripts/run_rosbag_build_map.sh:
++#   tmux layout with build_map_node, perception/looper source, and RViz.
++tmux new-session -d -s "$SESSION_NAME" \; \
++  split-window -h \; \
++  split-window -v \; \
++  select-pane -t 0 \; split-window -v \; \
++  select-pane -t 1 \; send-keys "$build_cmd" C-m \; \
++  select-pane -t 2 \; send-keys "$source_pane_cmd" C-m \; \
++  select-pane -t 3 \; send-keys "$rviz_cmd" C-m
++
++echo "Official-baseline map build started."
++echo "  session: $SESSION_NAME"
++echo "  bag:     $bag_path"
++echo "  map:     $map_save_path"
++echo "  mode:    $mode"
++echo "  rviz:    $start_rviz ($rviz_config)"
++echo
++echo "Attach:"
++echo "  tmux attach -t $SESSION_NAME"
+diff --git a/scripts/tinynav_baseline_nav.sh b/scripts/tinynav_baseline_nav.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..1eab0a67e6eeb1bb8e099f3c55c7877a06927012
+--- /dev/null
++++ b/scripts/tinynav_baseline_nav.sh
+@@ -0,0 +1,120 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
++SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
++SESSION_NAME="${TINYNAV_BASELINE_NAV_SESSION:-tinynav_baseline_nav}"
++
++map_path="${TINYNAV_MAP_PATH:-$ROOT_DIR/output/latest_map}"
++rviz_config="${TINYNAV_RVIZ_CONFIG:-/tinynav/docs/vis.rviz}"
++display="${TINYNAV_RVIZ_DISPLAY:-${DISPLAY:-:1}}"
++rviz_xauthority="${TINYNAV_RVIZ_XAUTHORITY:-/home/nvidia/.Xauthority}"
++start_rviz="true"
++start_go2="false"
++go2_net_if="${UNITREE_NET_IF:-eth0}"
++
++usage() {
++  cat <<EOF
++Usage: $0 [--map DIR] [--no-rviz] [--with-go2] [--go2-net-if IFACE]
++
++Official-baseline-style navigation without modifying upstream scripts.
++This copies the node layout from scripts/run_navigation.sh:
++  perception_node
++  planning_node
++  map_node
++  cmd_vel_control
++  RViz docs/vis.rviz
++  pub_pois.py
++
++Unlike tinynav_auto_nav.sh, this script does not start RealSense automatically.
++Start the camera first if /camera/camera is not already running.
++
++Default map:
++  $map_path
++EOF
++}
++
++while [[ $# -gt 0 ]]; do
++  case "$1" in
++    --map) map_path="$2"; shift 2 ;;
++    --no-rviz) start_rviz="false"; shift ;;
++    --with-go2) start_go2="true"; shift ;;
++    --go2-net-if) go2_net_if="$2"; shift 2 ;;
++    -h|--help) usage; exit 0 ;;
++    *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
++  esac
++done
++
++if [[ ! -d "$map_path" ]]; then
++  echo "Map directory does not exist: $map_path" >&2
++  exit 1
++fi
++
++for required in poses.npy intrinsics.npy occupancy_grid.npy occupancy_meta.npy sdf_map.npy; do
++  if [[ ! -f "$map_path/$required" ]]; then
++    echo "Map is missing $required: $map_path" >&2
++    exit 1
++  fi
++done
++
++if [[ "$start_go2" == "true" ]]; then
++  if ! ip -o -4 addr show dev "$go2_net_if" | grep -q "192\\.168\\.123\\."; then
++    echo "Adding temporary Go2 address 192.168.123.100/24 to $go2_net_if"
++    sudo ip addr add 192.168.123.100/24 dev "$go2_net_if" 2>/dev/null || true
++    sudo ip link set "$go2_net_if" up
++  fi
++
++  if ! ping -I "$go2_net_if" -c 1 -W 1 192.168.123.161 >/dev/null 2>&1; then
++    echo "Go2 is not reachable at 192.168.123.161 through $go2_net_if." >&2
++    exit 1
++  fi
++fi
++
++q_setup="$(printf '%q' "$SETUP_FILE")"
++q_root="$(printf '%q' "$ROOT_DIR")"
++q_map="$(printf '%q' "$map_path")"
++q_rviz="$(printf '%q' "$rviz_config")"
++q_display="$(printf '%q' "$display")"
++q_xauth="$(printf '%q' "$rviz_xauthority")"
++q_go2_if="$(printf '%q' "$go2_net_if")"
++
++tmux kill-session -t "$SESSION_NAME" >/dev/null 2>&1 || true
++
++if [[ "$start_rviz" == "true" ]]; then
++  rviz_cmd="source ${q_setup} && export DISPLAY=${q_display} XAUTHORITY=${q_xauth} QT_X11_NO_MITSHM=1 LIBGL_ALWAYS_SOFTWARE=1 && cd ${q_root} && ros2 run rviz2 rviz2 -d ${q_rviz}"
++else
++  rviz_cmd="echo RViz disabled by --no-rviz; sleep infinity"
++fi
++
++# This intentionally mirrors upstream scripts/run_navigation.sh:
++#   perception, planning, map, cmd_vel_control, RViz, and pub_pois.
++tmux new-session -d -s "$SESSION_NAME" \; \
++  split-window -h \; \
++  split-window -v \; \
++  select-pane -t 0 \; split-window -v \; \
++  select-pane -t 3 \; split-window -v \; \
++  select-pane -t 4 \; split-window -v \; \
++  select-pane -t 0 \; send-keys "source ${q_setup} && cd ${q_root} && uv run python /tinynav/tinynav/core/perception_node.py" C-m \; \
++  select-pane -t 1 \; send-keys "source ${q_setup} && cd ${q_root} && uv run python /tinynav/tinynav/core/planning_node.py" C-m \; \
++  select-pane -t 2 \; send-keys "source ${q_setup} && cd ${q_root} && uv run python /tinynav/tinynav/core/map_node.py --tinynav_map_path ${q_map}" C-m \; \
++  select-pane -t 3 \; send-keys "source ${q_setup} && cd ${q_root} && uv run python /tinynav/tinynav/platforms/cmd_vel_control.py" C-m \; \
++  select-pane -t 4 \; send-keys "$rviz_cmd" C-m \; \
++  select-pane -t 5 \; send-keys "source ${q_setup} && cd ${q_root} && sleep 3 && uv run python /tinynav/tool/pub_pois.py --tinynav_map_path ${q_map}" C-m
++
++if [[ "$start_go2" == "true" ]]; then
++  tmux new-window -t "$SESSION_NAME" -n go2-bridge \
++    "bash -lc 'source ${q_setup} && cd ${q_root} && export UNITREE_NET_IF=${q_go2_if} GO2_CMD_TOPIC=/cmd_vel GO2_MAX_VX=0.30 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.70 GO2_MIN_CMD_V=0.10 GO2_MIN_CMD_W=0.20 GO2_LOG_COMMANDS=true && bash scripts/run_go2_cmd_bridge.sh'"
++fi
++
++echo "Official-baseline navigation started."
++echo "  session: $SESSION_NAME"
++echo "  map:     $map_path"
++echo "  rviz:    $start_rviz ($rviz_config)"
++echo "  go2:     $start_go2"
++echo
++echo "Attach:"
++echo "  tmux attach -t $SESSION_NAME"
++echo
++echo "Stop:"
++echo "  tmux kill-session -t $SESSION_NAME"
+diff --git a/tests/test_perception_health.py b/tests/test_perception_health.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..04acc8036ecbf7aec598d7511fcce45fd71018f1
+--- /dev/null
++++ b/tests/test_perception_health.py
+@@ -0,0 +1,78 @@
++from types import SimpleNamespace
++
++import pytest
++
++from tinynav.core.perception_health import (
++    reanchor_keyframe_queue,
++    summarize_imu_intervals,
++)
++
++
++def frame(timestamp, *, latest=None, count=100, max_gap=0.005):
++    return SimpleNamespace(
++        timestamp=timestamp,
++        latest_imu_timestamp=timestamp if latest is None else latest,
++        imu_measurement_count=count,
++        imu_max_gap_s=max_gap,
++    )
++
++
++def test_healthy_200hz_interval_is_valid():
++    interval = summarize_imu_intervals([
++        frame(10.0, latest=10.5, count=100),
++        frame(10.5),
++    ])[0]
++
++    assert interval["valid"] is True
++    assert interval["coverage_ratio"] == pytest.approx(1.0)
++    assert interval["invalid_reasons"] == []
++
++
++@pytest.mark.parametrize(
++    ("start", "expected_reason"),
++    [
++        (frame(10.0, latest=10.5, count=20), "low_sample_coverage"),
++        (frame(10.0, latest=10.5, max_gap=0.2), "sample_gap"),
++        (frame(10.0, latest=10.4), "end_not_covered"),
++        (frame(10.0, latest=10.5, count=1), "too_few_samples"),
++    ],
++)
++def test_incomplete_interval_is_invalid(start, expected_reason):
++    interval = summarize_imu_intervals([start, frame(10.5)])[0]
++
++    assert interval["valid"] is False
++    assert expected_reason in interval["invalid_reasons"]
++
++
++def test_nonpositive_interval_is_invalid():
++    interval = summarize_imu_intervals([
++        frame(10.0, latest=10.0),
++        frame(10.0),
++    ])[0]
++
++    assert interval["valid"] is False
++    assert "invalid_duration" in interval["invalid_reasons"]
++
++
++def test_invalid_interval_reanchors_so_next_interval_can_recover():
++    queue = [
++        frame(10.0, latest=10.5, count=100, max_gap=0.31),
++        frame(10.5),
++    ]
++    assert summarize_imu_intervals(queue)[0]["valid"] is False
++
++    newest = reanchor_keyframe_queue(queue)
++
++    assert queue == [newest]
++    assert newest.timestamp == 10.5
++    assert newest.latest_imu_timestamp == 10.5
++    assert newest.imu_measurement_count == 0
++    assert newest.imu_max_gap_s == 0.0
++
++    newest.latest_imu_timestamp = 11.0
++    newest.imu_measurement_count = 100
++    newest.imu_max_gap_s = 0.005
++    recovered = summarize_imu_intervals([newest, frame(11.0)])[0]
++
++    assert recovered["valid"] is True
++    assert recovered["invalid_reasons"] == []
+diff --git a/tinynav/core/map_node.py b/tinynav/core/map_node.py
+index f51b16d900570ce147190cc5014cf5bc0053d103..438b248c4fcd222d125c6d0f4c590d4f2e1444c9 100644
+--- a/tinynav/core/map_node.py
++++ b/tinynav/core/map_node.py
+@@ -337,6 +337,7 @@ class MapNode(Node):
+         success, pose_in_world = self.keyframe_relocalization(keyframe_image_msg.header.stamp, image)
+         if success:
+             self.compute_transform_from_map_to_odom()
++        self.publish_map_transform(self.get_clock().now().to_msg())
+ 
+         with Timer(name = "nav path", text="[{name}] Elapsed time: {milliseconds:.0f} ms", logger=self.timer_logger):
+             self.try_publish_nav_path(keyframe_image_timestamp_ns)
+@@ -579,6 +580,11 @@ class MapNode(Node):
+         optimized_parameters = pose_graph_solve(optimized_parameters, relative_pose_constraint, constant_pose_index_dict, max_iteration_num = 1000)
+         self.T_from_map_to_odom = optimized_parameters[0]
+ 
++    def publish_map_transform(self, stamp) -> None:
++        if self.T_from_map_to_odom is None:
++            return
++        self.tf_broadcaster.sendTransform(np2tf(self.T_from_map_to_odom, stamp, "world", "map"))
++
+     def try_publish_nav_path(self, timestamp: int):
+         self.get_logger().info(f"try_publish_nav_path, timestamp: {timestamp}")
+         if self.T_from_map_to_odom is None:
+@@ -713,7 +719,7 @@ class MapNode(Node):
+                     pose.pose.orientation.w = 1.0
+                     path_msg.poses.append(pose)
+                 self.global_plan_pub.publish(path_msg)
+-                self.tf_broadcaster.sendTransform(np2tf(T, self.get_clock().now().to_msg(), "world", "map"))
++                self.publish_map_transform(self.get_clock().now().to_msg())
+         else:
+             logging.info("No path found in map")
+ 
+diff --git a/tinynav/core/perception_health.py b/tinynav/core/perception_health.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..3ff72f89a860c51baaffc238fdc580fbec9f496f
+--- /dev/null
++++ b/tinynav/core/perception_health.py
+@@ -0,0 +1,65 @@
++"""Pure, dependency-free health checks for TinyNav perception intervals."""
++from __future__ import annotations
++
++import math
++
++IMU_NOMINAL_PERIOD_S = 0.005
++IMU_MIN_COVERAGE_RATIO = 0.80
++IMU_MAX_SAMPLE_GAP_S = 0.05
++IMU_END_TOLERANCE_S = 0.01
++
++
++def reanchor_keyframe_queue(keyframes):
++    """Keep only the newest frame after rejecting an invalid IMU interval.
++
++    The newest frame was just created with an empty preintegrator.  Retaining
++    it as the next anchor prevents one historical sample gap from poisoning
++    every future interval while the current optimization remains fail-closed.
++    """
++    if not keyframes:
++        raise ValueError("cannot re-anchor an empty keyframe queue")
++    newest = keyframes[-1]
++    keyframes.clear()
++    keyframes.append(newest)
++    newest.latest_imu_timestamp = newest.timestamp
++    newest.imu_measurement_count = 0
++    newest.imu_max_gap_s = 0.0
++    return newest
++
++
++def summarize_imu_intervals(keyframes) -> list[dict]:
++    """Return auditable coverage metrics for every adjacent keyframe pair."""
++    intervals = []
++    for start, end in zip(keyframes[:-1], keyframes[1:]):
++        duration_s = end.timestamp - start.timestamp
++        expected_count = max(
++            1, int(round(duration_s / IMU_NOMINAL_PERIOD_S)))
++        coverage_ratio = start.imu_measurement_count / expected_count
++        end_error_s = abs(start.latest_imu_timestamp - end.timestamp)
++        reasons = []
++        if not math.isfinite(duration_s) or duration_s <= 0.0:
++            reasons.append("invalid_duration")
++        if start.imu_measurement_count < 2:
++            reasons.append("too_few_samples")
++        if not math.isfinite(coverage_ratio) or coverage_ratio < IMU_MIN_COVERAGE_RATIO:
++            reasons.append("low_sample_coverage")
++        if (
++            not math.isfinite(start.imu_max_gap_s)
++            or start.imu_max_gap_s > IMU_MAX_SAMPLE_GAP_S
++        ):
++            reasons.append("sample_gap")
++        if not math.isfinite(end_error_s) or end_error_s > IMU_END_TOLERANCE_S:
++            reasons.append("end_not_covered")
++        intervals.append({
++            "start_timestamp": start.timestamp,
++            "end_timestamp": end.timestamp,
++            "duration_s": duration_s,
++            "sample_count": start.imu_measurement_count,
++            "expected_count": expected_count,
++            "coverage_ratio": coverage_ratio,
++            "max_sample_gap_s": start.imu_max_gap_s,
++            "end_error_s": end_error_s,
++            "valid": not reasons,
++            "invalid_reasons": reasons,
++        })
++    return intervals
+diff --git a/tinynav/core/perception_node.py b/tinynav/core/perception_node.py
+index 4cca962d9dc9356cafeb0554bd172126153d19e2..8be24c94f1a769096a531f524eed0d6ef66c1222 100644
+--- a/tinynav/core/perception_node.py
++++ b/tinynav/core/perception_node.py
+@@ -1,10 +1,12 @@
+ import argparse
+ import json
+ import logging
++import queue
+ import sys
++import threading
+ import time
+ import cv2
+-from message_filters import Subscriber, ApproximateTimeSynchronizer, InputAligner, SimpleFilter
++from message_filters import Subscriber, ApproximateTimeSynchronizer
+ import numpy as np
+ import rclpy
+ from codetiming import Timer
+@@ -15,9 +17,12 @@ from rclpy.node import Node
+ from sensor_msgs.msg import Image, Imu, CameraInfo
+ from std_msgs.msg import String
+ from rclpy.qos import QoSProfile, ReliabilityPolicy
+-from rclpy.duration import Duration
+ from tinynav.core.math_utils import rot_from_two_vector, np2msg, np2tf, estimate_pose
+ from tinynav.core.math_utils import uf_init, uf_union, uf_all_sets_list
++from tinynav.core.perception_health import (
++    reanchor_keyframe_queue,
++    summarize_imu_intervals,
++)
+ from tf2_ros import TransformBroadcaster
+ import asyncio
+ import gtsam
+@@ -30,6 +35,8 @@ from tinynav.core.imu_propagator_node import ImuPropagatorNode
+ 
+ _N = 5
+ _M = 1000
++_IMU_QOS_DEPTH = 10_000
++_IMU_BUFFER_SIZE = 20_000
+ 
+ _MIN_FEATURES = 20
+ _KEYFRAME_MIN_DISTANCE = 0.1    # unit: meter
+@@ -82,6 +89,7 @@ class Keyframe:
+     preintegrated_imu: gtsam.PreintegratedCombinedMeasurements
+     latest_imu_timestamp: float
+     imu_measurement_count: int = 0
++    imu_max_gap_s: float = 0.0
+ 
+ class PerceptionNode(Node):
+     def __init__(self, verbose_timer: bool = True):
+@@ -108,7 +116,10 @@ class PerceptionNode(Node):
+ 
+         self.bridge = CvBridge()
+         self.tf_broadcaster = TransformBroadcaster(self)
+-        qos_profile = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=500)
++        # At 200 Hz, this preserves 50 seconds in the DDS reader during the
++        # one-time TensorRT/GTSAM warm-up, which can hold the Python GIL.
++        qos_profile = QoSProfile(
++            reliability=ReliabilityPolicy.BEST_EFFORT, depth=_IMU_QOS_DEPTH)
+ 
+         # use a single topic to handle the imu data.
+         self.imu_sub = self.create_subscription(Imu, "/camera/camera/imu", self.imu_callback, qos_profile)
+@@ -121,15 +132,6 @@ class PerceptionNode(Node):
+         self.ts = ApproximateTimeSynchronizer([self.left_sub, self.right_sub], queue_size=10, slop=0.02)
+         self.ts.registerCallback(self.images_callback)
+ 
+-        self.input_aligner_imu_filter = SimpleFilter()
+-        self.input_aligner_stereo_filter = SimpleFilter()
+-        self.input_aligner = InputAligner(Duration(seconds=1.000), self.input_aligner_imu_filter, self.input_aligner_stereo_filter)
+-        self.input_aligner.setInputPeriod(0, Duration(seconds=0.005))
+-        self.input_aligner.setInputPeriod(1, Duration(seconds=0.01))
+-        self.input_aligner.registerCallback(0, self._aligned_imu_callback)
+-        self.input_aligner.registerCallback(1, self._aligned_stereo_callback)
+-        self.input_aligner_seen_imu = False
+-        self.input_aligner_seen_stereo = False
+         self.odom_pub = self.create_publisher(Odometry, "/slam/odometry_visual", 10)
+         self.slam_camera_info_pub = self.create_publisher(CameraInfo, "/slam/camera_info", 10)
+         self.depth_pub = self.create_publisher(Image, "/slam/depth", 10)
+@@ -165,12 +167,24 @@ class PerceptionNode(Node):
+                              [0, 1, 0, 0],
+                              [0, 0, 0, 1]])
+ 
+-        self.imu_measurements = deque(maxlen=1000)
++        self.imu_measurements = deque(maxlen=_IMU_BUFFER_SIZE)
++        self._imu_condition = threading.Condition()
++        self.imu_messages_received = 0
++        self.imu_messages_discarded_before_anchor = 0
++        self.imu_messages_rejected = 0
++        self.imu_messages_overwritten = 0
++        self.imu_invalid_reanchors = 0
++        self.stereo_pairs_dropped = 0
+ 
+         self.keyframe_queue = []
+-        self._async_loop = asyncio.new_event_loop()
++        self._stereo_queue = queue.Queue(maxsize=2)
++        self._worker_stop = threading.Event()
++        self._worker = threading.Thread(
++            target=self._stereo_worker, name="tinynav-stereo-worker", daemon=True)
++        self._worker.start()
+         self.logger.info("PerceptionNode initialized.")
+         self.process_cnt = 0
++        self.compute_warmup_complete = False
+ 
+     def info_callback(self, msg):
+         if self.K is None:
+@@ -197,51 +211,116 @@ class PerceptionNode(Node):
+         elif len(self.accel_readings) < 10:
+             self.accel_readings.append(imu_msg.linear_acceleration)
+ 
+-        # if the timestamp jump is too large, it means the IMU is not working properly
+-        if self.imu_last_received_timestamp is not None and current_timestamp - self.imu_last_received_timestamp > 0.1:
+-            delta_timestamp = current_timestamp - self.imu_last_received_timestamp
+-            self.get_logger().warning(f"IMU timestamp jump {delta_timestamp} s is too large, it means the IMU is not working properly")
+-        self.imu_last_received_timestamp = current_timestamp
+         accel_data = np.array([[imu_msg.linear_acceleration.x], [imu_msg.linear_acceleration.y], [imu_msg.linear_acceleration.z]])
+         gyro_data = np.array([[imu_msg.angular_velocity.x], [imu_msg.angular_velocity.y], [imu_msg.angular_velocity.z]])
+-        self.imu_measurements.append([current_timestamp, accel_data.flatten(), gyro_data.flatten()])
+-
+-    def _aligned_imu_callback(self, imu_msg):
+-        self._process_imu_msg(imu_msg)
+-
+-    def _aligned_stereo_callback(self, stereo_pair_msg):
+-        left_msg = stereo_pair_msg.left_msg
+-        right_msg = stereo_pair_msg.right_msg
+-        image_timestamp = stamp2second(left_msg.header.stamp)
+-        if image_timestamp - self.last_processed_timestamp < 0.1333:
++        if (
++            not np.isfinite(current_timestamp)
++            or not np.all(np.isfinite(accel_data))
++            or not np.all(np.isfinite(gyro_data))
++        ):
++            self.imu_messages_rejected += 1
++            self.get_logger().error("reject non-finite IMU sample")
+             return
+-
+-        self.last_processed_timestamp = image_timestamp
+-        loop_start = time.perf_counter()
+-        with Timer(name="Perception Loop", text="[{name}] Elapsed time: {milliseconds:.0f} ms\n\n", logger=self.logger.info):
+-            processed = self._async_loop.run_until_complete(self.process(left_msg, right_msg))
+-        if processed:
+-            processed["stats"]["loop_ms"] = (time.perf_counter() - loop_start) * 1000.0
+-            self.stats_pub.publish(String(data=json.dumps(processed)))
++        with self._imu_condition:
++            # Keep the callback short: only validate timestamp order and append.
++            if (
++                self.imu_last_received_timestamp is not None
++                and current_timestamp <= self.imu_last_received_timestamp
++            ):
++                self.imu_messages_rejected += 1
++                self.get_logger().warning("reject non-monotonic IMU timestamp")
++                return
++            if self.imu_last_received_timestamp is not None and current_timestamp - self.imu_last_received_timestamp > 0.1:
++                delta_timestamp = current_timestamp - self.imu_last_received_timestamp
++                self.get_logger().warning(f"IMU timestamp jump {delta_timestamp} s is too large, it means the IMU is not working properly")
++            self.imu_last_received_timestamp = current_timestamp
++            if len(self.imu_measurements) == self.imu_measurements.maxlen:
++                self.imu_messages_overwritten += 1
++            self.imu_measurements.append(
++                [current_timestamp, accel_data.flatten(), gyro_data.flatten()])
++            self.imu_messages_received += 1
++            self._imu_condition.notify_all()
++
++    def _stereo_worker(self):
++        async_loop = asyncio.new_event_loop()
++        asyncio.set_event_loop(async_loop)
++        try:
++            while not self._worker_stop.is_set():
++                try:
++                    stereo_pair_msg = self._stereo_queue.get(timeout=0.1)
++                except queue.Empty:
++                    continue
++                if stereo_pair_msg is None:
++                    break
++                left_msg = stereo_pair_msg.left_msg
++                right_msg = stereo_pair_msg.right_msg
++                image_timestamp = stamp2second(left_msg.header.stamp)
++                # Use the sensor timestamp watermark, never callback arrival
++                # order, before handing a frame to the expensive TRT worker.
++                with self._imu_condition:
++                    imu_covered = self._imu_condition.wait_for(
++                        lambda: (
++                            self.imu_last_received_timestamp is not None
++                            and self.imu_last_received_timestamp >= image_timestamp
++                        ) or self._worker_stop.is_set(),
++                        timeout=1.0,
++                    )
++                if not imu_covered or self._worker_stop.is_set():
++                    self.get_logger().warning(
++                        f"skip stereo frame {image_timestamp}: IMU watermark did not catch up")
++                    continue
++                loop_start = time.perf_counter()
++                with Timer(name="Perception Loop", text="[{name}] Elapsed time: {milliseconds:.0f} ms\n\n", logger=self.logger.info):
++                    processed = async_loop.run_until_complete(
++                        self.process(left_msg, right_msg))
++                if processed:
++                    processed["stats"]["loop_ms"] = (
++                        time.perf_counter() - loop_start) * 1000.0
++                    processed["stats"]["imu_messages_received"] = self.imu_messages_received
++                    processed["stats"]["imu_messages_discarded_before_anchor"] = (
++                        self.imu_messages_discarded_before_anchor)
++                    processed["stats"]["imu_messages_rejected"] = self.imu_messages_rejected
++                    processed["stats"]["imu_messages_overwritten"] = self.imu_messages_overwritten
++                    processed["stats"]["imu_invalid_reanchors"] = (
++                        self.imu_invalid_reanchors)
++                    processed["stats"]["stereo_pairs_dropped"] = self.stereo_pairs_dropped
++                    self.stats_pub.publish(String(data=json.dumps(processed)))
++        finally:
++            async_loop.close()
+ 
+     def destroy_node(self):
+-        if self._async_loop is not None:
+-            self._async_loop.close()
+-            self._async_loop = None
++        self._worker_stop.set()
++        try:
++            self._stereo_queue.put_nowait(None)
++        except queue.Full:
++            try:
++                self._stereo_queue.get_nowait()
++            except queue.Empty:
++                pass
++            self._stereo_queue.put_nowait(None)
++        self._worker.join(timeout=5.0)
+         return super().destroy_node()
+ 
+     def imu_callback(self, imu_msg):
+-        self.input_aligner_imu_filter.signalMessage(imu_msg)
+-        self.input_aligner_seen_imu = True
+-        if self.input_aligner_seen_stereo:
+-            self.input_aligner.dispatchMessages()
++        self._process_imu_msg(imu_msg)
+ 
+     def images_callback(self, left_msg, right_msg):
++        image_timestamp = stamp2second(left_msg.header.stamp)
++        if image_timestamp - self.last_processed_timestamp < 0.1333:
++            return
++        self.last_processed_timestamp = image_timestamp
+         stereo_pair_msg = StereoPairMsg(header=left_msg.header, left_msg=left_msg, right_msg=right_msg)
+-        self.input_aligner_stereo_filter.signalMessage(stereo_pair_msg)
+-        self.input_aligner_seen_stereo = True
+-        if self.input_aligner_seen_imu:
+-            self.input_aligner.dispatchMessages()
++        try:
++            self._stereo_queue.put_nowait(stereo_pair_msg)
++        except queue.Full:
++            # Prefer the newest pair; callbacks remain short so 200 Hz IMU
++            # delivery cannot be starved by the TRT/GTSAM workload.
++            try:
++                self._stereo_queue.get_nowait()
++            except queue.Empty:
++                pass
++            self.stereo_pairs_dropped += 1
++            self._stereo_queue.put_nowait(stereo_pair_msg)
+ 
+     async def process(self, left_msg, right_msg):
+         if self.K is None or self.T_body_last is None:
+@@ -254,6 +333,13 @@ class PerceptionNode(Node):
+         right_img = self.bridge.imgmsg_to_cv2(right_msg, "mono8")
+         current_timestamp = stamp2second(left_msg.header.stamp)
+         if len(self.keyframe_queue) == 0: # first frame
++            with self._imu_condition:
++                while (
++                    self.imu_measurements
++                    and self.imu_measurements[0][0] <= current_timestamp
++                ):
++                    self.imu_measurements.popleft()
++                    self.imu_messages_discarded_before_anchor += 1
+             disparity, depth = await self.stereo_engine.infer(left_img, right_img, np.array([[self.baseline]]), np.array([[self.K[0,0]]]))
+             self.keyframe_queue.append(
+                 Keyframe(
+@@ -269,7 +355,7 @@ class PerceptionNode(Node):
+                 )
+             )
+             return {
+-            "stats": {"process_cnt": 0},
++            "stats": {"process_cnt": self.process_cnt, "optimizer_status": "anchoring"},
+             "metrics": {"num_keyframes": 0, "num_tracks": 0, "num_factors": 0, "num_variables": 0, "initial_error": 0.0, "final_error": 0.0}
+         }
+ 
+@@ -290,26 +376,35 @@ class PerceptionNode(Node):
+                 left_img.shape)
+ 
+         # propagate IMU measurements
+-        while len(self.imu_measurements) > 0 and self.imu_measurements[0][0] <= current_timestamp:
+-            timestamp, accel, gyro = self.imu_measurements[0]
++        imu_batch = []
++        next_imu_measurement = None
++        with self._imu_condition:
++            while self.imu_measurements and self.imu_measurements[0][0] <= current_timestamp:
++                imu_batch.append(self.imu_measurements.popleft())
++            if self.imu_measurements:
++                next_imu_measurement = self.imu_measurements[0]
++
++        for timestamp, accel, gyro in imu_batch:
+             dt = timestamp - self.keyframe_queue[-1].latest_imu_timestamp
+ 
+             if timestamp <= self.keyframe_queue[-1].latest_imu_timestamp:
+-                self.imu_measurements.popleft()
+                 self.logger.warning("should only happen at beginning")
+                 continue
+ 
+             self.keyframe_queue[-1].preintegrated_imu.integrateMeasurement(accel, gyro, dt) #todo
+             self.keyframe_queue[-1].latest_imu_timestamp = timestamp
+             self.keyframe_queue[-1].imu_measurement_count += 1
+-
+-            self.imu_measurements.popleft()
++            self.keyframe_queue[-1].imu_max_gap_s = max(
++                self.keyframe_queue[-1].imu_max_gap_s, dt)
+         # specially process the last imu
+-        if len(self.imu_measurements) > 0 and current_timestamp - self.keyframe_queue[-1].latest_imu_timestamp > 0.001:
+-            timestamp, accel, gyro = self.imu_measurements[0]
++        if next_imu_measurement is not None and current_timestamp - self.keyframe_queue[-1].latest_imu_timestamp > 0.001:
++            _, accel, gyro = next_imu_measurement
+             dt = current_timestamp - self.keyframe_queue[-1].latest_imu_timestamp
+             self.keyframe_queue[-1].preintegrated_imu.integrateMeasurement(accel, gyro, dt)
++            self.keyframe_queue[-1].latest_imu_timestamp = current_timestamp
+             self.keyframe_queue[-1].imu_measurement_count += 1
++            self.keyframe_queue[-1].imu_max_gap_s = max(
++                self.keyframe_queue[-1].imu_max_gap_s, dt)
+ 
+         with Timer(name="[PnP]", text="[{name}] Elapsed time: {milliseconds:.0f} ms", logger=self.logger.debug):
+         # do simple pose estimation between last keyframe and current frame
+@@ -346,13 +441,49 @@ class PerceptionNode(Node):
+         )
+         if len(self.keyframe_queue) > _N:
+             self.keyframe_queue.pop(0)
++        optimization_keyframes = self.keyframe_queue[-_N:]
++        imu_intervals = summarize_imu_intervals(optimization_keyframes)
++        imu_intervals_valid = bool(imu_intervals) and all(
++            interval["valid"] for interval in imu_intervals)
++        if not imu_intervals_valid:
++            self.logger.error(
++                "skip optimization: incomplete IMU interval(s): "
++                + json.dumps(imu_intervals))
++            reanchor = reanchor_keyframe_queue(self.keyframe_queue)
++            # Do not trust motion integrated across the bad interval.  Keep
++            # the last accepted pose, zero velocity conservatively, and use
++            # this newest sensor frame only as the timestamp/image anchor for
++            # the next interval.  Nothing from this rejected frame is
++            # published.
++            reanchor.pose = np.array(self.T_body_last, copy=True)
++            if self.V_last is not None:
++                self.V_last = np.zeros_like(self.V_last)
++                reanchor.velocity = self.V_last.copy()
++            self.imu_invalid_reanchors += 1
++            return {
++                "stats": {
++                    "process_cnt": self.process_cnt,
++                    "optimizer_status": "skipped_imu_invalid",
++                },
++                "metrics": {
++                    "num_keyframes": len(self.keyframe_queue),
++                    "num_tracks": 0,
++                    "num_factors": 0,
++                    "num_variables": 0,
++                    "initial_error": None,
++                    "final_error": None,
++                    "imu_intervals_valid": False,
++                    "imu_intervals": imu_intervals,
++                    "pose_covariance_valid": False,
++                },
++            }
+         with Timer(name="[ISAM Processing]", text="[{name}] Elapsed time: {milliseconds:.0f} ms", logger=self.logger.info):
+             with Timer(name="[adding imu]", text="[{name}] Elapsed time: {milliseconds:.03f} ms", logger=self.logger.debug):
+                 # we have new graph each time
+                 graph = gtsam.NonlinearFactorGraph()
+                 initial_estimate = gtsam.Values()
+                 # process previous keyframes' factors
+-                for i, keyframe in enumerate(self.keyframe_queue[-_N:]):
++                for i, keyframe in enumerate(optimization_keyframes):
+                     # per pose -- bias
+                     initial_estimate.insert(B(i), gtsam.imuBias.ConstantBias())
+                     graph.add(gtsam.PriorFactorConstantBias(B(i), gtsam.imuBias.ConstantBias(), gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2]))))
+@@ -367,12 +498,7 @@ class PerceptionNode(Node):
+                         graph.add(gtsam.PriorFactorPose3(X(i), Matrix4x4ToGtsamPose3(keyframe.pose), gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1]))))
+ 
+                     # per pose -- preintegrated IMU factor, only between two keyframes
+-                    if i != len(self.keyframe_queue[-_N:]) - 1:
+-                        if keyframe.imu_measurement_count < 26:
+-                            self.logger.warning(
+-                                f"keyframe {i} at {keyframe.timestamp} only used "
+-                                f"{keyframe.imu_measurement_count} imu measurements; expected at least 26"
+-                            )
++                    if i != len(optimization_keyframes) - 1:
+                         imu_factor = gtsam.CombinedImuFactor(X(i), V(i), X(i+1), V(i+1), B(i), B(i+1), keyframe.preintegrated_imu)
+                         graph.add(imu_factor)
+                     self.logger.debug(
+@@ -522,10 +648,33 @@ class PerceptionNode(Node):
+             lm = gtsam.LevenbergMarquardtOptimizer(graph, initial_estimate, params)
+             result = lm.optimize()
+ 
++            initial_error = graph.error(initial_estimate)
++            final_error = graph.error(result)
+             self.logger.info(f"ISAM optimization done with {graph.size()} factors and {initial_estimate.size()} variables.")
+-            self.logger.info(f"Initial error: {graph.error(initial_estimate):.4f}, Final error: {graph.error(result):.4f}")
++            self.logger.info(f"Initial error: {initial_error:.4f}, Final error: {final_error:.4f}")
+ 
+-            for i, keyframe in enumerate(self.keyframe_queue[-_N:]):
++            if not np.isfinite(initial_error) or not np.isfinite(final_error):
++                self.logger.error("reject non-finite optimizer result")
++                self.keyframe_queue.pop()
++                return {
++                    "stats": {
++                        "process_cnt": self.process_cnt,
++                        "optimizer_status": "rejected_nonfinite",
++                    },
++                    "metrics": {
++                        "num_keyframes": len(self.keyframe_queue),
++                        "num_tracks": len(tracks),
++                        "num_factors": graph.size(),
++                        "num_variables": initial_estimate.size(),
++                        "initial_error": None,
++                        "final_error": None,
++                        "imu_intervals_valid": True,
++                        "imu_intervals": imu_intervals,
++                        "pose_covariance_valid": False,
++                    },
++                }
++
++            for i, keyframe in enumerate(optimization_keyframes):
+                 T_i = result.atPose3(X(i)).matrix()
+                 keyframe.pose = T_i
+                 keyframe.velocity = result.atVector(V(i))
+@@ -533,6 +682,37 @@ class PerceptionNode(Node):
+                 self.logger.debug(f"Bias {i} updated:\n{result.atConstantBias(B(i))}")
+                 #print("imu error: ", keyframe.preintegrated_imu.error(initial_estimate))
+ 
++        if not self.compute_warmup_complete:
++            # The first full TRT/GTSAM pass is a cold-start warm-up and can
++            # take tens of seconds. Never publish its now-stale pose or bridge
++            # that wall-clock gap with one IMU factor. Re-anchor on the newest
++            # sensor frame after the DDS backlog has drained.
++            self.compute_warmup_complete = True
++            self.T_body_last = result.atPose3(
++                X(len(optimization_keyframes) - 1)).matrix()
++            self.V_last = result.atVector(
++                V(len(optimization_keyframes) - 1))
++            self.keyframe_queue.clear()
++            self.logger.info(
++                "compute warm-up complete; re-anchoring at newest sensor frame")
++            return {
++                "stats": {
++                    "process_cnt": self.process_cnt,
++                    "optimizer_status": "warmup_complete",
++                },
++                "metrics": {
++                    "num_keyframes": 0,
++                    "num_tracks": len(tracks),
++                    "num_factors": graph.size(),
++                    "num_variables": initial_estimate.size(),
++                    "initial_error": initial_error,
++                    "final_error": final_error,
++                    "imu_intervals_valid": True,
++                    "imu_intervals": imu_intervals,
++                    "pose_covariance_valid": False,
++                },
++            }
++
+         with Timer(text="[Depth as Color] Elapsed time: {milliseconds:.0f} ms", logger=self.logger.debug):
+             disp_vis = disparity.copy().astype(np.uint8)
+             disp_color = cv2.applyColorMap(disp_vis * 4, cv2.COLORMAP_PLASMA)
+@@ -573,14 +753,19 @@ class PerceptionNode(Node):
+         return {
+             "stats": {
+                 "process_cnt": self.process_cnt,
++                "optimizer_status": "ok",
+             },
+             "metrics": {
+                 "num_keyframes": len(self.keyframe_queue),
+                 "num_tracks": len(tracks),
+                 "num_factors": graph.size(),
+                 "num_variables": initial_estimate.size(),
+-                "initial_error": graph.error(initial_estimate),
+-                "final_error": graph.error(result),
++                "initial_error": initial_error,
++                "final_error": final_error,
++                "imu_intervals_valid": True,
++                "imu_intervals": imu_intervals,
++                "pose_covariance_valid": False,
++                "pose_covariance_source": "unavailable",
+             },
+         }
+ 
+diff --git a/tool/current_pose_marker.py b/tool/current_pose_marker.py
+new file mode 100755
+index 0000000000000000000000000000000000000000..802de17e0eb7e4061e8d404c69c064f65ba03a48
+--- /dev/null
++++ b/tool/current_pose_marker.py
+@@ -0,0 +1,135 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import math
++from collections import deque
++
++import rclpy
++from builtin_interfaces.msg import Duration
++from geometry_msgs.msg import Point
++from nav_msgs.msg import Odometry
++from rclpy.node import Node
++from rclpy.qos import DurabilityPolicy, QoSProfile
++from visualization_msgs.msg import Marker, MarkerArray
++
++
++def yaw_from_quat(x: float, y: float, z: float, w: float) -> float:
++    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
++
++
++class CurrentPoseMarker(Node):
++    def __init__(self, args: argparse.Namespace) -> None:
++        super().__init__("current_pose_marker")
++        self.args = args
++        self.trail: deque[Point] = deque(maxlen=args.trail_length)
++        qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
++        self.pub = self.create_publisher(MarkerArray, args.marker_topic, qos)
++        self.sub = self.create_subscription(Odometry, args.pose_topic, self.callback, 20)
++        self.get_logger().info(
++            f"Publishing {args.pose_topic} as RViz markers on {args.marker_topic} in frame {args.frame_id}"
++        )
++
++    def callback(self, msg: Odometry) -> None:
++        pose = msg.pose.pose
++        x = float(pose.position.x)
++        y = float(pose.position.y)
++        z = float(pose.position.z) + self.args.z_offset
++        yaw = yaw_from_quat(
++            pose.orientation.x,
++            pose.orientation.y,
++            pose.orientation.z,
++            pose.orientation.w,
++        )
++
++        header = msg.header
++        header.stamp = self.get_clock().now().to_msg()
++        header.frame_id = self.args.frame_id
++
++        arrow = Marker()
++        arrow.header = header
++        arrow.ns = "current_pose"
++        arrow.id = 0
++        arrow.type = Marker.ARROW
++        arrow.action = Marker.ADD
++        arrow.pose = pose
++        arrow.pose.position.z = z
++        arrow.scale.x = self.args.arrow_length
++        arrow.scale.y = self.args.arrow_width
++        arrow.scale.z = self.args.arrow_height
++        arrow.color.r = 1.0
++        arrow.color.g = 0.05
++        arrow.color.b = 0.05
++        arrow.color.a = 1.0
++        arrow.lifetime = Duration(sec=0).to_msg()
++
++        label = Marker()
++        label.header = header
++        label.ns = "current_pose"
++        label.id = 1
++        label.type = Marker.TEXT_VIEW_FACING
++        label.action = Marker.ADD
++        label.pose.position.x = x
++        label.pose.position.y = y
++        label.pose.position.z = z + self.args.text_z_offset
++        label.pose.orientation.w = 1.0
++        label.scale.z = self.args.text_size
++        label.color.r = 1.0
++        label.color.g = 1.0
++        label.color.b = 1.0
++        label.color.a = 1.0
++        label.text = f"CURRENT\nx={x:.2f} y={y:.2f}\nyaw={math.degrees(yaw):.0f} deg"
++        label.lifetime = Duration(sec=0).to_msg()
++
++        p = Point(x=x, y=y, z=z)
++        if not self.trail or math.hypot(self.trail[-1].x - x, self.trail[-1].y - y) >= self.args.trail_step:
++            self.trail.append(p)
++
++        trail = Marker()
++        trail.header = header
++        trail.ns = "current_pose"
++        trail.id = 2
++        trail.type = Marker.LINE_STRIP
++        trail.action = Marker.ADD
++        trail.pose.orientation.w = 1.0
++        trail.scale.x = self.args.trail_width
++        trail.color.r = 1.0
++        trail.color.g = 0.15
++        trail.color.b = 0.05
++        trail.color.a = 1.0
++        trail.points = list(self.trail)
++        trail.lifetime = Duration(sec=0).to_msg()
++
++        self.pub.publish(MarkerArray(markers=[arrow, label, trail]))
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--pose-topic", default="/mapping/current_pose_in_map")
++    parser.add_argument("--marker-topic", default="/mapping/current_pose_marker")
++    parser.add_argument("--frame-id", default="map")
++    parser.add_argument("--z-offset", type=float, default=1.8)
++    parser.add_argument("--text-z-offset", type=float, default=0.35)
++    parser.add_argument("--arrow-length", type=float, default=0.9)
++    parser.add_argument("--arrow-width", type=float, default=0.16)
++    parser.add_argument("--arrow-height", type=float, default=0.16)
++    parser.add_argument("--text-size", type=float, default=0.22)
++    parser.add_argument("--trail-width", type=float, default=0.08)
++    parser.add_argument("--trail-step", type=float, default=0.05)
++    parser.add_argument("--trail-length", type=int, default=1000)
++    args = parser.parse_args()
++
++    rclpy.init()
++    node = CurrentPoseMarker(args)
++    try:
++        rclpy.spin(node)
++    except KeyboardInterrupt:
++        pass
++    finally:
++        node.destroy_node()
++        if rclpy.ok():
++            rclpy.shutdown()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tool/go2_cmd_bridge.py b/tool/go2_cmd_bridge.py
+new file mode 100755
+index 0000000000000000000000000000000000000000..1c5686345f0cedcecf88cd057e3d90250aa9c2ef
+--- /dev/null
++++ b/tool/go2_cmd_bridge.py
+@@ -0,0 +1,301 @@
++#!/usr/bin/env python3
++"""Bridge ROS Twist commands to Unitree Go2 high-level SportClient.Move()."""
++
++from __future__ import annotations
++
++import argparse
++import os
++import signal
++import struct
++import sys
++import time
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Optional
++
++from geometry_msgs.msg import Twist
++import rclpy
++from rclpy.executors import ExternalShutdownException
++from rclpy.node import Node
++
++
++@dataclass
++class TimedTwist:
++    stamp_sec: float
++    msg: Twist
++
++
++def clamp(value: float, limit: float) -> float:
++    limit = abs(float(limit))
++    return max(-limit, min(limit, float(value)))
++
++
++class Go2CmdBridge(Node):
++    def __init__(self, sport_client) -> None:
++        super().__init__("go2_cmd_bridge")
++        self.sport_client = sport_client
++
++        self.declare_parameter("cmd_vel_topic", "/cmd_vel_chassis_bt")
++        self.declare_parameter("rate_hz", 20.0)
++        self.declare_parameter("timeout_sec", 0.35)
++        self.declare_parameter("max_vx", 0.35)
++        self.declare_parameter("max_vy", 0.25)
++        self.declare_parameter("max_wz", 0.6)
++        self.declare_parameter("x_sign", 1.0)
++        self.declare_parameter("y_sign", 1.0)
++        self.declare_parameter("wz_sign", 1.0)
++        self.declare_parameter("swap_xy", False)
++        self.declare_parameter("deadband_v", 0.02)
++        self.declare_parameter("deadband_w", 0.04)
++        self.declare_parameter("min_cmd_v", 0.0)
++        self.declare_parameter("min_cmd_w", 0.0)
++        self.declare_parameter("enabled", True)
++        self.declare_parameter("send_zero_when_idle", False)
++        self.declare_parameter("stop_once_on_release", True)
++        self.declare_parameter("remote_priority", True)
++        self.declare_parameter("remote_topic", "rt/lowstate")
++        self.declare_parameter("remote_deadband", 0.12)
++        self.declare_parameter("remote_hold_sec", 0.8)
++        self.declare_parameter("log_commands", False)
++        self.declare_parameter("log_interval_sec", 0.5)
++
++        self.cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
++        self.rate_hz = float(self.get_parameter("rate_hz").value)
++        self.timeout_sec = float(self.get_parameter("timeout_sec").value)
++        self.max_vx = float(self.get_parameter("max_vx").value)
++        self.max_vy = float(self.get_parameter("max_vy").value)
++        self.max_wz = float(self.get_parameter("max_wz").value)
++        self.x_sign = float(self.get_parameter("x_sign").value)
++        self.y_sign = float(self.get_parameter("y_sign").value)
++        self.wz_sign = float(self.get_parameter("wz_sign").value)
++        self.swap_xy = bool(self.get_parameter("swap_xy").value)
++        self.deadband_v = float(self.get_parameter("deadband_v").value)
++        self.deadband_w = float(self.get_parameter("deadband_w").value)
++        self.min_cmd_v = abs(float(self.get_parameter("min_cmd_v").value))
++        self.min_cmd_w = abs(float(self.get_parameter("min_cmd_w").value))
++        self.enabled = bool(self.get_parameter("enabled").value)
++        self.send_zero_when_idle = bool(self.get_parameter("send_zero_when_idle").value)
++        self.stop_once_on_release = bool(self.get_parameter("stop_once_on_release").value)
++        self.remote_priority = bool(self.get_parameter("remote_priority").value)
++        self.remote_topic = str(self.get_parameter("remote_topic").value)
++        self.remote_deadband = float(self.get_parameter("remote_deadband").value)
++        self.remote_hold_sec = float(self.get_parameter("remote_hold_sec").value)
++        self.log_commands = bool(self.get_parameter("log_commands").value)
++        self.log_interval_sec = float(self.get_parameter("log_interval_sec").value)
++
++        self.latest_cmd: Optional[TimedTwist] = None
++        self.last_sent = (None, None, None)
++        self.command_active = False
++        self.latest_remote_stamp = 0.0
++        self.remote_subscriber = None
++        self.remote_takeover_logged = False
++        self.last_command_log_stamp = 0.0
++
++        self.create_subscription(Twist, self.cmd_vel_topic, self.on_cmd_vel, 10)
++        period = 1.0 / max(1.0, self.rate_hz)
++        self.create_timer(period, self.publish_to_go2)
++        self.setup_remote_priority()
++
++        self.get_logger().info(
++            "Go2 cmd bridge started: "
++            f"{self.cmd_vel_topic} -> SportClient.Move(), "
++            f"limits vx={self.max_vx:.2f}, vy={self.max_vy:.2f}, wz={self.max_wz:.2f}, "
++            f"deadband v={self.deadband_v:.2f}, w={self.deadband_w:.2f}, "
++            f"floor v={self.min_cmd_v:.2f}, w={self.min_cmd_w:.2f}, "
++            f"enabled={self.enabled}, "
++            f"send_zero_when_idle={self.send_zero_when_idle}, "
++            f"remote_priority={self.remote_priority}"
++        )
++
++    def now_sec(self) -> float:
++        return self.get_clock().now().nanoseconds * 1e-9
++
++    def on_cmd_vel(self, msg: Twist) -> None:
++        self.latest_cmd = TimedTwist(self.now_sec(), msg)
++
++    def setup_remote_priority(self) -> None:
++        if not self.remote_priority:
++            return
++        try:
++            from unitree_sdk2py.core.channel import ChannelSubscriber
++            from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowState_
++
++            self.remote_subscriber = ChannelSubscriber(self.remote_topic, LowState_)
++            self.remote_subscriber.Init(self.on_low_state, 10)
++            self.get_logger().info(
++                f"Remote priority enabled from {self.remote_topic}, "
++                f"deadband={self.remote_deadband:.2f}, hold={self.remote_hold_sec:.2f}s"
++            )
++        except Exception as exc:
++            self.get_logger().warning(f"Remote priority unavailable: {exc}")
++
++    def on_low_state(self, msg) -> None:
++        try:
++            data = bytes(msg.wireless_remote)
++            if len(data) < 24:
++                return
++            lx = struct.unpack("<f", data[4:8])[0]
++            rx = struct.unpack("<f", data[8:12])[0]
++            ry = struct.unpack("<f", data[12:16])[0]
++            ly = struct.unpack("<f", data[20:24])[0]
++            if max(abs(lx), abs(ly), abs(rx), abs(ry)) > self.remote_deadband:
++                self.latest_remote_stamp = time.monotonic()
++        except Exception:
++            return
++
++    def remote_is_active(self) -> bool:
++        if not self.remote_priority:
++            return False
++        return (time.monotonic() - self.latest_remote_stamp) <= self.remote_hold_sec
++
++    def command_from_latest(self) -> Optional[tuple[float, float, float]]:
++        if self.latest_cmd is None or (self.now_sec() - self.latest_cmd.stamp_sec) > self.timeout_sec:
++            return None
++
++        msg = self.latest_cmd.msg
++        raw_x = float(msg.linear.x)
++        raw_y = float(msg.linear.y)
++        if self.swap_xy:
++            raw_x, raw_y = raw_y, raw_x
++
++        vx = clamp(self.x_sign * raw_x, self.max_vx)
++        vy = clamp(self.y_sign * raw_y, self.max_vy)
++        wz = clamp(self.wz_sign * float(msg.angular.z), self.max_wz)
++
++        if abs(vx) < self.deadband_v:
++            vx = 0.0
++        if abs(vy) < self.deadband_v:
++            vy = 0.0
++        if abs(wz) < self.deadband_w:
++            wz = 0.0
++        vx = self.apply_floor(vx, self.min_cmd_v)
++        vy = self.apply_floor(vy, self.min_cmd_v)
++        wz = self.apply_floor(wz, self.min_cmd_w)
++        return vx, vy, wz
++
++    @staticmethod
++    def is_zero_command(vx: float, vy: float, wz: float) -> bool:
++        return vx == 0.0 and vy == 0.0 and wz == 0.0
++
++    @staticmethod
++    def apply_floor(value: float, floor: float) -> float:
++        if value == 0.0 or floor <= 0.0:
++            return value
++        if abs(value) >= floor:
++            return value
++        return floor if value > 0.0 else -floor
++
++    def release_control(self, reason: str) -> None:
++        if not self.command_active and not self.send_zero_when_idle:
++            return
++
++        try:
++            self.sport_client.Move(0.0, 0.0, 0.0)
++            if self.stop_once_on_release:
++                self.sport_client.StopMove()
++            self.last_sent = (0.0, 0.0, 0.0)
++            if self.command_active:
++                self.get_logger().info(f"Released Go2 control after {reason}; remote controller can take over")
++            self.command_active = False
++        except Exception as exc:
++            self.get_logger().error(f"SportClient stop failed: {exc}")
++
++    def publish_to_go2(self) -> None:
++        enabled = bool(self.get_parameter("enabled").value)
++        if enabled != self.enabled:
++            self.enabled = enabled
++            state = "enabled" if enabled else "disabled"
++            self.get_logger().info(f"Go2 cmd bridge {state}")
++
++        if not self.enabled:
++            self.release_control("bridge disabled")
++            return
++
++        if self.remote_is_active():
++            if not self.remote_takeover_logged:
++                self.get_logger().info("Remote controller active; holding Nav2 cmd_vel bridge")
++                self.remote_takeover_logged = True
++            self.release_control("remote controller activity")
++            return
++        self.remote_takeover_logged = False
++
++        command = self.command_from_latest()
++        if command is None:
++            self.release_control("cmd_vel timeout")
++            return
++
++        vx, vy, wz = command
++        if self.is_zero_command(vx, vy, wz) and not self.send_zero_when_idle:
++            self.release_control("zero cmd_vel")
++            return
++
++        try:
++            self.sport_client.Move(vx, vy, wz)
++            now = time.monotonic()
++            if self.log_commands and (now - self.last_command_log_stamp) >= self.log_interval_sec:
++                self.get_logger().info(f"Move(vx={vx:.3f}, vy={vy:.3f}, wz={wz:.3f})")
++                self.last_command_log_stamp = now
++            self.last_sent = (vx, vy, wz)
++            self.command_active = not self.is_zero_command(vx, vy, wz)
++        except Exception as exc:
++            self.get_logger().error(f"SportClient.Move failed: {exc}")
++
++    def stop_robot(self) -> None:
++        try:
++            self.sport_client.Move(0.0, 0.0, 0.0)
++            self.sport_client.StopMove()
++        except Exception as exc:
++            self.get_logger().warning(f"Failed to stop Go2 cleanly: {exc}")
++
++
++def import_unitree_sdk(sdk_path: str):
++    if sdk_path:
++        path = Path(sdk_path).expanduser()
++        if path.exists():
++            sys.path.insert(0, str(path))
++
++    from unitree_sdk2py.core.channel import ChannelFactoryInitialize
++    from unitree_sdk2py.go2.sport.sport_client import SportClient
++
++    return ChannelFactoryInitialize, SportClient
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description="ROS Twist to Unitree Go2 SportClient bridge")
++    parser.add_argument("--net-if", default=os.environ.get("UNITREE_NET_IF", "eth0"))
++    parser.add_argument(
++        "--sdk-path",
++        default=os.environ.get("UNITREE_SDK2PY_PATH", "/home/unitree/unitree_sdk2_python"),
++    )
++    args, ros_args = parser.parse_known_args()
++
++    ChannelFactoryInitialize, SportClient = import_unitree_sdk(args.sdk_path)
++    ChannelFactoryInitialize(0, args.net_if)
++
++    sport_client = SportClient()
++    sport_client.SetTimeout(10.0)
++    sport_client.Init()
++
++    rclpy.init(args=ros_args)
++    node = Go2CmdBridge(sport_client)
++
++    def handle_signal(_signum, _frame) -> None:
++        node.stop_robot()
++        raise KeyboardInterrupt
++
++    signal.signal(signal.SIGINT, handle_signal)
++    signal.signal(signal.SIGTERM, handle_signal)
++
++    try:
++        rclpy.spin(node)
++    except (KeyboardInterrupt, ExternalShutdownException):
++        pass
++    finally:
++        node.stop_robot()
++        node.destroy_node()
++        if rclpy.ok():
++            rclpy.shutdown()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tool/keyboard_cmd_vel.py b/tool/keyboard_cmd_vel.py
+new file mode 100755
+index 0000000000000000000000000000000000000000..47d8bcd5e206f51d06e46184b2bee8786e76a34a
+--- /dev/null
++++ b/tool/keyboard_cmd_vel.py
+@@ -0,0 +1,137 @@
++#!/usr/bin/env python3
++import argparse
++import select
++import sys
++import termios
++import time
++import tty
++
++import rclpy
++from geometry_msgs.msg import Twist
++from rclpy.node import Node
++
++
++HELP = """
++Keyboard teleop publishing geometry_msgs/Twist.
++
++  w/s : forward / backward
++  q/e : strafe left / right
++  a/d : turn left / right
++  space or x : stop
++  +/= : increase speed
++  -/_ : decrease speed
++  h : show help
++  Ctrl-C : stop and exit
++"""
++
++
++class KeyboardCmdVel(Node):
++    def __init__(self, topic: str, linear_speed: float, angular_speed: float, rate_hz: float):
++        super().__init__("keyboard_cmd_vel")
++        self.pub = self.create_publisher(Twist, topic, 10)
++        self.topic = topic
++        self.linear_speed = linear_speed
++        self.angular_speed = angular_speed
++        self.current = Twist()
++        self.last_key_time = time.monotonic()
++        self.timer = self.create_timer(1.0 / rate_hz, self.publish_current)
++
++    def publish_current(self):
++        self.pub.publish(self.current)
++
++    def stop(self):
++        self.current = Twist()
++        for _ in range(5):
++            self.pub.publish(self.current)
++            time.sleep(0.02)
++
++    def set_key(self, key: str):
++        cmd = Twist()
++
++        if key == "w":
++            cmd.linear.x = self.linear_speed
++        elif key == "s":
++            cmd.linear.x = -self.linear_speed
++        elif key == "q":
++            cmd.linear.y = self.linear_speed
++        elif key == "e":
++            cmd.linear.y = -self.linear_speed
++        elif key == "a":
++            cmd.angular.z = self.angular_speed
++        elif key == "d":
++            cmd.angular.z = -self.angular_speed
++        elif key in (" ", "x"):
++            pass
++        elif key in ("+", "="):
++            self.linear_speed = min(1.0, self.linear_speed + 0.05)
++            self.angular_speed = min(2.0, self.angular_speed + 0.1)
++            self.print_status()
++            return
++        elif key in ("-", "_"):
++            self.linear_speed = max(0.05, self.linear_speed - 0.05)
++            self.angular_speed = max(0.1, self.angular_speed - 0.1)
++            self.print_status()
++            return
++        elif key == "h":
++            print(HELP)
++            self.print_status()
++            return
++        else:
++            return
++
++        self.current = cmd
++        self.last_key_time = time.monotonic()
++        self.print_status()
++
++    def print_status(self):
++        cmd = self.current
++        print(
++            f"\rtopic={self.topic} "
++            f"vx={cmd.linear.x:+.2f} vy={cmd.linear.y:+.2f} wz={cmd.angular.z:+.2f} "
++            f"speed=({self.linear_speed:.2f} m/s, {self.angular_speed:.2f} rad/s)   ",
++            end="",
++            flush=True,
++        )
++
++
++def read_key(timeout_s: float) -> str | None:
++    readable, _, _ = select.select([sys.stdin], [], [], timeout_s)
++    if not readable:
++        return None
++    return sys.stdin.read(1)
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description="WASDQE keyboard teleop for /cmd_vel.")
++    parser.add_argument("--topic", default="/cmd_vel")
++    parser.add_argument("--linear-speed", type=float, default=0.20)
++    parser.add_argument("--angular-speed", type=float, default=0.45)
++    parser.add_argument("--rate", type=float, default=20.0)
++    args = parser.parse_args()
++
++    old_settings = termios.tcgetattr(sys.stdin)
++    rclpy.init()
++    node = KeyboardCmdVel(args.topic, args.linear_speed, args.angular_speed, args.rate)
++
++    print(HELP)
++    node.print_status()
++    try:
++        tty.setcbreak(sys.stdin.fileno())
++        while rclpy.ok():
++            key = read_key(0.02)
++            if key == "\x03":
++                break
++            if key is not None:
++                node.set_key(key.lower())
++            rclpy.spin_once(node, timeout_sec=0.0)
++    finally:
++        node.stop()
++        node.destroy_node()
++        rclpy.shutdown()
++        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
++        print("\nStopped.")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tool/map_keyframe_publisher.py b/tool/map_keyframe_publisher.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..117417345b1a94854f18e9e2a7731899bfdffb06
+--- /dev/null
++++ b/tool/map_keyframe_publisher.py
+@@ -0,0 +1,129 @@
++#!/usr/bin/env python3
++"""Publish saved TinyNav map keyframe poses for localization debugging."""
++
++from __future__ import annotations
++
++import argparse
++from pathlib import Path
++
++import numpy as np
++import rclpy
++from geometry_msgs.msg import PoseStamped
++from nav_msgs.msg import Path as PathMsg
++from rclpy.node import Node
++from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
++from scipy.spatial.transform import Rotation
++from visualization_msgs.msg import Marker, MarkerArray
++
++
++def pose_from_matrix(matrix: np.ndarray, frame_id: str, stamp) -> PoseStamped:
++    pose = PoseStamped()
++    pose.header.frame_id = frame_id
++    pose.header.stamp = stamp
++    t = matrix[:3, 3]
++    q = Rotation.from_matrix(matrix[:3, :3]).as_quat()
++    pose.pose.position.x = float(t[0])
++    pose.pose.position.y = float(t[1])
++    pose.pose.position.z = float(t[2])
++    pose.pose.orientation.x = float(q[0])
++    pose.pose.orientation.y = float(q[1])
++    pose.pose.orientation.z = float(q[2])
++    pose.pose.orientation.w = float(q[3])
++    return pose
++
++
++class MapKeyframePublisher(Node):
++    def __init__(self, map_path: Path, frame_id: str, period: float):
++        super().__init__("map_keyframe_publisher")
++        self.frame_id = frame_id
++        self.map_path = map_path
++        qos = QoSProfile(
++            history=HistoryPolicy.KEEP_LAST,
++            depth=1,
++            reliability=ReliabilityPolicy.RELIABLE,
++            durability=DurabilityPolicy.TRANSIENT_LOCAL,
++        )
++        self.path_pub = self.create_publisher(PathMsg, "/mapping/map_keyframe_path", qos)
++        self.marker_pub = self.create_publisher(MarkerArray, "/mapping/map_keyframe_markers", qos)
++        self.poses = self.load_poses(map_path)
++        self.create_timer(max(0.5, float(period)), self.publish)
++        self.publish()
++
++    def load_poses(self, map_path: Path) -> list[np.ndarray]:
++        poses_path = map_path / "poses.npy"
++        if not poses_path.exists():
++            raise FileNotFoundError(f"Missing {poses_path}")
++        data = np.load(poses_path, allow_pickle=True).item()
++        poses = [np.asarray(data[t], dtype=np.float64) for t in sorted(data.keys())]
++        self.get_logger().info(f"Loaded {len(poses)} map keyframe poses from {poses_path}")
++        return poses
++
++    def publish(self) -> None:
++        stamp = self.get_clock().now().to_msg()
++        path = PathMsg()
++        path.header.frame_id = self.frame_id
++        path.header.stamp = stamp
++        path.poses = [pose_from_matrix(pose, self.frame_id, stamp) for pose in self.poses]
++        self.path_pub.publish(path)
++
++        markers = []
++        if self.poses:
++            line = Marker()
++            line.header.frame_id = self.frame_id
++            line.header.stamp = stamp
++            line.ns = "map_keyframes"
++            line.id = 0
++            line.type = Marker.LINE_STRIP
++            line.action = Marker.ADD
++            line.scale.x = 0.035
++            line.color.r = 1.0
++            line.color.g = 1.0
++            line.color.b = 0.1
++            line.color.a = 1.0
++            for pose in self.poses:
++                ps = pose_from_matrix(pose, self.frame_id, stamp)
++                line.points.append(ps.pose.position)
++            markers.append(line)
++
++            for idx, pose in enumerate(self.poses[:: max(1, len(self.poses) // 40)]):
++                arrow = Marker()
++                arrow.header.frame_id = self.frame_id
++                arrow.header.stamp = stamp
++                arrow.ns = "map_keyframe_arrows"
++                arrow.id = idx + 1
++                arrow.type = Marker.ARROW
++                arrow.action = Marker.ADD
++                arrow.pose = pose_from_matrix(pose, self.frame_id, stamp).pose
++                arrow.scale.x = 0.25
++                arrow.scale.y = 0.04
++                arrow.scale.z = 0.04
++                arrow.color.r = 1.0
++                arrow.color.g = 0.95
++                arrow.color.b = 0.1
++                arrow.color.a = 0.85
++                markers.append(arrow)
++
++        self.marker_pub.publish(MarkerArray(markers=markers))
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--tinynav-map-path", type=Path, required=True)
++    parser.add_argument("--frame-id", default="world")
++    parser.add_argument("--period", type=float, default=1.0)
++    args = parser.parse_args()
++
++    rclpy.init()
++    node = MapKeyframePublisher(args.tinynav_map_path, args.frame_id, args.period)
++    try:
++        rclpy.spin(node)
++    except KeyboardInterrupt:
++        pass
++    finally:
++        node.destroy_node()
++        if rclpy.ok():
++            rclpy.shutdown()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tool/ros2_node_manager.py b/tool/ros2_node_manager.py
+index 9304133dafed05ced6bb1988dc52ed4ede08836d..70af7119333b6a585909c08f0cdb9e8c763e1071 100644
+--- a/tool/ros2_node_manager.py
++++ b/tool/ros2_node_manager.py
+@@ -47,10 +47,17 @@ class Ros2NodeManager(Node):
+         return [
+             'ros2', 'launch', 'realsense2_camera', 'rs_launch.py',
+             'initial_reset:=true',
+-            'depth_module.auto_exposure_limit:=1000',
+             'tf_publish_rate:=1.0',
+             'publish_tf:=true',
+-            'rgb_camera.color_profile:=640x360x30',
++            'enable_depth:=true',
++            'enable_color:=true',
++            'enable_infra1:=true',
++            'enable_infra2:=true',
++            'enable_gyro:=true',
++            'enable_accel:=true',
++            'depth_module.depth_profile:=848x480x30',
++            'depth_module.infra_profile:=848x480x30',
++            'rgb_camera.color_profile:=848x480x30',
+             'unite_imu_method:=2'
+         ]
+     
+diff --git a/tool/rviz_goal_to_poi.py b/tool/rviz_goal_to_poi.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..92302984ec6d99cd4bd0be99e7c37585c02ede6b
+--- /dev/null
++++ b/tool/rviz_goal_to_poi.py
+@@ -0,0 +1,299 @@
++#!/usr/bin/env python3
++import argparse
++import json
++import sys
++import tempfile
++from pathlib import Path
++
++import numpy as np
++import rclpy
++from rclpy.time import Time
++from geometry_msgs.msg import PoseStamped
++from rclpy.duration import Duration
++from rclpy.node import Node
++from rclpy.qos import DurabilityPolicy, QoSProfile
++from scipy.spatial.transform import Rotation
++from std_msgs.msg import String
++from tf2_ros import Buffer, TransformListener
++from visualization_msgs.msg import Marker, MarkerArray
++
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser(
++        description=(
++            "Bridge RViz /goal_pose into TinyNav POIs. Each incoming goal updates "
++            "pois.json and publishes the same payload to /mapping/cmd_pois."
++        )
++    )
++    parser.add_argument("--tinynav_map_path", required=True)
++    parser.add_argument("--goal-topic", default="/goal_pose")
++    parser.add_argument("--cmd-pois-topic", default="/mapping/cmd_pois")
++    parser.add_argument("--marker-topic", default="/rviz_goal_marker")
++    parser.add_argument("--pose-marker-topic", default="/rviz_goal_pose_marker")
++    parser.add_argument("--poi-id", default="0", help="POI id to write when replacing the active target.")
++    parser.add_argument("--poi-name", default="rviz_goal")
++    parser.add_argument(
++        "--target-frame",
++        default="map",
++        help="Frame used by TinyNav POIs. Incoming RViz goals are transformed into this frame.",
++    )
++    parser.add_argument(
++        "--append",
++        action="store_true",
++        help="Append each RViz goal as a new POI instead of replacing the active POI list.",
++    )
++    parser.add_argument(
++        "--z",
++        type=float,
++        default=None,
++        help="Override goal z. By default the z value from RViz goal_pose is used.",
++    )
++    parser.add_argument(
++        "--marker-z-offset",
++        type=float,
++        default=1.5,
++        help="Raise RViz-only goal markers above the saved POI z value.",
++    )
++    return parser.parse_args()
++
++
++def load_pois(path: Path) -> dict[str, object]:
++    if not path.exists():
++        return {}
++    data = json.loads(path.read_text())
++    if not isinstance(data, dict):
++        raise ValueError(f"{path} must contain a JSON object")
++    return data
++
++
++def next_poi_id(data: dict[str, object]) -> str:
++    if not data:
++        return "0"
++    numeric_keys = [int(key) for key in data.keys() if str(key).isdigit()]
++    return str(max(numeric_keys, default=-1) + 1)
++
++
++def write_json_atomic(path: Path, data: dict[str, object]) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False) as tmp:
++        json.dump(data, tmp, indent=2)
++        tmp.write("\n")
++        tmp_path = Path(tmp.name)
++    tmp_path.replace(path)
++
++
++def pose_to_matrix(pose) -> np.ndarray:
++    transform = np.eye(4, dtype=np.float64)
++    quat = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
++    transform[:3, :3] = Rotation.from_quat(quat).as_matrix()
++    transform[:3, 3] = [pose.position.x, pose.position.y, pose.position.z]
++    return transform
++
++
++def transform_to_matrix(transform) -> np.ndarray:
++    matrix = np.eye(4, dtype=np.float64)
++    quat = [
++        transform.rotation.x,
++        transform.rotation.y,
++        transform.rotation.z,
++        transform.rotation.w,
++    ]
++    matrix[:3, :3] = Rotation.from_quat(quat).as_matrix()
++    matrix[:3, 3] = [transform.translation.x, transform.translation.y, transform.translation.z]
++    return matrix
++
++
++def matrix_to_pose_stamped(matrix: np.ndarray, frame_id: str, stamp) -> PoseStamped:
++    pose_msg = PoseStamped()
++    pose_msg.header.frame_id = frame_id
++    pose_msg.header.stamp = stamp
++    pose_msg.pose.position.x = float(matrix[0, 3])
++    pose_msg.pose.position.y = float(matrix[1, 3])
++    pose_msg.pose.position.z = float(matrix[2, 3])
++    quat = Rotation.from_matrix(matrix[:3, :3]).as_quat()
++    pose_msg.pose.orientation.x = float(quat[0])
++    pose_msg.pose.orientation.y = float(quat[1])
++    pose_msg.pose.orientation.z = float(quat[2])
++    pose_msg.pose.orientation.w = float(quat[3])
++    return pose_msg
++
++
++class RvizGoalToPoi(Node):
++    def __init__(self, args: argparse.Namespace):
++        super().__init__("rviz_goal_to_poi")
++        self.args = args
++        self.map_path = Path(args.tinynav_map_path)
++        self.pois_path = self.map_path / "pois.json"
++        self.target_frame = args.target_frame
++        self.publisher = self.create_publisher(String, args.cmd_pois_topic, 10)
++        marker_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
++        self.marker_publisher = self.create_publisher(MarkerArray, args.marker_topic, marker_qos)
++        self.pose_marker_publisher = self.create_publisher(PoseStamped, args.pose_marker_topic, marker_qos)
++        self.tf_buffer = Buffer()
++        self.tf_listener = TransformListener(self.tf_buffer, self)
++        self.subscription = self.create_subscription(PoseStamped, args.goal_topic, self.goal_callback, 10)
++        self.get_logger().info(
++            f"Listening on {args.goal_topic}; writing {self.pois_path}; "
++            f"publishing {args.cmd_pois_topic}, {args.marker_topic}, and {args.pose_marker_topic}; "
++            f"target_frame={self.target_frame}"
++        )
++
++    def transform_goal(self, msg: PoseStamped) -> PoseStamped | None:
++        source_frame = msg.header.frame_id or self.target_frame
++        if source_frame == self.target_frame:
++            goal_msg = PoseStamped()
++            goal_msg.header = msg.header
++            goal_msg.pose = msg.pose
++            if not goal_msg.header.frame_id:
++                goal_msg.header.frame_id = self.target_frame
++            return goal_msg
++
++        try:
++            transform = self.tf_buffer.lookup_transform(
++                self.target_frame,
++                source_frame,
++                Time(),
++            )
++        except Exception as exc:
++            self.get_logger().warning(
++                f"Cannot transform RViz goal from {source_frame} to {self.target_frame}: {exc}"
++            )
++            return None
++
++        goal_matrix = pose_to_matrix(msg.pose)
++        target_goal_matrix = transform_to_matrix(transform.transform) @ goal_matrix
++        return matrix_to_pose_stamped(
++            target_goal_matrix,
++            self.target_frame,
++            self.get_clock().now().to_msg(),
++        )
++
++    def publish_marker(self, goal_msg: PoseStamped, position: list[float]) -> None:
++        header = goal_msg.header
++        if not header.frame_id:
++            header.frame_id = self.target_frame
++        header.stamp = self.get_clock().now().to_msg()
++        marker_z = float(position[2]) + float(self.args.marker_z_offset)
++
++        arrow = Marker()
++        arrow.header = header
++        arrow.ns = "rviz_goal"
++        arrow.id = 0
++        arrow.type = Marker.ARROW
++        arrow.action = Marker.ADD
++        arrow.pose = goal_msg.pose
++        arrow.pose.position.x = float(position[0])
++        arrow.pose.position.y = float(position[1])
++        arrow.pose.position.z = marker_z
++        arrow.scale.x = 0.45
++        arrow.scale.y = 0.05
++        arrow.scale.z = 0.12
++        arrow.color.r = 0.05
++        arrow.color.g = 1.0
++        arrow.color.b = 0.2
++        arrow.color.a = 1.0
++        arrow.lifetime = Duration(seconds=0).to_msg()
++
++        sphere = Marker()
++        sphere.header = header
++        sphere.ns = "rviz_goal"
++        sphere.id = 1
++        sphere.type = Marker.SPHERE
++        sphere.action = Marker.ADD
++        sphere.pose.position.x = float(position[0])
++        sphere.pose.position.y = float(position[1])
++        sphere.pose.position.z = marker_z
++        sphere.pose.orientation.w = 1.0
++        sphere.scale.x = 0.16
++        sphere.scale.y = 0.16
++        sphere.scale.z = 0.16
++        sphere.color.r = 1.0
++        sphere.color.g = 0.75
++        sphere.color.b = 0.05
++        sphere.color.a = 1.0
++        sphere.lifetime = Duration(seconds=0).to_msg()
++
++        label = Marker()
++        label.header = header
++        label.ns = "rviz_goal"
++        label.id = 2
++        label.type = Marker.TEXT_VIEW_FACING
++        label.action = Marker.ADD
++        label.pose.position.x = float(position[0])
++        label.pose.position.y = float(position[1])
++        label.pose.position.z = marker_z + 0.22
++        label.pose.orientation.w = 1.0
++        label.scale.z = 0.18
++        label.color.r = 0.1
++        label.color.g = 0.9
++        label.color.b = 1.0
++        label.color.a = 1.0
++        label.text = "RViz Goal"
++        label.lifetime = Duration(seconds=0).to_msg()
++
++        self.marker_publisher.publish(MarkerArray(markers=[arrow, sphere, label]))
++
++        pose_marker = PoseStamped()
++        pose_marker.header = header
++        pose_marker.pose = goal_msg.pose
++        pose_marker.pose.position.x = float(position[0])
++        pose_marker.pose.position.y = float(position[1])
++        pose_marker.pose.position.z = marker_z
++        self.pose_marker_publisher.publish(pose_marker)
++
++    def goal_callback(self, msg: PoseStamped) -> None:
++        goal_msg = self.transform_goal(msg)
++        if goal_msg is None:
++            return
++
++        position = goal_msg.pose.position
++        z = position.z if self.args.z is None else self.args.z
++        poi_position = [float(position.x), float(position.y), float(z)]
++        poi = {
++            "id": int(self.args.poi_id) if str(self.args.poi_id).isdigit() else self.args.poi_id,
++            "name": self.args.poi_name,
++            "position": poi_position,
++            "source": "rviz_goal_pose",
++            "frame_id": goal_msg.header.frame_id,
++        }
++
++        try:
++            if self.args.append:
++                payload = load_pois(self.pois_path)
++                key = next_poi_id(payload)
++                poi["id"] = int(key)
++                payload[key] = poi
++            else:
++                payload = {str(self.args.poi_id): poi}
++            write_json_atomic(self.pois_path, payload)
++        except (OSError, ValueError, json.JSONDecodeError) as exc:
++            self.get_logger().error(f"Failed to update {self.pois_path}: {exc}")
++            return
++
++        out = String()
++        out.data = json.dumps(payload, separators=(",", ":"))
++        self.publisher.publish(out)
++        self.publish_marker(goal_msg, poi_position)
++        self.get_logger().info(
++            "Updated TinyNav POI from RViz goal: "
++            f"id={poi['id']} position={poi['position']} frame={goal_msg.header.frame_id!r} "
++            f"subscribers={self.publisher.get_subscription_count()}"
++        )
++
++
++def main() -> int:
++    args = parse_args()
++    rclpy.init()
++    node = RvizGoalToPoi(args)
++    try:
++        rclpy.spin(node)
++    except KeyboardInterrupt:
++        pass
++    finally:
++        node.destroy_node()
++        rclpy.shutdown()
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/tool/static_occupancy_grid_publisher.py b/tool/static_occupancy_grid_publisher.py
+new file mode 100755
+index 0000000000000000000000000000000000000000..dae82c50187fabecc77c7cb5ffea75e2b083acda
+--- /dev/null
++++ b/tool/static_occupancy_grid_publisher.py
+@@ -0,0 +1,109 @@
++#!/usr/bin/env python3
++"""Publish a TinyNav built map as a latched ROS 2 OccupancyGrid for RViz."""
++
++from __future__ import annotations
++
++import argparse
++from pathlib import Path
++
++import numpy as np
++import rclpy
++from nav_msgs.msg import OccupancyGrid
++from rclpy.node import Node
++from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
++
++
++class StaticOccupancyGridPublisher(Node):
++    def __init__(self, map_path: Path, topic: str, frame_id: str, z: float, period: float):
++        super().__init__("static_occupancy_grid_publisher")
++        self.map_path = map_path
++        self.topic = topic
++        self.frame_id = frame_id
++        self.z = float(z)
++
++        qos = QoSProfile(
++            history=HistoryPolicy.KEEP_LAST,
++            depth=1,
++            reliability=ReliabilityPolicy.RELIABLE,
++            durability=DurabilityPolicy.TRANSIENT_LOCAL,
++        )
++        self.publisher = self.create_publisher(OccupancyGrid, topic, qos)
++        self.msg = self._load_map()
++        self.create_timer(max(0.1, float(period)), self.publish_map)
++        self.publish_map()
++
++    def _load_map(self) -> OccupancyGrid:
++        occupancy_grid_path = self.map_path / "occupancy_grid.npy"
++        occupancy_meta_path = self.map_path / "occupancy_meta.npy"
++        if not occupancy_grid_path.exists() or not occupancy_meta_path.exists():
++            raise FileNotFoundError(
++                f"Expected occupancy_grid.npy and occupancy_meta.npy under {self.map_path}"
++            )
++
++        occupancy_grid = np.load(occupancy_grid_path)
++        occupancy_meta = np.load(occupancy_meta_path)
++        origin = occupancy_meta[:3].astype(np.float64)
++        resolution = float(occupancy_meta[3])
++
++        # TinyNav map semantics: 0=unknown, 1=free, 2=occupied.
++        xy_plane = np.max(occupancy_grid, axis=2)
++        grid_data = np.full(xy_plane.shape, -1, dtype=np.int8)
++        grid_data[xy_plane == 1] = 0
++        grid_data[xy_plane == 2] = 100
++
++        msg = OccupancyGrid()
++        msg.header.frame_id = self.frame_id
++        msg.info.resolution = resolution
++        msg.info.height = int(xy_plane.shape[0])
++        msg.info.width = int(xy_plane.shape[1])
++        msg.info.origin.position.x = float(origin[0])
++        msg.info.origin.position.y = float(origin[1])
++        msg.info.origin.position.z = self.z
++        msg.info.origin.orientation.w = 1.0
++        msg.data = grid_data.ravel(order="F").tolist()
++
++        unknown = int(np.count_nonzero(xy_plane == 0))
++        free = int(np.count_nonzero(xy_plane == 1))
++        occupied = int(np.count_nonzero(xy_plane == 2))
++        self.get_logger().info(
++            f"Loaded static map from {self.map_path}: shape={occupancy_grid.shape}, "
++            f"2d={msg.info.height}x{msg.info.width}, resolution={resolution:.3f}, "
++            f"origin=({origin[0]:.3f}, {origin[1]:.3f}, z={self.z:.3f}), "
++            f"unknown={unknown}, free={free}, occupied={occupied}"
++        )
++        return msg
++
++    def publish_map(self) -> None:
++        self.msg.header.stamp = self.get_clock().now().to_msg()
++        self.publisher.publish(self.msg)
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--tinynav-map-path", type=Path, required=True)
++    parser.add_argument("--topic", default="/mapping/static_occupancy_grid")
++    parser.add_argument("--frame-id", default="world")
++    parser.add_argument("--z", type=float, default=0.0)
++    parser.add_argument("--period", type=float, default=1.0)
++    args = parser.parse_args()
++
++    rclpy.init()
++    node = StaticOccupancyGridPublisher(
++        map_path=args.tinynav_map_path,
++        topic=args.topic,
++        frame_id=args.frame_id,
++        z=args.z,
++        period=args.period,
++    )
++    try:
++        rclpy.spin(node)
++    except KeyboardInterrupt:
++        pass
++    finally:
++        node.destroy_node()
++        if rclpy.ok():
++            rclpy.shutdown()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tool/validate_tinynav_bag.py b/tool/validate_tinynav_bag.py
+new file mode 100755
+index 0000000000000000000000000000000000000000..ba5126e82228a6205711d5ac693a5d05c1641bc5
+--- /dev/null
++++ b/tool/validate_tinynav_bag.py
+@@ -0,0 +1,205 @@
++#!/usr/bin/env python3
++import argparse
++from collections import Counter
++
++import rosbag2_py
++from rclpy.serialization import deserialize_message
++from rosidl_runtime_py.utilities import get_message
++
++
++IMAGE_TOPICS = (
++    "/camera/camera/infra1/image_rect_raw",
++    "/camera/camera/infra2/image_rect_raw",
++    "/camera/camera/depth/image_rect_raw",
++    "/camera/camera/color/image_raw",
++)
++
++CAMERA_INFO_TOPICS = (
++    "/camera/camera/infra1/camera_info",
++    "/camera/camera/infra2/camera_info",
++    "/camera/camera/color/camera_info",
++)
++
++TIMESTAMP_TOPICS = IMAGE_TOPICS + CAMERA_INFO_TOPICS + ("/camera/camera/imu",)
++
++
++def count_messages(bag_path: str) -> Counter:
++    reader = rosbag2_py.SequentialReader()
++    storage_options = rosbag2_py.StorageOptions(uri=bag_path, storage_id="sqlite3")
++    converter_options = rosbag2_py.ConverterOptions("", "")
++    reader.open(storage_options, converter_options)
++
++    counts = Counter()
++    while reader.has_next():
++        topic, _data, _stamp = reader.read_next()
++        counts[topic] += 1
++    return counts
++
++
++def topic_types(reader: rosbag2_py.SequentialReader) -> dict[str, str]:
++    return {topic.name: topic.type for topic in reader.get_all_topics_and_types()}
++
++
++def read_stamps(
++    bag_path: str,
++    topics: tuple[str, ...],
++) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
++    reader = rosbag2_py.SequentialReader()
++    storage_options = rosbag2_py.StorageOptions(uri=bag_path, storage_id="sqlite3")
++    converter_options = rosbag2_py.ConverterOptions("", "")
++    reader.open(storage_options, converter_options)
++
++    types = topic_types(reader)
++    message_types = {
++        topic: get_message(types[topic])
++        for topic in topics
++        if topic in types
++    }
++    header_stamps = {topic: [] for topic in topics}
++    receive_stamps = {topic: [] for topic in topics}
++
++    while reader.has_next():
++        topic, data, _stamp = reader.read_next()
++        msg_type = message_types.get(topic)
++        if msg_type is None:
++            continue
++        msg = deserialize_message(data, msg_type)
++        if hasattr(msg, "header"):
++            stamp = msg.header.stamp
++            header_stamps[topic].append(stamp.sec + stamp.nanosec * 1e-9)
++            receive_stamps[topic].append(_stamp * 1e-9)
++
++    return header_stamps, receive_stamps
++
++
++def validate_timestamp_continuity(
++    bag_path: str,
++    max_image_gap: float,
++    max_imu_gap: float,
++    allow_startup_stale_frame: bool,
++) -> list[str]:
++    header_stamps, receive_stamps = read_stamps(bag_path, TIMESTAMP_TOPICS)
++    failures = []
++
++    print("TinyNav timestamp validation:")
++    for topic in TIMESTAMP_TOPICS:
++        topic_stamps = header_stamps.get(topic, [])
++        topic_receive_stamps = receive_stamps.get(topic, [])
++        if len(topic_stamps) < 2:
++            print(f"  {topic}: not enough header stamps for continuity check")
++            continue
++
++        gaps = [
++            topic_stamps[index + 1] - topic_stamps[index]
++            for index in range(len(topic_stamps) - 1)
++        ]
++        receive_gaps = [
++            topic_receive_stamps[index + 1] - topic_receive_stamps[index]
++            for index in range(len(topic_receive_stamps) - 1)
++        ]
++        max_gap = max(gaps)
++        median_gap = sorted(gaps)[len(gaps) // 2]
++        allowed_gap = max_imu_gap if topic == "/camera/camera/imu" else max_image_gap
++        big_gaps = [
++            (index, gap)
++            for index, gap in enumerate(gaps)
++            if gap > allowed_gap
++        ]
++        ignored_startup_gap = False
++        if (
++            allow_startup_stale_frame
++            and topic in IMAGE_TOPICS
++            and len(big_gaps) == 1
++            and big_gaps[0][0] == 0
++            and receive_gaps
++            and receive_gaps[0] <= allowed_gap
++            and (len(gaps) == 1 or max(gaps[1:]) <= allowed_gap)
++        ):
++            ignored_startup_gap = True
++
++        print(
++            f"  {topic}: median_dt={median_gap:.6f}s max_dt={max_gap:.6f}s "
++            f"gaps>{allowed_gap:.3f}s={len(big_gaps)}"
++        )
++        if ignored_startup_gap:
++            print(
++                f"    warning: ignored stale startup frame; receive_dt="
++                f"{receive_gaps[0]:.6f}s and subsequent headers are continuous"
++            )
++        elif big_gaps:
++            preview = ", ".join(
++                f"#{index}:{gap:.3f}s" for index, gap in big_gaps[:5]
++            )
++            failures.append(f"{topic} has timestamp gaps: {preview}")
++
++    return failures
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--bag", required=True)
++    parser.add_argument("--min-images", type=int, default=30)
++    parser.add_argument("--min-camera-info", type=int, default=1)
++    parser.add_argument("--min-imu", type=int, default=100)
++    parser.add_argument("--max-image-gap", type=float, default=0.2)
++    parser.add_argument("--max-imu-gap", type=float, default=0.05)
++    parser.add_argument("--skip-timestamp-check", action="store_true")
++    parser.add_argument(
++        "--strict-startup-timestamps",
++        action="store_true",
++        help="Treat stale first image frames as failures instead of startup warnings.",
++    )
++    args = parser.parse_args()
++
++    counts = count_messages(args.bag)
++    failures = []
++
++    print("TinyNav bag validation:")
++    for topic in IMAGE_TOPICS:
++        count = counts.get(topic, 0)
++        print(f"  {topic}: {count}")
++        if count < args.min_images:
++            failures.append(f"{topic} has {count} messages, expected >= {args.min_images}")
++
++    for topic in CAMERA_INFO_TOPICS:
++        count = counts.get(topic, 0)
++        print(f"  {topic}: {count}")
++        if count < args.min_camera_info:
++            failures.append(
++                f"{topic} has {count} messages, expected >= {args.min_camera_info}"
++            )
++
++    imu_count = counts.get("/camera/camera/imu", 0)
++    print(f"  /camera/camera/imu: {imu_count}")
++    if imu_count < args.min_imu:
++        failures.append(f"/camera/camera/imu has {imu_count} messages, expected >= {args.min_imu}")
++
++    tf_static_count = counts.get("/tf_static", 0)
++    print(f"  /tf_static: {tf_static_count}")
++    if tf_static_count < 1:
++        failures.append("/tf_static is missing")
++
++    if not args.skip_timestamp_check:
++        print()
++        failures.extend(
++            validate_timestamp_continuity(
++                args.bag,
++                max_image_gap=args.max_image_gap,
++                max_imu_gap=args.max_imu_gap,
++                allow_startup_stale_frame=not args.strict_startup_timestamps,
++            )
++        )
++
++    if failures:
++        print()
++        print("Bag is not suitable for TinyNav mapping:")
++        for failure in failures:
++            print(f"  - {failure}")
++        return 1
++
++    print("Bag has the required TinyNav mapping streams and timestamp continuity.")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

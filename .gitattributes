@@ -1,0 +1,26 @@
+* text=auto eol=lf
+
+*.py text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.patch text eol=lf
+
+*.gz binary
+*.jpg binary
+*.jpeg binary
+*.npy binary
+*.npz binary
+*.png binary
+*.pt binary
+*.pth binary
+*.safetensors binary
+*.mp4 binary
+*.bundle binary
+
+# This upstream file is the sole CRLF file in the immutable source snapshot.
+# Check it out as CRLF so manifests/source-files.sha256 remains portable.
+source/Focus_realworld/CogVLM2/video_demo/cli_video_demo.py text eol=crlf

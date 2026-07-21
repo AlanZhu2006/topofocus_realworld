@@ -1,0 +1,3 @@
+# path<TAB>target
+source/Focus_realworld/data/datasets/objectnav/mp3d/v1/train	objectnav_mp3d_v1/train
+source/Focus_realworld/data/datasets/objectnav/mp3d/v1/val	objectnav_mp3d_v1/val

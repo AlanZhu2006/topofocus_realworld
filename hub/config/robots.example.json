@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "shared_frame": "shared_world",
+  "robots": {
+    "robot-0": {
+      "transform_version": "UNSET",
+      "allow_goal": false
+    },
+    "robot-1": {
+      "transform_version": "UNSET",
+      "allow_goal": false
+    }
+  }
+}
+

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-07-21T22:00:00+08:00",
+  "code": {
+    "hub_unit_tests": {"status": "observed", "passed": 142},
+    "tinynav_occupancy_adapter": {"status": "observed", "native_png_pixel_mismatch": 0},
+    "wsj_imu_fix": {"status": "observed", "head": "29f26bc058886ff450f02cdc0d6e9977e1c57010"},
+    "github_repository": {"status": "in_progress", "remote": "git@github.com:AlanZhu2006/topofocus_realworld.git"}
+  },
+  "safety": {
+    "hub_allow_goal_default": false,
+    "robot_actuation_started_by_repro_scripts": false,
+    "g5_hardware_in_loop": "not_passed",
+    "autonomous_dual_robot_ready": false
+  },
+  "latest_buildmap": {
+    "status": "observed",
+    "remote_path": "/home/nvidia/focus_sender/buildmap_native_move_gate_20260721_2135",
+    "data_saved_ack": true,
+    "pose_count": 161,
+    "duration_s": 1024.753068288,
+    "path_length_m": 0.12942594945966113,
+    "net_displacement_m": 0.0015471353339049703,
+    "interpretation": "stationary save/optimization gate; not a controlled-motion gate"
+  }
+}

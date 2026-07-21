@@ -1,0 +1,16 @@
+# Runtime additions layered over the recorded memnav Python 3.10 environment.
+# The base provides the already kernel-tested torch 2.8.0+cu128, torchvision
+# 0.23.0+cu128, transformers 4.51.0 and accelerate 1.7.0. Install this file
+# with --no-deps so a generic resolver cannot replace that CUDA stack.
+bitsandbytes>=0.43.1,<1
+ultralytics>=8.3,<9
+openai-clip>=1.0.1,<2
+scikit-image==0.23.1
+scikit-fmm==2023.4.2
+yacs>=0.1.8,<1
+loguru>=0.7.2,<1
+sse-starlette>=2.1,<4
+openai>=1.30,<3
+timm>=0.9.16,<2
+ftfy>=6.2,<7
+tiktoken>=0.7,<1

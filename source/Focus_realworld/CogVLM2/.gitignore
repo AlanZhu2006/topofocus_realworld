@@ -1,0 +1,5 @@
+venv
+.DS_Store
+model_image
+model_video
+*.idea/

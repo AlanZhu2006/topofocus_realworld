@@ -1,0 +1,229 @@
+semantic_pointcloud_node:
+  ros__parameters:
+    topics.rgb: /camera/camera/color/image_raw
+    topics.depth: /camera/camera/aligned_depth_to_color/image_raw
+    topics.camera_info: /camera/camera/aligned_depth_to_color/camera_info
+    topics.pointcloud: /semantic_mapping/semantic_pointcloud
+    topics.camera_pose: /semantic_mapping/camera_pose
+
+    # TinyNav `camera` is the left-infrared optical pose alias. The RealSense
+    # tracking/color frames provide the calibrated static optical extrinsic.
+    frames.target_frame: map
+    frames.odom_frame: world
+    frames.pose_camera_frame: camera
+    frames.tracking_camera_frame: camera_infra1_optical_frame
+    frames.camera_frame: camera_color_optical_frame
+
+    depth.min_depth_m: 0.25
+    depth.max_depth_m: 5.0
+    depth.stride: 2
+    depth.edge_filter: true
+    depth.edge_threshold_m: 0.10
+
+    sync.queue_size: 20
+    sync.max_slop_sec: 0.02
+    pose.lookup_timeout_sec: 0.02
+    # TinyNav preserves image stamps but may publish the pose 0.4-0.8 s later
+    # on Jetson while inference is running. Buffer the image; never use now().
+    pose.pending_timeout_sec: 2.0
+    pose.max_time_error_sec: 0.05
+    pose.tf_cache_sec: 30.0
+    pose.allow_latest_map_alignment: true
+    pose.wait_for_target_alignment: true
+
+    processing.max_rate_hz: 5.0
+    processing.publish_once: false
+    validation.require_frame_ids: true
+    diagnostics.interval_sec: 5.0
+
+semantic_perception_node:
+  ros__parameters:
+    # Phase 3 consumes RGB directly. Labels are never inferred from depth and
+    # are matched to the RGB header stamp by the selected backend.
+    topics.rgb: /camera/camera/color/image_raw
+    topics.label: /semantic_mapping/semantic_label_image
+    topics.confidence: /semantic_mapping/semantic_confidence_image
+    topics.visualization: /semantic_mapping/semantic_visualization
+    topics.class_metadata: /semantic_mapping/semantic_class_metadata
+    frames.camera_frame: camera_color_optical_frame
+
+    backend.type: precomputed
+    backend.precomputed.directory: ""
+    backend.precomputed.manifest: manifest.yaml
+    backend.precomputed.max_time_error_sec: 0.05
+    backend.precomputed.default_confidence: 1.0
+    backend.precomputed.unknown_confidence: 0.0
+    backend.precomputed.cache_size: 8
+
+    # Prepared by scripts/prepare_segformer_trt.sh. This backend is enabled
+    # only when backend.type is explicitly set to segformer_tensorrt.
+    backend.segformer.engine: ~/.cache/tinynav/semantic_models/segformer_b0_ade20k/model_fp16.engine
+    backend.segformer.model_config: ~/.cache/tinynav/semantic_models/segformer_b0_ade20k/config.json
+    backend.segformer.preprocessor_config: ~/.cache/tinynav/semantic_models/segformer_b0_ade20k/preprocessor_config.json
+    backend.segformer.label_mapping: ""
+    backend.segformer.min_confidence: 0.35
+    semantic_classes.file: ""
+
+    processing.max_rate_hz: 5.0
+    processing.publish_once: false
+    validation.require_frame_id: true
+    visualization.alpha: 0.55
+    diagnostics.interval_sec: 5.0
+    diagnostics.warning_interval_sec: 5.0
+
+semantic_mapper_node:
+  ros__parameters:
+    # Phase 4 synchronizes these four products by the original RGB stamp. The
+    # map-frame cloud carries its aligned source pixels as UINT32 u/v fields.
+    topics.pointcloud_input: /semantic_mapping/semantic_pointcloud
+    topics.camera_pose: /semantic_mapping/camera_pose
+    topics.label: /semantic_mapping/semantic_label_image
+    topics.confidence: /semantic_mapping/semantic_confidence_image
+    topics.semantic_voxels: /semantic_mapping/semantic_voxels
+    topics.semantic_voxel_markers: /semantic_mapping/semantic_voxel_markers
+    topics.semantic_map_metadata: /semantic_mapping/semantic_map_metadata
+    topics.occupancy_bev_input: /semantic_mapping/occupancy_bev
+    topics.semantic_bev: /semantic_mapping/semantic_bev
+    topics.semantic_bev_confidence: /semantic_mapping/semantic_bev_confidence
+    topics.semantic_bev_visualization: /semantic_mapping/semantic_bev_visualization
+    topics.semantic_bev_explored: /semantic_mapping/semantic_bev_explored
+    topics.semantic_bev_height_min: /semantic_mapping/semantic_bev_height_min
+    topics.semantic_bev_height_max: /semantic_mapping/semantic_bev_height_max
+    frames.target_frame: map
+
+    sync.queue_size: 20
+    sync.max_slop_sec: 0.001
+    voxel.resolution_m: 0.05
+    voxel.origin_xyz: [0.0, 0.0, 0.0]
+
+    semantic.min_confidence: 0.50
+    semantic.min_observations: 2
+    semantic.confirmation_threshold: 0.50
+    semantic.depth_decay_m: 4.0
+    semantic.edge_margin_px: 3.0
+    semantic.min_edge_weight: 0.20
+    semantic_classes.file: ""
+
+    integration.max_points_per_frame: 100000
+    keyframe.translation_threshold_m: 0.20
+    keyframe.rotation_threshold_deg: 10.0
+    keyframe.max_interval_sec: 1.0
+    keyframe.pose_jump_translation_m: 0.50
+    keyframe.pose_jump_rotation_deg: 20.0
+    keyframe.pause_frames_after_jump: 2
+
+    visualization.max_voxels: 50000
+    visualization.publish_rate_hz: 1.0
+    visualization.publish_markers: true
+
+    # Semantic BEV shares occupancy BEV origin/resolution when that transient
+    # map is available. Geometry occupancy remains a separate planner channel.
+    bev.use_occupancy_geometry: true
+    bev.follow_occupancy_ground_z: true
+    bev.resolution_m: 0.05
+    bev.ground_z: 0.0
+    bev.ground_min_z_relative: -0.10
+    bev.ground_max_z_relative: 0.15
+    bev.semantic_min_z_relative: 0.05
+    bev.semantic_max_z_relative: 1.50
+    bev.ignore_above_z_relative: 1.80
+    bev.padding_cells: 1
+    bev.min_cell_confidence: 0.50
+    bev.floor_class_name: floor
+    input.directory: ""
+    input.allow_frame_id_override: false
+    output.directory: ""
+    output.save_on_shutdown: true
+    output.save_interval_sec: 30.0
+    services.save_map: /semantic_mapping/save_semantic_map
+    diagnostics.interval_sec: 5.0
+
+occupancy_mapper_node:
+  ros__parameters:
+    # This node consumes the map-frame point cloud and the exact color-camera
+    # pose used to create it. It does not perform a second TF lookup.
+    topics.pointcloud_input: /semantic_mapping/semantic_pointcloud
+    topics.camera_pose: /semantic_mapping/camera_pose
+    topics.occupied_voxels: /semantic_mapping/occupied_voxels
+    topics.occupancy_bev: /semantic_mapping/occupancy_bev
+    topics.occupancy_probability_bev: /semantic_mapping/occupancy_probability_bev
+    topics.free_probability_bev: /semantic_mapping/free_probability_bev
+    topics.explored_bev: /semantic_mapping/explored_bev
+    topics.height_max_bev: /semantic_mapping/height_max_bev
+    topics.map_metadata: /semantic_mapping/map_metadata
+
+    frames.target_frame: map
+    sync.queue_size: 10
+    sync.max_slop_sec: 0.001
+
+    voxel.resolution_m: 0.05
+    voxel.origin_xyz: [0.0, 0.0, 0.0]
+    voxel.free_update: -0.40
+    voxel.occupied_update: 0.85
+    voxel.min_log_odds: -4.0
+    voxel.max_log_odds: 4.0
+    voxel.truncation_distance_m: 0.05
+    occupancy.free_threshold: 0.30
+    occupancy.occupied_threshold: 0.70
+
+    # Uniformly subsample a map-frame cloud when it exceeds this limit. This
+    # bounds Python DDA work while retaining coverage across the image.
+    integration.max_rays_per_frame: 6000
+    keyframe.translation_threshold_m: 0.20
+    keyframe.rotation_threshold_deg: 10.0
+    keyframe.max_interval_sec: 1.0
+    keyframe.pose_jump_translation_m: 0.50
+    keyframe.pose_jump_rotation_deg: 20.0
+    keyframe.pause_frames_after_jump: 2
+
+    # All height bands are relative to the filtered z-up ground reference.
+    bev.resolution_m: 0.05
+    bev.ground_z: 0.0
+    bev.ground_min_z_relative: -0.10
+    bev.ground_max_z_relative: 0.15
+    bev.collision_min_z_relative: 0.10
+    bev.collision_max_z_relative: 0.75
+    bev.ignore_above_z_relative: 1.80
+    bev.padding_cells: 1
+    bev.exclude_ground_band_from_collision: true
+    bev.publish_rate_hz: 1.0
+
+    # Fit a local z=ax+by+c plane near the camera. Failed or implausible fits
+    # leave the previous/configured ground height unchanged.
+    ground_estimation.enabled: true
+    ground_estimation.update_interval_keyframes: 3
+    ground_estimation.horizontal_radius_m: 2.0
+    ground_estimation.search_min_z_relative: -0.25
+    ground_estimation.search_max_z_relative: 0.25
+    ground_estimation.max_points: 4000
+    ground_estimation.ransac_iterations: 128
+    ground_estimation.inlier_threshold_m: 0.03
+    ground_estimation.min_candidate_points: 200
+    ground_estimation.min_inlier_points: 300
+    ground_estimation.min_inlier_ratio: 0.15
+    ground_estimation.max_tilt_deg: 12.0
+    ground_estimation.max_candidate_jump_m: 0.15
+    ground_estimation.candidate_window_size: 9
+    ground_estimation.ema_alpha: 0.05
+    ground_estimation.max_update_step_m: 0.01
+    ground_estimation.random_seed: 0
+
+    # A new TinyNav map does not guarantee ground_z == 0. At startup, collect
+    # repeated near-horizontal planes below the camera, then lock ground_z.
+    # Tracking subsequently returns to the narrow band above.
+    ground_estimation.bootstrap.enabled: true
+    ground_estimation.bootstrap.search_min_z_relative: -1.0
+    ground_estimation.bootstrap.search_max_z_relative: 0.50
+    ground_estimation.bootstrap.min_camera_height_m: 0.15
+    ground_estimation.bootstrap.max_camera_height_m: 1.00
+    ground_estimation.bootstrap.required_candidates: 3
+    ground_estimation.bootstrap.consensus_tolerance_m: 0.04
+
+    visualization.max_occupied_voxels: 100000
+    input.directory: ""
+    input.allow_frame_id_override: false
+    output.directory: ""
+    output.save_on_shutdown: true
+    output.save_interval_sec: 30.0
+    services.save_map: /semantic_mapping/save_map
+    diagnostics.interval_sec: 5.0

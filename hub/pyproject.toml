@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "focus-realworld-hub"
+version = "0.1.0"
+description = "Fail-closed transport and coordination layer for the Focus two-robot hub"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "pydantic>=2.9,<3",
+  "python-multipart>=0.0.12,<1",
+  "uvicorn[standard]>=0.30,<1",
+]
+
+[project.optional-dependencies]
+client = ["httpx>=0.27,<1"]
+mapping = [
+  "numpy>=1.26,<2",
+  "opencv-python-headless>=4.9,<5",
+  "scipy>=1.11,<2",
+]
+foxglove = [
+  "foxglove-sdk>=0.25,<0.26",
+  "numpy>=1.26,<2",
+  "opencv-python-headless>=4.9,<5",
+  "scipy>=1.11,<2",
+]
+test = [
+  "httpx>=0.27,<1",
+  "numpy>=1.26,<2",
+  "opencv-python-headless>=4.9,<5",
+  "pytest>=8,<10",
+  "scipy>=1.11,<2",
+]
+
+[project.scripts]
+focus-hub = "focus_hub.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/focus_hub"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

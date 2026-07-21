@@ -1,0 +1,8 @@
+# Keep the WSJ D435i and its USB 3 hub out of runtime autosuspend.
+#
+# `add` alone is insufficient on Jetson: a later driver bind/rebind can restore
+# the device-level power policy to `auto` after the initial udev event.  Match
+# all three lifecycle actions so a librealsense hardware reset or UVC rebind
+# reapplies the intended policy without depending on a fixed physical port.
+ACTION=="add|bind|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="8086", ATTR{idProduct}=="0b3a", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add|bind|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="05e3", ATTR{idProduct}=="0625", TEST=="power/control", ATTR{power/control}="on"

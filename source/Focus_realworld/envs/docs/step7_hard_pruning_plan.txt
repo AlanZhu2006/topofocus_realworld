@@ -1,0 +1,106 @@
+# Step 7: Hard Pruning + Room Tokens
+# ===================================
+
+## Context
+
+Steps 1-6 are complete. Step 6 computes active_patches (~64-256 patch indices out of 1600)
+deterministically using room mask (frontier room + neighbor rooms + delta patches). However,
+these active patches are only logged/visualized -- never actually used to prune the VLM input.
+Step 5 attention is broken (highlights corners, not frontiers), but Step 6 and Step 7 are
+purely geometric and don't depend on it.
+
+Goal: Before the LLM forward pass, replace 1600 vision tokens with [R room tokens] + [K active
+patches] where R~3-8 and K~64-256. The ViT still processes the full image; pruning happens
+between ViT output and LLM input.
+
+## New File
+
+### CogVLM2/basic_demo/vision_pruning.py
+
+Core pruning module with:
+- _pruning_state dict -- global state holding active_patch_indices, room_patch_groups,
+  num_pruned_patches, index_mapping
+- prune_vision_features(images_features, active_indices, room_groups) -- takes [B, 1600, D]
+  ViT output, returns [B, R+K, D] (room mean-pools + gathered actives)
+- set_pruning_params(api, rpg) / clear_pruning_params() -- called before/after model.generate()
+- install_pruning(model) -- one-time setup at server startup:
+  1. Registers a forward_hook on model.transformer.vision to prune the output tensor
+  2. Monkey-patches model.transformer.forward to use R+K instead of hardcoded 1600 for num_patches
+  3. Monkey-patches model.prepare_inputs_for_generation for same num_patches override
+
+Why monkey-patch? modeling_chatglm.py hardcodes num_patches = (image_size // patch_size // 2)**2
+= 1600 in two places. We can't set a config to produce arbitrary R+K. The vision hook changes
+the tensor shape; the monkey-patches make the splicing logic use the actual shape.
+
+## Files Modified
+
+### 1. CogVLM2/basic_demo/glm4_openai_api_demo_1gpu.py (server)
+
+- Add active_patch_indices: Optional[List[int]] and room_patch_groups: Optional[Dict[str,
+  List[int]]] to ChatCompletionRequest
+- Add attention_index_mapping: Optional[dict] to ChatMessageResponse / DeltaMessage
+- Pass pruning params through gen_params dict
+- In generate_stream_cogvlm():
+  - Call set_pruning_params(api, rpg) before model.generate()
+  - Update attention hooks: set_image_token_range(boi_pos, R+K, pruning_map) when pruned
+  - Call clear_pruning_params() after generation
+  - Return attention_index_mapping in response
+- At startup: call install_pruning(model) after model load, before uvicorn.run()
+
+### 2. CogVLM2/basic_demo/attention_hooks.py
+
+- set_image_token_range(): add pruning_index_mapping param (dict with R, K, active_to_grid)
+- compute_attention_weights(): when pruned, extract attention over only the K active-patch
+  positions (skip boi embed + R room tokens). Returns K-length list instead of 1600.
+
+### 3. src/vlm.py (client)
+
+- create_chat_completion(): add active_patch_indices, room_patch_groups to request JSON;
+  parse attention_index_mapping from response
+- All methods (simple_image_chat, CoT2, CoT3, ToT3): add optional pruning params, return
+  4-tuple (scores, content, attn_weights, attn_mapping)
+
+### 4. main.py
+
+- Store active_patches list in active_patches_state[j] (currently only stores room/neighbor/map)
+- Before the Decision VLM call: read previous step's active_patches from active_patches_state[j]
+- Pass active_patch_indices + current room_to_patches to cogvlm2.simple_image_chat() for
+  the Meta (Decision) call only
+- Update all VLM call sites to unpack 4-tuple returns
+- When attention comes back pruned (K-length), reconstruct sparse 1600-length vector for
+  DoD metrics/heatmap
+- Add --enable_pruning flag (default False for safe A/B testing)
+
+### 5. utils/attention_extraction.py
+
+- Add reconstruct_full_a_patch(a_patch_pruned, active_to_grid) -- maps K-length vector back
+  to sparse 1600-length for visualization/metrics
+
+### 6. arguments.py
+
+- Add --enable_pruning boolean flag
+
+## Key Design Decisions
+
+1. Position encoding is trivial: GLM-4V gives all 1600 vision tokens the same position_id
+   (repeated). After pruning, same pos_id repeated R+K times -- no per-patch position needed.
+
+2. First step = no pruning: active_patches_state[j] = None -> client sends no pruning params
+   -> server uses all 1600 tokens (baseline behavior).
+
+3. Only the Decision VLM call is pruned: Caption, Perception, and FN calls use RGB images
+   (not the map), so pruning doesn't apply.
+
+4. Room tokens use current room_to_patches: Even though active_patch_indices come from the
+   previous step, the room pooling groups use the current step's mapping (matches the image).
+
+5. ViT always runs on full image: Pruning is between ViT output [B, 1600, D] and LLM input
+   splice -- no ViT modification needed.
+
+## Verification
+
+1. Equivalence test: With --enable_pruning=False, output must be identical to current baseline
+2. Shape sanity: Log R + K vs original 1600 each step; verify no CUDA shape errors
+3. Latency: Measure LLM forward time -- should decrease proportionally to token reduction
+4. First step: Confirm first step of each episode uses all 1600 (no pruning)
+5. DoD metrics: Existing attention DoD (entropy, hit-mass) still works via reconstructed vector

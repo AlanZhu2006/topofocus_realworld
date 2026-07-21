@@ -1,0 +1,81 @@
+version: 1
+source_dataset: ade20k_scene_parse_150
+semantic_classes_version: 1
+mappings:
+  floor:
+    - floor
+    - rug
+  wall:
+    - wall
+  door:
+    - door
+    - screen door
+  couch:
+    - sofa
+  chair:
+    - chair
+    - armchair
+    - seat
+    - bench
+    - swivel chair
+    - ottoman
+    - stool
+  table:
+    - table
+    - desk
+    - pool table
+    - coffee table
+  cabinet:
+    - cabinet
+    - shelf
+    - wardrobe
+    - chest of drawers
+    - case
+    - bookcase
+    - buffet
+  other_furniture:
+    - bed
+    - lamp
+    - bathtub
+    - base
+    - box
+    - counter
+    - sink
+    - fireplace
+    - refrigerator
+    - toilet
+    - countertop
+    - stove
+    - kitchen island
+    - bar
+    - arcade machine
+    - booth
+    - television receiver
+    - washer
+    - plaything
+    - barrel
+    - basket
+    - cradle
+    - oven
+    - microwave
+    - dishwasher
+    - screen
+    - sculpture
+    - ashcan
+    - fan
+    - crt screen
+    - monitor
+    - shower
+    - radiator
+  dynamic_object:
+    - person
+    - car
+    - boat
+    - bus
+    - truck
+    - airplane
+    - van
+    - ship
+    - minibike
+    - animal
+    - bicycle

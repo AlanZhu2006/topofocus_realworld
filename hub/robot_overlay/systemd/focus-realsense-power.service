@@ -1,0 +1,11 @@
+[Unit]
+Description=Keep the TopoFocus RealSense D435i USB chain out of autosuspend
+After=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/focus-set-realsense-power
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

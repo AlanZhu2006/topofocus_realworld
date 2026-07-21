@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-21T22:00:00+08:00",
+  "machines": {
+    "local_hub": {
+      "status": "observed",
+      "hostname": "asus4090",
+      "os": "Ubuntu 22.04.5 LTS",
+      "kernel": "6.8.0-111-generic",
+      "architecture": "x86_64",
+      "gpu": "NVIDIA GeForce RTX 4090",
+      "driver": "550.107.02",
+      "driver_reported_memory_mib": 49140,
+      "system_python": "3.13.13",
+      "verified_g1_python": "3.10",
+      "uv": "0.11.8",
+      "verified_cuda_stack": {
+        "torch": "2.8.0+cu128",
+        "torchvision": "0.23.0+cu128",
+        "transformers": "4.51.0",
+        "accelerate": "1.7.0"
+      }
+    },
+    "wsj": {
+      "status": "observed",
+      "hostname": "tegra-ubuntu",
+      "hardware": "NVIDIA Jetson Orin NX Engineering Reference Developer Kit",
+      "os": "Ubuntu 22.04.5 LTS",
+      "kernel": "5.15.148-tegra",
+      "architecture": "aarch64",
+      "jetpack": "6.2.1+b38",
+      "l4t_core": "36.4.7-20250918154033",
+      "ros": "Humble",
+      "python": "3.10.12",
+      "uv": "0.11.2",
+      "librealsense_commit": "bf2778061d5dd29776e9aca8765f75852671760b",
+      "realsense_ros_commit": "53aceeac29e2e848e5e1ede5430124f07b2fe924",
+      "tinynav_base": "576c082e69580f618a5ff313a3e74f3672abb69f",
+      "tinynav_verified_head": "29f26bc058886ff450f02cdc0d6e9977e1c57010"
+    }
+  }
+}

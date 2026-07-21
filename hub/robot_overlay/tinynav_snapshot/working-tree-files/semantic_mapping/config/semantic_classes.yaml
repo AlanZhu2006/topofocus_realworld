@@ -1,0 +1,46 @@
+version: 1
+classes:
+  0:
+    name: unknown
+    color_rgb: [96, 96, 96]
+    dynamic: false
+  1:
+    name: floor
+    color_rgb: [80, 180, 80]
+    dynamic: false
+  2:
+    name: wall
+    color_rgb: [180, 180, 180]
+    dynamic: false
+  3:
+    name: door
+    color_rgb: [80, 140, 220]
+    dynamic: false
+  4:
+    name: couch
+    color_rgb: [180, 80, 180]
+    dynamic: false
+  5:
+    name: chair
+    color_rgb: [220, 160, 60]
+    dynamic: false
+  6:
+    name: table
+    color_rgb: [150, 100, 60]
+    dynamic: false
+  7:
+    name: cabinet
+    color_rgb: [120, 80, 40]
+    dynamic: false
+  8:
+    name: other_furniture
+    color_rgb: [200, 120, 80]
+    dynamic: false
+  9:
+    name: target
+    color_rgb: [255, 40, 40]
+    dynamic: false
+  10:
+    name: dynamic_object
+    color_rgb: [40, 200, 255]
+    dynamic: true

@@ -1,0 +1,61 @@
+cd /scratch/jl9356/MCoCoNav/CogVLM2/basic_demo
+  export HF_HOME=/scratch/jl9356/hf_cache
+  export TORCH_HOME=/scratch/jl9356/Torch_hub
+  export TORCH_EXTENSIONS_DIR=/scratch/jl9356/torch_extensions
+  python glm4_openai_api_demo_1gpu.py
+conda activate Mcoconav  
+python glm4_openai_api_demo_1gpu.py
+
+another terminal will use :
+cd /home/jl/MCoCoNav
+conda activate Mcoconav
+python main.py -d ./VLM_EXP/multi_hm3d_2-robot/ --num_agents 2 --task_config tasks/multi_objectnav_hm3d.yaml --split minival
+
+# Step 7: With vision token pruning enabled (R+K tokens instead of 1600)
+python main.py -d ./VLM_EXP/multi_hm3d_2-robot/ --num_agents 2 --task_config tasks/multi_objectnav_hm3d.yaml --split minival --enable_pruning
+
+
+
+
+singularity exec --nv \
+  --overlay /scratch/jl9356/MCoCoNav/overlay-15GB-500K.ext3:ro \
+  /share/apps/images/cuda12.6.3-cudnn9.5.1-ubuntu22.04.5.sif /bin/bash
+
+source /ext3/env.sh && conda activate mcoconav
+
+export HF_HOME=/scratch/jl9356/hf_cache
+export TORCH_HOME=/scratch/jl9356/Torch_hub
+export TORCH_EXTENSIONS_DIR=/scratch/jl9356/torch_extensions
+
+cd /scratch/jl9356/MCoCoNav/CogVLM2/basic_demo
+python glm4_openai_api_demo_1gpu.py
+
+
+
+singularity exec --nv \
+  --overlay /scratch/jl9356/MCoCoNav/overlay-15GB-500K.ext3:ro \
+  /share/apps/images/cuda12.6.3-cudnn9.5.1-ubuntu22.04.5.sif /bin/bash
+
+source /ext3/env.sh && conda activate mcoconav
+
+export HF_HOME=/scratch/jl9356/hf_cache
+export TORCH_HOME=/scratch/jl9356/Torch_hub
+export TORCH_EXTENSIONS_DIR=/scratch/jl9356/torch_extensions
+
+cd /scratch/jl9356/MCoCoNav
+
+python main.py -d ./VLM_EXP/multi_hm3d_2-robot/ \
+  --num_agents 2 \
+  --task_config tasks/multi_objectnav_hm3d.yaml \
+  --split minival
+
+
+
+python main.py \
+  -d ./VLM_EXP/multi_hm3d_2-robot_pruned/ \
+  --num_agents 2 \
+  --task_config tasks/multi_objectnav_hm3d.yaml \
+  --split minival \
+  --enable_pruning \
+  --auto_resume \
+  --no_dod_logs

@@ -1,0 +1,331 @@
+diff --git a/DEPLOYMENT.md b/DEPLOYMENT.md
+index bd303a0271e740a4f20d663564a0f1562ea1780a..f5f44017ef61fd814740b26edc1c655b470a9a8b 100644
+--- a/DEPLOYMENT.md
++++ b/DEPLOYMENT.md
+@@ -39,6 +39,12 @@ local additions are operational scripts and diagnostics:
+ - `scripts/tinynav_baseline_nav.sh`: upstream-style navigation wrapper using the same node layout as `run_navigation.sh`, but with a real map path and optional Go2 bridge.
+ - `scripts/tinynav_baseline_3dgs.sh`: upstream-style 3DGS wrapper using the same Nerfstudio commands as `run_3dgs_generation.sh`, but with a real map path.
+ - `scripts/run_realsense_sensor.sh`: RealSense launch with D435i USB3 TinyNav streams.
++- `scripts/run_realsense_semantic_sensor.sh`: isolated RealSense launch with
++  synchronized depth-to-color alignment enabled.
++- `scripts/tinynav_semantic_auto_map.sh`: copied auto-map chain with semantic
++  RGB-D recording and phase-1 point-cloud processing.
++- `scripts/tinynav_semantic_auto_nav.sh`: copied auto-nav chain with semantic
++  point cloud in an independent tmux window.
+ - `scripts/run_go2_cmd_bridge.sh`: bridge ROS `/cmd_vel` to the previous Go2 SDK2 bridge.
+ - `scripts/run_keyboard_teleop.sh`: keyboard `/cmd_vel` test through the same bridge path.
+ - `scripts/run_visible_vnc.sh`: visible TigerVNC desktop for RViz on headless Jetson.
+@@ -96,11 +102,27 @@ ros2 launch realsense2_camera rs_launch.py \
+   rgb_camera.color_profile:=848x480x30
+ ```
+ 
+-The mapping scripts validate these required streams:
++Semantic mapping uses the isolated aligned launch, leaving the stable TinyNav
++camera entry point unchanged:
++
++```bash
++bash scripts/run_realsense_semantic_sensor.sh
++```
++
++This copy adds:
++
++```text
++enable_sync:=true
++align_depth.enable:=true
++```
++
++The semantic mapping scripts additionally validate these required streams:
+ 
+ - `/camera/camera/infra1/image_rect_raw`
+ - `/camera/camera/infra2/image_rect_raw`
+ - `/camera/camera/depth/image_rect_raw`
++- `/camera/camera/aligned_depth_to_color/image_raw`
++- `/camera/camera/aligned_depth_to_color/camera_info`
+ - `/camera/camera/color/image_raw`
+ - `/camera/camera/infra1/camera_info`
+ - `/camera/camera/infra2/camera_info`
+@@ -131,6 +153,13 @@ The script:
+ 6. Updates `/home/nvidia/twork/tinynav/output/latest_map`.
+ 7. Removes runtime temp DBs after a successful build.
+ 
++The semantic copy uses separate bag/map names and
++`output/latest_semantic_map`:
++
++```bash
++bash scripts/tinynav_semantic_auto_map.sh
++```
++
+ ## Upstream-Style Baseline Flow
+ 
+ The upstream scripts are kept unchanged. For direct baseline reproduction, use
+@@ -226,6 +255,14 @@ bash scripts/tinynav_auto_nav.sh --map /path/to/map
+ TINYNAV_RVIZ_CONFIG=/tinynav/docs/vis.rviz bash scripts/tinynav_auto_nav.sh
+ ```
+ 
++The isolated semantic navigation copy preserves the same control chain and
++adds only a separate point-cloud window. Start without the Go2 bridge for
++inspection:
++
++```bash
++bash scripts/tinynav_semantic_auto_nav.sh --no-go2
++```
++
+ Default RViz config:
+ 
+ ```text
+diff --git a/scripts/run_go2_cmd_bridge.sh b/scripts/run_go2_cmd_bridge.sh
+index b7799a220ef6f6f1663252ae4edcf6a239e9efef..e1e9cb0c09f67e26f98882c61b74650cfafa1e80 100755
+--- a/scripts/run_go2_cmd_bridge.sh
++++ b/scripts/run_go2_cmd_bridge.sh
+@@ -10,6 +10,7 @@ CYCLONEDDS_HOME="${CYCLONEDDS_HOME:-/home/nvidia/twork/cyclonedds/install}"
+ UNITREE_NET_IF="${UNITREE_NET_IF:-eth0}"
+ UNITREE_SDK2PY_PATH="${UNITREE_SDK2PY_PATH:-}"
+ GO2_CMD_TOPIC="${GO2_CMD_TOPIC:-/cmd_vel}"
++GO2_TIMEOUT_SEC="${GO2_TIMEOUT_SEC:-0.35}"
+ GO2_MAX_VX="${GO2_MAX_VX:-0.45}"
+ GO2_MAX_VY="${GO2_MAX_VY:-0.25}"
+ GO2_MAX_WZ="${GO2_MAX_WZ:-0.80}"
+@@ -65,6 +66,7 @@ echo "  bridge:    $BRIDGE_SCRIPT"
+ echo "  topic:     $GO2_CMD_TOPIC"
+ echo "  interface: $UNITREE_NET_IF"
+ echo "  cyclone:   $CYCLONEDDS_HOME"
++echo "  timeout:   ${GO2_TIMEOUT_SEC}s"
+ echo "  limits:    vx=$GO2_MAX_VX vy=$GO2_MAX_VY wz=$GO2_MAX_WZ"
+ echo "  floors:    v=$GO2_MIN_CMD_V w=$GO2_MIN_CMD_W"
+ echo "  remote:    priority=$GO2_REMOTE_PRIORITY topic=$GO2_REMOTE_TOPIC deadband=$GO2_REMOTE_DEADBAND hold=${GO2_REMOTE_HOLD_SEC}s"
+@@ -74,6 +76,7 @@ exec uv run --extra unitree python "$BRIDGE_SCRIPT" \
+   --sdk-path "$UNITREE_SDK2PY_PATH" \
+   --ros-args \
+   -p cmd_vel_topic:="$GO2_CMD_TOPIC" \
++  -p timeout_sec:="$GO2_TIMEOUT_SEC" \
+   -p max_vx:="$GO2_MAX_VX" \
+   -p max_vy:="$GO2_MAX_VY" \
+   -p max_wz:="$GO2_MAX_WZ" \
+diff --git a/tool/validate_tinynav_bag.py b/tool/validate_tinynav_bag.py
+index ba5126e82228a6205711d5ac693a5d05c1641bc5..17fc89e195a2771fdebc2e931eb55a7eea3eb955 100755
+--- a/tool/validate_tinynav_bag.py
++++ b/tool/validate_tinynav_bag.py
+@@ -20,6 +20,14 @@ CAMERA_INFO_TOPICS = (
+     "/camera/camera/color/camera_info",
+ )
+ 
++ALIGNED_DEPTH_TOPIC = "/camera/camera/aligned_depth_to_color/image_raw"
++ALIGNED_DEPTH_INFO_TOPIC = "/camera/camera/aligned_depth_to_color/camera_info"
++POSE_TOPIC_CANDIDATES = (
++    "/slam/odometry_visual",
++    "/slam/odometry",
++    "/slam/keyframe_odom",
++)
++
+ TIMESTAMP_TOPICS = IMAGE_TOPICS + CAMERA_INFO_TOPICS + ("/camera/camera/imu",)
+ 
+ 
+@@ -51,9 +59,7 @@ def read_stamps(
+ 
+     types = topic_types(reader)
+     message_types = {
+-        topic: get_message(types[topic])
+-        for topic in topics
+-        if topic in types
++        topic: get_message(types[topic]) for topic in topics if topic in types
+     }
+     header_stamps = {topic: [] for topic in topics}
+     receive_stamps = {topic: [] for topic in topics}
+@@ -74,15 +80,16 @@ def read_stamps(
+ 
+ def validate_timestamp_continuity(
+     bag_path: str,
++    topics: tuple[str, ...],
+     max_image_gap: float,
+     max_imu_gap: float,
+     allow_startup_stale_frame: bool,
+ ) -> list[str]:
+-    header_stamps, receive_stamps = read_stamps(bag_path, TIMESTAMP_TOPICS)
++    header_stamps, receive_stamps = read_stamps(bag_path, topics)
+     failures = []
+ 
+     print("TinyNav timestamp validation:")
+-    for topic in TIMESTAMP_TOPICS:
++    for topic in topics:
+         topic_stamps = header_stamps.get(topic, [])
+         topic_receive_stamps = receive_stamps.get(topic, [])
+         if len(topic_stamps) < 2:
+@@ -100,15 +107,11 @@ def validate_timestamp_continuity(
+         max_gap = max(gaps)
+         median_gap = sorted(gaps)[len(gaps) // 2]
+         allowed_gap = max_imu_gap if topic == "/camera/camera/imu" else max_image_gap
+-        big_gaps = [
+-            (index, gap)
+-            for index, gap in enumerate(gaps)
+-            if gap > allowed_gap
+-        ]
++        big_gaps = [(index, gap) for index, gap in enumerate(gaps) if gap > allowed_gap]
+         ignored_startup_gap = False
+         if (
+             allow_startup_stale_frame
+-            and topic in IMAGE_TOPICS
++            and topic in IMAGE_TOPICS + (ALIGNED_DEPTH_TOPIC,)
+             and len(big_gaps) == 1
+             and big_gaps[0][0] == 0
+             and receive_gaps
+@@ -127,9 +130,7 @@ def validate_timestamp_continuity(
+                 f"{receive_gaps[0]:.6f}s and subsequent headers are continuous"
+             )
+         elif big_gaps:
+-            preview = ", ".join(
+-                f"#{index}:{gap:.3f}s" for index, gap in big_gaps[:5]
+-            )
++            preview = ", ".join(f"#{index}:{gap:.3f}s" for index, gap in big_gaps[:5])
+             failures.append(f"{topic} has timestamp gaps: {preview}")
+ 
+     return failures
+@@ -144,6 +145,27 @@ def main() -> int:
+     parser.add_argument("--max-image-gap", type=float, default=0.2)
+     parser.add_argument("--max-imu-gap", type=float, default=0.05)
+     parser.add_argument("--skip-timestamp-check", action="store_true")
++    parser.add_argument(
++        "--require-semantic-inputs",
++        action="store_true",
++        help=(
++            "Also require RGB-aligned depth and aligned CameraInfo for semantic "
++            "mapping."
++        ),
++    )
++    parser.add_argument(
++        "--require-recorded-pose",
++        action="store_true",
++        help="Require at least one timestamped TinyNav pose topic in the bag.",
++    )
++    parser.add_argument(
++        "--semantic-only",
++        action="store_true",
++        help=(
++            "Validate a minimal phase-1 bag containing RGB, aligned depth, "
++            "CameraInfo, recorded TinyNav pose/TF, and static TF."
++        ),
++    )
+     parser.add_argument(
+         "--strict-startup-timestamps",
+         action="store_true",
+@@ -154,14 +176,28 @@ def main() -> int:
+     counts = count_messages(args.bag)
+     failures = []
+ 
+-    print("TinyNav bag validation:")
+-    for topic in IMAGE_TOPICS:
++    print(
++        "TinyNav semantic bag validation:"
++        if args.semantic_only
++        else "TinyNav bag validation:"
++    )
++    image_topics = (
++        ("/camera/camera/color/image_raw",) if args.semantic_only else IMAGE_TOPICS
++    )
++    camera_info_topics = (
++        ("/camera/camera/color/camera_info",)
++        if args.semantic_only
++        else CAMERA_INFO_TOPICS
++    )
++    for topic in image_topics:
+         count = counts.get(topic, 0)
+         print(f"  {topic}: {count}")
+         if count < args.min_images:
+-            failures.append(f"{topic} has {count} messages, expected >= {args.min_images}")
++            failures.append(
++                f"{topic} has {count} messages, expected >= {args.min_images}"
++            )
+ 
+-    for topic in CAMERA_INFO_TOPICS:
++    for topic in camera_info_topics:
+         count = counts.get(topic, 0)
+         print(f"  {topic}: {count}")
+         if count < args.min_camera_info:
+@@ -169,21 +205,61 @@ def main() -> int:
+                 f"{topic} has {count} messages, expected >= {args.min_camera_info}"
+             )
+ 
+-    imu_count = counts.get("/camera/camera/imu", 0)
+-    print(f"  /camera/camera/imu: {imu_count}")
+-    if imu_count < args.min_imu:
+-        failures.append(f"/camera/camera/imu has {imu_count} messages, expected >= {args.min_imu}")
++    if not args.semantic_only:
++        imu_count = counts.get("/camera/camera/imu", 0)
++        print(f"  /camera/camera/imu: {imu_count}")
++        if imu_count < args.min_imu:
++            failures.append(
++                f"/camera/camera/imu has {imu_count} messages, "
++                f"expected >= {args.min_imu}"
++            )
+ 
+     tf_static_count = counts.get("/tf_static", 0)
+     print(f"  /tf_static: {tf_static_count}")
+     if tf_static_count < 1:
+         failures.append("/tf_static is missing")
+ 
++    timestamp_topics = (
++        image_topics + camera_info_topics if args.semantic_only else TIMESTAMP_TOPICS
++    )
++    if args.require_semantic_inputs or args.semantic_only:
++        aligned_depth_count = counts.get(ALIGNED_DEPTH_TOPIC, 0)
++        aligned_info_count = counts.get(ALIGNED_DEPTH_INFO_TOPIC, 0)
++        print(f"  {ALIGNED_DEPTH_TOPIC}: {aligned_depth_count}")
++        print(f"  {ALIGNED_DEPTH_INFO_TOPIC}: {aligned_info_count}")
++        if aligned_depth_count < args.min_images:
++            failures.append(
++                f"{ALIGNED_DEPTH_TOPIC} has {aligned_depth_count} messages, "
++                f"expected >= {args.min_images}"
++            )
++        if aligned_info_count < args.min_camera_info:
++            failures.append(
++                f"{ALIGNED_DEPTH_INFO_TOPIC} has {aligned_info_count} messages, "
++                f"expected >= {args.min_camera_info}"
++            )
++
++        timestamp_topics += (ALIGNED_DEPTH_TOPIC, ALIGNED_DEPTH_INFO_TOPIC)
++
++    if args.require_recorded_pose or args.semantic_only:
++        pose_counts = {topic: counts.get(topic, 0) for topic in POSE_TOPIC_CANDIDATES}
++        for topic, count in pose_counts.items():
++            print(f"  {topic}: {count}")
++        if not any(pose_counts.values()):
++            failures.append(
++                "No timestamped TinyNav pose topic found; expected one of "
++                + ", ".join(POSE_TOPIC_CANDIDATES)
++            )
++        if args.semantic_only:
++            tf_count = counts.get("/tf", 0)
++            print(f"  /tf: {tf_count}")
++            if tf_count < 1:
++                failures.append("/tf is missing from the minimal semantic bag")
+     if not args.skip_timestamp_check:
+         print()
+         failures.extend(
+             validate_timestamp_continuity(
+                 args.bag,
++                topics=timestamp_topics,
+                 max_image_gap=args.max_image_gap,
+                 max_imu_gap=args.max_imu_gap,
+                 allow_startup_stale_frame=not args.strict_startup_timestamps,
+@@ -197,7 +273,21 @@ def main() -> int:
+             print(f"  - {failure}")
+         return 1
+ 
+-    print("Bag has the required TinyNav mapping streams and timestamp continuity.")
++    if args.semantic_only:
++        print(
++            "Bag has minimal aligned RGB-D, recorded TinyNav pose/TF, static TF, "
++            "and timestamp continuity."
++        )
++    elif args.require_semantic_inputs and args.require_recorded_pose:
++        print(
++            "Bag has aligned RGB-D, a recorded TinyNav pose stream, and timestamp continuity."
++        )
++    elif args.require_semantic_inputs:
++        print("Bag has aligned RGB-D semantic inputs and timestamp continuity.")
++    elif args.require_recorded_pose:
++        print("Bag has a recorded TinyNav pose stream and timestamp continuity.")
++    else:
++        print("Bag has the required TinyNav mapping streams and timestamp continuity.")
+     return 0
+ 
+ 
