@@ -29,7 +29,7 @@ jobs:
           cache-dependency-glob: hub/uv.lock
 
       - name: Install locked lightweight dependencies
-        run: uv sync --project hub --extra test --locked
+        run: uv sync --project hub --extra test --extra foxglove --locked
 
       - name: Verify repository and run tests
         run: bash hub/scripts/verify_repository.sh --tests --python hub/.venv/bin/python
