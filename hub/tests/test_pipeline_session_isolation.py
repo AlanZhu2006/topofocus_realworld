@@ -7,6 +7,7 @@ import pytest
 
 from focus_hub.central_mapping import MapperConfig
 from focus_hub.pipeline import SpoolMappingPipeline, SpooledObservation
+from focus_hub.pose_gate import KeyframeConfig
 
 
 class _Segmenter:
@@ -26,7 +27,7 @@ class _Mapper:
         self.calls += 1
 
 
-def _pipeline(expected_version=None):
+def _pipeline(expected_version=None, *, keyframe_config=None):
     segmenter = _Segmenter()
     K = np.array([[300.0, 0, 160], [0, 300.0, 120], [0, 0, 1]])
     pipeline = SpoolMappingPipeline(
@@ -36,6 +37,7 @@ def _pipeline(expected_version=None):
         (0.0, 0.0),
         0.0,
         expected_transform_version=expected_version,
+        keyframe_config=keyframe_config,
     )
     pipeline.mapper = _Mapper()
     return pipeline, segmenter
@@ -43,7 +45,11 @@ def _pipeline(expected_version=None):
 
 def _observation(sequence: int, version: str) -> SpooledObservation:
     metadata = SimpleNamespace(
-        pose=SimpleNamespace(transform_version=version),
+        capture_time_ns=sequence * 1_000_000_000,
+        pose=SimpleNamespace(
+            transform_version=version,
+            shared_T_camera=SimpleNamespace(parent_frame="shared_world"),
+        ),
     )
     return SpooledObservation(
         sequence=sequence,
@@ -77,3 +83,38 @@ def test_pipeline_rejects_version_change_before_segmentation_or_integration():
     assert pipeline.mapper.calls == 1
     assert pipeline.frames_processed == 1
     assert pipeline.last_sequence == 10
+
+
+def test_live_keyframe_gate_skips_duplicate_before_segmentation():
+    pipeline, segmenter = _pipeline(
+        "session-a", keyframe_config=KeyframeConfig(max_interval_sec=5.0)
+    )
+
+    assert pipeline.process(_observation(10, "session-a")).accept
+    skipped = pipeline.process(_observation(11, "session-a"))
+
+    assert not skipped.accept
+    assert skipped.reason == "below_threshold"
+    assert segmenter.calls == 1
+    assert pipeline.mapper.calls == 1
+    assert pipeline.frames_processed == 1
+    assert pipeline.observations_seen == 2
+    assert pipeline.last_observation_sequence == 11
+
+
+def test_live_keyframe_gate_latches_pose_jump():
+    pipeline, segmenter = _pipeline(
+        "session-a", keyframe_config=KeyframeConfig(max_interval_sec=5.0)
+    )
+    pipeline.process(_observation(10, "session-a"))
+    jump_observation = _observation(11, "session-a")
+    jump_observation.T_shared_camera[0, 3] = 3.0
+
+    jump = pipeline.process(jump_observation)
+    after = pipeline.process(_observation(12, "session-a"))
+
+    assert jump.pose_jump
+    assert after.reason == "pose_jump_latched"
+    assert pipeline.mapping_blocked_reason is not None
+    assert segmenter.calls == 1
+    assert pipeline.mapper.calls == 1

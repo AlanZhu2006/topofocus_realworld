@@ -6,7 +6,9 @@
 
 - 认证 HTTP/TCP 观测上传，含序号、UTC 时间、RGB-D hash、相机内外参、shared-frame pose、健康状态和 transform version；
 - 只追加 spool、断点恢复、重复一致性和乱序/陈旧/未来帧拒绝；
-- RedNet 语义 BEV、地图持久化、frontier/VLM 决策、双图对齐融合；
+- RedNet 语义 BEV、带启动姿态/地面门禁的实时地图、frontier/VLM 决策；
+- 可逆 occupancy 证据、关键帧过滤和位姿跳变锁止；
+- 显式 frame/calibration 契约下的双图对齐融合（当前会话未重新标定，默认关闭）；
 - TinyNav 原生 occupancy 导入，保留原 frame，并拒绝错误 frame 融合；
 - Foxglove camera/map relay；
 - 版本化、可过期 `GOAL/HOLD/STOP` 与机器人端 fail-closed GoalGuard；
@@ -57,4 +59,5 @@ bash hub/robot_overlay/verify_go2.sh --hardware --tests
 - [传输协议](docs/TRANSPORT.md)
 - [坐标系](docs/COORDINATE_FRAMES.md)
 - [TinyNav 原生地图适配](docs/TINYNAV_NATIVE_MAP_ADAPTER.md)
+- [实时地图、Foxglove 与融合契约](docs/LIVE_MAPPING.md)
 - [WSJ 初始审计](docs/ROBOT_WSJ_AUDIT.md)

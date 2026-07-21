@@ -172,13 +172,21 @@ bash hub/robot_overlay/stop_go2_observation.sh
 
 ```bash
 hub/.venv/bin/python hub/tools/import_tinynav_occupancy.py \
-  --input data/robot_replays/<map> \
-  --output hub/runtime/map_out_<map> \
+  --record data/robot_replays/<map> \
+  --out-dir hub/runtime/map_out_<map> \
+  --robot-id robot-0 \
   --frame-id <unique_world_frame> \
   --transform-version <unique_version>
 ```
 
-不要把不同 TinyNav 重启产生的 world origin 放进同一个 transform version。Foxglove relay 会拒绝 frame 不一致的融合；这个拒绝应保留。
+不要把不同 TinyNav 重启产生的 world origin 放进同一个 transform version。
+Foxglove relay 会拒绝 frame 不一致的融合；这个拒绝应保留。
+
+实时 Hub 地图还会写入 `shared_frame_calibration_id`。两台地图只有在各自
+daemon 显式使用同一个、独立验证过的
+`--shared-frame-calibration-id` 时才允许 `foxglove_relay.py --fuse`；仅仅都叫
+`shared_world` 不构成标定。启动姿态、地面、关键帧和位姿跳变规则见
+[实时地图契约](../hub/docs/LIVE_MAPPING.md)。
 
 ## 10. 复现完成的判据
 

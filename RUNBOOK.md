@@ -35,7 +35,7 @@ python main.py --task_config envs/habitat/configs/tasks/multi_objectnav_hm3d.yam
 | G1 | fresh local environment imports Torch/CUDA, GLM server dependencies, RedNet, YOLO, CLIP | **passed** (`audit/G1_LOCAL_ENVIRONMENT.md`) |
 | G2 | GLM server answers a controlled offline request locally | **passed** (`audit/G2_LOCAL_GLM_REQUEST.md`) |
 | G3 | one robot replay reaches semantic-map update from recorded RGB-D/pose | **passed** (`audit/G3_LOCAL_REPLAY_MAPPING.md`) |
-| G4 | two robot replays fuse into one declared coordinate frame and receive distinct decisions | not implemented (needs a second robot record + verified shared-frame calibration) |
+| G4 | two robot replays fuse into one declared coordinate frame and receive distinct decisions | machinery implemented; current WSJ v3/Yunji live pair has no verified shared-frame calibration, so no current-session pass |
 | G5 | robot-side safety controller rejects stale/unsafe commands in a hardware-in-the-loop test | not implemented |
 
 Do not claim live two-robot navigation before G4 and G5 pass.
@@ -125,12 +125,18 @@ hub/.venv/bin/python hub/tools/calibrate_shared_frame.py \
 
 # Live multi-robot dashboard (this machine): run one hub_pipeline_daemon.py
 # per robot with periodic snapshotting enabled, then foxglove_relay.py
-# republishes each robot's latest camera frame + own incremental semantic map
-# (NOT fused -- real fusion needs a physically-verified G4 calibration, which
-# hasn't happened yet) + explicit per-robot staleness over one Foxglove
+# republishes each robot's latest camera frame + own incremental map
+# (NOT fused -- the current WSJ v3/Yunji sessions have no shared calibration
+# ID) + explicit per-robot staleness over one Foxglove
 # WebSocket server. Open Foxglove, connect to ws://<this-host>:8765, and
 # import hub/foxglove/dual_robot_dashboard.json. Evidence:
-# audit/FOXGLOVE_DASHBOARD_20260720.md.
+# audit/FOXGLOVE_DASHBOARD_20260720.md and
+# audit/LIVE_MAP_RECOVERY_20260722.md.
+#
+# Live defaults wait for three continuous poses and a three-frame RANSAC
+# ground consensus, then use 0.20m/10deg/5s keyframes, reversible log-odds
+# obstacles and a 0.15-0.75m collision band. Use a NEW --out-dir for every
+# fresh map session; never append across a pose/transform discontinuity.
 hub/.venv/bin/python hub/tools/hub_pipeline_daemon.py \
   --spool hub/runtime/spool --robot-id robot-0 --hub-url http://127.0.0.1:8088 \
   --admin-token-file hub/runtime/admin_token --no-cascade \
@@ -145,6 +151,10 @@ hub/.venv/bin/python hub/tools/foxglove_relay.py \
   --robot robot-0:wsj:hub/runtime/map_out_wsj \
   --robot robot-1:yunji:hub/runtime/map_out_yunji \
   --port 8765
+
+# Only after both daemons were started with the same independently verified
+# --shared-frame-calibration-id may the relay add --fuse. A common frame name
+# or two transform_version strings alone are insufficient.
 ```
 
 The e2e safety lane must end with the hub rejecting GOAL publishes (HTTP 409)

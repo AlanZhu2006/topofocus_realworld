@@ -11,9 +11,11 @@ This adapts the source-derived mapping rules of
     grid at the upstream 5 cm resolution.
   * Channel semantics follow upstream: channel 0 obstacle (points inside a
     height band above the floor), channel 1 explored (any valid return),
-    channels 2..16 the semantic categories.  Per-frame counts are thresholded
-    (map_pred/exp_pred/cat_pred) and fused over time with element-wise max,
-    the same fusion rule the upstream two-agent code uses.
+    channels 2..16 the semantic categories. Semantic/explored evidence keeps
+    the upstream element-wise-max rule. Live deployments may opt channel 0
+    into reversible log-odds evidence, derived from TinyNav BuildMap's use of
+    both free-ray and occupied-endpoint evidence, so a single noisy endpoint
+    is not necessarily permanent.
 
 Deviations from upstream, recorded rather than hidden:
   * poses come from TinyNav SLAM instead of Habitat ground truth, so no
@@ -64,6 +66,8 @@ class MapperConfig:
     map_size_m: float = 24.0            # upstream map_size_cm = 2400
     obstacle_band_low_m: float = 0.25   # upstream min_z = 25 cm above floor
     obstacle_band_high_m: float = 1.5   # upstream agent band top, generalised
+    semantic_band_low_m: float = 0.25   # keep object evidence independent from
+    semantic_band_high_m: float = 1.5   # the planner collision-height band
     map_pred_threshold: float = 1.0     # upstream defaults
     exp_pred_threshold: float = 1.0
     cat_pred_threshold: float = 5.0
@@ -74,6 +78,30 @@ class MapperConfig:
                                          # free-space "explored" marking; higher is
                                          # more complete but costs more per frame
     ray_trace_chunk_points: int = 8192  # bound temporary arrays for dense RGB-D
+    obstacle_fusion_mode: str = "max"   # "max" preserves upstream replay behavior;
+                                         # "log_odds" is the live sensor mode
+    obstacle_free_update: float = -0.40
+    obstacle_occupied_update: float = 0.85
+    obstacle_min_log_odds: float = -4.0
+    obstacle_max_log_odds: float = 4.0
+    obstacle_probability_threshold: float = 0.70
+    obstacle_min_hits: int = 1
+
+    def __post_init__(self) -> None:
+        if self.obstacle_fusion_mode not in {"max", "log_odds"}:
+            raise ValueError("obstacle_fusion_mode must be 'max' or 'log_odds'")
+        if self.obstacle_band_low_m >= self.obstacle_band_high_m:
+            raise ValueError("obstacle height band is inverted")
+        if self.semantic_band_low_m >= self.semantic_band_high_m:
+            raise ValueError("semantic height band is inverted")
+        if self.obstacle_free_update >= 0.0 or self.obstacle_occupied_update <= 0.0:
+            raise ValueError("expected obstacle_free_update < 0 and occupied_update > 0")
+        if self.obstacle_min_log_odds >= self.obstacle_max_log_odds:
+            raise ValueError("obstacle log-odds bounds are inverted")
+        if not 0.5 < self.obstacle_probability_threshold < 1.0:
+            raise ValueError("obstacle probability threshold must be between 0.5 and 1")
+        if self.obstacle_min_hits < 1:
+            raise ValueError("obstacle_min_hits must be positive")
 
 
 class RedNetSegmenter:
@@ -147,6 +175,12 @@ class CentralMapper:
         self.map = CentralSemanticMap(config=config, origin_xy_m=origin_xy_m, floor_z_m=floor_z_m)
         self._pixel_rays: np.ndarray | None = None
         self._pixel_shape: tuple[int, int] | None = None
+        self._obstacle_log_odds = np.zeros(
+            (self.map.cells, self.map.cells), dtype=np.float32
+        )
+        self._obstacle_hits = np.zeros(
+            (self.map.cells, self.map.cells), dtype=np.uint32
+        )
 
     def _rays(self, shape: tuple[int, int]) -> np.ndarray:
         if self._pixel_shape != shape:
@@ -231,11 +265,18 @@ class CentralMapper:
         flat = row * cells + col
         np.add.at(frame_counts[1], flat, 1.0)  # explored: every in-map valid return
 
-        in_band = (z_rel >= self.config.obstacle_band_low_m) & (z_rel <= self.config.obstacle_band_high_m)
-        np.add.at(frame_counts[0], flat[in_band], 1.0)
+        obstacle_band = (
+            (z_rel >= self.config.obstacle_band_low_m)
+            & (z_rel <= self.config.obstacle_band_high_m)
+        )
+        semantic_band = (
+            (z_rel >= self.config.semantic_band_low_m)
+            & (z_rel <= self.config.semantic_band_high_m)
+        )
+        np.add.at(frame_counts[0], flat[obstacle_band], 1.0)
 
         for channel, rednet_id in enumerate(MP_CATEGORIES_MAPPING, start=2):
-            chosen = in_band & (labels == rednet_id)
+            chosen = semantic_band & (labels == rednet_id)
             if np.any(chosen):
                 np.add.at(frame_counts[channel], flat[chosen], 1.0)
 
@@ -250,8 +291,37 @@ class CentralMapper:
             frame_counts[2:].reshape(-1, cells, cells) / cfg.cat_pred_threshold, 0.0, 1.0
         )
 
-        # Source-derived fusion rule: element-wise max with the running map.
-        np.maximum(grid, frame_map, out=grid)
+        # Explored and semantic channels retain upstream's deterministic max
+        # fusion. Geometry can retain that exact replay mode too, or use the
+        # live sensor mode: one free/occupied update per XY cell per frame,
+        # with occupied winning an intra-frame conflict. This mirrors the
+        # evidence semantics of TinyNav's native occupancy builder and, unlike
+        # max fusion, lets later free rays clear a noisy obstacle endpoint.
+        np.maximum(grid[1:], frame_map[1:], out=grid[1:])
+        if cfg.obstacle_fusion_mode == "max":
+            np.maximum(grid[0], frame_map[0], out=grid[0])
+        else:
+            occupied = (
+                frame_counts[0].reshape(cells, cells) >= cfg.map_pred_threshold
+            )
+            free = (frame_counts[1].reshape(cells, cells) > 0.0) & ~occupied
+            self._obstacle_log_odds[free] += cfg.obstacle_free_update
+            self._obstacle_log_odds[occupied] += cfg.obstacle_occupied_update
+            np.clip(
+                self._obstacle_log_odds,
+                cfg.obstacle_min_log_odds,
+                cfg.obstacle_max_log_odds,
+                out=self._obstacle_log_odds,
+            )
+            self._obstacle_hits[occupied] += 1
+            threshold_log_odds = np.log(
+                cfg.obstacle_probability_threshold
+                / (1.0 - cfg.obstacle_probability_threshold)
+            )
+            grid[0] = (
+                (self._obstacle_log_odds > threshold_log_odds)
+                & (self._obstacle_hits >= cfg.obstacle_min_hits)
+            )
         self.map.frames_fused += 1
 
 

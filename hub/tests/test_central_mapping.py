@@ -20,6 +20,8 @@ def _make_single_point_mapper(
     *,
     map_size_m: float = 10.0,
     ray_trace_chunk_points: int = 8192,
+    obstacle_fusion_mode: str = "max",
+    obstacle_min_hits: int = 1,
 ) -> tuple[CentralMapper, _FakeFrame, np.ndarray]:
     """One valid depth pixel at image (row=0, col=6), camera at the world
     origin facing +infra1-z. With K=identity intrinsics this places the
@@ -31,6 +33,8 @@ def _make_single_point_mapper(
         map_size_m=map_size_m,
         ray_trace_steps=ray_trace_steps,
         ray_trace_chunk_points=ray_trace_chunk_points,
+        obstacle_fusion_mode=obstacle_fusion_mode,
+        obstacle_min_hits=obstacle_min_hits,
     )
     mapper = CentralMapper(
         config=config, K_infra1=K, K_rgb=K,
@@ -107,3 +111,31 @@ def test_ray_trace_chunking_is_byte_identical():
     small_chunks.integrate(frame, semantic_pred)
     large_chunks.integrate(frame, semantic_pred)
     assert small_chunks.map.grid.tobytes() == large_chunks.map.grid.tobytes()
+
+
+def test_log_odds_requires_multiple_hits_and_later_free_rays_can_clear():
+    mapper, frame, semantic_pred = _make_single_point_mapper(
+        ray_trace_steps=80,
+        obstacle_fusion_mode="log_odds",
+        obstacle_min_hits=2,
+    )
+    endpoint_row, endpoint_col = mapper.map.world_to_cell(
+        np.array([6.0]), np.array([0.0])
+    )
+    rc = (endpoint_row[0], endpoint_col[0])
+
+    mapper.integrate(frame, semantic_pred)
+    assert mapper.map.grid[(0,) + rc] == pytest.approx(0.0)
+    mapper.integrate(frame, semantic_pred)
+    assert mapper.map.grid[(0,) + rc] == pytest.approx(1.0)
+
+    # Doubling depth moves the endpoint outside the obstacle height band and
+    # outside this map, while its ray still traverses the old endpoint cell.
+    farther = _FakeFrame(
+        depth_m=frame.depth_m.copy(), T_world_infra1=frame.T_world_infra1
+    )
+    farther.depth_m[0, 6] = 2.0
+    for _ in range(3):
+        mapper.integrate(farther, semantic_pred)
+    assert mapper.map.grid[(0,) + rc] == pytest.approx(0.0)
+    assert mapper.map.grid[(1,) + rc] == pytest.approx(1.0)

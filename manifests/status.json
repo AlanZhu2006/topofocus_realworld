@@ -1,8 +1,16 @@
 {
   "schema_version": 1,
-  "as_of": "2026-07-21T22:32:13+08:00",
+  "as_of": "2026-07-22T01:07:38+08:00",
   "code": {
-    "hub_unit_tests": {"status": "observed", "passed": 142},
+    "hub_unit_tests": {"status": "observed", "passed": 154},
+    "live_map_v2": {
+      "status": "observed",
+      "startup_pose_gate": true,
+      "ground_source": "three_frame_ransac_consensus",
+      "obstacle_fusion": "log_odds",
+      "current_fusion_enabled": false,
+      "audit": "audit/LIVE_MAP_RECOVERY_20260722.md"
+    },
     "tinynav_occupancy_adapter": {"status": "observed", "native_png_pixel_mismatch": 0},
     "wsj_imu_fix": {"status": "observed", "head": "29f26bc058886ff450f02cdc0d6e9977e1c57010"},
     "github_repository": {

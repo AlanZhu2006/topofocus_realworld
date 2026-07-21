@@ -29,10 +29,10 @@ channels have very different freshness needs:
   decisions rather than a second, independently-computed copy (see
   `write_map_snapshot`'s docstring in hub_pipeline_daemon.py).
 
-Deliberately NOT a fused dual-robot map: real cross-robot fusion needs a
-physically-verified shared-frame calibration (G4), which has not happened
-yet (see `research-state.yaml`: shared_frame_fusion: not_implemented). Each
-robot's own per-robot map is shown separately, honestly, not merged.
+Cross-robot fusion is opt-in and fail-closed: every input snapshot must carry
+the same explicit ``frame_id`` and ``shared_frame_calibration_id``. Merely
+naming two independent odometry frames ``shared_world`` is not accepted as a
+calibration. Per-robot maps remain viewable independently.
 
 Staleness is first-class, not an afterthought: a background thread
 republishes each robot's camera/map age as a Log message, since the whole
@@ -70,6 +70,11 @@ from foxglove.messages import (  # noqa: E402
 from focus_hub.central_mapping import HM3D_CATEGORY_NAMES  # noqa: E402
 from focus_hub.frontiers import _category_palette  # noqa: E402
 from focus_hub.fusion import align_and_fuse_grids  # noqa: E402
+from focus_hub.map_snapshot import (  # noqa: E402
+    MapSnapshot,
+    load_map_snapshot,
+    validate_fusion_contract,
+)
 
 
 @dataclass
@@ -83,6 +88,7 @@ class RobotSource:
     last_map_published_at_s: float = 0.0
     last_camera_pushed_at_ns: int | None = None
     camera_frames_pushed: int = 0
+    last_camera_message: CompressedImage | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -175,32 +181,33 @@ def grid_to_message(
 
 
 def load_grid_npz(
-    npz_path: Path,
-) -> tuple[np.ndarray, tuple[float, float], float, str] | None:
-    if not npz_path.exists():
-        return None
-    with np.load(npz_path) as data:
-        grid = data["grid"]
-        origin_xy_m = (float(data["origin_xy_m"][0]), float(data["origin_xy_m"][1]))
-        resolution_m = float(data["resolution_m"])
-        frame_id = str(data["frame_id"].item()) if "frame_id" in data else "shared_world"
-    if not frame_id:
-        raise ValueError(f"empty frame_id in {npz_path}")
-    return grid, origin_xy_m, resolution_m, frame_id
+    npz_path: Path, *, allow_legacy: bool = False,
+) -> MapSnapshot | None:
+    """Compatibility wrapper around the strict shared snapshot contract."""
+    return load_map_snapshot(npz_path, allow_legacy=allow_legacy)
 
 
 def build_grid_message(
     npz_path: Path, category_names: tuple[str, ...], downsample_factor: int = 1,
+    *, allow_legacy: bool = False,
 ) -> Grid | None:
-    loaded = load_grid_npz(npz_path)
+    loaded = load_grid_npz(npz_path, allow_legacy=allow_legacy)
     if loaded is None:
         return None
-    grid, origin_xy_m, resolution_m, frame_id = loaded
     return grid_to_message(
-        grid, origin_xy_m, resolution_m, category_names, downsample_factor, frame_id)
+        loaded.grid,
+        loaded.origin_xy_m,
+        loaded.resolution_m,
+        category_names,
+        downsample_factor,
+        loaded.frame_id,
+    )
 
 
-def map_poll_loop(sources: list[RobotSource], category_names, *, interval_s: float, downsample: int) -> None:
+def map_poll_loop(
+    sources: list[RobotSource], category_names, *, interval_s: float,
+    downsample: int, allow_legacy: bool,
+) -> None:
     """Background thread: the map is the one channel still snapshot-polled
     on purpose -- see the module docstring for why. Runs forever until the
     process exits."""
@@ -211,13 +218,24 @@ def map_poll_loop(sources: list[RobotSource], category_names, *, interval_s: flo
                 continue
             try:
                 grid_msg = build_grid_message(
-                    source.snapshot_dir / "central_map.npz", category_names, downsample)
-            except (OSError, EOFError, ValueError, zipfile.BadZipFile):
+                    source.snapshot_dir / "central_map.npz",
+                    category_names,
+                    downsample,
+                    allow_legacy=allow_legacy,
+                )
+            except (OSError, EOFError, ValueError, zipfile.BadZipFile) as exc:
                 # pipeline.py's save() writes atomically (temp file +
                 # os.replace) so this shouldn't happen -- kept as defense in
                 # depth so one bad read skips this cycle instead of killing
                 # the thread a client may be actively depending on.
                 grid_msg = None
+                source.status_channel.log(Log(
+                    timestamp=now_ts(),
+                    level=LogLevel.Error,
+                    name=source.name,
+                    message=f"map publish blocked: {exc}",
+                ))
+                source.last_map_published_at_s = now_s
             if grid_msg is not None:
                 source.map_channel.log(grid_msg)
                 source.last_map_published_at_s = now_s
@@ -249,18 +267,17 @@ def fusion_poll_loop(
         now_s = time.monotonic()
         if now_s - last_published_at_s >= interval_s:
             try:
-                loaded = [load_grid_npz(s.snapshot_dir / "central_map.npz") for s in sources]
+                loaded = [
+                    load_grid_npz(s.snapshot_dir / "central_map.npz")
+                    for s in sources
+                ]
                 if all(item is not None for item in loaded):
-                    grids = [item[0] for item in loaded]
-                    origins = [item[1] for item in loaded]
-                    resolutions = {item[2] for item in loaded}
-                    frame_ids = {item[3] for item in loaded}
-                    if len(resolutions) > 1:
-                        raise ValueError(f"resolution mismatch across robots: {resolutions}")
-                    if len(frame_ids) > 1:
-                        raise ValueError(f"frame mismatch across robots: {frame_ids}")
-                    resolution_m = resolutions.pop()
-                    frame_id = frame_ids.pop()
+                    snapshots = [item for item in loaded if item is not None]
+                    frame_id, resolution_m, calibration_id = validate_fusion_contract(
+                        snapshots
+                    )
+                    grids = [item.grid for item in snapshots]
+                    origins = [item.origin_xy_m for item in snapshots]
                     fused_grid, fused_origin = align_and_fuse_grids(grids, origins, resolution_m)
                     fused_channel.log(grid_to_message(
                         fused_grid, fused_origin, resolution_m, category_names, downsample,
@@ -268,7 +285,8 @@ def fusion_poll_loop(
                     fused_status_channel.log(Log(
                         timestamp=now_ts(), level=LogLevel.Info,
                         message=f"fused {len(sources)} robots: shape={fused_grid.shape}, "
-                                f"origin={fused_origin}", name="fused"))
+                                f"origin={fused_origin}, calibration={calibration_id}",
+                        name="fused"))
                 else:
                     fused_status_channel.log(Log(
                         timestamp=now_ts(), level=LogLevel.Warning, name="fused",
@@ -329,8 +347,11 @@ def status_loop(sources: list[RobotSource], *, interval_s: float) -> None:
                 except (json.JSONDecodeError, OSError):
                     snapshot_status = None
             map_age_s = None
-            if snapshot_status is not None and snapshot_status.get("written_at_ns"):
-                map_age_s = (now_ns - snapshot_status["written_at_ns"]) / 1e9
+            map_path = source.snapshot_dir / "central_map.npz"
+            try:
+                map_age_s = (now_ns - map_path.stat().st_mtime_ns) / 1e9
+            except OSError:
+                pass
 
             parts = [f"{source.name} ({source.robot_id}):"]
             level = LogLevel.Info
@@ -348,8 +369,40 @@ def status_loop(sources: list[RobotSource], *, interval_s: float) -> None:
             else:
                 parts.append("map: no snapshot yet")
 
+            if snapshot_status is not None:
+                integrated = snapshot_status.get("frames_total")
+                observed = snapshot_status.get("observations_seen")
+                skipped = snapshot_status.get("skipped_non_keyframes")
+                if integrated is not None and observed is not None:
+                    parts.append(
+                        f"map keyframes {integrated}/{observed} observations"
+                        + (f" ({skipped} skipped)" if skipped is not None else "")
+                    )
+                blocked = snapshot_status.get("mapping_blocked_reason")
+                if blocked:
+                    parts.append(f"MAPPING HALTED: {blocked}")
+                    level = LogLevel.Error
+
             source.status_channel.log(Log(
                 timestamp=now_ts(), level=level, message=" ".join(parts), name=source.name))
+        time.sleep(interval_s)
+
+
+def camera_latch_loop(sources: list[RobotSource], *, interval_s: float) -> None:
+    """Republish the latest image with its original timestamp.
+
+    Foxglove image channels are live streams rather than latched ROS topics.
+    Re-emitting the last message lets a newly subscribed/reconnected panel
+    render immediately. Keeping the original timestamp is important: this is
+    a retained preview, not a fabricated fresh camera frame, and ``status_loop``
+    continues to report age from real pushes only.
+    """
+    while True:
+        for source in sources:
+            with source.lock:
+                message = source.last_camera_message
+            if message is not None:
+                source.camera_channel.log(message)
         time.sleep(interval_s)
 
 
@@ -367,10 +420,16 @@ def build_app(sources_by_name: dict[str, RobotSource], tokens_by_robot_id: dict[
         data = await request.body()
         if not data:
             raise HTTPException(400, "empty body")
-        source.camera_channel.log(CompressedImage(timestamp=now_ts(), frame_id=name, data=data, format="jpeg"))
+        if not data.startswith(b"\xff\xd8"):
+            raise HTTPException(400, "camera payload is not a JPEG")
+        message = CompressedImage(
+            timestamp=now_ts(), frame_id=name, data=data, format="jpeg"
+        )
+        source.camera_channel.log(message)
         with source.lock:
             source.last_camera_pushed_at_ns = time.time_ns()
             source.camera_frames_pushed += 1
+            source.last_camera_message = message
         return Response(status_code=204)
 
     @app.get("/healthz")
@@ -404,6 +463,20 @@ def main() -> int:
                               "full-resolution 520x520 grid is ~1 MiB; factor 3 brings that "
                               "under 150 KiB)")
     parser.add_argument("--status-interval-s", type=float, default=2.0)
+    parser.add_argument(
+        "--camera-latch-interval-s",
+        type=float,
+        default=2.0,
+        help="republish the retained last camera message for late subscribers",
+    )
+    parser.add_argument(
+        "--allow-legacy-maps",
+        action="store_true",
+        help=(
+            "show old per-robot snapshots that lack frame metadata; this "
+            "never makes them eligible for fusion"
+        ),
+    )
     parser.add_argument("--fuse", action="store_true",
                          help="also publish a real cross-robot fused map on /fused/semantic_map "
                               "(focus_hub.fusion.align_and_fuse_grids -- element-wise max, "
@@ -415,6 +488,8 @@ def main() -> int:
                               "it does strictly more work (reads every robot's map, aligns, "
                               "then fuses)")
     args = parser.parse_args()
+    if args.camera_latch_interval_s <= 0.0:
+        parser.error("--camera-latch-interval-s must be positive")
 
     tokens_by_robot_id = json.loads(args.tokens_file.read_text())
 
@@ -443,11 +518,21 @@ def main() -> int:
     ).start()
     threading.Thread(
         target=map_poll_loop, args=(sources, HM3D_CATEGORY_NAMES),
-        kwargs={"interval_s": args.map_interval_s, "downsample": args.map_downsample},
+        kwargs={
+            "interval_s": args.map_interval_s,
+            "downsample": args.map_downsample,
+            "allow_legacy": args.allow_legacy_maps,
+        },
         daemon=True,
     ).start()
     threading.Thread(
         target=status_loop, args=(sources,), kwargs={"interval_s": args.status_interval_s},
+        daemon=True,
+    ).start()
+    threading.Thread(
+        target=camera_latch_loop,
+        args=(sources,),
+        kwargs={"interval_s": args.camera_latch_interval_s},
         daemon=True,
     ).start()
 

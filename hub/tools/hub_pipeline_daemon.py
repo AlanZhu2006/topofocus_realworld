@@ -38,8 +38,14 @@ from focus_hub.central_mapping import HM3D_CATEGORY_NAMES, MapperConfig, RedNetS
 from focus_hub.directional_memory import DirectionalMemory  # noqa: E402
 from focus_hub.frontiers import (  # noqa: E402
     extract_frontiers, render_annotated_bev, render_semantic_decision_map)
+from focus_hub.ground_plane import estimate_startup_ground  # noqa: E402
 from focus_hub.models import Decision  # noqa: E402
 from focus_hub.pipeline import SpoolMappingPipeline, iter_spooled_observations  # noqa: E402
+from focus_hub.pose_gate import (  # noqa: E402
+    KeyframeConfig,
+    StartupPoseConfig,
+    StartupPoseGate,
+)
 from focus_hub.vlm_decision import choose_frontier_fallback, choose_frontier_glm, run_decision_cascade  # noqa: E402
 from focus_hub.vlm_prompts import extract_scene_objects, format_scene_objects_for_prompt  # noqa: E402
 from focus_hub.yolo_detector import YoloDetector  # noqa: E402
@@ -92,6 +98,15 @@ def write_camera_snapshot(
     status = {
         "robot_id": robot_id,
         "frames_total": frames_total,
+        "observations_seen": pipeline.observations_seen,
+        "skipped_non_keyframes": pipeline.skipped_non_keyframes,
+        "pose_jump_events": pipeline.pose_jump_events,
+        "mapping_blocked_reason": pipeline.mapping_blocked_reason,
+        "frame_id": pipeline.frame_id,
+        "transform_version": pipeline.transform_version,
+        "shared_frame_calibration_id": pipeline.shared_frame_calibration_id,
+        "floor_z_m": pipeline.mapper.map.floor_z_m,
+        "floor_source": pipeline.floor_source,
         "written_at_ns": time.time_ns(),
         "last_capture_time_ns": last_metadata.capture_time_ns if last_metadata else None,
         "last_sent_time_ns": last_metadata.sent_time_ns if last_metadata else None,
@@ -123,7 +138,12 @@ def main() -> int:
     parser.add_argument("--decision-interval", type=float, default=60.0)
     parser.add_argument("--decision-expiry-s", type=float, default=30.0)
     parser.add_argument("--goal-category", default="chair")
-    parser.add_argument("--camera-height", type=float, default=0.4)
+    parser.add_argument(
+        "--camera-height",
+        type=float,
+        default=0.4,
+        help="fallback height used only with --ground-mode camera-height",
+    )
     parser.add_argument("--log", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--no-cascade", action="store_true",
@@ -162,7 +182,50 @@ def main() -> int:
             "first processed observation"
         ),
     )
+    parser.add_argument(
+        "--shared-frame-calibration-id",
+        default=None,
+        help=(
+            "explicit common calibration/session id for maps eligible for "
+            "cross-robot fusion; omit for an independent per-robot map"
+        ),
+    )
+    parser.add_argument("--startup-stable-frames", type=int, default=3)
+    parser.add_argument("--startup-max-pose-delta-m", type=float, default=2.0)
+    parser.add_argument("--startup-max-rotation-delta-deg", type=float, default=90.0)
+    parser.add_argument("--startup-max-interval-s", type=float, default=10.0)
+    parser.add_argument("--keyframe-translation-m", type=float, default=0.20)
+    parser.add_argument("--keyframe-rotation-deg", type=float, default=10.0)
+    parser.add_argument("--keyframe-max-interval-s", type=float, default=5.0)
+    parser.add_argument(
+        "--ground-mode",
+        choices=("ransac", "camera-height"),
+        default="ransac",
+        help=(
+            "estimate a three-frame ground-plane consensus, or explicitly "
+            "use camera z minus --camera-height"
+        ),
+    )
+    parser.add_argument("--obstacle-band-low-m", type=float, default=0.15)
+    parser.add_argument("--obstacle-band-high-m", type=float, default=0.75)
+    parser.add_argument(
+        "--obstacle-fusion-mode",
+        choices=("max", "log_odds"),
+        default="log_odds",
+        help=(
+            "max preserves upstream replay fusion; log_odds uses reversible "
+            "free-ray/occupied-endpoint evidence for live depth"
+        ),
+    )
+    parser.add_argument(
+        "--obstacle-min-hits",
+        type=int,
+        default=2,
+        help="minimum accepted keyframes supporting a cell before it is an obstacle",
+    )
     args = parser.parse_args()
+    if args.ground_mode == "ransac" and args.startup_stable_frames < 3:
+        parser.error("--ground-mode ransac requires --startup-stable-frames >= 3")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     log = args.log.open("a", buffering=1)
@@ -189,10 +252,19 @@ def main() -> int:
     emit("startup", rss_mib=round(rss_mib(), 1), gpu_mib=gpu_mib(), cascade_enabled=not args.no_cascade)
 
     pipeline: SpoolMappingPipeline | None = None
+    startup_gate = StartupPoseGate(StartupPoseConfig(
+        required_consecutive=args.startup_stable_frames,
+        max_translation_delta_m=args.startup_max_pose_delta_m,
+        max_rotation_delta_deg=args.startup_max_rotation_delta_deg,
+        max_interval_s=args.startup_max_interval_s,
+    ))
+    startup_pending = []
+    startup_transform_version: str | None = None
     highest_sequence = args.start_after_sequence
     if highest_sequence >= 0:
         emit("skip_to_sequence", start_after_sequence=highest_sequence)
     frames_total = 0
+    observations_total = 0
     decisions_total = 0
     frame_ms: list[float] = []
     last_decision_at = time.monotonic()
@@ -206,46 +278,178 @@ def main() -> int:
         new = list(iter_spooled_observations(
             args.spool, args.robot_id, after_sequence=highest_sequence))
         for observation in new:
+            highest_sequence = max(highest_sequence, observation.sequence)
+            observations_total += 1
             last_metadata = observation.metadata
             if pipeline is None:
-                # Fix the map extent from the first frames; the soak replays a
-                # known trajectory, so a generous margin around the first pose
-                # bounds it deterministically.
+                observation_version = observation.metadata.pose.transform_version
+                if (
+                    args.expected_transform_version is not None
+                    and observation_version != args.expected_transform_version
+                ):
+                    raise ValueError(
+                        "startup observation transform version mismatch: "
+                        f"expected={args.expected_transform_version!r}, "
+                        f"observed={observation_version!r}, "
+                        f"sequence={observation.sequence}"
+                    )
+                if (
+                    startup_transform_version is not None
+                    and observation_version != startup_transform_version
+                ):
+                    emit(
+                        "startup_transform_reset",
+                        previous=startup_transform_version,
+                        current=observation_version,
+                        sequence=observation.sequence,
+                    )
+                    startup_gate.reset()
+                    startup_pending.clear()
+                startup_transform_version = observation_version
+                startup_decision = startup_gate.evaluate(
+                    observation.T_shared_camera,
+                    observation.metadata.capture_time_ns,
+                )
+                if startup_decision.reset:
+                    rejected = [item.sequence for item in startup_pending]
+                    startup_pending = [observation]
+                    emit(
+                        "startup_pose_reset",
+                        reason=startup_decision.reason,
+                        rejected_sequences=rejected,
+                        new_candidate_sequence=observation.sequence,
+                        translation_m=round(startup_decision.translation_m, 4),
+                        rotation_deg=round(startup_decision.rotation_deg, 3),
+                        elapsed_sec=round(startup_decision.elapsed_sec, 3),
+                    )
+                else:
+                    startup_pending.append(observation)
+                if not startup_decision.ready:
+                    continue
+
+                stable = startup_pending[-args.startup_stable_frames:]
+                stable_positions = np.stack(
+                    [item.T_shared_camera[:3, 3] for item in stable], axis=0
+                )
+                x0, y0, z0 = np.median(stable_positions, axis=0)
                 margin = MapperConfig().max_range_m + 8.0
-                x0 = float(observation.T_shared_camera[0, 3])
-                y0 = float(observation.T_shared_camera[1, 3])
-                config = MapperConfig(map_size_m=2 * margin)
-                floor_z = float(observation.T_shared_camera[2, 3]) - args.camera_height
-                K = observation.metadata.intrinsics
+                K = stable[-1].metadata.intrinsics
+                K_matrix = np.array(
+                    [[K.fx, 0, K.cx], [0, K.fy, K.cy], [0, 0, 1.0]]
+                )
+                if args.ground_mode == "ransac":
+                    ground = estimate_startup_ground(stable, K_matrix)
+                    if not ground.accepted or ground.ground_z_m is None:
+                        emit(
+                            "startup_ground_rejected",
+                            reason=ground.reason,
+                            sequences=[item.sequence for item in stable],
+                            candidates=[
+                                {
+                                    "accepted": item.accepted,
+                                    "reason": item.reason,
+                                    "ground_z_m": item.ground_z_m,
+                                    "candidate_points": item.candidate_points,
+                                    "inlier_points": item.inlier_points,
+                                    "inlier_ratio": round(item.inlier_ratio, 4),
+                                    "tilt_deg": item.tilt_deg,
+                                }
+                                for item in ground.candidates
+                            ],
+                        )
+                        startup_pending = startup_pending[-args.startup_stable_frames:]
+                        continue
+                    floor_z = ground.ground_z_m
+                    floor_source = "three_frame_ransac_consensus"
+                else:
+                    floor_z = float(z0) - args.camera_height
+                    floor_source = "explicit_camera_height"
+                config = MapperConfig(
+                    map_size_m=2 * margin,
+                    obstacle_fusion_mode=args.obstacle_fusion_mode,
+                    obstacle_min_hits=args.obstacle_min_hits,
+                    obstacle_band_low_m=args.obstacle_band_low_m,
+                    obstacle_band_high_m=args.obstacle_band_high_m,
+                )
                 bound_transform_version = (
                     args.expected_transform_version
-                    or observation.metadata.pose.transform_version
+                    or stable[-1].metadata.pose.transform_version
                 )
                 pipeline = SpoolMappingPipeline(
                     segmenter,
-                    np.array([[K.fx, 0, K.cx], [0, K.fy, K.cy], [0, 0, 1.0]]),
+                    K_matrix,
                     config,
-                    (x0 - margin, y0 - margin),
+                    (float(x0) - margin, float(y0) - margin),
                     floor_z,
                     expected_transform_version=bound_transform_version,
+                    frame_id=stable[-1].metadata.pose.shared_T_camera.parent_frame,
+                    robot_id=args.robot_id,
+                    shared_frame_calibration_id=args.shared_frame_calibration_id,
+                    floor_source=floor_source,
+                    keyframe_config=KeyframeConfig(
+                        translation_threshold_m=args.keyframe_translation_m,
+                        rotation_threshold_deg=args.keyframe_rotation_deg,
+                        max_interval_sec=args.keyframe_max_interval_s,
+                        pose_jump_translation_m=args.startup_max_pose_delta_m,
+                        pose_jump_rotation_deg=args.startup_max_rotation_delta_deg,
+                    ),
+                    halt_on_pose_jump=True,
                 )
                 emit(
                     "mapper_init",
-                    origin=[x0 - margin, y0 - margin],
+                    origin=[float(x0) - margin, float(y0) - margin],
                     floor_z=floor_z,
+                    floor_source=floor_source,
                     transform_version=pipeline.transform_version,
+                    frame_id=pipeline.frame_id,
+                    shared_frame_calibration_id=pipeline.shared_frame_calibration_id,
+                    stable_sequences=[item.sequence for item in stable],
+                    obstacle_fusion_mode=args.obstacle_fusion_mode,
+                    obstacle_min_hits=args.obstacle_min_hits,
+                    obstacle_band_m=[
+                        args.obstacle_band_low_m,
+                        args.obstacle_band_high_m,
+                    ],
                 )
-            t0 = time.perf_counter()
-            pipeline.process(observation)
-            frame_ms.append((time.perf_counter() - t0) * 1e3)
-            highest_sequence = max(highest_sequence, observation.sequence)
-            frames_total += 1
-            if args.snapshot_interval_s > 0:
-                write_camera_snapshot(pipeline, args.out_dir, args.robot_id, last_metadata, frames_total)
-            if frames_total % 100 == 0:
-                emit("progress", frames=frames_total,
-                     mean_frame_ms=round(float(np.mean(frame_ms[-100:])), 1),
-                     rss_mib=round(rss_mib(), 1), gpu_mib=gpu_mib())
+                observations_to_process = stable
+                startup_pending.clear()
+            else:
+                observations_to_process = [observation]
+
+            for mapping_observation in observations_to_process:
+                last_metadata = mapping_observation.metadata
+                t0 = time.perf_counter()
+                keyframe_decision = pipeline.process(mapping_observation)
+                elapsed_ms = (time.perf_counter() - t0) * 1e3
+                if keyframe_decision.accept:
+                    frame_ms.append(elapsed_ms)
+                    frames_total += 1
+                    if frames_total % 100 == 0:
+                        emit(
+                            "progress",
+                            frames=frames_total,
+                            observations=observations_total,
+                            skipped=pipeline.skipped_non_keyframes,
+                            mean_frame_ms=round(float(np.mean(frame_ms[-100:])), 1),
+                            rss_mib=round(rss_mib(), 1),
+                            gpu_mib=gpu_mib(),
+                        )
+                elif keyframe_decision.pose_jump:
+                    emit(
+                        "mapping_halted_pose_jump",
+                        sequence=mapping_observation.sequence,
+                        translation_m=round(keyframe_decision.translation_m, 4),
+                        rotation_deg=round(keyframe_decision.rotation_deg, 3),
+                        reason=pipeline.mapping_blocked_reason,
+                    )
+                if args.snapshot_interval_s > 0:
+                    write_camera_snapshot(
+                        pipeline,
+                        args.out_dir,
+                        args.robot_id,
+                        last_metadata,
+                        frames_total,
+                    )
 
         now = time.monotonic()
         if (args.snapshot_interval_s > 0 and pipeline is not None
@@ -258,7 +462,7 @@ def main() -> int:
             decision_step += 1
             t0 = time.perf_counter()
             grid = pipeline.mapper.map.grid
-            frontiers = extract_frontiers(
+            frontiers = [] if pipeline.mapping_blocked_reason else extract_frontiers(
                 grid, pipeline.mapper.map.origin_xy_m, pipeline.mapper.config.resolution_m)
             choice = None
             source = "none"
@@ -318,7 +522,9 @@ def main() -> int:
             vlm_ms = (time.perf_counter() - t0) * 1e3
 
             now_ns = time.time_ns()
-            if choice is not None:
+            if pipeline.mapping_blocked_reason is not None:
+                reason = f"mapping halted: {pipeline.mapping_blocked_reason}"
+            elif choice is not None:
                 reason = f"GOAL blocked by policy; would explore frontier {choice.frontier.frontier_id} ({source})"
             elif cascade_info is not None and not cascade_info["gate_passed"]:
                 reason = f"judgment gate declined a new frontier this cycle: {cascade_info['gate_reason']}"
@@ -329,7 +535,7 @@ def main() -> int:
                 decision_id=f"soak-{uuid.uuid4().hex[:12]}",
                 mode="HOLD",
                 map_version=0,
-                transform_version="UNSET",
+                transform_version=pipeline.transform_version or "UNSET",
                 issued_at_ns=now_ns,
                 expires_at_ns=now_ns + int(args.decision_expiry_s * 1e9),
                 reason=reason[:512],
@@ -359,6 +565,9 @@ def main() -> int:
         pipeline.save(args.out_dir)
     summary = {
         "frames_total": frames_total,
+        "observations_total": observations_total,
+        "startup_waiting": pipeline is None,
+        "mapping_blocked_reason": None if pipeline is None else pipeline.mapping_blocked_reason,
         "decisions_total": decisions_total,
         "mean_frame_ms": round(float(np.mean(frame_ms)), 1) if frame_ms else None,
         "p95_frame_ms": round(float(np.percentile(frame_ms, 95)), 1) if frame_ms else None,

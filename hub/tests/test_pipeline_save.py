@@ -10,7 +10,16 @@ def _make_pipeline() -> SpoolMappingPipeline:
     # save() never touches self.segmenter, so a real RedNetSegmenter (GPU
     # checkpoint) isn't needed to exercise it.
     K = np.array([[300.0, 0, 160], [0, 300.0, 120], [0, 0, 1]])
-    return SpoolMappingPipeline(None, K, MapperConfig(), (0.0, 0.0), 0.0)
+    return SpoolMappingPipeline(
+        None,
+        K,
+        MapperConfig(),
+        (0.0, 0.0),
+        0.0,
+        expected_transform_version="test-transform-v1",
+        robot_id="robot-0",
+        shared_frame_calibration_id="test-calibration-v1",
+    )
 
 
 def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
@@ -32,6 +41,13 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
     with np.load(tmp_path / "central_map.npz") as data:
         assert data["grid"].shape == pipeline.mapper.map.grid.shape
         assert float(data["resolution_m"]) == pipeline.mapper.config.resolution_m
+        assert str(data["frame_id"].item()) == "shared_world"
+        assert str(data["transform_version"].item()) == "test-transform-v1"
+        assert str(data["shared_frame_calibration_id"].item()) == "test-calibration-v1"
+        assert str(data["map_format_version"].item()) == "focus-hub-central-map-v2"
+        assert str(data["floor_source"].item()) == "caller_provided_unverified"
+        assert str(data["obstacle_fusion_mode"].item()) == "max"
+        np.testing.assert_allclose(data["obstacle_band_m"], [0.25, 1.5])
 
 
 def test_save_can_be_called_repeatedly(tmp_path):

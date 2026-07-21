@@ -18,6 +18,7 @@ import numpy as np
 from .central_mapping import CentralMapper, MapperConfig, RedNetSegmenter
 from .depth_align import decode_depth_png16
 from .models import ObservationMetadata
+from .pose_gate import KeyframeConfig, KeyframeDecision, KeyframeSelector
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,16 @@ class SpoolMappingPipeline:
         origin_xy_m: tuple[float, float],
         floor_z_m: float,
         expected_transform_version: str | None = None,
+        *,
+        frame_id: str = "shared_world",
+        robot_id: str | None = None,
+        shared_frame_calibration_id: str | None = None,
+        floor_source: str = "caller_provided_unverified",
+        keyframe_config: KeyframeConfig | None = None,
+        halt_on_pose_jump: bool = True,
     ) -> None:
+        if not frame_id:
+            raise ValueError("frame_id must be non-empty")
         self.segmenter = segmenter
         self.mapper = CentralMapper(
             config=config,
@@ -94,11 +104,22 @@ class SpoolMappingPipeline:
         self.last_camera_T: np.ndarray | None = None
         self.last_rgb_bgr: np.ndarray | None = None
         self.frames_processed = 0
+        self.observations_seen = 0
+        self.skipped_non_keyframes = 0
+        self.pose_jump_events = 0
         self.transform_version = expected_transform_version
+        self.frame_id = frame_id
+        self.robot_id = robot_id
+        self.shared_frame_calibration_id = shared_frame_calibration_id
+        self.floor_source = floor_source
+        self.keyframes = KeyframeSelector(keyframe_config) if keyframe_config else None
+        self.halt_on_pose_jump = halt_on_pose_jump
+        self.mapping_blocked_reason: str | None = None
         self.first_sequence: int | None = None
         self.last_sequence: int | None = None
+        self.last_observation_sequence: int | None = None
 
-    def process(self, observation: SpooledObservation) -> None:
+    def process(self, observation: SpooledObservation) -> KeyframeDecision:
         observation_version = observation.metadata.pose.transform_version
         if self.transform_version is None:
             self.transform_version = observation_version
@@ -108,6 +129,50 @@ class SpoolMappingPipeline:
                 f"bound={self.transform_version!r}, observation={observation_version!r}, "
                 f"sequence={observation.sequence}"
             )
+        observation_frame = observation.metadata.pose.shared_T_camera.parent_frame
+        if observation_frame != self.frame_id:
+            raise ValueError(
+                "refusing to mix coordinate frames in one map: "
+                f"bound={self.frame_id!r}, observation={observation_frame!r}, "
+                f"sequence={observation.sequence}"
+            )
+
+        self.observations_seen += 1
+        self.last_observation_sequence = observation.sequence
+        self.last_camera_xy = (
+            float(observation.T_shared_camera[0, 3]),
+            float(observation.T_shared_camera[1, 3]),
+        )
+        self.last_camera_T = observation.T_shared_camera
+        # The dashboard camera remains current even when geometry integration
+        # is skipped by the keyframe gate or latched after a pose jump.
+        self.last_rgb_bgr = observation.rgb_bgr
+
+        if self.mapping_blocked_reason is not None:
+            self.skipped_non_keyframes += 1
+            return KeyframeDecision(False, "pose_jump_latched", 0.0, 0.0, 0.0)
+
+        if self.keyframes is None:
+            decision = KeyframeDecision(True, "unfiltered", 0.0, 0.0, 0.0)
+        else:
+            decision = self.keyframes.evaluate(
+                observation.T_shared_camera, observation.metadata.capture_time_ns
+            )
+        if decision.pose_jump:
+            self.pose_jump_events += 1
+            self.skipped_non_keyframes += 1
+            if self.halt_on_pose_jump:
+                self.mapping_blocked_reason = (
+                    "pose discontinuity requires a fresh map session: "
+                    f"sequence={observation.sequence}, "
+                    f"translation_m={decision.translation_m:.3f}, "
+                    f"rotation_deg={decision.rotation_deg:.2f}"
+                )
+            return decision
+        if not decision.accept:
+            self.skipped_non_keyframes += 1
+            return decision
+
         pred = self.segmenter.segment(observation.rgb_bgr, observation.depth_m)
         self.mapper.integrate(
             _MapperFrame(
@@ -116,18 +181,11 @@ class SpoolMappingPipeline:
             ),
             pred,
         )
-        self.last_camera_xy = (
-            float(observation.T_shared_camera[0, 3]),
-            float(observation.T_shared_camera[1, 3]),
-        )
-        self.last_camera_T = observation.T_shared_camera
-        # Kept for the Perception VLM stage (needs the latest raw RGB, not
-        # just the accumulated semantic grid) — see vlm_decision.py.
-        self.last_rgb_bgr = observation.rgb_bgr
         if self.first_sequence is None:
             self.first_sequence = observation.sequence
         self.last_sequence = observation.sequence
         self.frames_processed += 1
+        return decision
 
     def run(self, spool_dir: Path, robot_id: str) -> int:
         for observation in iter_spooled_observations(spool_dir, robot_id):
@@ -135,6 +193,8 @@ class SpoolMappingPipeline:
         return self.frames_processed
 
     def save(self, out_dir: Path) -> None:
+        if not self.transform_version:
+            raise ValueError("cannot save a map before binding a transform_version")
         out_dir.mkdir(parents=True, exist_ok=True)
         # Atomic write: a concurrent reader (e.g. foxglove_relay.py polling
         # this same directory while the daemon periodically re-saves) must
@@ -154,17 +214,56 @@ class SpoolMappingPipeline:
             grid=self.mapper.map.grid,
             origin_xy_m=np.array(self.mapper.map.origin_xy_m),
             floor_z_m=np.array(self.mapper.map.floor_z_m),
+            floor_source=np.asarray(self.floor_source),
             resolution_m=np.array(self.mapper.config.resolution_m),
+            frame_id=np.asarray(self.frame_id),
+            transform_version=np.asarray(self.transform_version or ""),
+            shared_frame_calibration_id=np.asarray(
+                self.shared_frame_calibration_id or ""
+            ),
+            map_format_version=np.asarray("focus-hub-central-map-v2"),
+            obstacle_fusion_mode=np.asarray(
+                self.mapper.config.obstacle_fusion_mode
+            ),
+            obstacle_band_m=np.asarray(
+                [
+                    self.mapper.config.obstacle_band_low_m,
+                    self.mapper.config.obstacle_band_high_m,
+                ],
+                dtype=np.float64,
+            ),
+            obstacle_min_hits=np.asarray(self.mapper.config.obstacle_min_hits),
         )
         os.replace(tmp_path, out_dir / "central_map.npz")
         summary = {
+            "robot_id": self.robot_id,
+            "source_kind": "focus_hub_incremental_rgbd",
+            "source_status": "observed_spooled_observations",
+            "map_format_version": "focus-hub-central-map-v2",
             "frames_processed": self.frames_processed,
+            "observations_seen": self.observations_seen,
+            "skipped_non_keyframes": self.skipped_non_keyframes,
+            "pose_jump_events": self.pose_jump_events,
+            "mapping_blocked_reason": self.mapping_blocked_reason,
             "transform_version": self.transform_version,
+            "frame_id": self.frame_id,
+            "shared_frame_calibration_id": self.shared_frame_calibration_id,
+            "floor_z_m": self.mapper.map.floor_z_m,
+            "floor_source": self.floor_source,
+            "obstacle_fusion_mode": self.mapper.config.obstacle_fusion_mode,
+            "obstacle_band_m": [
+                self.mapper.config.obstacle_band_low_m,
+                self.mapper.config.obstacle_band_high_m,
+            ],
+            "obstacle_min_hits": self.mapper.config.obstacle_min_hits,
             "first_sequence": self.first_sequence,
             "last_sequence": self.last_sequence,
+            "last_observation_sequence": self.last_observation_sequence,
             "obstacle_cells": int((self.mapper.map.grid[0] > 0.5).sum()),
             "explored_cells": int((self.mapper.map.grid[1] > 0.5).sum()),
         }
-        (out_dir / "map_summary.json").write_text(
+        summary_tmp = out_dir / "map_summary.json.tmp"
+        summary_tmp.write_text(
             json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
+        os.replace(summary_tmp, out_dir / "map_summary.json")
