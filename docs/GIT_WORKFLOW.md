@@ -9,6 +9,17 @@
 
 本次目标仓库创建时为空，因此首个可复现基线直接建立 `main`。后续变化走工作分支和 Pull Request。
 
+本机同时配置多个 GitHub 身份时，先确认仓库所有者对应的 SSH host alias：
+
+```bash
+ssh -T github-alan
+git remote set-url origin git@github.com:AlanZhu2006/topofocus_realworld.git
+git remote set-url --push origin git@github-alan:AlanZhu2006/topofocus_realworld.git
+git remote -v
+```
+
+这里的 `github-alan` 是本机 `~/.ssh/config` 中的身份别名，不应原样复制到新机器。新 Go2 只需读取公开仓库时，可直接使用 README 中的 HTTPS clone 地址，无需 GitHub 凭据。不要把私钥、token 或 `~/.ssh/config` 提交到仓库。
+
 ## 每次提交前
 
 ```bash

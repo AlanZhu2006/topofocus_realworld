@@ -1,11 +1,17 @@
 {
   "schema_version": 1,
-  "as_of": "2026-07-21T22:00:00+08:00",
+  "as_of": "2026-07-21T22:32:13+08:00",
   "code": {
     "hub_unit_tests": {"status": "observed", "passed": 142},
     "tinynav_occupancy_adapter": {"status": "observed", "native_png_pixel_mismatch": 0},
     "wsj_imu_fix": {"status": "observed", "head": "29f26bc058886ff450f02cdc0d6e9977e1c57010"},
-    "github_repository": {"status": "in_progress", "remote": "git@github.com:AlanZhu2006/topofocus_realworld.git"}
+    "github_repository": {
+      "status": "observed",
+      "remote": "git@github.com:AlanZhu2006/topofocus_realworld.git",
+      "url": "https://github.com/AlanZhu2006/topofocus_realworld",
+      "default_branch": "main",
+      "visibility": "public"
+    }
   },
   "safety": {
     "hub_allow_goal_default": false,
