@@ -53,7 +53,11 @@ Every new `central_map.npz` contains at least:
 Foxglove refuses legacy snapshots without frame/transform metadata unless
 `--allow-legacy-maps` is explicitly given for an unverified per-robot view.
 Fusion never accepts that override. `--fuse` requires every input map to name
-the same non-empty `shared_frame_calibration_id` and frame ID.
+the same non-empty `shared_frame_calibration_id` and frame ID. Once that
+contract passes, the relay publishes both `/fused/geometry_map` and
+`/fused/semantic_map`. The geometry view is the operator default because it
+does not turn an empty or low-quality semantic layer into apparent object
+evidence.
 
 ## Dashboard interpretation
 
@@ -64,9 +68,19 @@ the same non-empty `shared_frame_calibration_id` and frame ID.
   while the live semantic-quality gate remains open;
 - `/<name>/map_pose` draws a red current camera XY and a blue relay-lifetime
   camera trail. It is not a calibrated body footprint or heading;
+- `/fused/geometry_map` is the large shared-frame panel by default, with both
+  robots' map-pose trails overlaid;
+- `/fused/semantic_map` is present but hidden. Enable it only after
+  `/fused/status` reports non-zero semantic evidence and the relevant target
+  has been independently checked. Geometry occupancy alone does not prove a
+  semantic class such as `chair`;
 - evidence is max-reduced before categorical color assignment. The previous
   RGBA block average could invent irregular blended colors which were not
   semantic classes.
+
+Foxglove does not update an already imported local layout when this repository
+file changes. Re-import `hub/foxglove/dual_robot_dashboard.json` after a layout
+revision.
 
 A stationary depth camera naturally produces one fan-shaped observed sector.
 It cannot yield a complete room outline. Movement tests require an operator at

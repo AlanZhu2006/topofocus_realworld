@@ -259,7 +259,10 @@ def map_poll_loop(
 
 
 def fusion_poll_loop(
-    sources: list[RobotSource], fused_channel: GridChannel, fused_status_channel: LogChannel,
+    sources: list[RobotSource],
+    fused_semantic_channel: GridChannel,
+    fused_geometry_channel: GridChannel,
+    fused_status_channel: LogChannel,
     category_names, *, interval_s: float, downsample: int,
 ) -> None:
     """Background thread: real cross-robot map fusion (upstream's
@@ -275,8 +278,8 @@ def fusion_poll_loop(
     the resulting different-origin alignment; it does NOT compensate for a
     missing or wrong calibration -- if that's off, this fuses two maps that
     are subtly (or badly) misaligned, silently. See
-    `audit/G4_REAL_CALIBRATION_20260720.md` for this calibration's own
-    caveats (coincident-assumption precision, one unresolved height anomaly).
+    `audit/SHARED_FRAME_V2_20260722.md` for the current board calibration and
+    its independent moved-board holdout.
     """
     last_published_at_s = 0.0
     while True:
@@ -294,14 +297,30 @@ def fusion_poll_loop(
                     )
                     grids = [item.grid for item in snapshots]
                     origins = [item.origin_xy_m for item in snapshots]
-                    fused_grid, fused_origin = align_and_fuse_grids(grids, origins, resolution_m)
-                    fused_channel.log(grid_to_message(
-                        fused_grid, fused_origin, resolution_m, category_names, downsample,
-                        frame_id))
+                    fused_grid, fused_origin = align_and_fuse_grids(
+                        grids, origins, resolution_m
+                    )
+                    fused_semantic_channel.log(
+                        grid_to_message(
+                            fused_grid, fused_origin, resolution_m,
+                            category_names, downsample, frame_id, view="semantic",
+                        )
+                    )
+                    fused_geometry_channel.log(
+                        grid_to_message(
+                            fused_grid, fused_origin, resolution_m,
+                            category_names, downsample, frame_id, view="geometry",
+                        )
+                    )
+                    explored = int(np.count_nonzero(fused_grid[1] > 0.5))
+                    obstacles = int(np.count_nonzero(fused_grid[0] > 0.5))
+                    semantic = semantic_evidence_cells(fused_grid)
                     fused_status_channel.log(Log(
                         timestamp=now_ts(), level=LogLevel.Info,
                         message=f"fused {len(sources)} robots: shape={fused_grid.shape}, "
-                                f"origin={fused_origin}, calibration={calibration_id}",
+                                f"origin={fused_origin}, calibration={calibration_id}, "
+                                f"explored={explored}, obstacles={obstacles}, "
+                                f"semantic_evidence={semantic}",
                         name="fused"))
                 else:
                     fused_status_channel.log(Log(
@@ -596,7 +615,8 @@ def main() -> int:
         ),
     )
     parser.add_argument("--fuse", action="store_true",
-                         help="also publish a real cross-robot fused map on /fused/semantic_map "
+                         help="also publish real cross-robot fused maps on /fused/geometry_map "
+                              "and /fused/semantic_map "
                               "(focus_hub.fusion.align_and_fuse_grids -- element-wise max, "
                               "upstream's rule) and /fused/status. Only meaningful once a real "
                               "G4 calibration has been applied to the non-reference robot's "
@@ -666,15 +686,18 @@ def main() -> int:
             print("warning: --fuse given with fewer than 2 --robot sources; nothing to fuse",
                   file=sys.stderr)
         else:
-            fused_channel = GridChannel("/fused/semantic_map")
+            fused_semantic_channel = GridChannel("/fused/semantic_map")
+            fused_geometry_channel = GridChannel("/fused/geometry_map")
             fused_status_channel = LogChannel("/fused/status")
             threading.Thread(
                 target=fusion_poll_loop,
-                args=(sources, fused_channel, fused_status_channel, HM3D_CATEGORY_NAMES),
+                args=(sources, fused_semantic_channel, fused_geometry_channel,
+                      fused_status_channel, HM3D_CATEGORY_NAMES),
                 kwargs={"interval_s": args.fuse_interval_s, "downsample": args.map_downsample},
                 daemon=True,
             ).start()
-            print(f"  fused map: /fused/semantic_map (every {args.fuse_interval_s}s, "
+            print(f"  fused maps: /fused/geometry_map + /fused/semantic_map "
+                  f"(every {args.fuse_interval_s}s, "
                   f"{len(sources)} robots)")
 
     print(f"Camera preview push endpoint on http://{args.host}:{args.preview_port} "

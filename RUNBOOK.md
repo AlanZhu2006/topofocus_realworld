@@ -35,7 +35,7 @@ python main.py --task_config envs/habitat/configs/tasks/multi_objectnav_hm3d.yam
 | G1 | fresh local environment imports Torch/CUDA, GLM server dependencies, RedNet, YOLO, CLIP | **passed** (`audit/G1_LOCAL_ENVIRONMENT.md`) |
 | G2 | GLM server answers a controlled offline request locally | **passed** (`audit/G2_LOCAL_GLM_REQUEST.md`) |
 | G3 | one robot replay reaches semantic-map update from recorded RGB-D/pose | **passed** (`audit/G3_LOCAL_REPLAY_MAPPING.md`) |
-| G4 | two robot replays fuse into one declared coordinate frame and receive distinct decisions | machinery implemented; current WSJ v3/Yunji live pair has no verified shared-frame calibration, so no current-session pass |
+| G4 | two robot replays fuse into one declared coordinate frame and receive distinct decisions | live v2 board calibration plus independent moved-board holdout passed; read-only shared-map fusion is available, but distinct-decision evidence is still missing, so the full gate remains open |
 | G5 | robot-side safety controller rejects stale/unsafe commands in a hardware-in-the-loop test | not implemented |
 
 Do not claim live two-robot navigation before G4 and G5 pass.
@@ -126,13 +126,13 @@ hub/.venv/bin/python hub/tools/calibrate_shared_frame.py \
 
 # Live multi-robot dashboard (this machine): run one hub_pipeline_daemon.py
 # per robot with periodic snapshotting enabled, then foxglove_relay.py
-# republishes each robot's latest camera frame + own incremental map
-# (NOT fused -- the current WSJ v3/Yunji sessions have no shared calibration
-# ID) + explicit per-robot staleness over one Foxglove
+# republishes each robot's latest camera frame + own incremental map and
+# explicit per-robot staleness over one Foxglove
 # WebSocket server. Open Foxglove, connect to ws://<this-host>:8765, and
 # import hub/foxglove/dual_robot_dashboard.json. Evidence:
 # audit/FOXGLOVE_DASHBOARD_20260720.md and
-# audit/LIVE_MAP_RECOVERY_20260722.md.
+# audit/LIVE_MAP_RECOVERY_20260722.md and
+# audit/SHARED_FRAME_V2_20260722.md.
 #
 # Live defaults wait for three continuous poses and a three-frame RANSAC
 # ground consensus, then use 0.20m/10deg/5s keyframes, reversible log-odds
@@ -155,7 +155,10 @@ hub/.venv/bin/python hub/tools/foxglove_relay.py \
 
 # Only after both daemons were started with the same independently verified
 # --shared-frame-calibration-id may the relay add --fuse. A common frame name
-# or two transform_version strings alone are insufficient.
+# or two transform_version strings alone are insufficient. With --fuse, the
+# dashboard shows /fused/geometry_map by default; /fused/semantic_map remains
+# hidden until /fused/status reports real, independently checked semantic
+# evidence. Re-import the JSON layout after repository layout changes.
 ```
 
 The bounded live-spool parameter/RedNet diagnostics, operator-present moved

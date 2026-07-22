@@ -132,6 +132,39 @@
         "poseEstimateThetaDeviation": 0.26179939
       }
     },
+    "3D!fusedmap": {
+      "cameraState": {
+        "distance": 35,
+        "perspective": false,
+        "phi": 0,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "thetaOffset": 0,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-none",
+      "scene": {},
+      "transforms": {},
+      "topics": {
+        "/fused/geometry_map": { "visible": true },
+        "/fused/semantic_map": { "visible": false },
+        "/wsj/map_pose": { "visible": true },
+        "/yunji/map_pose": { "visible": true }
+      },
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      }
+    },
     "RosOut!statuslog": {
       "searchTerms": [],
       "minLogLevel": 1,
@@ -149,15 +182,20 @@
       "splitPercentage": 50
     },
     "second": {
-      "first": {
-        "first": "3D!wsjmap",
-        "second": "3D!yunjimap",
-        "direction": "row",
-        "splitPercentage": 50
+      "first": "3D!fusedmap",
+      "second": {
+        "first": {
+          "first": "3D!wsjmap",
+          "second": "3D!yunjimap",
+          "direction": "row",
+          "splitPercentage": 50
+        },
+        "second": "RosOut!statuslog",
+        "direction": "column",
+        "splitPercentage": 70
       },
-      "second": "RosOut!statuslog",
-      "direction": "column",
-      "splitPercentage": 70
+      "direction": "row",
+      "splitPercentage": 50
     },
     "direction": "column",
     "splitPercentage": 40
