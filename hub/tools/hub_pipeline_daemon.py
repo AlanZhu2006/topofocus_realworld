@@ -102,6 +102,7 @@ def write_camera_snapshot(
         "skipped_non_keyframes": pipeline.skipped_non_keyframes,
         "pose_jump_events": pipeline.pose_jump_events,
         "mapping_blocked_reason": pipeline.mapping_blocked_reason,
+        "mapping_blocked_kind": pipeline.mapping_blocked_kind,
         "frame_id": pipeline.frame_id,
         "transform_version": pipeline.transform_version,
         "shared_frame_calibration_id": pipeline.shared_frame_calibration_id,
@@ -111,7 +112,10 @@ def write_camera_snapshot(
         ),
         "floor_source": pipeline.floor_source,
         "ground_rejected_frames": pipeline.ground_rejected_frames,
+        "ground_drift_frames": pipeline.ground_drift_frames,
         "ground_drift_events": pipeline.ground_drift_events,
+        "ground_drift_streak": pipeline.ground_drift_streak,
+        "ground_drift_consecutive_frames": pipeline.ground_drift_consecutive_frames,
         "last_ground_sequence": pipeline.last_ground_sequence,
         "last_ground_reason": pipeline.last_ground_reason,
         "last_ground_tilt_delta_deg": pipeline.last_ground_tilt_delta_deg,
@@ -236,6 +240,15 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--ground-drift-consecutive-frames",
+        type=int,
+        default=3,
+        help=(
+            "with --ground-mode ransac, reject each outlying floor frame but "
+            "halt only after this many consecutive accepted fits exceed a drift gate"
+        ),
+    )
+    parser.add_argument(
         "--obstacle-fusion-mode",
         choices=("max", "log_odds"),
         default="log_odds",
@@ -257,6 +270,8 @@ def main() -> int:
         parser.error("--max-ground-tilt-delta-deg must be positive")
     if args.max_ground_height_delta_m <= 0.0:
         parser.error("--max-ground-height-delta-m must be positive")
+    if args.ground_drift_consecutive_frames <= 0:
+        parser.error("--ground-drift-consecutive-frames must be positive")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     log = args.log.open("a", buffering=1)
@@ -427,6 +442,9 @@ def main() -> int:
                     ),
                     max_ground_tilt_delta_deg=args.max_ground_tilt_delta_deg,
                     max_ground_height_delta_m=args.max_ground_height_delta_m,
+                    ground_drift_consecutive_frames=(
+                        args.ground_drift_consecutive_frames
+                    ),
                     frame_id=stable[-1].metadata.pose.shared_T_camera.parent_frame,
                     robot_id=args.robot_id,
                     shared_frame_calibration_id=args.shared_frame_calibration_id,
@@ -495,6 +513,15 @@ def main() -> int:
                         tilt_delta_deg=pipeline.last_ground_tilt_delta_deg,
                         height_delta_m=pipeline.last_ground_height_delta_m,
                         reason=pipeline.mapping_blocked_reason,
+                    )
+                elif keyframe_decision.reason == "ground_drift_pending":
+                    emit(
+                        "mapping_skipped_ground_drift",
+                        sequence=mapping_observation.sequence,
+                        streak=pipeline.ground_drift_streak,
+                        latch_after=pipeline.ground_drift_consecutive_frames,
+                        tilt_delta_deg=pipeline.last_ground_tilt_delta_deg,
+                        height_delta_m=pipeline.last_ground_height_delta_m,
                     )
                 elif keyframe_decision.reason.startswith("ground_"):
                     emit(

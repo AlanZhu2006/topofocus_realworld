@@ -102,6 +102,7 @@ class SpoolMappingPipeline:
         ground_plane_config: GroundPlaneConfig | None = None,
         max_ground_tilt_delta_deg: float = 3.0,
         max_ground_height_delta_m: float = 0.08,
+        ground_drift_consecutive_frames: int = 3,
         frame_id: str = "shared_world",
         robot_id: str | None = None,
         shared_frame_calibration_id: str | None = None,
@@ -129,10 +130,17 @@ class SpoolMappingPipeline:
             max_ground_height_delta_m
         ):
             raise ValueError("max_ground_height_delta_m must be finite and positive")
+        if (
+            isinstance(ground_drift_consecutive_frames, bool)
+            or not isinstance(ground_drift_consecutive_frames, int)
+            or ground_drift_consecutive_frames <= 0
+        ):
+            raise ValueError("ground_drift_consecutive_frames must be a positive integer")
         self.K_rgb = np.asarray(K_rgb, dtype=np.float64)
         self.ground_plane_config = ground_plane_config
         self.max_ground_tilt_delta_deg = float(max_ground_tilt_delta_deg)
         self.max_ground_height_delta_m = float(max_ground_height_delta_m)
+        self.ground_drift_consecutive_frames = ground_drift_consecutive_frames
         self.last_camera_xy: tuple[float, float] | None = None
         self.last_camera_T: np.ndarray | None = None
         self.last_rgb_bgr: np.ndarray | None = None
@@ -141,7 +149,9 @@ class SpoolMappingPipeline:
         self.skipped_non_keyframes = 0
         self.pose_jump_events = 0
         self.ground_rejected_frames = 0
+        self.ground_drift_frames = 0
         self.ground_drift_events = 0
+        self.ground_drift_streak = 0
         self.last_ground_sequence: int | None = None
         self.last_ground_reason: str | None = None
         self.last_ground_tilt_delta_deg: float | None = None
@@ -222,6 +232,10 @@ class SpoolMappingPipeline:
                 or ground_candidate.plane_coefficients is None
             ):
                 self.ground_rejected_frames += 1
+                # A missing/invalid plane breaks consecutiveness.  It gives
+                # no evidence that drift persists, and the frame is already
+                # excluded from both the pose gate and map integration.
+                self.ground_drift_streak = 0
                 self.skipped_non_keyframes += 1
                 return KeyframeDecision(
                     False,
@@ -245,16 +259,35 @@ class SpoolMappingPipeline:
                 tilt_delta > self.max_ground_tilt_delta_deg
                 or height_delta > self.max_ground_height_delta_m
             ):
-                self.ground_drift_events += 1
+                # Do not integrate any outlying frame.  A single fit can be
+                # transiently biased during a turn (RGB-D/pose timing, body
+                # dynamics, or reduced visible floor), so only latch after a
+                # configurable run of accepted-but-drifting floor fits.  A
+                # subsequent in-range fit proves recovery and resets the run.
+                self.ground_drift_frames += 1
+                self.ground_drift_streak += 1
                 self.skipped_non_keyframes += 1
+                if self.ground_drift_streak < self.ground_drift_consecutive_frames:
+                    self.last_ground_reason = "drift_pending"
+                    return KeyframeDecision(
+                        False,
+                        "ground_drift_pending",
+                        0.0,
+                        0.0,
+                        0.0,
+                    )
+                self.ground_drift_events += 1
+                self.last_ground_reason = "drift_latched"
                 self.mapping_blocked_kind = "ground_drift"
                 self.mapping_blocked_reason = (
                     "ground plane drift requires a fresh calibrated map session: "
                     f"sequence={observation.sequence}, "
+                    f"consecutive_frames={self.ground_drift_streak}, "
                     f"tilt_delta_deg={tilt_delta:.3f}, "
                     f"height_delta_m={height_delta:.3f}"
                 )
                 return KeyframeDecision(False, "ground_drift", 0.0, 0.0, 0.0)
+            self.ground_drift_streak = 0
 
         if self.keyframes is None:
             decision = KeyframeDecision(True, "unfiltered", 0.0, 0.0, 0.0)
@@ -357,7 +390,9 @@ class SpoolMappingPipeline:
             "skipped_non_keyframes": self.skipped_non_keyframes,
             "pose_jump_events": self.pose_jump_events,
             "ground_rejected_frames": self.ground_rejected_frames,
+            "ground_drift_frames": self.ground_drift_frames,
             "ground_drift_events": self.ground_drift_events,
+            "ground_drift_streak": self.ground_drift_streak,
             "mapping_blocked_reason": self.mapping_blocked_reason,
             "mapping_blocked_kind": self.mapping_blocked_kind,
             "transform_version": self.transform_version,
@@ -370,6 +405,7 @@ class SpoolMappingPipeline:
                 "enabled": self.ground_plane_config is not None,
                 "max_tilt_delta_deg": self.max_ground_tilt_delta_deg,
                 "max_height_delta_m": self.max_ground_height_delta_m,
+                "consecutive_frames_to_latch": self.ground_drift_consecutive_frames,
                 "last_sequence": self.last_ground_sequence,
                 "last_reason": self.last_ground_reason,
                 "last_tilt_delta_deg": self.last_ground_tilt_delta_deg,

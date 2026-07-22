@@ -31,10 +31,14 @@ new output directory/session after investigating the discontinuity.
 
 With RANSAC ground mode, every observation is checked before the keyframe gate
 or RedNet inference. A frame with no accepted floor candidate is skipped. A
-candidate differing from the startup floor by more than 3 degrees or 8 cm
-latches the map and requires a fresh calibrated session. An accepted frame's
-own plane coefficients are used for height classification, which prevents a
-small residual floor slope from turning distant carpet into an obstacle.
+candidate differing from the startup floor by more than 3 degrees or 8 cm is
+also skipped immediately; three consecutive accepted-but-outlying fits latch
+the map and require a fresh calibrated session. Any subsequent in-range fit or
+observation without a valid floor breaks the consecutive run and clears the
+pending streak. This confirmation rule tolerates a single dynamic turning
+frame without ever integrating that frame. An accepted frame's own plane
+coefficients are used for height classification, which prevents a small
+residual floor slope from turning distant carpet into an obstacle.
 
 Obstacle geometry uses one frame-level update per cell:
 
@@ -76,6 +80,16 @@ extrinsic. Cross-robot calibration must not rotate gravity: use
 `calibrate_gravity_shared_frame_via_board.py` for the Yunji-style board flow.
 The older unconstrained SE(3) tool remains valid only when both input pose
 frames are independently known to share gravity.
+
+WSJ's TinyNav-native synchronized mapping tuple uses
+`/slam/keyframe_image` (`mono8`) with `/slam/keyframe_depth`; the separate
+RealSense color topic is only the independent preview. Consequently the RGB
+field transported for mapping has three identical grayscale channels and an
+infrared projector pattern. RedNet can still recognize some objects (the July
+22 plant trial produced persistent plant cells), but confidence is less stable
+than on its MP3D color training domain. Do not infer semantic-model health from
+the color preview or lower the global confidence threshold without a labelled
+false-positive gate.
 
 ## Dashboard interpretation
 

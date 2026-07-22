@@ -58,6 +58,9 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
 
     summary = json.loads((tmp_path / "map_summary.json").read_text())
     assert summary["obstacle_band_m"] == [0.25, 1.5]
+    assert summary["ground_drift_frames"] == 0
+    assert summary["ground_drift_streak"] == 0
+    assert summary["ground_guard"]["consecutive_frames_to_latch"] == 3
 
 
 def test_save_can_be_called_repeatedly(tmp_path):
