@@ -13,7 +13,7 @@ WorkingDirectory=/home/nyu/focus_sender_odin1
 ExecStartPre=/usr/bin/test -r /home/nyu/odin_ws/install/setup.bash
 ExecStartPre=/usr/bin/test -r /home/nyu/focus_sender_odin1/odin1_driver_headless.launch.py
 ExecStartPre=/usr/bin/lsusb -d 2207:0019
-ExecStart=/bin/bash -lc 'source /opt/ros/humble/setup.bash && source /home/nyu/odin_ws/install/setup.bash && exec ros2 launch /home/nyu/focus_sender_odin1/odin1_driver_headless.launch.py config_file:=/home/nyu/odin_ws/src/odin_ros_driver/config/control_command.yaml'
+ExecStart=/bin/bash -c 'source /opt/ros/humble/setup.bash && source /home/nyu/odin_ws/install/setup.bash && exec ros2 launch /home/nyu/focus_sender_odin1/odin1_driver_headless.launch.py config_file:=/home/nyu/odin_ws/src/odin_ros_driver/config/control_command.yaml'
 Restart=on-failure
 RestartSec=3
 KillSignal=SIGINT

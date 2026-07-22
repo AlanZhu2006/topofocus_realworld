@@ -13,7 +13,7 @@ WorkingDirectory=/home/nyu/focus_sender_odin1
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/home/nyu/focus_sender_odin1/focus-odin1.env
 ExecStartPre=/usr/bin/test -r /home/nyu/focus_sender_odin1/odin1_O1-P070100205_factory_20260722.json
-ExecStart=/bin/bash -lc 'source /opt/ros/humble/setup.bash && source /home/nyu/odin_ws/install/setup.bash && exec /usr/bin/python3 -u /home/nyu/focus_sender_odin1/odin1_sender.py --calibration-file /home/nyu/focus_sender_odin1/odin1_O1-P070100205_factory_20260722.json --rate-hz 1 --metrics-out /home/nyu/focus_sender_odin1/runtime/odin1_sender_metrics.json'
+ExecStart=/bin/bash -c 'source /opt/ros/humble/setup.bash && source /home/nyu/odin_ws/install/setup.bash && exec /usr/bin/python3 -u /home/nyu/focus_sender_odin1/odin1_sender.py --calibration-file /home/nyu/focus_sender_odin1/odin1_O1-P070100205_factory_20260722.json --rate-hz 1 --metrics-out /home/nyu/focus_sender_odin1/runtime/odin1_sender_metrics.json'
 Restart=on-failure
 RestartSec=3
 KillSignal=SIGINT

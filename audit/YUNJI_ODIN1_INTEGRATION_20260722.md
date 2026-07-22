@@ -2,16 +2,18 @@
 
 ## Outcome
 
-Odin1 serial `O1-P070100205` now has a tested TopoFocus observation adapter and
-a reproducible deployment overlay. Real RGB, colored SLAM cloud and odometry
-were converted to the existing aligned RGB-D Hub contract; three bounded live
-observations were accepted by the production Hub.
+Odin1 serial `O1-P070100205` now has a tested TopoFocus observation adapter, a
+reproducible deployment overlay, a fresh WSJ/Odin shared-frame calibration and
+a live Foxglove/map cutover. Real RGB, colored SLAM cloud and odometry are
+converted to the existing aligned RGB-D Hub contract. The sender is running
+continuously under a versioned shared transform and also pushes the rectified
+RGB preview to `/yunji/camera` through a loopback-only reverse tunnel.
 
-This is **not yet a Foxglove/map cutover**. The view used for the bounded test
-contained a nearby tabletop and wall but no visible floor, so an isolated map
-trial could not prove a physically correct ground plane. The fresh Odin/WSJ
-shared-board calibration is also pending. The old D455 shared transform was
-never loaded and the existing v3 map/relay were not replaced.
+The early bounded trial described below contained a nearby tabletop and wall
+but no visible floor; it was correctly rejected as physical floor validation.
+After the sensor view was corrected, a fresh fit plus independently moved-board
+holdout passed, and completely new WSJ/Odin map directories passed their
+startup ground gates. The old D455 transform and map data were not reused.
 
 No robot command was sent. The Odin driver, sender and verifier have no planner,
 velocity publisher or WATER motion endpoint. Hub health reported
@@ -28,6 +30,7 @@ The user identified the authoritative record under Yunji's TinyNav checkout:
 | `config/control_command.yaml` | 5,288 | `c9a0c3466d8526cc290ddd24a31dd8670bb988b8e8a9e1356c625da0dc8ac5ef` | observed runtime configuration |
 | `src/host_sdk_sample.cpp` | 107,243 | `edddec679c13f0e7af3940238faf227aa6282a8e14797f4f0d2899f00110ac85` | observed patched driver source |
 | `src/yaml_parser.cpp` | 11,400 | `826594ab4397e223b6ed0b05e0a585538bea19155902f2a609741ce349f08024` | observed patched driver source |
+| `hub/config/calibration/yunji_odin1_board_20260722_v1.json` | 5,544 | `9e340a882df936e005902de29bb6e54c0a76da6e41c7bda26a040a0ce1421519` | observed spool inputs plus source-derived rigid alignment |
 
 The driver remote is
 `https://github.com/manifoldsdk/odin_ros_driver.git`, tag `v0.13.0`, commit
@@ -117,6 +120,11 @@ retaining all fail-closed distinctions:
 - `mapping_only=true` and `base_T_camera=null`;
 - cross-robot fusion disabled.
 
+Those values describe the pre-calibration bounded lane only. It ends at
+sequence 159948; calibrated observations start at 159949 under
+`yunji-odin1-board-20260722-v1`. No pre- and post-calibration observation is
+written into the same map directory.
+
 The production Hub accepted these exact observations once each:
 
 | Sequence | File | Bytes | SHA-256 |
@@ -152,6 +160,43 @@ is consistent with a tabletop below the sensor and not evidence of Yunji's
 floor. The candidate daemon was stopped cleanly and no relay was switched to
 this map.
 
+## Fresh board calibration and live cutover
+
+The existing 7×10 symmetric-circle board detector initially failed on Odin
+because carpet/projector structure produced many blobs at 4× enlargement. The
+updated detector preserves the old path first, then tries 2× and
+`CALIB_CB_CLUSTERING` fallbacks. Grid endpoints are canonicalized to prevent a
+symmetric-board detection from alternating by 180°, and the physical grid
+center is the landmark origin.
+
+The source-derived gravity-preserving transform used these observed frames:
+
+| Role | WSJ sequence | Odin sequence | Sync skew | Center residual | Normal residual |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| fit | 13234 | 159827 | 72.976634 ms | 0 m | 0.7053266° |
+| independently moved-board holdout | 13568 | 159929 | 59.702478 ms | 0.0114777 m | 0.4472508° |
+
+The holdout passed limits of 0.05 m, 3° and 0.25 s. The generated transform is
+yaw-only, so its tilt is 0° and it cannot rotate gravity. Its tracked artifact
+records source paths, sizes/checksums, observed/source-derived status and
+`robot_commands_issued=false`.
+
+The sender loaded calibration ID `shared-board-odin1-20260722-v1`, resumed at
+sequence 159949, and produced accepted `TRACKING` observations with exact
+image/cloud/odometry device stamps. Fresh maps were initialized as follows:
+
+| Robot | Runtime directory | Start-after | First integrated | Transform |
+| --- | --- | ---: | ---: | --- |
+| WSJ | `map_out_wsj_odin1_board_v1_20260722` | 13736 | 13737 | `wsj-tinynav-depth-20260722-session-v1` |
+| Yunji | `map_out_yunji_odin1_board_v1_20260722` | 159948 | 159949 | `yunji-odin1-board-20260722-v1` |
+
+At relay cutover, both maps had the same explicit calibration ID, zero pose
+jumps, zero rejected ground frames and no mapping block. Their consensus
+`floor_z_m` values were -1.15162 m and -1.12792 m, a 2.37 cm difference. These
+runtime maps are ignored and are reported as observed state, not packaged
+replay artifacts. The main relay retained ports 8765/8766, robot labels and
+topic names, so the existing Foxglove layout remains valid.
+
 ## Deployment state and remaining gates
 
 Tracked deployment additions include a headless driver launch, read-only
@@ -163,40 +208,35 @@ Both `verify_odin1.sh` and `verify_odin1.sh --hardware` passed on nyush-nuc.
 The latter received one live message from each required topic. ROS 2 also
 parsed the headless launch with `--show-args` without starting a second driver;
 remote `systemd-analyze verify` reported no error in either staged Odin unit
-(only unrelated host warnings for netplan/snapd). The units were copied to the
-deployment directory for review but not installed or enabled in systemd.
+(only unrelated host warnings for netplan/snapd). The units are installed and
+active, but remain disabled for boot so startup stays an explicit operator
+decision.
 
 Local/remote deployment hashes matched exactly:
 
 | File under `/home/nyu/focus_sender_odin1` | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `odin1_sender.py` | 31,265 | `a264dc792683f5ec726ba971afb87ed16f2060cd973de31352f5f504d676aef9` |
+| `odin1_sender.py` | 31,952 | `2eacc915655f8f615283341f953452a4896963591a6616b14768b4a905fc50ab` |
 | `yunji_sender.py` | 65,704 | `4455b70106aefcb9b2415f79e2dd63e448ea7010a5baf6b0abf342a305c87242` |
 | `odin1_driver_headless.launch.py` | 1,284 | `3de7f44d318a214b8809dd47ba739d8ce549ebc8d99e9f373f2a4fca9812afe0` |
 | `verify_odin1.sh` | 2,847 | `44a8dcc929c9ba5d11b50a3b09fd773c735293e11bd9bd13b43448ef5ef5c7ac` |
 | `odin1_O1-P070100205_factory_20260722.json` | 3,597 | `ba0811b52950730d65981556b13b703eb036b1ed6e85302628d402c459fe6de6` |
-| `systemd/focus-yunji-odin1-driver.service` | 902 | `a051d7e144c1c90551e0fe7e5314e245e599fd86cb1456e896818fd53a694b04` |
-| `systemd/focus-yunji-odin1-sender.service` | 1,051 | `244786f082d23ce76ead144daf546d21a37b0f08795ebdeed3f240b17ef1bfc4` |
+| `yunji_odin1_board_20260722_v1.json` | 5,544 | `9e340a882df936e005902de29bb6e54c0a76da6e41c7bda26a040a0ce1421519` |
+| `systemd/focus-yunji-odin1-driver.service` | 901 | `ba5f06d7e367135715bff2b09dc24052b5aa4528857f4dbe2fa272ca957c1719` |
+| `systemd/focus-yunji-odin1-sender.service` | 1,050 | `70cc8a737a7da1d53ad4cb69fb9453628b35f9034275a8be64ccdcf24a497b94` |
 
 At handoff:
 
-- the vendor Odin + RViz driver is running for inspection;
-- the bounded Odin sender has exited; no continuous new spool growth occurs;
-- the failed/diagnostic Odin map daemon is stopped;
-- the main D455-era Foxglove relay remains unchanged;
+- the headless Odin driver and continuous read-only sender are active;
+- the new WSJ and Yunji map daemons are active and the old WSJ blocked daemon
+  was stopped cleanly without deleting its map;
+- the main relay reads the two new map directories and publishes fused maps;
+- `/yunji/camera` is live through the loopback-only tunnel;
+- both Odin units are disabled for boot;
 - the real mode-0600 robot token exists only on nyush-nuc, outside Git.
 
-Required physical follow-up:
-
-1. rigidly establish the Odin mounting state and show actual floor in the
-   camera/depth view (or measure camera height if using the explicit fallback);
-2. capture a fresh synchronized WSJ/Odin calibration-board pair and an
-   independently moved-board holdout;
-3. run the gravity-preserving board tool with `--other-pose-is-camera`;
-4. restart the sender under the new transform, create another new map directory
-   and pass moved-map/ground checks;
-5. only then switch the existing `/yunji/*` relay input and enable fusion under
-   the new shared calibration ID.
-
-No new Foxglove layout is required if the relay label remains `yunji`; a relay
-restart/reconnect is sufficient after these gates pass.
+Remaining physical follow-up is a controlled-motion map test, labelled semantic
+target validation, longer soak and the existing disconnect/timeout/e-stop/HIL
+gates. None of this observation work authorizes GOAL output or autonomous
+navigation. A sensor remount or odometry-origin reset invalidates this artifact
+and requires another fit plus independently moved-board holdout.

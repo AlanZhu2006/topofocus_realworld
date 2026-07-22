@@ -382,7 +382,8 @@ class OdinRos2Source:
     def __init__(self, args: argparse.Namespace, projector: OdinProjector) -> None:
         import rclpy
         from nav_msgs.msg import Odometry
-        from rclpy.executors import SingleThreadedExecutor
+        from rclpy._rclpy_pybind11 import RCLError
+        from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
         from rclpy.node import Node
         from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
         from sensor_msgs.msg import Image, PointCloud2
@@ -409,8 +410,22 @@ class OdinRos2Source:
         ]
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.node)
+
+        def spin() -> None:
+            try:
+                self.executor.spin()
+            except ExternalShutdownException:
+                # SIGINT can shut down the global ROS context before main's
+                # finally block gets a chance to stop this executor.
+                pass
+            except RCLError:
+                # Humble may report the same normal shutdown as an invalid
+                # wait-set context.  Preserve genuine runtime failures.
+                if rclpy.ok():
+                    raise
+
         self.thread = threading.Thread(
-            target=self.executor.spin, daemon=True, name="odin1-ros2-source"
+            target=spin, daemon=True, name="odin1-ros2-source"
         )
         self.thread.start()
         self._rclpy = rclpy
@@ -573,7 +588,10 @@ def main() -> int:
     parser.add_argument("--png-level", type=int, default=1)
     parser.add_argument("--goal-category", default="chair")
     parser.add_argument("--heartbeat-hz", type=float, default=2.0)
-    parser.add_argument("--camera-preview-url", default=None)
+    parser.add_argument(
+        "--camera-preview-url",
+        default=os.environ.get("FOCUS_ODIN1_CAMERA_PREVIEW_URL"),
+    )
     parser.add_argument("--camera-preview-token", default=None)
     parser.add_argument("--metrics-out", default="odin1_sender_metrics.json")
     parser.add_argument("--evidence-dir", default=None)
@@ -606,8 +624,10 @@ def main() -> int:
     if not args.dry_run and not token:
         print("FOCUS_ROBOT_TOKEN is not set", file=sys.stderr)
         return 2
-    preview_token = args.camera_preview_token or os.environ.get(
-        "FOCUS_CAMERA_PREVIEW_TOKEN"
+    preview_token = (
+        args.camera_preview_token
+        or os.environ.get("FOCUS_CAMERA_PREVIEW_TOKEN")
+        or token
     )
     if args.camera_preview_url and not preview_token:
         parser.error("camera preview URL requires a preview token")

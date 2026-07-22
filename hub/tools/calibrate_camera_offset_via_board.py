@@ -50,6 +50,24 @@ def build_object_points(rows: int, cols: int, spacing_m: float) -> np.ndarray:
     return points
 
 
+def canonicalize_grid_centers(centers: np.ndarray) -> tuple[np.ndarray, bool]:
+    """Make the image's upper-left diagonal endpoint the grid origin.
+
+    A symmetric circle grid is unchanged by a 180-degree rotation, and
+    ``findCirclesGrid`` can therefore reverse all 70 centers between otherwise
+    identical frames.  The robots observe the same face of an upright board,
+    so anchoring the ordering to the image diagonal removes that frame-to-frame
+    flip without operator-selected points.
+    """
+    points = np.asarray(centers, dtype=np.float32).reshape(-1, 2)
+    first_key = (float(points[0].sum()), float(points[0, 1]), float(points[0, 0]))
+    last_key = (float(points[-1].sum()), float(points[-1, 1]), float(points[-1, 0]))
+    reversed_order = first_key > last_key
+    if reversed_order:
+        points = points[::-1].copy()
+    return points.reshape(-1, 1, 2), reversed_order
+
+
 def find_board_pose(
     image_path: str, rows: int, cols: int, spacing_m: float,
     K: np.ndarray, dist: np.ndarray,
@@ -64,19 +82,45 @@ def find_board_pose(
         raise SystemExit(f"could not read image: {image_path}")
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # cv2.findCirclesGrid's default blob detector is unreliable when each
-    # circle only spans a handful of pixels (both robots' calibration photos
-    # needed this to succeed at all) -- upscale for detection, then divide
-    # detected centers back down so solvePnP still sees original-resolution
-    # pixel coordinates matching the caller's K.
-    upscale = 4.0
-    upscaled = cv2.resize(gray, None, fx=upscale, fy=upscale, interpolation=cv2.INTER_CUBIC)
-
-    for pattern_size in ((cols, rows), (rows, cols)):
-        found, centers = cv2.findCirclesGrid(
-            upscaled, pattern_size, flags=cv2.CALIB_CB_SYMMETRIC_GRID)
-        if found:
+    # Keep the original 4x/default attempt first so previously accepted
+    # evidence is solved exactly as before.  A closer board can produce many
+    # carpet/IR blob candidates at 4x, while Odin's wider image needs OpenCV's
+    # clustering pass to isolate the board.  The 2x fallbacks cover both cases
+    # without cropping or operator-selected points.
+    detector_attempts = (
+        (4.0, cv2.CALIB_CB_SYMMETRIC_GRID, "default"),
+        (2.0, cv2.CALIB_CB_SYMMETRIC_GRID, "default"),
+        (
+            4.0,
+            cv2.CALIB_CB_SYMMETRIC_GRID | cv2.CALIB_CB_CLUSTERING,
+            "clustering",
+        ),
+        (
+            2.0,
+            cv2.CALIB_CB_SYMMETRIC_GRID | cv2.CALIB_CB_CLUSTERING,
+            "clustering",
+        ),
+    )
+    scaled_images: dict[float, np.ndarray] = {}
+    for upscale, flags, detector_name in detector_attempts:
+        upscaled = scaled_images.setdefault(
+            upscale,
+            cv2.resize(
+                gray,
+                None,
+                fx=upscale,
+                fy=upscale,
+                interpolation=cv2.INTER_CUBIC,
+            ),
+        )
+        for pattern_size in ((cols, rows), (rows, cols)):
+            found, centers = cv2.findCirclesGrid(
+                upscaled, pattern_size, flags=flags
+            )
+            if not found:
+                continue
             centers = centers / upscale
+            centers, reversed_order = canonicalize_grid_centers(centers)
             actual_cols, actual_rows = pattern_size
             object_points = build_object_points(actual_rows, actual_cols, spacing_m)
             ok, rvec, tvec = cv2.solvePnP(object_points, centers, K, dist)
@@ -86,8 +130,12 @@ def find_board_pose(
             T = np.eye(4)
             T[:3, :3] = R
             T[:3, 3] = tvec.reshape(-1)
-            print(f"{image_path}: detected {pattern_size[0]}x{pattern_size[1]} grid, "
-                  f"board is {np.linalg.norm(tvec):.3f}m from the camera")
+            print(
+                f"{image_path}: detected {pattern_size[0]}x{pattern_size[1]} grid "
+                f"with {detector_name}/{upscale:g}x, board is "
+                f"{np.linalg.norm(tvec):.3f}m from the camera, "
+                f"ordering_reversed={str(reversed_order).lower()}"
+            )
             return T
     raise SystemExit(
         f"{image_path}: could not detect a {rows}x{cols} symmetric circle grid "

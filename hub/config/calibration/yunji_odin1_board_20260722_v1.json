@@ -1,0 +1,159 @@
+{
+  "board": {
+    "cols": 10,
+    "detector_policy": "opencv_find_circles_grid_default_then_clustering_4x_2x",
+    "landmark_origin": "grid_center",
+    "orientation_canonicalization": "image_upper_left_diagonal_endpoint",
+    "rows": 7,
+    "spacing_m": 0.04,
+    "type": "symmetric_circle_grid"
+  },
+  "calibration_frame": {
+    "board_center_translation_residual_m": 0.0,
+    "board_normal_residual_deg": 0.7053266295624019,
+    "other": {
+      "capture_time_ns": 1784722018611781077,
+      "metadata": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000159827/metadata.json",
+        "sha256": "004ef4eb0aa9e43c6f2ff06bfdcbc051ee83bf90719e4ae81a1de568c0cf75d1",
+        "size_bytes": 2887
+      },
+      "rgb": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000159827/rgb.jpg",
+        "sha256": "1f7676979782dc9b2af7a3e5c9c92a70b7613ef319fda44dc713fb1488833c05",
+        "size_bytes": 132618
+      },
+      "sequence": 159827,
+      "transform_version": "yunji-odin1-local-odom-20260722-v1"
+    },
+    "reference": {
+      "capture_time_ns": 1784722018538804443,
+      "metadata": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-0/00000000000000013234/metadata.json",
+        "sha256": "39c3f164e16db17327f785e0c84546475b04c16b6e6cf2f1ae72e5157f40318e",
+        "size_bytes": 2197
+      },
+      "rgb": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-0/00000000000000013234/rgb.jpg",
+        "sha256": "5549afd770bd4d78263f3b17d48f5dee39ffca0f17987b56507b2a19a0d2399a",
+        "size_bytes": 94733
+      },
+      "sequence": 13234,
+      "transform_version": "wsj-tinynav-depth-20260722-session-v1"
+    },
+    "sync_skew_s": 0.072976634
+  },
+  "calibration_method": "shared_circle_board_yaw_only_gravity_preserving",
+  "computed_at_ns": 1784723439434945983,
+  "corrected_other_camera_pose_at_sync": {
+    "matrix": [
+      -0.0126559727643618,
+      -0.048824658904142074,
+      0.9987256871844856,
+      -0.017635824464991554,
+      -0.9998293244872204,
+      -0.012540867987048341,
+      -0.013280912195002527,
+      0.07113852190708585,
+      0.013172999347116788,
+      -0.998729885214661,
+      -0.0486588917254713,
+      0.01352049014470806,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "gravity_validation": {
+    "passed": true,
+    "shared_transform_tilt_deg": 0.0
+  },
+  "holdout_validation": {
+    "board_center_translation_residual_m": 0.011477670527270355,
+    "board_normal_residual_deg": 0.4472508361015931,
+    "checks": {
+      "board_center_residual": true,
+      "board_normal_residual": true,
+      "sync_skew": true
+    },
+    "other": {
+      "capture_time_ns": 1784723381709686926,
+      "metadata": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000159929/metadata.json",
+        "sha256": "cbbb62023468601ced7c4b883e495e7af2ad642e3d46fde43eb1faca8fe85c76",
+        "size_bytes": 2885
+      },
+      "rgb": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000159929/rgb.jpg",
+        "sha256": "c88b707c4f0fcc1ec673df7f3462874645830e03b3f6ac47365a6fd1b920a593",
+        "size_bytes": 131867
+      },
+      "sequence": 159929,
+      "transform_version": "yunji-odin1-local-odom-20260722-v1"
+    },
+    "reference": {
+      "capture_time_ns": 1784723381769389404,
+      "metadata": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-0/00000000000000013568/metadata.json",
+        "sha256": "bad1b42bfc27ba93cd418def57089bd1e3c1de8765d3bf5bcd9226d188f0d46f",
+        "size_bytes": 2198
+      },
+      "rgb": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-0/00000000000000013568/rgb.jpg",
+        "sha256": "3873ead0c8b5ee8a54f8952dcec327f9092677cd689a1522ce0e08b6fa34eb60",
+        "size_bytes": 96375
+      },
+      "sequence": 13568,
+      "transform_version": "wsj-tinynav-depth-20260722-session-v1"
+    },
+    "sync_skew_s": 0.059702478
+  },
+  "input_provenance": {
+    "calibration_recorded_shared_transform": null,
+    "corrected_other_extrinsic": null,
+    "holdout_recorded_shared_transform": null,
+    "old_other_extrinsic": null,
+    "status": "observed_spooled_images_and_source_derived_rigid_alignment"
+  },
+  "note": "Apply this transform to the other robot's local camera pose. The rotation is yaw-only; it cannot rotate gravity when the base yaws.",
+  "other_pose_model": "direct_T_odom_camera",
+  "other_robot": "robot-1",
+  "passed": true,
+  "reference_robot": "robot-0",
+  "safety": {
+    "archived_observations_only": true,
+    "robot_commands_issued": false,
+    "robot_interfaces_used": false
+  },
+  "schema_version": 2,
+  "shared_frame_calibration_id": "shared-board-odin1-20260722-v1",
+  "shared_world_from_other_odom": {
+    "child_frame": "robot-1_odom",
+    "matrix": [
+      -0.29843213948791947,
+      -0.9544308555996411,
+      0.0,
+      -1.7666608342264136,
+      0.9544308555996411,
+      -0.29843213948791947,
+      0.0,
+      -0.5572027573499725,
+      0.0,
+      0.0,
+      1.0,
+      -0.7968851937619066,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "parent_frame": "shared_world"
+  },
+  "thresholds": {
+    "max_holdout_center_residual_m": 0.05,
+    "max_holdout_normal_residual_deg": 3.0,
+    "max_sync_skew_s": 0.25
+  },
+  "transform_version": "yunji-odin1-board-20260722-v1"
+}

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -11,6 +14,19 @@ from focus_hub.calibration import (
     gravity_tilt_deg,
 )
 from focus_hub.geometry import compose_rigid
+
+
+def load_board_calibration_module():
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "tools"
+        / "calibrate_camera_offset_via_board.py"
+    )
+    spec = importlib.util.spec_from_file_location("focus_test_board_calibration", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def se3(yaw_rad: float, x: float, y: float, z: float) -> tuple[float, ...]:
@@ -98,3 +114,14 @@ def test_gravity_preserving_alignment_maps_landmark_origin_without_tilting_z():
 
     np.testing.assert_allclose(mapped[:3, 3], reference[:3, 3], atol=1e-9)
     assert gravity_tilt_deg(transform) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_symmetric_grid_order_is_canonicalized_to_upper_left_endpoint():
+    board = load_board_calibration_module()
+    centers = np.array([[[20.0, 30.0]], [[15.0, 20.0]], [[10.0, 10.0]]])
+
+    canonical, reversed_order = board.canonicalize_grid_centers(centers)
+
+    assert reversed_order is True
+    np.testing.assert_array_equal(canonical[0], [[10.0, 10.0]])
+    np.testing.assert_array_equal(canonical[-1], [[20.0, 30.0]])

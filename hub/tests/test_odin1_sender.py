@@ -37,6 +37,15 @@ def factory_calibration_path() -> Path:
     )
 
 
+def shared_calibration_path() -> Path:
+    return (
+        Path(__file__).resolve().parents[1]
+        / "config"
+        / "calibration"
+        / "yunji_odin1_board_20260722_v1.json"
+    )
+
+
 def test_factory_calibration_loads_exact_device_contract():
     sender = load_sender_module()
 
@@ -66,6 +75,27 @@ def test_old_realsense_shared_transform_is_rejected():
         sender.load_shared_transform(
             str(old_path), expected_transform_version="yunji-odin1-local-odom-20260722-v1"
         )
+
+
+def test_current_odin_shared_transform_loads_with_exact_identity_and_provenance():
+    sender = load_sender_module()
+
+    matrix, calibration_id = sender.load_shared_transform(
+        str(shared_calibration_path()),
+        expected_transform_version="yunji-odin1-board-20260722-v1",
+    )
+    artifact = json.loads(shared_calibration_path().read_text())
+
+    assert calibration_id == "shared-board-odin1-20260722-v1"
+    assert matrix is not None
+    assert np.linalg.det(matrix[:3, :3]) == pytest.approx(1.0)
+    assert artifact["passed"] is True
+    assert artifact["safety"]["robot_commands_issued"] is False
+    assert artifact["holdout_validation"]["checks"] == {
+        "board_center_residual": True,
+        "board_normal_residual": True,
+        "sync_skew": True,
+    }
 
 
 def _identity_calibration(sender):
@@ -263,6 +293,18 @@ def test_sender_help_is_renderable():
     assert "--dry-run" in result.stdout
 
 
+def test_preview_defaults_are_loopback_only_and_reuse_robot_auth():
+    sender_source = (OVERLAY / "odin1_sender.py").read_text()
+    example = (OVERLAY / "config" / "odin1.env.example").read_text()
+
+    assert 'os.environ.get("FOCUS_ODIN1_CAMERA_PREVIEW_URL")' in sender_source
+    assert 'or token' in sender_source
+    assert (
+        "FOCUS_ODIN1_CAMERA_PREVIEW_URL=http://127.0.0.1:18766/camera/yunji"
+        in example
+    )
+
+
 def test_gravity_board_calibrator_supports_direct_camera_pose():
     path = TOOLS / "calibrate_gravity_shared_frame_via_board.py"
     result = subprocess.run(
@@ -289,6 +331,9 @@ def test_headless_launch_and_services_contain_no_motion_stack():
     assert 'executable="host_sdk_sample"' in launch
     assert "odin1_sender.py" in sender_unit
     assert "sendsigkill=no" in combined
+    assert "/bin/bash -c " in driver_unit
+    assert "/bin/bash -c " in sender_unit
+    assert "/bin/bash -lc " not in combined
     for forbidden in (
         "rviz2",
         "/api/move",

@@ -181,9 +181,19 @@ python3 hub/robot_overlay/odin1_sender.py --help
 
 Odin 适配器使用 `/odin1/image`、`/odin1/cloud_slam` 和
 `/odin1/odometry`，不会调用 WATER 运动接口。旧 D455 共享变换不得用于
-Odin；必须用已有标定板程序的 `--other-pose-is-camera` 模式重新采集标定帧和
-独立移动板留出。通过之前只允许独立单机地图，不允许 `--fuse`，并且每次切换
-transform 都要使用新的 map 输出目录。
+Odin。当前这台机器使用
+`hub/config/calibration/yunji_odin1_board_20260722_v1.json`（5,544 bytes，
+SHA-256
+`9e340a882df936e005902de29bb6e54c0a76da6e41c7bda26a040a0ce1421519`），
+其 WSJ/Odin 拟合帧为 13234/159827，独立移动板留出为 13568/159929；留出
+位置残差 1.15 cm、法向残差 0.447°、同步偏差 59.70 ms，均已通过门禁。
+
+这个结果只适用于记录中的相机安装和两端 odom 会话。在另一台 Go2/Yunji、
+传感器拆装或 odom 原点重置后，必须用已有标定板程序的
+`--other-pose-is-camera` 模式重新采集拟合帧和独立移动板留出。通过之前只允许
+独立单机地图，不允许 `--fuse`；每次切换 transform 都要使用新的 map 输出
+目录。标定 JSON 内保存每个输入的源路径、大小、SHA-256 以及 observed /
+source-derived 分类。
 
 以下 D455 内容保留为回滚/历史复现路径：
 
@@ -198,13 +208,13 @@ python3 hub/robot_overlay/yunji_sender.py --help
 # --shared-frame-transform-file <gravity-preserving board artifact>
 ```
 
-当前实机验证产物位于：
+历史 D455 实机验证产物位于：
 
 - `hub/config/calibration/yunji_d455_mount_nominal_20260721.json`：旧口头测量，仅作为推导输入；
 - `hub/config/calibration/yunji_d455_ground_extrinsic_20260722.json`：九个双朝向地面帧推导；
 - `hub/config/calibration/shared_board_gravity_20260722_v3.json`：标定板 yaw-only 共享变换，含独立移动板留出结果。
 
-这些文件可以复现**当前这台 Yunji、当前安装位置和当前 odom 会话**的部署，但不能证明另一台机器的机械安装相同。相机被拆装、机器人姿态基准改变或 odom 重置后，按
+这些 D455 文件只能复现其记录时的 Yunji、安装位置和 odom 会话，不能证明另一台机器的机械安装相同。相机被拆装、机器人姿态基准改变或 odom 重置后，按
 [离线标定流程](../hub/docs/OFFLINE_MAP_VALIDATION.md) 重新运行：先用多朝向地面帧执行
 `derive_ground_camera_extrinsic.py`，再用同步标定板和独立移动板留出执行
 `calibrate_gravity_shared_frame_via_board.py`。

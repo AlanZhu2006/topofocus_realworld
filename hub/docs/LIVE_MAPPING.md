@@ -98,7 +98,11 @@ factory FishPoly camera and z-buffers the colored SLAM cloud into aligned
 PNG16 depth. Before a fresh board calibration, transport `shared_world` is
 defined as the session-local Odin odom only, with a unique transform version
 and no shared calibration ID. Such a map must remain a per-robot view and may
-not enter `--fuse`. See [YUNJI_ODIN1_DEPLOYMENT.md](YUNJI_ODIN1_DEPLOYMENT.md).
+not enter `--fuse`. The observed 2026-07-22 cutover passed a fresh board fit and
+independently moved-board holdout, then started new WSJ/Odin map directories
+under `shared-board-odin1-20260722-v1`; that exact ID is required on both maps
+for the current fused view. See
+[YUNJI_ODIN1_DEPLOYMENT.md](YUNJI_ODIN1_DEPLOYMENT.md).
 
 ## Dashboard interpretation
 

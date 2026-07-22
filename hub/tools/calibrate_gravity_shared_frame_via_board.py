@@ -98,7 +98,7 @@ def board_pose(
     cols: int,
     spacing_m: float,
 ) -> np.ndarray:
-    return find_board_pose(
+    camera_from_grid_origin = find_board_pose(
         str(directory / "rgb.jpg"),
         rows,
         cols,
@@ -106,6 +106,13 @@ def board_pose(
         matrix,
         distortion,
     )
+    grid_origin_from_center = np.eye(4, dtype=np.float64)
+    grid_origin_from_center[:3, 3] = [
+        (cols - 1) * spacing_m / 2.0,
+        (rows - 1) * spacing_m / 2.0,
+        0.0,
+    ]
+    return camera_from_grid_origin @ grid_origin_from_center
 
 
 def angle_deg(first: np.ndarray, second: np.ndarray) -> float:
@@ -341,6 +348,9 @@ def main() -> int:
             "rows": args.rows,
             "cols": args.cols,
             "spacing_m": args.spacing_m,
+            "landmark_origin": "grid_center",
+            "orientation_canonicalization": "image_upper_left_diagonal_endpoint",
+            "detector_policy": "opencv_find_circles_grid_default_then_clustering_4x_2x",
         },
         "calibration_frame": {
             "reference": observation_provenance(ref_dir, ref_meta),
