@@ -457,7 +457,11 @@ def retry_call(fn, *, attempts: int = 4, base_delay_s: float = 0.4, label: str =
 # --------------------------------------------------------------------- frame
 
 DEPTH_SCALE_M = 0.001
-CAMERA_FRAME = "camera_front_up_depth_optical_frame"
+CHASSIS_CAMERA_FRAME = "camera_front_up_depth_optical_frame"
+LOCAL_REALSENSE_CAMERA_FRAMES = {
+    "d405": "d405_color_optical_frame",
+    "d455": "d455_color_optical_frame",
+}
 ROBOT_MAP_FRAME_NOTE = (
     "/sensors_fusion/odom is the chassis's own live odom-frame pose (no saved "
     "map dependency, drifts uncorrected); still not shared_world without a "
@@ -609,6 +613,24 @@ def pose_to_matrix(odom_pose: dict, T_base_link_camera: np.ndarray) -> list[floa
     T_odom_baselink = quat_to_matrix(q["x"], q["y"], q["z"], q["w"], p["x"], p["y"], p["z"])
     T_odom_camera = T_odom_baselink @ T_base_link_camera
     return T_odom_camera.reshape(-1).tolist()
+
+
+def camera_frame_for_source(camera_source: str, local_camera_model: str) -> str:
+    """Return the optical frame represented by the uploaded RGB-D and pose.
+
+    The chassis rosbridge path is expressed in its depth optical frame.  A
+    local RealSense frame is aligned onto that device's color stream, and its
+    mount transform is likewise defined to the color optical convention, so
+    retaining the chassis label there would be false provenance.
+    """
+    if camera_source == "rosbridge":
+        return CHASSIS_CAMERA_FRAME
+    if camera_source == "local-realsense":
+        try:
+            return LOCAL_REALSENSE_CAMERA_FRAMES[local_camera_model]
+        except KeyError as exc:
+            raise ValueError(f"unsupported local RealSense model: {local_camera_model!r}") from exc
+    raise ValueError(f"unsupported camera source: {camera_source!r}")
 
 
 # Thresholds on /sensors_fusion/odom's own reported pose covariance
@@ -868,7 +890,8 @@ class LocalRealsenseCamera:
 def build_metadata(*, robot_id, sequence, rgb_bytes, depth_bytes, pose_matrix,
                    transform_version, goal_category, status: dict,
                    width: int, height: int, fx, fy, cx, cy,
-                   capture_time_ns, localization_state: str, covariance_6x6: list[float]) -> dict:
+                   capture_time_ns, localization_state: str, covariance_6x6: list[float],
+                   camera_frame: str) -> dict:
     now_ns = time.time_ns()
     estop = bool(status.get("estop_state") or status.get("hard_estop_state"))
     error_code = str(status.get("error_code", "00000000"))
@@ -881,7 +904,7 @@ def build_metadata(*, robot_id, sequence, rgb_bytes, depth_bytes, pose_matrix,
         "pose": {
             "shared_T_camera": {
                 "parent_frame": "shared_world",
-                "child_frame": CAMERA_FRAME,
+                "child_frame": camera_frame,
                 "matrix": pose_matrix,
             },
             "covariance_6x6": covariance_6x6,
@@ -1027,6 +1050,8 @@ def main() -> int:
               f"fx={local_camera.fx:.2f} fy={local_camera.fy:.2f} "
               f"cx={local_camera.cx:.2f} cy={local_camera.cy:.2f} "
               f"depth_scale_m={local_camera.depth_scale_m}")
+    camera_frame = camera_frame_for_source(args.camera_source, args.local_camera_model)
+    print(f"uploaded camera frame: {camera_frame}")
 
     frames_sent = 0
     consecutive_failures = 0
@@ -1135,7 +1160,8 @@ def main() -> int:
                     status=status, width=depth_w, height=depth_h,
                     fx=frame_fx, fy=frame_fy, cx=frame_cx, cy=frame_cy,
                     capture_time_ns=capture_time_ns,
-                    localization_state=localization_state, covariance_6x6=covariance_6x6)
+                    localization_state=localization_state, covariance_6x6=covariance_6x6,
+                    camera_frame=camera_frame)
 
                 t3 = time.perf_counter()
                 ack, attempts = transport.upload(metadata, rgb_bytes, depth_bytes, restamp)
