@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-07-21T22:00:00+08:00",
+  "captured_at": "2026-07-22T19:10:00+08:00",
   "machines": {
     "local_hub": {
       "status": "observed",
@@ -37,6 +37,20 @@
       "realsense_ros_commit": "53aceeac29e2e848e5e1ede5430124f07b2fe924",
       "tinynav_base": "576c082e69580f618a5ff313a3e74f3672abb69f",
       "tinynav_verified_head": "29f26bc058886ff450f02cdc0d6e9977e1c57010"
+    },
+    "yunji_nuc": {
+      "status": "observed",
+      "hostname": "nyush-nuc",
+      "os": "Ubuntu 22.04.5 LTS",
+      "architecture": "x86_64",
+      "ros": "Humble",
+      "python": "3.10.12",
+      "odin1_serial": "O1-P070100205",
+      "odin1_usb": "2207:0019",
+      "odin1_soc_firmware": "0.13.1",
+      "odin1_slam_firmware": "0.12.1",
+      "odin_driver_commit": "13aa528b1da581e2168ac858f8b144f0b4438a7a",
+      "integration_state": "bounded_hub_acceptance_passed; shared_board_and_main_relay_cutover_pending"
     }
   }
 }

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "as_of": "2026-07-22T01:57:51+08:00",
+  "as_of": "2026-07-22T19:10:00+08:00",
   "code": {
-    "hub_unit_tests": {"status": "observed", "passed": 165},
+    "hub_unit_tests": {"status": "observed", "passed": 194},
     "live_map_v2": {
       "status": "observed",
       "startup_pose_gate": true,
@@ -21,6 +21,15 @@
     },
     "tinynav_occupancy_adapter": {"status": "observed", "native_png_pixel_mismatch": 0},
     "wsj_imu_fix": {"status": "observed", "head": "29f26bc058886ff450f02cdc0d6e9977e1c57010"},
+    "yunji_odin1": {
+      "status": "observed_partial_gate",
+      "sensor_serial": "O1-P070100205",
+      "driver_commit": "13aa528b1da581e2168ac858f8b144f0b4438a7a",
+      "hub_acceptance_sequences": [159816, 159817, 159818],
+      "shared_board_calibration": "pending",
+      "main_foxglove_cutover": false,
+      "audit": "audit/YUNJI_ODIN1_INTEGRATION_20260722.md"
+    },
     "github_repository": {
       "status": "observed",
       "remote": "git@github.com:AlanZhu2006/topofocus_realworld.git",

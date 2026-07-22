@@ -112,6 +112,22 @@ bash hub/scripts/focus_hub_down.sh   # stop; preserves runtime/{spool,state,toke
 #     # calibration has been run (see below); omitting it leaves poses in
 #     # this robot's own local odometry frame.
 
+# Yunji current Odin1 replacement (ROS 2 on nyush-nuc). The first command is
+# fully dry-run; it reads only image/cloud/odometry and WATER health. The
+# continuous systemd sender remains disabled until a real-floor view and a
+# fresh shared-board holdout pass. Evidence and exact driver patch:
+# audit/YUNJI_ODIN1_INTEGRATION_20260722.md.
+#   bash ~/focus_sender_odin1/verify_odin1.sh --hardware
+#   source /opt/ros/humble/setup.bash
+#   source /home/nyu/odin_ws/install/setup.bash
+#   cd /home/nyu/focus_sender_odin1
+#   python3 -u odin1_sender.py \
+#     --calibration-file odin1_O1-P070100205_factory_20260722.json \
+#     --dry-run --max-frames 10 --rate-hz 0
+# Never reuse yunji-d455-gravity-board-* for this sensor. Until a new board
+# artifact is supplied, wire shared_world means only yunji_odin1_odom and no
+# map daemon may claim a shared_frame_calibration_id or enter --fuse.
+
 # Session-start shared-frame calibration (real-machine analogue of Habitat's
 # per-episode start-position reset): requires both robots' senders to have
 # already uploaded at least one observation each, captured within

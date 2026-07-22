@@ -1,0 +1,228 @@
+diff --git a/config/control_command.yaml b/config/control_command.yaml
+index 4fcbc12..3d92384 100644
+--- a/config/control_command.yaml
++++ b/config/control_command.yaml
+@@ -89,7 +89,7 @@ register_keys:
+   showpath: 0             # 0: off; 1: on
+   showcamerapose: 0       # 0: off; 1: on
+   
+-  custom_map_mode: 0      # 0: Odometry mode 1: SLAM mode 2: Relocalization mode
++  custom_map_mode: 1      # 0: Odometry mode 1: SLAM mode 2: Relocalization mode
+   custom_init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+   custom_init_pose_search_radius: 4.0 # max position offset in meters, recommended <= 10
+   custom_init_pose_max_rot_deg: 180.0 # max rotation offset in degrees, up to 180
+diff --git a/config/odin_ros2.rviz b/config/odin_ros2.rviz
+index 48d42c3..a3093ac 100644
+--- a/config/odin_ros2.rviz
++++ b/config/odin_ros2.rviz
+@@ -299,7 +299,7 @@ Visualization Manager:
+           Color: 255; 255; 255
+           Color Transformer: RGB8
+           Decay Time: 10
+-          Enabled: false
++          Enabled: true
+           Invert Rainbow: false
+           Max Color: 255; 255; 255
+           Max Intensity: 4096
+@@ -320,7 +320,7 @@ Visualization Manager:
+             Value: /odin1/cloud_slam
+           Use Fixed Frame: true
+           Use rainbow: true
+-          Value: false
++          Value: true
+         - Class: rviz_default_plugins/MarkerArray
+           Enabled: false
+           Name: path
+diff --git a/src/host_sdk_sample.cpp b/src/host_sdk_sample.cpp
+index fd4ed7d..6d2c075 100644
+--- a/src/host_sdk_sample.cpp
++++ b/src/host_sdk_sample.cpp
+@@ -1639,7 +1639,35 @@ static void lidar_device_callback(const lidar_device_info_t* device, bool attach
+             return;
+         }
+ 
+-        // Apply custom parameters after setting mode
++        // Firmware 0.13.1 needs its sensor streams brought up in odometry mode
++        // before switching to mapping mode. Starting directly in map mode 1
++        // leaves RGB/DTOF/IMU configured ODRs at zero.
++        if (g_custom_map_mode == 1) {
++            int bootstrap_map_mode = 0;
++            int result = lidar_set_custom_parameter(
++                odinDevice, "map_mode", &bootstrap_map_mode, sizeof(int));
++            if (result != 0) {
++                #ifdef ROS2
++                    RCLCPP_ERROR(rclcpp::get_logger("device_cb"),
++                                 "Failed to set bootstrap map mode, error: %d", result);
++                #else
++                    ROS_ERROR("Failed to set bootstrap map mode, error: %d", result);
++                #endif
++                lidar_close_device(odinDevice);
++                lidar_destory_device(odinDevice);
++                odinDevice = nullptr;
++                return;
++            }
++            #ifdef ROS2
++                RCLCPP_INFO(rclcpp::get_logger("device_cb"),
++                            "Bootstrap map mode set to 0; mapping mode will activate after stream startup");
++            #else
++                ROS_INFO("Bootstrap map mode set to 0; mapping mode will activate after stream startup");
++            #endif
++        }
++
++        // Apply custom parameters after setting mode. map_mode=1 is deferred
++        // by the parser until the streams are running.
+         if (g_parser && !g_parser->applyCustomParameters(odinDevice)) {
+             #ifdef ROS2
+                 RCLCPP_WARN(rclcpp::get_logger("device_cb"), "Some custom parameters failed to apply");
+@@ -1654,26 +1682,7 @@ static void lidar_device_callback(const lidar_device_info_t* device, bool attach
+             ROS_INFO("Custom map mode: %d", g_custom_map_mode);
+         #endif
+ 
+-        if (g_custom_map_mode == 1) {
+-            int save_map_init_value = 0;
+-            int result = lidar_set_custom_parameter(odinDevice, "save_map", &save_map_init_value, sizeof(int));
+-
+-            if (result == 0) {
+-                #ifdef ROS2
+-                    RCLCPP_INFO(rclcpp::get_logger("command_processor"), 
+-                            "Successfully initialized %s = %d", "save_map", save_map_init_value);
+-                #else
+-                    ROS_INFO("Successfully initialized %s = %d", "save_map", save_map_init_value);
+-                #endif
+-            } else {
+-                #ifdef ROS2
+-                    RCLCPP_ERROR(rclcpp::get_logger("command_processor"), 
+-                                "Failed to initialize %s = %d, error: %d", "save_map", save_map_init_value, result);
+-                #else
+-                    ROS_ERROR("Failed to initialize %s = %d, error: %d", "save_map", save_map_init_value, result);
+-                #endif
+-            } 
+-        } else if (g_custom_map_mode == 2) {
++        if (g_custom_map_mode == 2) {
+             bool result = false;
+             int retryTime = 3;
+             if (g_relocalization_map_abs_path != "" && std::filesystem::exists(g_relocalization_map_abs_path)) {
+@@ -1804,24 +1813,9 @@ static void lidar_device_callback(const lidar_device_info_t* device, bool attach
+             std::fflush(dev_status_csv_file);
+         }
+ 
+-        uint32_t dtof_subframe_odr = 0;
+-        if (lidar_start_stream(odinDevice, type, dtof_subframe_odr)) {
+-            #ifdef ROS2
+-                RCLCPP_ERROR(rclcpp::get_logger("device_cb"), "Start stream failed");
+-            #else
+-                ROS_ERROR("Start stream failed");
+-            #endif
+-            lidar_close_device(odinDevice);
+-            lidar_destory_device(odinDevice);
+-            odinDevice = nullptr;
+-            return;
+-        }
+-        
+-        if (dtof_subframe_odr > 0) {
+-            g_rosNodeControlImpl.setDtofSubframeODR(dtof_subframe_odr);
+-        }
+-        
+-        // 根据配置激活或关闭流类型
++        // Configure every requested stream before starting transmission.  In
++        // mapping mode, setting map_mode may clear the device-side stream
++        // configuration, so starting first leaves all ODRs at zero.
+         #ifdef ROS2
+             RCLCPP_INFO(rclcpp::get_logger("device_cb"), 
+                 "Stream config: RGB=%d, IMU=%d, ODOM=%d, DTOF=%d, CLOUD_SLAM=%d",
+@@ -1856,6 +1850,64 @@ static void lidar_device_callback(const lidar_device_info_t* device, bool attach
+         } else {
+             lidar_deactivate_stream_type(odinDevice, LIDAR_DT_SLAM_CLOUD);
+         }
++
++        uint32_t dtof_subframe_odr = 0;
++        if (lidar_start_stream(odinDevice, type, dtof_subframe_odr)) {
++            #ifdef ROS2
++                RCLCPP_ERROR(rclcpp::get_logger("device_cb"), "Start stream failed");
++            #else
++                ROS_ERROR("Start stream failed");
++            #endif
++            lidar_close_device(odinDevice);
++            lidar_destory_device(odinDevice);
++            odinDevice = nullptr;
++            return;
++        }
++
++        if (dtof_subframe_odr > 0) {
++            g_rosNodeControlImpl.setDtofSubframeODR(dtof_subframe_odr);
++        }
++
++        if (g_custom_map_mode == 1) {
++            // Let at least a few raw frames reach the device algorithm before
++            // enabling mapping. Runtime switching preserves all stream ODRs.
++            std::this_thread::sleep_for(std::chrono::seconds(1));
++
++            int mapping_mode = 1;
++            int result = lidar_set_custom_parameter(
++                odinDevice, "map_mode", &mapping_mode, sizeof(int));
++            if (result != 0) {
++                #ifdef ROS2
++                    RCLCPP_ERROR(rclcpp::get_logger("device_cb"),
++                                 "Failed to activate mapping mode, error: %d", result);
++                #else
++                    ROS_ERROR("Failed to activate mapping mode, error: %d", result);
++                #endif
++                lidar_close_device(odinDevice);
++                lidar_destory_device(odinDevice);
++                odinDevice = nullptr;
++                return;
++            }
++
++            int save_map_init_value = 0;
++            result = lidar_set_custom_parameter(
++                odinDevice, "save_map", &save_map_init_value, sizeof(int));
++            if (result == 0) {
++                #ifdef ROS2
++                    RCLCPP_INFO(rclcpp::get_logger("device_cb"),
++                                "Mapping mode activated after stream startup; save_map initialized to 0");
++                #else
++                    ROS_INFO("Mapping mode activated after stream startup; save_map initialized to 0");
++                #endif
++            } else {
++                #ifdef ROS2
++                    RCLCPP_ERROR(rclcpp::get_logger("device_cb"),
++                                 "Failed to initialize save_map = 0, error: %d", result);
++                #else
++                    ROS_ERROR("Failed to initialize save_map = 0, error: %d", result);
++                #endif
++            }
++        }
+         
+         software_connect_timing = false;
+         deviceConnected = true;
+diff --git a/src/yaml_parser.cpp b/src/yaml_parser.cpp
+index b8c15c4..cd45f47 100644
+--- a/src/yaml_parser.cpp
++++ b/src/yaml_parser.cpp
+@@ -220,6 +220,19 @@ bool YamlParser::applyCustomParameters(device_handle device) {
+     for (const auto& [param_name, param_value] : custom_parameters_) {
+         std::cerr << "Setting custom parameter: " << param_name << " (size=" << param_value.getSize() << " bytes)" << std::endl;
+ 
++        // Mapping mode is activated by the driver after the sensor streams
++        // have started. Firmware 0.13.1 otherwise leaves their ODRs at zero.
++        if (param_name == "map_mode" &&
++            param_value.type == DataType::INT_TYPE &&
++            param_value.getSize() == sizeof(int)) {
++            const int requested_mode = *reinterpret_cast<const int*>(param_value.getData());
++            if (requested_mode == 1) {
++                std::cerr << "Deferring custom parameter map_mode=1 until streams are active"
++                          << std::endl;
++                continue;
++            }
++        }
++
+         int result = lidar_set_custom_parameter(device, param_name.c_str(), param_value.getData(), param_value.getSize());
+         if (result != 0) {
+             std::cerr << "Failed to set custom parameter " << param_name << ": error code " << result << std::endl;
+@@ -243,4 +256,4 @@ int YamlParser::getCustomParameterInt(const std::string& param_name, int default
+     return default_value;
+ }
+ 
+-} 
+\ No newline at end of file
++}

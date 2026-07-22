@@ -931,7 +931,8 @@ def build_metadata(*, robot_id, sequence, rgb_bytes, depth_bytes, pose_matrix,
                    transform_version, goal_category, status: dict,
                    width: int, height: int, fx, fy, cx, cy,
                    capture_time_ns, localization_state: str, covariance_6x6: list[float],
-                   camera_frame: str) -> dict:
+                   camera_frame: str,
+                   depth_min_m: float = 0.2, depth_max_m: float = 3.0) -> dict:
     now_ns = time.time_ns()
     estop = bool(status.get("estop_state") or status.get("hard_estop_state"))
     error_code = str(status.get("error_code", "00000000"))
@@ -957,8 +958,8 @@ def build_metadata(*, robot_id, sequence, rgb_bytes, depth_bytes, pose_matrix,
             "distortion_model": "none", "distortion": [],
         },
         "depth_scale_m": DEPTH_SCALE_M,
-        "depth_min_m": 0.2,
-        "depth_max_m": 3.0,
+        "depth_min_m": float(depth_min_m),
+        "depth_max_m": float(depth_max_m),
         "rgb_encoding": "jpeg",
         "depth_encoding": "png16",
         "rgb_size_bytes": len(rgb_bytes),

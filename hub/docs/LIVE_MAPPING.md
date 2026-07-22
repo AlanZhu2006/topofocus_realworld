@@ -91,6 +91,15 @@ than on its MP3D color training domain. Do not infer semantic-model health from
 the color preview or lower the global confidence threshold without a labelled
 false-positive gate.
 
+Yunji's Odin1 replacement uses `/odin1/image`, `/odin1/cloud_slam` and
+`/odin1/odometry`; it does not consume the advertised-but-silent
+`/odin1/cloud_raw` or vendor depth completion. The adapter rectifies the
+factory FishPoly camera and z-buffers the colored SLAM cloud into aligned
+PNG16 depth. Before a fresh board calibration, transport `shared_world` is
+defined as the session-local Odin odom only, with a unique transform version
+and no shared calibration ID. Such a map must remain a per-robot view and may
+not enter `--fuse`. See [YUNJI_ODIN1_DEPLOYMENT.md](YUNJI_ODIN1_DEPLOYMENT.md).
+
 ## Dashboard interpretation
 
 - `/<name>/geometry_map` is the default dashboard layer:

@@ -8,6 +8,9 @@ exactly at calibration while shared +Z remains gravity +Z for every future
 robot yaw.  Optional moved-board frames provide an independent holdout gate.
 
 No robot interface is opened and no motion command exists in this program.
+Legacy Yunji RealSense observations can correct a base-to-camera extrinsic;
+sources such as the Odin1 adapter that already publish ``T_odom_camera`` use
+``--other-pose-is-camera`` and need no synthetic identity extrinsic artifact.
 """
 
 from __future__ import annotations
@@ -147,8 +150,16 @@ def main() -> int:
     parser.add_argument("--other-robot", default="robot-1")
     parser.add_argument("--reference-sequence", type=int, required=True)
     parser.add_argument("--other-sequence", type=int, required=True)
-    parser.add_argument("--old-other-extrinsic", type=Path, required=True)
-    parser.add_argument("--corrected-other-extrinsic", type=Path, required=True)
+    parser.add_argument("--old-other-extrinsic", type=Path)
+    parser.add_argument("--corrected-other-extrinsic", type=Path)
+    parser.add_argument(
+        "--other-pose-is-camera",
+        action="store_true",
+        help=(
+            "the other observation pose already is T_odom_camera (for example "
+            "the Odin1 adapter); skip the legacy base/camera extrinsic correction"
+        ),
+    )
     parser.add_argument(
         "--other-recorded-shared-transform",
         type=Path,
@@ -169,23 +180,45 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    holdout_values = (
+    holdout_sequences = (
         args.holdout_reference_sequence,
         args.holdout_other_sequence,
-        args.holdout_other_recorded_shared_transform,
     )
-    if any(value is not None for value in holdout_values) and not all(
-        value is not None for value in holdout_values
+    if (holdout_sequences[0] is None) != (holdout_sequences[1] is None):
+        parser.error(
+            "holdout requires both reference and other sequences"
+        )
+    if (
+        args.holdout_other_recorded_shared_transform is not None
+        and holdout_sequences[0] is None
     ):
         parser.error(
-            "holdout requires both sequences and "
-            "--holdout-other-recorded-shared-transform"
+            "--holdout-other-recorded-shared-transform requires holdout sequences"
+        )
+    extrinsic_paths = (args.old_other_extrinsic, args.corrected_other_extrinsic)
+    if args.other_pose_is_camera:
+        if any(path is not None for path in extrinsic_paths):
+            parser.error(
+                "--other-pose-is-camera cannot be combined with other extrinsics"
+            )
+    elif not all(path is not None for path in extrinsic_paths):
+        parser.error(
+            "provide both --old-other-extrinsic and --corrected-other-extrinsic, "
+            "or use --other-pose-is-camera"
         )
     if args.output.exists():
         parser.error(f"refusing to overwrite existing output: {args.output}")
 
-    old_extrinsic = load_extrinsic(args.old_other_extrinsic)
-    corrected_extrinsic = load_extrinsic(args.corrected_other_extrinsic)
+    old_extrinsic = (
+        np.eye(4)
+        if args.other_pose_is_camera
+        else load_extrinsic(args.old_other_extrinsic)
+    )
+    corrected_extrinsic = (
+        np.eye(4)
+        if args.other_pose_is_camera
+        else load_extrinsic(args.corrected_other_extrinsic)
+    )
     recorded_transform = load_shared_transform(args.other_recorded_shared_transform)
 
     ref_dir, ref_meta, ref_camera, ref_k, ref_dist = read_metadata(
@@ -290,6 +323,11 @@ def main() -> int:
         "transform_version": args.transform_version,
         "shared_frame_calibration_id": args.calibration_id,
         "calibration_method": "shared_circle_board_yaw_only_gravity_preserving",
+        "other_pose_model": (
+            "direct_T_odom_camera"
+            if args.other_pose_is_camera
+            else "base_pose_with_camera_extrinsic_correction"
+        ),
         "shared_world_from_other_odom": {
             "parent_frame": "shared_world",
             "child_frame": f"{args.other_robot}_odom",
@@ -323,8 +361,16 @@ def main() -> int:
             "max_holdout_normal_residual_deg": args.max_holdout_normal_residual_deg,
         },
         "input_provenance": {
-            "old_other_extrinsic": file_artifact(args.old_other_extrinsic),
-            "corrected_other_extrinsic": file_artifact(args.corrected_other_extrinsic),
+            "old_other_extrinsic": (
+                None
+                if args.other_pose_is_camera
+                else file_artifact(args.old_other_extrinsic)
+            ),
+            "corrected_other_extrinsic": (
+                None
+                if args.other_pose_is_camera
+                else file_artifact(args.corrected_other_extrinsic)
+            ),
             "calibration_recorded_shared_transform": (
                 file_artifact(args.other_recorded_shared_transform)
                 if args.other_recorded_shared_transform is not None
@@ -343,7 +389,7 @@ def main() -> int:
             "archived_observations_only": True,
         },
         "note": (
-            "Apply this transform after the corrected base_link-camera extrinsic. "
+            "Apply this transform to the other robot's local camera pose. "
             "The rotation is yaw-only; it cannot rotate gravity when the base yaws."
         ),
     }

@@ -166,7 +166,26 @@ bash hub/robot_overlay/stop_go2_observation.sh
 
 禁止直接断电或 kill BuildMap 后把残缺目录当成有效地图。
 
-## 9. Yunji 本地 RealSense 与重力标定
+## 9. Yunji Odin1 当前路径与 RealSense 回滚
+
+Yunji 当前替换传感器是 Odin1 `O1-P070100205`。先从固定驱动 commit
+重建并应用仓库保存的 mode-1 补丁，再用设备自身的 serial-specific
+`calib.yaml`；完整路径、hash 和 systemd 单元见
+[Odin1 部署文档](../hub/docs/YUNJI_ODIN1_DEPLOYMENT.md)。只读检查为：
+
+```bash
+bash hub/robot_overlay/verify_odin1.sh
+bash hub/robot_overlay/verify_odin1.sh --hardware
+python3 hub/robot_overlay/odin1_sender.py --help
+```
+
+Odin 适配器使用 `/odin1/image`、`/odin1/cloud_slam` 和
+`/odin1/odometry`，不会调用 WATER 运动接口。旧 D455 共享变换不得用于
+Odin；必须用已有标定板程序的 `--other-pose-is-camera` 模式重新采集标定帧和
+独立移动板留出。通过之前只允许独立单机地图，不允许 `--fuse`，并且每次切换
+transform 都要使用新的 map 输出目录。
+
+以下 D455 内容保留为回滚/历史复现路径：
 
 Yunji 的外接 D455 不在底盘 `/tf` 树中。不要只把口头测量写成新的源码常量；发送器支持显式版本化文件：
 

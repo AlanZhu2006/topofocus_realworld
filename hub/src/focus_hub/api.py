@@ -53,7 +53,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             metadata = ObservationMetadata.model_validate_json(metadata_json)
         except ValidationError as exc:
-            raise HTTPException(status_code=422, detail=exc.errors()) from exc
+            # Pydantic's validation context can contain the original
+            # ValueError object, which Starlette's JSON response cannot
+            # serialize.  Keep the useful location/message/type fields and
+            # return the intended 422 instead of turning bad metadata into a
+            # secondary 500 response.
+            raise HTTPException(
+                status_code=422, detail=exc.errors(include_context=False)
+            ) from exc
         if metadata.robot_id != robot_id:
             raise HTTPException(status_code=422, detail="path and metadata robot_id differ")
 
@@ -205,4 +212,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
-

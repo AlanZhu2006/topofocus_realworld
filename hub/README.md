@@ -12,7 +12,7 @@
 - TinyNav 原生 occupancy 导入，保留原 frame，并拒绝错误 frame 融合；
 - Foxglove camera/map relay；
 - 版本化、可过期 `GOAL/HOLD/STOP` 与机器人端 fail-closed GoalGuard；
-- WSJ ROS 2 sender、云迹 ROS1 sender 和 Go2 可复现部署层。
+- WSJ ROS 2 sender、云迹 ROS1/RealSense 回滚 sender、Odin1 ROS 2 适配器和 Go2 可复现部署层。
 
 默认配置始终 `allow_goal=false`。当前仍未通过 G5 HIL，任何脚本都不应把“能建图”解释为“允许自主运动”。
 
@@ -60,5 +60,6 @@ bash hub/robot_overlay/verify_go2.sh --hardware --tests
 - [坐标系](docs/COORDINATE_FRAMES.md)
 - [TinyNav 原生地图适配](docs/TINYNAV_NATIVE_MAP_ADAPTER.md)
 - [实时地图、Foxglove 与融合契约](docs/LIVE_MAPPING.md)
+- [Yunji Odin1 部署](docs/YUNJI_ODIN1_DEPLOYMENT.md)
 - [离线地图诊断、移动验收与既有标定脚本复用](docs/OFFLINE_MAP_VALIDATION.md)
 - [WSJ 初始审计](docs/ROBOT_WSJ_AUDIT.md)

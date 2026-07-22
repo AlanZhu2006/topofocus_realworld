@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "sensor_model": "odin1",
+  "sensor_serial": "O1-P070100205",
+  "camera_frame": "odin1_camera_optical_frame",
+  "odometry_frame": "yunji_odin1_odom",
+  "odometry_child_frame": "odin1_base_link",
+  "camera": {
+    "model": "FishPoly",
+    "image_width": 1600,
+    "image_height": 1296,
+    "fx": 731.8629645426461,
+    "fy": 732.0055401513221,
+    "cx": 790.7116577613795,
+    "cy": 645.1142591898886,
+    "skew": 0.45077870372244744,
+    "distortion": {
+      "k2": 0.00043772077087347606,
+      "k3": -0.020673836245421438,
+      "k4": 0.013823923978459038,
+      "k5": -0.022564784349265968,
+      "k6": 0.012536783140311524,
+      "k7": -0.0032859731417482553
+    }
+  },
+  "camera_to_lidar": {
+    "matrix": [
+      -0.01334,
+      -0.99978,
+      0.01642,
+      0.03683,
+      0.0067,
+      -0.01651,
+      -0.99984,
+      -0.00894,
+      0.99989,
+      -0.01323,
+      0.00692,
+      -0.00551,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "lidar_to_imu": {
+    "matrix": [
+      1.0,
+      0.0,
+      0.0,
+      -0.02663,
+      0.0,
+      1.0,
+      0.0,
+      0.03447,
+      0.0,
+      0.0,
+      1.0,
+      0.02174,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "imu_from_camera": {
+    "derivation": "T_imu_camera = T_imu_lidar @ inverse(T_lidar_camera), matching odin_ros_driver CloudReprojector::calculateTic",
+    "matrix": [
+      -0.01334207871498846,
+      0.006701214036079269,
+      0.9998871061175734,
+      -0.020569324432736596,
+      -0.9997723587792863,
+      -0.01651044016633627,
+      -0.013227798374822455,
+      0.07107112746970881,
+      0.016419476832348772,
+      -0.9998424892970996,
+      0.006918741560805789,
+      0.012234801079948563,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "runtime_contract": {
+    "rgb_topic": "/odin1/image",
+    "cloud_topic": "/odin1/cloud_slam",
+    "odometry_topic": "/odin1/odometry",
+    "rgb_encoding": "bgr8",
+    "cloud_frame": "odom",
+    "odometry_parent_frame": "odom",
+    "odometry_pose_semantics": "T_odom_imu",
+    "wire_parent_frame": "shared_world",
+    "unshared_session_definition": "Until a new board calibration is supplied, protocol shared_world is defined as yunji_odin1_odom for single-robot mapping only; no shared_frame_calibration_id may be asserted and cross-robot fusion remains disabled.",
+    "source_timestamp_clock": "odin1_boot_time",
+    "capture_wall_time_policy": "host_receive_time_on_ntp_synchronized_nyush-nuc"
+  },
+  "provenance": {
+    "classification": "observed_remote_device_calibration_and_source-derived_transform",
+    "deployment_document": {
+      "path": "/home/nyu/workspace/tinynav/yunji-water-robot/docs/odin1_deployment.md",
+      "size_bytes": 4441,
+      "sha256": "f187ff1b4905415c8a5f1cf84537bf3b6ea5a920f665a606ede0a1e915c4528b"
+    },
+    "device_calibration": {
+      "path": "/home/nyu/odin_ws/calibration/O1-P070100205.calib.yaml",
+      "md5": "5956c3c49bccd187e4c611bb7a115cee",
+      "sha256": "c8cbd48bd8f8b08b8f174f557faf48649ee1101a3dfe0daf82ceae3832d7c23d"
+    },
+    "driver_control": {
+      "path": "/home/nyu/odin_ws/src/odin_ros_driver/config/control_command.yaml",
+      "sha256": "c9a0c3466d8526cc290ddd24a31dd8670bb988b8e8a9e1356c625da0dc8ac5ef"
+    },
+    "driver_version": "v0.13.0",
+    "driver_commit": "13aa528b1da581e2168ac858f8b144f0b4438a7a",
+    "device_soc_firmware": "0.13.1",
+    "device_slam_firmware": "0.12.1"
+  },
+  "validation": {
+    "status": "factory_intrinsics_and_internal_extrinsics_observed; robot-shared-frame calibration pending",
+    "robot_commands_issued": false
+  }
+}

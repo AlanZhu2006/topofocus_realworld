@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
 from focus_hub.api import create_app
@@ -91,3 +93,33 @@ def test_heartbeat_endpoint_requires_auth_and_matching_robot_id(tmp_path):
     assert ok.json()["status"] == "accepted"
     assert ok.json()["robot_id"] == "robot-0"
 
+
+def test_invalid_observation_metadata_returns_serializable_422(
+    tmp_path, observation_factory
+):
+    settings = Settings(
+        policies={"robot-0": RobotPolicy("calib-test-v1", allow_goal=False)},
+        robot_tokens={"robot-0": "robot-secret"},
+        admin_token="admin-secret",
+        spool_dir=tmp_path / "spool",
+        state_dir=tmp_path / "state",
+        min_free_bytes=0,
+    )
+    client = TestClient(create_app(settings))
+    metadata = observation_factory(sequence=4).model_dump(mode="json")
+    metadata["pose"]["shared_T_camera"]["parent_frame"] = "local_odom"
+
+    response = client.post(
+        "/v1/robots/robot-0/observations",
+        headers={"X-Robot-Token": "robot-secret"},
+        data={"metadata_json": json.dumps(metadata)},
+        files={
+            "rgb": ("rgb.jpg", b"rgb", "image/jpeg"),
+            "depth": ("depth.png", b"depth", "image/png"),
+        },
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail[0]["loc"] == ["pose"]
+    assert "parent frame must be shared_world" in detail[0]["msg"]

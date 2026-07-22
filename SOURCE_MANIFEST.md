@@ -65,3 +65,16 @@ its original bytes and passes the manifest check.
 
 Large model identities moved to the machine-readable
 `manifests/artifacts.json`; the files themselves remain ignored.
+
+## Yunji Odin1 external driver delta (2026-07-22)
+
+The Odin driver is not copied into `source/` or `dependencies/`. The observed
+external source is `https://github.com/manifoldsdk/odin_ros_driver.git`, tag
+`v0.13.0`, commit `13aa528b1da581e2168ac858f8b144f0b4438a7a`. Its exact
+four-file Yunji working-tree delta is preserved as a 10,346-byte patch at
+`hub/robot_overlay/odin1_snapshot/` with SHA-256
+`2a73aa48d163e2a362670b7b9b778edf8328aba7323e1cc04dd6b8fb28ba5806`.
+The serial-specific factory calibration and vendor binary SDK remain external;
+their observed identities are recorded in
+`hub/config/calibration/odin1_O1-P070100205_factory_20260722.json` and
+`audit/YUNJI_ODIN1_INTEGRATION_20260722.md`.
