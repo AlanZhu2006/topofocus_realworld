@@ -407,8 +407,6 @@ class HeartbeatThread(threading.Thread):
             self.stop_event.wait(max(0.0, self.period_s - elapsed))
 
     def _beat_once(self) -> None:
-        import requests
-
         status_resp = self.tcp.request("/api/robot_status")
         status = status_resp.get("results", {})
         estop = bool(status.get("estop_state") or status.get("hard_estop_state"))
@@ -593,6 +591,48 @@ def load_shared_frame_transform(path: str | None) -> np.ndarray | None:
         calib = json.load(handle)
     matrix = calib["shared_world_from_other_odom"]["matrix"]
     return np.array(matrix, dtype=np.float64).reshape(4, 4)
+
+
+def load_camera_extrinsic(
+    path: str | None,
+    expected_camera_model: str | None = None,
+) -> np.ndarray | None:
+    """Load and strictly validate an explicit ``T_base_link_camera``.
+
+    Local RealSense mounts are not present in the chassis TF tree.  A
+    versioned file therefore takes precedence over the user-reported
+    constants above once a floor/board validation has measured the mount.
+    """
+    if not path:
+        return None
+    with open(path, encoding="utf-8") as handle:
+        artifact = json.load(handle)
+    camera_model = artifact.get("camera_model") if isinstance(artifact, dict) else None
+    if expected_camera_model is not None and camera_model != expected_camera_model:
+        raise ValueError(
+            f"camera extrinsic model mismatch: expected {expected_camera_model!r}, "
+            f"artifact declares {camera_model!r}"
+        )
+    try:
+        values = artifact["base_link_from_camera"]["matrix"]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(
+            "camera extrinsic must contain base_link_from_camera.matrix"
+        ) from exc
+    matrix = np.asarray(values, dtype=np.float64)
+    if matrix.size != 16:
+        raise ValueError("camera extrinsic matrix must contain 16 values")
+    matrix = matrix.reshape(4, 4)
+    if not np.all(np.isfinite(matrix)):
+        raise ValueError("camera extrinsic matrix must contain finite values")
+    if not np.allclose(matrix[3], [0.0, 0.0, 0.0, 1.0], atol=1e-8):
+        raise ValueError("camera extrinsic matrix must be homogeneous")
+    rotation = matrix[:3, :3]
+    if not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-5):
+        raise ValueError("camera extrinsic rotation must be orthonormal")
+    if not np.isclose(np.linalg.det(rotation), 1.0, atol=1e-5):
+        raise ValueError("camera extrinsic rotation must have determinant +1")
+    return matrix
 
 
 def pose_to_matrix(odom_pose: dict, T_base_link_camera: np.ndarray) -> list[float]:
@@ -947,7 +987,7 @@ def main() -> int:
     parser.add_argument("--rgb-topic", default="/camera_front_up/rgb/image_raw")
     parser.add_argument("--depth-topic", default="/camera_front_up/depth/image_raw",
                         help="the genuinely raw depth topic, not depth_registered -- confirmed "
-                             "live (2026-07-20) that depth_registered's pixel values are 100% "
+                             "live (2026-07-20) that depth_registered's pixel values are 100%% "
                              "identical to this raw topic's, just uint16 cast to float32 with no "
                              "actual geometric registration applied (depth_align=false, "
                              "color_depth_synchronization=false, no camera_info published for "
@@ -969,6 +1009,14 @@ def main() -> int:
                          help="--camera-source local-realsense only: selects which "
                               "MEASURED_T_BASE_LINK_CAMERA_* extrinsic to use, since the D405 "
                               "and D455 were mounted at different points/heights")
+    parser.add_argument(
+        "--camera-extrinsic-file",
+        default=None,
+        help=(
+            "--camera-source local-realsense only: versioned calibrated "
+            "T_base_link_camera artifact; overrides the user-reported mount constant"
+        ),
+    )
     parser.add_argument("--base-url", default="http://127.0.0.1:18089")
     parser.add_argument("--robot-id", default="robot-1")
     parser.add_argument("--transform-version", default="yunji-water-robot-live-odom-test-v1")
@@ -997,13 +1045,31 @@ def main() -> int:
                              "per 5s regardless of fetch strategy -- this preview cannot be "
                              "smoother than that; it just avoids adding a second connection.")
     parser.add_argument("--camera-preview-token", default=None,
-                        help="X-Robot-Token for --camera-preview-url; required if that's set")
+                        help="X-Robot-Token for --camera-preview-url; defaults to the "
+                             "FOCUS_CAMERA_PREVIEW_TOKEN environment variable")
     parser.add_argument("--preview-max-rate-hz", type=float, default=10.0,
                         help="--camera-source local-realsense only: independent preview push rate "
                              "from the background capture thread, decoupled from --rate-hz (the "
                              "chassis rosbridge path has no equivalent -- its preview is tied to "
                              "the main loop's own fetch cadence, same as before)")
     args = parser.parse_args()
+
+    if args.camera_extrinsic_file and args.camera_source != "local-realsense":
+        parser.error("--camera-extrinsic-file requires --camera-source local-realsense")
+    camera_extrinsic_override = load_camera_extrinsic(
+        args.camera_extrinsic_file,
+        args.local_camera_model,
+    )
+    if camera_extrinsic_override is not None:
+        print(f"loaded camera extrinsic from {args.camera_extrinsic_file}")
+    preview_token = args.camera_preview_token or os.environ.get(
+        "FOCUS_CAMERA_PREVIEW_TOKEN"
+    )
+    if args.camera_preview_url and not preview_token:
+        parser.error(
+            "--camera-preview-url requires --camera-preview-token or "
+            "FOCUS_CAMERA_PREVIEW_TOKEN"
+        )
 
     shared_frame_transform = load_shared_frame_transform(args.shared_frame_transform_file)
     if shared_frame_transform is not None:
@@ -1044,7 +1110,7 @@ def main() -> int:
     if args.camera_source == "local-realsense":
         local_camera = LocalRealsenseCamera(
             args.realsense_width, args.realsense_height, args.realsense_fps,
-            preview_url=args.camera_preview_url, preview_token=args.camera_preview_token,
+            preview_url=args.camera_preview_url, preview_token=preview_token,
             preview_max_rate_hz=args.preview_max_rate_hz, jpeg_quality=args.jpeg_quality)
         print(f"local RealSense opened: {local_camera.width}x{local_camera.height} "
               f"fx={local_camera.fx:.2f} fy={local_camera.fy:.2f} "
@@ -1130,7 +1196,7 @@ def main() -> int:
                             # observed to get silently dropped between the ~1s gaps here.
                             requests.post(
                                 args.camera_preview_url,
-                                headers={"X-Robot-Token": args.camera_preview_token,
+                                headers={"X-Robot-Token": preview_token,
                                          "Content-Type": "image/jpeg", "Connection": "close"},
                                 data=preview_jpeg.tobytes(), timeout=3.0,
                             ).raise_for_status()
@@ -1138,9 +1204,13 @@ def main() -> int:
                         pass
 
                 if local_camera is not None:
-                    T_base_link_camera = (
-                        MEASURED_T_BASE_LINK_CAMERA_D455 if args.local_camera_model == "d455"
-                        else MEASURED_T_BASE_LINK_CAMERA_D405)
+                    T_base_link_camera = camera_extrinsic_override
+                    if T_base_link_camera is None:
+                        T_base_link_camera = (
+                            MEASURED_T_BASE_LINK_CAMERA_D455
+                            if args.local_camera_model == "d455"
+                            else MEASURED_T_BASE_LINK_CAMERA_D405
+                        )
                 else:
                     T_base_link_camera = MEASURED_T_BASE_LINK_CAMERA
                 pose_matrix = pose_to_matrix(odom_msg["pose"]["pose"], T_base_link_camera)

@@ -111,46 +111,69 @@ steps, changed cells, at least 25 newly explored cells, and obstacle/explored
 ratio no greater than 0.50. Passing proves continuity and bounded map behavior,
 not metric SLAM accuracy or autonomous-navigation readiness.
 
-## 5. Reuse the existing board calibration
+## 5. Reuse the board, but preserve gravity
 
-Reuse the existing tools; do not reuse an old session's matrix. First compute
-the synchronized board-relative camera offset with
-`calibrate_camera_offset_via_board.py`, using each camera's current intrinsics:
+Reuse the physical board and PnP detector; do not reuse an old session's
+numeric matrix. There are two cases.
+
+If both published camera poses and mounts are independently verified against a
+gravity-aligned TF tree, the original two-step flow remains available:
+`calibrate_camera_offset_via_board.py` followed by
+`calibrate_shared_frame.py`. Check the resulting transform's +Z tilt before
+accepting it.
+
+For a local camera outside TF (the Yunji D455 case), first derive its mount
+rotation from several archived floor views spanning materially different base
+headings. Use an explicit nominal artifact so its provenance is not hidden:
 
 ```bash
-hub/.venv/bin/python hub/tools/calibrate_camera_offset_via_board.py \
-  --reference-image <wsj-board-image> \
-  --other-image <yunji-board-image> \
-  --rows 7 --cols 10 --spacing-m 0.04 \
-  --reference-fx <fx> --reference-fy <fy> \
-  --reference-cx <cx> --reference-cy <cy> \
-  --other-fx <fx> --other-fy <fy> \
-  --other-cx <cx> --other-cy <cy> \
-  --output hub/runtime/calibration/current-board-offset.json
+hub/.venv/bin/python hub/tools/derive_ground_camera_extrinsic.py \
+  --spool hub/runtime/spool \
+  --robot-id robot-1 \
+  --sequence <heading-a-frame-1> \
+  --sequence <heading-a-frame-2> \
+  --sequence <heading-b-frame-1> \
+  --sequence <heading-b-frame-2> \
+  --nominal-extrinsic hub/config/calibration/<nominal-mount>.json \
+  --camera-model d455 \
+  --camera-frame d455_color_optical_frame \
+  --output hub/runtime/calibration/<corrected-mount>.json
 ```
 
-Immediately after the synchronized capture, turn that offset and the latest
-matching poses into the versioned shared-frame file:
+The tool preserves translation and corrects only the observed orientation. It
+refuses output if any selected frame's residual floor tilt exceeds its gate.
+Do not use multiple near-duplicate frames from one heading as evidence that the
+mount will remain correct after yaw.
+
+Then reuse the existing `find_board_pose()` implementation through the
+gravity-constrained board tool. Give it the old mount/transform that were
+already baked into each recorded Yunji pose so it can reconstruct odom/base
+before applying the corrected mount:
 
 ```bash
-hub/.venv/bin/python hub/tools/calibrate_shared_frame.py \
+hub/.venv/bin/python hub/tools/calibrate_gravity_shared_frame_via_board.py \
   --spool hub/runtime/spool \
   --reference-robot robot-0 \
   --other-robot robot-1 \
-  --offset-file hub/runtime/calibration/current-board-offset.json \
-  --max-sync-skew-s 1.0 \
+  --reference-sequence <fit-wsj-sequence> \
+  --other-sequence <fit-yunji-sequence> \
+  --old-other-extrinsic hub/config/calibration/<nominal-mount>.json \
+  --corrected-other-extrinsic hub/runtime/calibration/<corrected-mount>.json \
+  --holdout-reference-sequence <moved-board-wsj-sequence> \
+  --holdout-other-sequence <moved-board-yunji-sequence> \
+  --holdout-other-recorded-shared-transform <transform-applied-to-holdout>.json \
+  --rows 7 --cols 10 --spacing-m 0.04 \
   --transform-version <new-session-transform-version> \
   --calibration-id <new-shared-calibration-id> \
   --output hub/runtime/calibration/<new-session>.json
 ```
 
-The output now records `shared_frame_calibration_id` and hashes of both source
-metadata files and the board offset. Apply the transform only to the "other"
-sender, bind both fresh map daemons to the same calibration ID, and start each
-map strictly after its pre-calibration sequence. Keep `--fuse` off until a
-shared physical landmark independently overlays with a recorded residual and
-the calibration's camera-frame assumptions have been checked for both mounts.
+The fit aligns the board origin with the closest yaw-only rotation; its shared
+transform cannot rotate gravity. The moved-board holdout must independently
+pass centre, normal and sync-skew gates. Apply the corrected mount and shared
+transform together, bind both fresh map daemons to the same calibration ID,
+and start each map strictly after its pre-change sequence.
 
-The July 21 board-calibration scripts and procedure are reusable. Its numeric
-matrix is not evidence for the current WSJ v3/Yunji sessions after sender,
-camera mount or SLAM-origin changes.
+Keep `--fuse` off until the holdout passes and both v3 maps report no ground
+drift latch. A camera mount, posture, SLAM-origin or sender transform change
+always requires a new map session even if a previous board artifact exists.

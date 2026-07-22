@@ -5,6 +5,7 @@ spool written by the API), so the mapping input is the transported data, not a
 side channel.  Depth on the wire is already aligned to the RGB frame, so the
 mapper runs with the RGB intrinsics and an identity depth-to-RGB extrinsic.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,6 +18,13 @@ import numpy as np
 
 from .central_mapping import CentralMapper, MapperConfig, RedNetSegmenter
 from .depth_align import decode_depth_png16
+from .ground_plane import (
+    GroundPlaneConfig,
+    depth_points_world,
+    fit_ground_candidate,
+    plane_angle_deg,
+    plane_height_at,
+)
 from .models import ObservationMetadata
 from .pose_gate import KeyframeConfig, KeyframeDecision, KeyframeSelector
 
@@ -30,7 +38,9 @@ class SpooledObservation:
     T_shared_camera: np.ndarray
 
 
-def iter_spooled_observations(spool_dir: Path, robot_id: str, *, after_sequence: int = -1):
+def iter_spooled_observations(
+    spool_dir: Path, robot_id: str, *, after_sequence: int = -1
+):
     """Yield spooled observations in sequence order.
 
     ``after_sequence`` filters by directory name before any parsing, so
@@ -48,13 +58,19 @@ def iter_spooled_observations(spool_dir: Path, robot_id: str, *, after_sequence:
             (entry / "metadata.json").read_text(encoding="utf-8")
         )
         rgb_path = entry / ("rgb.jpg" if metadata.rgb_encoding == "jpeg" else "rgb.png")
-        rgb = cv2.imdecode(np.frombuffer(rgb_path.read_bytes(), np.uint8), cv2.IMREAD_COLOR)
+        rgb = cv2.imdecode(
+            np.frombuffer(rgb_path.read_bytes(), np.uint8), cv2.IMREAD_COLOR
+        )
         if rgb is None:
             raise ValueError(f"undecodable RGB payload in {entry}")
-        depth = decode_depth_png16((entry / "depth.png").read_bytes(), metadata.depth_scale_m)
+        depth = decode_depth_png16(
+            (entry / "depth.png").read_bytes(), metadata.depth_scale_m
+        )
         if rgb.shape[:2] != depth.shape:
             raise ValueError(f"RGB/depth shape mismatch in {entry}")
-        pose = np.array(metadata.pose.shared_T_camera.matrix, dtype=np.float64).reshape(4, 4)
+        pose = np.array(metadata.pose.shared_T_camera.matrix, dtype=np.float64).reshape(
+            4, 4
+        )
         yield SpooledObservation(
             sequence=metadata.sequence,
             metadata=metadata,
@@ -82,6 +98,10 @@ class SpoolMappingPipeline:
         floor_z_m: float,
         expected_transform_version: str | None = None,
         *,
+        floor_plane_coefficients: tuple[float, float, float] | None = None,
+        ground_plane_config: GroundPlaneConfig | None = None,
+        max_ground_tilt_delta_deg: float = 3.0,
+        max_ground_height_delta_m: float = 0.08,
         frame_id: str = "shared_world",
         robot_id: str | None = None,
         shared_frame_calibration_id: str | None = None,
@@ -94,12 +114,25 @@ class SpoolMappingPipeline:
         self.segmenter = segmenter
         self.mapper = CentralMapper(
             config=config,
-            K_infra1=K_rgb,                # depth arrives aligned to the RGB frame
+            K_infra1=K_rgb,  # depth arrives aligned to the RGB frame
             K_rgb=K_rgb,
             T_rgb_to_infra1=np.eye(4),
             origin_xy_m=origin_xy_m,
             floor_z_m=floor_z_m,
+            floor_plane_coefficients=floor_plane_coefficients,
         )
+        if max_ground_tilt_delta_deg <= 0.0 or not np.isfinite(
+            max_ground_tilt_delta_deg
+        ):
+            raise ValueError("max_ground_tilt_delta_deg must be finite and positive")
+        if max_ground_height_delta_m <= 0.0 or not np.isfinite(
+            max_ground_height_delta_m
+        ):
+            raise ValueError("max_ground_height_delta_m must be finite and positive")
+        self.K_rgb = np.asarray(K_rgb, dtype=np.float64)
+        self.ground_plane_config = ground_plane_config
+        self.max_ground_tilt_delta_deg = float(max_ground_tilt_delta_deg)
+        self.max_ground_height_delta_m = float(max_ground_height_delta_m)
         self.last_camera_xy: tuple[float, float] | None = None
         self.last_camera_T: np.ndarray | None = None
         self.last_rgb_bgr: np.ndarray | None = None
@@ -107,6 +140,12 @@ class SpoolMappingPipeline:
         self.observations_seen = 0
         self.skipped_non_keyframes = 0
         self.pose_jump_events = 0
+        self.ground_rejected_frames = 0
+        self.ground_drift_events = 0
+        self.last_ground_sequence: int | None = None
+        self.last_ground_reason: str | None = None
+        self.last_ground_tilt_delta_deg: float | None = None
+        self.last_ground_height_delta_m: float | None = None
         self.transform_version = expected_transform_version
         self.frame_id = frame_id
         self.robot_id = robot_id
@@ -115,6 +154,7 @@ class SpoolMappingPipeline:
         self.keyframes = KeyframeSelector(keyframe_config) if keyframe_config else None
         self.halt_on_pose_jump = halt_on_pose_jump
         self.mapping_blocked_reason: str | None = None
+        self.mapping_blocked_kind: str | None = None
         self.first_sequence: int | None = None
         self.last_sequence: int | None = None
         self.last_observation_sequence: int | None = None
@@ -150,7 +190,71 @@ class SpoolMappingPipeline:
 
         if self.mapping_blocked_reason is not None:
             self.skipped_non_keyframes += 1
-            return KeyframeDecision(False, "pose_jump_latched", 0.0, 0.0, 0.0)
+            return KeyframeDecision(
+                False,
+                f"{self.mapping_blocked_kind or 'mapping_blocked'}_latched",
+                0.0,
+                0.0,
+                0.0,
+            )
+
+        # Validate gravity/floor geometry before either the keyframe selector
+        # commits this pose or RedNet spends GPU time.  A frame with no
+        # trustworthy visible floor is skipped.  A fitted plane that moved
+        # materially from the startup consensus latches the session: allowing
+        # it into max-fused semantic layers would make the corruption
+        # irreversible and usually indicates a bad mount/shared transform.
+        ground_candidate = None
+        if self.ground_plane_config is not None:
+            ground_candidate = fit_ground_candidate(
+                depth_points_world(
+                    observation,
+                    self.K_rgb,
+                    self.ground_plane_config,
+                ),
+                observation.T_shared_camera[:3, 3],
+                self.ground_plane_config,
+            )
+            self.last_ground_sequence = observation.sequence
+            self.last_ground_reason = ground_candidate.reason
+            if (
+                not ground_candidate.accepted
+                or ground_candidate.plane_coefficients is None
+            ):
+                self.ground_rejected_frames += 1
+                self.skipped_non_keyframes += 1
+                return KeyframeDecision(
+                    False,
+                    f"ground_{ground_candidate.reason}",
+                    0.0,
+                    0.0,
+                    0.0,
+                )
+
+            startup_plane = self.mapper.map.floor_plane_coefficients
+            camera_xy = observation.T_shared_camera[:2, 3]
+            tilt_delta = plane_angle_deg(
+                startup_plane,
+                ground_candidate.plane_coefficients,
+            )
+            startup_height = plane_height_at(startup_plane, camera_xy)
+            height_delta = abs(float(ground_candidate.ground_z_m) - startup_height)
+            self.last_ground_tilt_delta_deg = tilt_delta
+            self.last_ground_height_delta_m = height_delta
+            if (
+                tilt_delta > self.max_ground_tilt_delta_deg
+                or height_delta > self.max_ground_height_delta_m
+            ):
+                self.ground_drift_events += 1
+                self.skipped_non_keyframes += 1
+                self.mapping_blocked_kind = "ground_drift"
+                self.mapping_blocked_reason = (
+                    "ground plane drift requires a fresh calibrated map session: "
+                    f"sequence={observation.sequence}, "
+                    f"tilt_delta_deg={tilt_delta:.3f}, "
+                    f"height_delta_m={height_delta:.3f}"
+                )
+                return KeyframeDecision(False, "ground_drift", 0.0, 0.0, 0.0)
 
         if self.keyframes is None:
             decision = KeyframeDecision(True, "unfiltered", 0.0, 0.0, 0.0)
@@ -162,6 +266,7 @@ class SpoolMappingPipeline:
             self.pose_jump_events += 1
             self.skipped_non_keyframes += 1
             if self.halt_on_pose_jump:
+                self.mapping_blocked_kind = "pose_jump"
                 self.mapping_blocked_reason = (
                     "pose discontinuity requires a fresh map session: "
                     f"sequence={observation.sequence}, "
@@ -180,6 +285,11 @@ class SpoolMappingPipeline:
                 T_world_infra1=observation.T_shared_camera,
             ),
             pred,
+            floor_plane_coefficients=(
+                None
+                if ground_candidate is None
+                else ground_candidate.plane_coefficients
+            ),
         )
         if self.first_sequence is None:
             self.first_sequence = observation.sequence
@@ -214,6 +324,10 @@ class SpoolMappingPipeline:
             grid=self.mapper.map.grid,
             origin_xy_m=np.array(self.mapper.map.origin_xy_m),
             floor_z_m=np.array(self.mapper.map.floor_z_m),
+            floor_plane_coefficients=np.asarray(
+                self.mapper.map.floor_plane_coefficients,
+                dtype=np.float64,
+            ),
             floor_source=np.asarray(self.floor_source),
             resolution_m=np.array(self.mapper.config.resolution_m),
             frame_id=np.asarray(self.frame_id),
@@ -221,10 +335,8 @@ class SpoolMappingPipeline:
             shared_frame_calibration_id=np.asarray(
                 self.shared_frame_calibration_id or ""
             ),
-            map_format_version=np.asarray("focus-hub-central-map-v2"),
-            obstacle_fusion_mode=np.asarray(
-                self.mapper.config.obstacle_fusion_mode
-            ),
+            map_format_version=np.asarray("focus-hub-central-map-v3"),
+            obstacle_fusion_mode=np.asarray(self.mapper.config.obstacle_fusion_mode),
             obstacle_band_m=np.asarray(
                 [
                     self.mapper.config.obstacle_band_low_m,
@@ -239,17 +351,30 @@ class SpoolMappingPipeline:
             "robot_id": self.robot_id,
             "source_kind": "focus_hub_incremental_rgbd",
             "source_status": "observed_spooled_observations",
-            "map_format_version": "focus-hub-central-map-v2",
+            "map_format_version": "focus-hub-central-map-v3",
             "frames_processed": self.frames_processed,
             "observations_seen": self.observations_seen,
             "skipped_non_keyframes": self.skipped_non_keyframes,
             "pose_jump_events": self.pose_jump_events,
+            "ground_rejected_frames": self.ground_rejected_frames,
+            "ground_drift_events": self.ground_drift_events,
             "mapping_blocked_reason": self.mapping_blocked_reason,
+            "mapping_blocked_kind": self.mapping_blocked_kind,
             "transform_version": self.transform_version,
             "frame_id": self.frame_id,
             "shared_frame_calibration_id": self.shared_frame_calibration_id,
             "floor_z_m": self.mapper.map.floor_z_m,
+            "floor_plane_coefficients": list(self.mapper.map.floor_plane_coefficients),
             "floor_source": self.floor_source,
+            "ground_guard": {
+                "enabled": self.ground_plane_config is not None,
+                "max_tilt_delta_deg": self.max_ground_tilt_delta_deg,
+                "max_height_delta_m": self.max_ground_height_delta_m,
+                "last_sequence": self.last_ground_sequence,
+                "last_reason": self.last_ground_reason,
+                "last_tilt_delta_deg": self.last_ground_tilt_delta_deg,
+                "last_height_delta_m": self.last_ground_height_delta_m,
+            },
             "obstacle_fusion_mode": self.mapper.config.obstacle_fusion_mode,
             "obstacle_band_m": [
                 self.mapper.config.obstacle_band_low_m,

@@ -6,19 +6,23 @@ import pytest
 from focus_hub.calibration import (
     IDENTITY,
     apply_shared_frame_transform,
+    compute_gravity_preserving_alignment,
     compute_shared_frame_transform,
+    gravity_tilt_deg,
 )
 from focus_hub.geometry import compose_rigid
 
 
 def se3(yaw_rad: float, x: float, y: float, z: float) -> tuple[float, ...]:
     c, s = np.cos(yaw_rad), np.sin(yaw_rad)
-    m = np.array([
-        [c, -s, 0.0, x],
-        [s, c, 0.0, y],
-        [0.0, 0.0, 1.0, z],
-        [0.0, 0.0, 0.0, 1.0],
-    ])
+    m = np.array(
+        [
+            [c, -s, 0.0, x],
+            [s, c, 0.0, y],
+            [0.0, 0.0, 1.0, z],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
     return tuple(m.reshape(-1).tolist())
 
 
@@ -57,7 +61,9 @@ def test_transform_maps_later_other_poses_consistently():
 def test_measured_offset_is_honored_when_robots_are_not_coincident():
     reference_at_sync = se3(0.0, 0.0, 0.0, 0.0)
     other_at_sync = se3(0.0, 10.0, 10.0, 0.0)
-    offset = se3(0.0, 0.5, 0.0, 0.0)  # other parked 0.5m ahead of reference, same heading
+    offset = se3(
+        0.0, 0.5, 0.0, 0.0
+    )  # other parked 0.5m ahead of reference, same heading
 
     transform = compute_shared_frame_transform(reference_at_sync, other_at_sync, offset)
     recovered = apply_shared_frame_transform(transform, other_at_sync)
@@ -68,3 +74,27 @@ def test_measured_offset_is_honored_when_robots_are_not_coincident():
 def test_rejects_malformed_matrices():
     with pytest.raises(ValueError):
         compute_shared_frame_transform((1.0,) * 15, IDENTITY)
+
+
+def test_gravity_preserving_alignment_maps_landmark_origin_without_tilting_z():
+    reference = np.eye(4)
+    reference[:3, 3] = [1.0, -2.0, 0.3]
+    other = np.eye(4)
+    # Deliberately include roll/pitch in the unconstrained alignment.
+    yaw, pitch, roll = 0.7, 0.2, -0.1
+    cy, sy = np.cos(yaw), np.sin(yaw)
+    cp, sp = np.cos(pitch), np.sin(pitch)
+    cr, sr = np.cos(roll), np.sin(roll)
+    rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]])
+    ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
+    rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])
+    other[:3, :3] = rz @ ry @ rx
+    other[:3, 3] = [4.0, 5.0, -0.4]
+
+    transform = compute_gravity_preserving_alignment(
+        reference.reshape(-1), other.reshape(-1)
+    )
+    mapped = np.asarray(transform).reshape(4, 4) @ other
+
+    np.testing.assert_allclose(mapped[:3, 3], reference[:3, 3], atol=1e-9)
+    assert gravity_tilt_deg(transform) == pytest.approx(0.0, abs=1e-9)

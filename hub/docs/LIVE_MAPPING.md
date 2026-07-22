@@ -15,10 +15,11 @@ for three consecutive poses that satisfy all of these defaults:
 - one transform version and one parent frame.
 
 The median startup position centers a 26 m map. A three-frame deterministic
-RANSAC consensus estimates the ground plane. If no consistent near-horizontal
-ground is visible, startup remains blocked. An operator may explicitly choose
-`--ground-mode camera-height --camera-height <metres>` only when that physical
-height is measured for the current posture.
+RANSAC consensus estimates the complete ground plane `z = ax + by + c`; the
+mapper does not reduce that plane to one scalar height. If no consistent
+near-horizontal ground is visible, startup remains blocked. An operator may
+explicitly choose `--ground-mode camera-height --camera-height <metres>` only
+when that physical height is measured for the current posture.
 
 ## Incremental geometry
 
@@ -28,6 +29,13 @@ degrees between adjacent observations latches the map as halted; it does not
 resume irreversible fusion into a potentially different pose frame. Start a
 new output directory/session after investigating the discontinuity.
 
+With RANSAC ground mode, every observation is checked before the keyframe gate
+or RedNet inference. A frame with no accepted floor candidate is skipped. A
+candidate differing from the startup floor by more than 3 degrees or 8 cm
+latches the map and requires a fresh calibrated session. An accepted frame's
+own plane coefficients are used for height classification, which prevents a
+small residual floor slope from turning distant carpet into an obstacle.
+
 Obstacle geometry uses one frame-level update per cell:
 
 - traversed free cell: log odds -0.40;
@@ -35,20 +43,23 @@ Obstacle geometry uses one frame-level update per cell:
 - clamp: [-4, 4];
 - occupied threshold: probability >0.70;
 - minimum supporting keyframes: 2;
-- collision band: 0.15–0.75 m above estimated ground.
+- collision band: 0.15–0.75 m above the validated per-frame ground plane.
 
 Explored and semantic channels preserve the upstream maximum-fusion contract.
 Semantic projection uses its own 0.25–1.50 m height band.
 
 ## Snapshot and fusion
 
-Every new `central_map.npz` contains at least:
+Every new snapshot pair (`central_map.npz` plus `map_summary.json`) contains at
+least:
 
-- grid, origin, resolution, floor height and floor source;
+- grid, origin, resolution, compatibility floor height, authoritative
+  `floor_plane_coefficients` and floor source;
 - frame ID and robot transform version;
 - optional shared-frame calibration ID;
 - obstacle fusion mode, height band and hit threshold;
-- `map_format_version=focus-hub-central-map-v2`.
+- ground rejection/drift counters, thresholds and last residuals;
+- `map_format_version=focus-hub-central-map-v3`.
 
 Foxglove refuses legacy snapshots without frame/transform metadata unless
 `--allow-legacy-maps` is explicitly given for an unverified per-robot view.
@@ -58,6 +69,13 @@ contract passes, the relay publishes both `/fused/geometry_map` and
 `/fused/semantic_map`. The geometry view is the operator default because it
 does not turn an empty or low-quality semantic layer into apparent object
 evidence.
+
+A local camera mount outside the robot TF tree must use an explicit calibrated
+extrinsic. Cross-robot calibration must not rotate gravity: use
+`derive_ground_camera_extrinsic.py` and
+`calibrate_gravity_shared_frame_via_board.py` for the Yunji-style board flow.
+The older unconstrained SE(3) tool remains valid only when both input pose
+frames are independently known to share gravity.
 
 ## Dashboard interpretation
 

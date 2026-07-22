@@ -7,6 +7,7 @@ experiment preserved at
 startup bootstrap needed before a fixed 2-D map is created; it has no ROS or
 robot-control dependency.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -74,6 +75,11 @@ class GroundCandidate:
     inlier_points: int
     inlier_ratio: float
     tilt_deg: float | None
+    # Plane is expressed in the mapper's world frame as z = ax + by + c.
+    # Keeping the full plane is essential: reducing a tilted plane to one
+    # scalar z makes visible floor pixels look like obstacles away from the
+    # camera XY at which that scalar was evaluated.
+    plane_coefficients: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +88,45 @@ class GroundConsensus:
     ground_z_m: float | None
     reason: str
     candidates: tuple[GroundCandidate, ...]
+    plane_coefficients: tuple[float, float, float] | None = None
+
+
+def plane_normal(
+    plane_coefficients: tuple[float, float, float] | np.ndarray,
+) -> np.ndarray:
+    """Return the unit upward normal for ``z = ax + by + c``."""
+    coefficients = np.asarray(plane_coefficients, dtype=np.float64)
+    if coefficients.shape != (3,) or not np.all(np.isfinite(coefficients)):
+        raise ValueError("plane_coefficients must contain three finite values")
+    normal = np.array([-coefficients[0], -coefficients[1], 1.0])
+    return normal / np.linalg.norm(normal)
+
+
+def plane_height_at(
+    plane_coefficients: tuple[float, float, float] | np.ndarray,
+    xy: tuple[float, float] | np.ndarray,
+) -> float:
+    """Evaluate ``z = ax + by + c`` at one finite world-frame XY."""
+    coefficients = np.asarray(plane_coefficients, dtype=np.float64)
+    point_xy = np.asarray(xy, dtype=np.float64)
+    if coefficients.shape != (3,) or not np.all(np.isfinite(coefficients)):
+        raise ValueError("plane_coefficients must contain three finite values")
+    if point_xy.shape != (2,) or not np.all(np.isfinite(point_xy)):
+        raise ValueError("xy must contain two finite values")
+    return float(
+        coefficients[0] * point_xy[0] + coefficients[1] * point_xy[1] + coefficients[2]
+    )
+
+
+def plane_angle_deg(
+    first: tuple[float, float, float] | np.ndarray,
+    second: tuple[float, float, float] | np.ndarray,
+) -> float:
+    """Smallest angle between two upward plane normals, in degrees."""
+    cosine = float(
+        np.clip(np.dot(plane_normal(first), plane_normal(second)), -1.0, 1.0)
+    )
+    return math.degrees(math.acos(cosine))
 
 
 def depth_points_world(frame, K: np.ndarray, config: GroundPlaneConfig) -> np.ndarray:
@@ -130,15 +175,14 @@ def fit_ground_candidate(
     local = np.einsum("ij,ij->i", relative_xy, relative_xy) <= (
         config.horizontal_radius_m**2
     )
-    below_camera = (
-        (points[:, 2] >= camera[2] - config.max_camera_height_m)
-        & (points[:, 2] <= camera[2] - config.min_camera_height_m)
+    below_camera = (points[:, 2] >= camera[2] - config.max_camera_height_m) & (
+        points[:, 2] <= camera[2] - config.min_camera_height_m
     )
     candidates = points[finite & local & below_camera]
     candidate_count = int(candidates.shape[0])
     if candidate_count < config.min_candidate_points:
         return GroundCandidate(
-            False, None, "insufficient_candidates", candidate_count, 0, 0.0, None
+            False, None, "insufficient_candidates", candidate_count, 0, 0.0, None, None
         )
     if candidate_count > config.max_points_per_frame:
         selection = np.linspace(
@@ -176,7 +220,9 @@ def fit_ground_candidate(
             best_count = count
             best_error = error
     if best_inliers is None:
-        return GroundCandidate(False, None, "no_valid_plane", candidate_count, 0, 0.0, None)
+        return GroundCandidate(
+            False, None, "no_valid_plane", candidate_count, 0, 0.0, None, None
+        )
 
     inlier_count = int(np.count_nonzero(best_inliers))
     inlier_ratio = inlier_count / candidate_count
@@ -192,6 +238,7 @@ def fit_ground_candidate(
             inlier_count,
             inlier_ratio,
             None,
+            None,
         )
     refined, _, rank, _ = np.linalg.lstsq(
         design[best_inliers], candidates[best_inliers, 2], rcond=None
@@ -204,6 +251,7 @@ def fit_ground_candidate(
             candidate_count,
             inlier_count,
             inlier_ratio,
+            None,
             None,
         )
     tilt = math.degrees(math.atan(float(np.hypot(*refined[:2]))))
@@ -223,6 +271,7 @@ def fit_ground_candidate(
             inlier_count,
             inlier_ratio,
             tilt,
+            tuple(float(value) for value in refined),
         )
     return GroundCandidate(
         True,
@@ -232,6 +281,7 @@ def fit_ground_candidate(
         inlier_count,
         inlier_ratio,
         tilt,
+        tuple(float(value) for value in refined),
     )
 
 
@@ -243,8 +293,8 @@ def estimate_startup_ground(
     """Require a consistent accepted plane from the latest startup frames."""
     cfg = config or GroundPlaneConfig()
     if len(frames) < cfg.required_frames:
-        return GroundConsensus(False, None, "insufficient_frames", ())
-    selected = frames[-cfg.required_frames:]
+        return GroundConsensus(False, None, "insufficient_frames", (), None)
+    selected = frames[-cfg.required_frames :]
     candidates = tuple(
         fit_ground_candidate(
             depth_points_world(frame, K, cfg),
@@ -254,11 +304,23 @@ def estimate_startup_ground(
         for frame in selected
     )
     if not all(candidate.accepted for candidate in candidates):
-        return GroundConsensus(False, None, "candidate_rejected", candidates)
+        return GroundConsensus(False, None, "candidate_rejected", candidates, None)
     heights = np.asarray(
         [candidate.ground_z_m for candidate in candidates], dtype=np.float64
     )
     consensus = float(np.median(heights))
     if float(np.max(np.abs(heights - consensus))) > cfg.consensus_tolerance_m:
-        return GroundConsensus(False, None, "inconsistent_candidates", candidates)
-    return GroundConsensus(True, consensus, "accepted", candidates)
+        return GroundConsensus(False, None, "inconsistent_candidates", candidates, None)
+    coefficients = np.median(
+        np.asarray(
+            [candidate.plane_coefficients for candidate in candidates], dtype=np.float64
+        ),
+        axis=0,
+    )
+    return GroundConsensus(
+        True,
+        consensus,
+        "accepted",
+        candidates,
+        tuple(float(value) for value in coefficients),
+    )

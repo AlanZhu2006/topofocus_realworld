@@ -1,0 +1,380 @@
+{
+  "base_link_from_camera": {
+    "child_frame": "d455_color_optical_frame",
+    "matrix": [
+      -0.00019156147135129153,
+      0.00540170268621867,
+      0.9999853923494545,
+      0.203,
+      -0.99748790558811,
+      -0.07083672430066519,
+      0.00019156147135129153,
+      -0.127,
+      0.07083672430066519,
+      -0.9974732979375645,
+      0.00540170268621867,
+      0.435,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "parent_frame": "base_link"
+  },
+  "camera_frame": "d455_color_optical_frame",
+  "camera_model": "d455",
+  "classification": "source-derived_from_observed_spooled_depth",
+  "computed_at_ns": 1784710149764472242,
+  "derivation": {
+    "mean_up_normal_camera": [
+      0.07083672430066519,
+      -0.9974732979375645,
+      0.00540170268621867
+    ],
+    "method": "equal_weight_camera_floor_normals_minimum_rotation_to_base_positive_z",
+    "mount_rotation_correction_deg": 4.073860321307133,
+    "nominal_up_normal_base": [
+      0.00540170268621867,
+      -0.07083672430066519,
+      0.9974732979375645
+    ],
+    "translation_policy": "preserved_from_nominal_unverified_by_floor_normals"
+  },
+  "inputs": {
+    "nominal_extrinsic": {
+      "path": "/home/asus/Research/focus_realworld_workspace/hub/config/calibration/yunji_d455_mount_nominal_20260721.json",
+      "sha256": "640cb6908ee664e66f5e1aef2b77b4f485ce79cb8274125ff9c5808f276a69f6",
+      "size_bytes": 748
+    },
+    "observations": [
+      {
+        "candidate": {
+          "candidate_points": 4000,
+          "ground_z_m": -0.25877254616368156,
+          "inlier_points": 3094,
+          "inlier_ratio": 0.7735,
+          "plane_coefficients": [
+            0.019763341147404842,
+            0.0402420805343504,
+            -0.23904935703993066
+          ],
+          "tilt_deg_in_recorded_frame": 2.567033420303277,
+          "up_normal_camera": [
+            0.06212363972729678,
+            -0.9980019738769091,
+            0.011520135625340865
+          ]
+        },
+        "capture_time_ns": 1784705634078783232,
+        "input_provenance": {
+          "depth": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000145299/depth.png",
+            "sha256": "ed88d1e8f3743c2f327dea9c824f5d213f1f21519b6c6dd163e7da7f3bb5d1bb",
+            "size_bytes": 172613
+          },
+          "metadata": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000145299/metadata.json",
+            "sha256": "e66e62b8f47b1b3dbd65f0cc28f4308f7011214204870f9dd9e13c45c90e47c4",
+            "size_bytes": 2318
+          }
+        },
+        "sequence": 145299,
+        "transform_version": "yunji-d455-shared-board-20260722-153114-v2"
+      },
+      {
+        "candidate": {
+          "candidate_points": 4000,
+          "ground_z_m": -0.2540164938034529,
+          "inlier_points": 3019,
+          "inlier_ratio": 0.75475,
+          "plane_coefficients": [
+            0.01818253640729331,
+            0.03520493209611969,
+            -0.23598253666414729
+          ],
+          "tilt_deg_in_recorded_frame": 2.2690507504466777,
+          "up_normal_camera": [
+            0.06313460376717307,
+            -0.9978653815474081,
+            0.016694373795016423
+          ]
+        },
+        "capture_time_ns": 1784705634515579136,
+        "input_provenance": {
+          "depth": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000145300/depth.png",
+            "sha256": "48ccf648c544750973e220399c206ff5afacad9d044f536d1f7a13b974d8c8a5",
+            "size_bytes": 168693
+          },
+          "metadata": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000145300/metadata.json",
+            "sha256": "9aa29d52547294574035038a3fd6862bd2ec34f76bade0c8f3d49f0bf105d8a3",
+            "size_bytes": 2319
+          }
+        },
+        "sequence": 145300,
+        "transform_version": "yunji-d455-shared-board-20260722-153114-v2"
+      },
+      {
+        "candidate": {
+          "candidate_points": 4000,
+          "ground_z_m": -0.2535486394299225,
+          "inlier_points": 2989,
+          "inlier_ratio": 0.74725,
+          "plane_coefficients": [
+            0.01735670932993237,
+            0.03492658621913193,
+            -0.23625224950813134
+          ],
+          "tilt_deg_in_recorded_frame": 2.233492844261404,
+          "up_normal_camera": [
+            0.06392211380256944,
+            -0.9978090390585492,
+            0.017061211565007724
+          ]
+        },
+        "capture_time_ns": 1784705635016051968,
+        "input_provenance": {
+          "depth": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000145301/depth.png",
+            "sha256": "b7cccec3682061ee55556ae4108860607aaa1b789b0fa0ca259c37e7baf81c5c",
+            "size_bytes": 175427
+          },
+          "metadata": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000145301/metadata.json",
+            "sha256": "66a4b5cf24beea76c034d95d0676ab46b1f96a7de51537f7d5704c8a7aac9e47",
+            "size_bytes": 2321
+          }
+        },
+        "sequence": 145301,
+        "transform_version": "yunji-d455-shared-board-20260722-153114-v2"
+      },
+      {
+        "candidate": {
+          "candidate_points": 4000,
+          "ground_z_m": -0.25398457302736815,
+          "inlier_points": 2402,
+          "inlier_ratio": 0.6005,
+          "plane_coefficients": [
+            0.01298372083132371,
+            0.03545112763166053,
+            -0.24061482515713306
+          ],
+          "tilt_deg_in_recorded_frame": 2.1621141478146684,
+          "up_normal_camera": [
+            0.0683245204182847,
+            -0.9975187983076682,
+            0.016970766996134378
+          ]
+        },
+        "capture_time_ns": 1784706931791675904,
+        "input_provenance": {
+          "depth": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000147892/depth.png",
+            "sha256": "41513f5273af357d1c3a194df6402154b29e0d39f6d14421ef9bc21943da7bc4",
+            "size_bytes": 155269
+          },
+          "metadata": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000147892/metadata.json",
+            "sha256": "e118a88ce26ee246821919dc57361a8c747b8c874115efc8b02c5ea5a3f84ef4",
+            "size_bytes": 2318
+          }
+        },
+        "sequence": 147892,
+        "transform_version": "yunji-d455-shared-board-20260722-153114-v2"
+      },
+      {
+        "candidate": {
+          "candidate_points": 4000,
+          "ground_z_m": -0.280894830382396,
+          "inlier_points": 3160,
+          "inlier_ratio": 0.79,
+          "plane_coefficients": [
+            0.06371392563998877,
+            0.11998759410243309,
+            -0.19364634836596906
+          ],
+          "tilt_deg_in_recorded_frame": 7.736533917012453,
+          "up_normal_camera": [
+            0.0767357040992896,
+            -0.9970477913129386,
+            -0.0027080536141739224
+          ]
+        },
+        "capture_time_ns": 1784708334705928448,
+        "input_provenance": {
+          "depth": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000150695/depth.png",
+            "sha256": "f0015dc1aa9c67f084e2f2a6dffbeb78ad4159d6fcc1410d69937895c9fd5cba",
+            "size_bytes": 190785
+          },
+          "metadata": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000150695/metadata.json",
+            "sha256": "3c6754987999a38592a5c21089a86b68129e68f8c8d3c4e728a0918fdf660003",
+            "size_bytes": 2317
+          }
+        },
+        "sequence": 150695,
+        "transform_version": "yunji-d455-shared-board-20260722-153114-v2"
+      },
+      {
+        "candidate": {
+          "candidate_points": 4000,
+          "ground_z_m": -0.2827759180395195,
+          "inlier_points": 3159,
+          "inlier_ratio": 0.78975,
+          "plane_coefficients": [
+            0.06550979330618652,
+            0.11974978163966576,
+            -0.19418058882002326
+          ],
+          "tilt_deg_in_recorded_frame": 7.772690684245936,
+          "up_normal_camera": [
+            0.07599507017156874,
+            -0.9970987302922438,
+            -0.004344117771595767
+          ]
+        },
+        "capture_time_ns": 1784708335205199872,
+        "input_provenance": {
+          "depth": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000150696/depth.png",
+            "sha256": "c84e0f453afc4c91f2e86a165549f70cb006ef5f0d968b6c38e7bd0bca6cbe96",
+            "size_bytes": 190186
+          },
+          "metadata": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000150696/metadata.json",
+            "sha256": "f7fec443634d152707f68d7cbabc158a4950599d3fd45a70f2b45589522e8b3d",
+            "size_bytes": 2316
+          }
+        },
+        "sequence": 150696,
+        "transform_version": "yunji-d455-shared-board-20260722-153114-v2"
+      },
+      {
+        "candidate": {
+          "candidate_points": 4000,
+          "ground_z_m": -0.27916614940042167,
+          "inlier_points": 3152,
+          "inlier_ratio": 0.788,
+          "plane_coefficients": [
+            0.06277092558958727,
+            0.11771230915365638,
+            -0.19336238886657098
+          ],
+          "tilt_deg_in_recorded_frame": 7.598568680173963,
+          "up_normal_camera": [
+            0.07486646762015123,
+            -0.9971928702352467,
+            -0.0011796516736885115
+          ]
+        },
+        "capture_time_ns": 1784708335704369920,
+        "input_provenance": {
+          "depth": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000150697/depth.png",
+            "sha256": "9b7ede7b81858af8ef0f0567be88a2a5dd4e0820b5f9e9fe122e3dd1c56f4436",
+            "size_bytes": 193821
+          },
+          "metadata": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000150697/metadata.json",
+            "sha256": "58f62859c5734c9fade30c2c80fe7b8033b4d2309a2f4ca7d75850c6eae5c2a0",
+            "size_bytes": 2313
+          }
+        },
+        "sequence": 150697,
+        "transform_version": "yunji-d455-shared-board-20260722-153114-v2"
+      },
+      {
+        "candidate": {
+          "candidate_points": 4000,
+          "ground_z_m": -0.2784925417070304,
+          "inlier_points": 3145,
+          "inlier_ratio": 0.78625,
+          "plane_coefficients": [
+            0.062160957346343644,
+            0.11721828127286116,
+            -0.19332126262061478
+          ],
+          "tilt_deg_in_recorded_frame": 7.557887930522165,
+          "up_normal_camera": [
+            0.07457697624653242,
+            -0.9972151550318952,
+            -0.00045737144370891497
+          ]
+        },
+        "capture_time_ns": 1784708336203637760,
+        "input_provenance": {
+          "depth": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000150698/depth.png",
+            "sha256": "c04043c2bb2e585e1099f299842677cb95e6d59297112087e0e3919b3e3f3b0b",
+            "size_bytes": 190162
+          },
+          "metadata": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000150698/metadata.json",
+            "sha256": "5db91216e659890b875bab0f6b2fbceaed5b49de1aac35e794a33c8233550581",
+            "size_bytes": 2320
+          }
+        },
+        "sequence": 150698,
+        "transform_version": "yunji-d455-shared-board-20260722-153114-v2"
+      },
+      {
+        "candidate": {
+          "candidate_points": 4000,
+          "ground_z_m": -0.2830320625843533,
+          "inlier_points": 3158,
+          "inlier_ratio": 0.7895,
+          "plane_coefficients": [
+            0.06557421269070493,
+            0.12170181685090387,
+            -0.1937858318587038
+          ],
+          "tilt_deg_in_recorded_frame": 7.870890278131641,
+          "up_normal_camera": [
+            0.07781206848222573,
+            -0.9969557809989779,
+            -0.004944970296736545
+          ]
+        },
+        "capture_time_ns": 1784708336702801664,
+        "input_provenance": {
+          "depth": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000150699/depth.png",
+            "sha256": "7fac48ace34311ea4f209b667d185f64ae90bb9d7f1fe90dfa7b5ea3df0970ee",
+            "size_bytes": 189710
+          },
+          "metadata": {
+            "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000150699/metadata.json",
+            "sha256": "bfb2aa75501008d5a102f2e15907085cbc50250b132e7da1580e7d9e2191c5ea",
+            "size_bytes": 2318
+          }
+        },
+        "sequence": 150699,
+        "transform_version": "yunji-d455-shared-board-20260722-153114-v2"
+      }
+    ]
+  },
+  "safety": {
+    "archived_observations_only": true,
+    "robot_commands_issued": false,
+    "robot_interfaces_used": false
+  },
+  "schema_version": 1,
+  "validation": {
+    "max_residual_tilt_deg": 0.7835158049684504,
+    "max_residual_tilt_deg_threshold": 2.0,
+    "passed": true,
+    "residual_tilt_deg_by_sequence": {
+      "145299": 0.6107677387735514,
+      "145300": 0.7835158049684504,
+      "145301": 0.7769263866198729,
+      "147892": 0.6783155472360006,
+      "150695": 0.5750966982933681,
+      "150696": 0.6321547093524021,
+      "150697": 0.4424480574108414,
+      "150698": 0.3985458638879883,
+      "150699": 0.7155757034525316
+    }
+  }
+}

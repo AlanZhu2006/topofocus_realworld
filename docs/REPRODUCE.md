@@ -166,7 +166,33 @@ bash hub/robot_overlay/stop_go2_observation.sh
 
 禁止直接断电或 kill BuildMap 后把残缺目录当成有效地图。
 
-## 9. 导入 Hub 与 Foxglove
+## 9. Yunji 本地 RealSense 与重力标定
+
+Yunji 的外接 D455 不在底盘 `/tf` 树中。不要只把口头测量写成新的源码常量；发送器支持显式版本化文件：
+
+```bash
+python3 hub/robot_overlay/yunji_sender.py --help
+# 启动参数必须同时包含：
+# --camera-source local-realsense
+# --local-camera-model d455
+# --camera-extrinsic-file <base_link-camera artifact>
+# --shared-frame-transform-file <gravity-preserving board artifact>
+```
+
+当前实机验证产物位于：
+
+- `hub/config/calibration/yunji_d455_mount_nominal_20260721.json`：旧口头测量，仅作为推导输入；
+- `hub/config/calibration/yunji_d455_ground_extrinsic_20260722.json`：九个双朝向地面帧推导；
+- `hub/config/calibration/shared_board_gravity_20260722_v3.json`：标定板 yaw-only 共享变换，含独立移动板留出结果。
+
+这些文件可以复现**当前这台 Yunji、当前安装位置和当前 odom 会话**的部署，但不能证明另一台机器的机械安装相同。相机被拆装、机器人姿态基准改变或 odom 重置后，按
+[离线标定流程](../hub/docs/OFFLINE_MAP_VALIDATION.md) 重新运行：先用多朝向地面帧执行
+`derive_ground_camera_extrinsic.py`，再用同步标定板和独立移动板留出执行
+`calibrate_gravity_shared_frame_via_board.py`。
+
+切换发送器时保留最后一个旧序号。新 map daemon 必须使用新的输出目录、从该序号之后开始，并同时绑定新的 `transform_version` 和 `shared_frame_calibration_id`。绝不把旧/新外参帧写进同一张图。认证值通过服务环境传递，不写进 Git、命令示例或标定 JSON。
+
+## 10. 导入 Hub 与 Foxglove
 
 地图目录只读复制到 Hub 的忽略目录，例如 `data/robot_replays/`，记录源路径、字节数和 SHA-256，然后：
 
@@ -188,7 +214,7 @@ daemon 显式使用同一个、独立验证过的
 `shared_world` 不构成标定。启动姿态、地面、关键帧和位姿跳变规则见
 [实时地图契约](../hub/docs/LIVE_MAPPING.md)。
 
-## 10. 复现完成的判据
+## 11. 复现完成的判据
 
 代码层完成：仓库验证、轻量测试、TinyNav patch verification 全通过。
 

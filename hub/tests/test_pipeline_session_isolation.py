@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from focus_hub.central_mapping import MapperConfig
+from focus_hub.ground_plane import GroundCandidate, GroundPlaneConfig
 from focus_hub.pipeline import SpoolMappingPipeline, SpooledObservation
 from focus_hub.pose_gate import KeyframeConfig
 
@@ -22,12 +23,15 @@ class _Segmenter:
 class _Mapper:
     def __init__(self) -> None:
         self.calls = 0
+        self.last_floor_plane = None
+        self.map = SimpleNamespace(floor_plane_coefficients=(0.0, 0.0, 0.0))
 
-    def integrate(self, _frame, _prediction) -> None:
+    def integrate(self, _frame, _prediction, *, floor_plane_coefficients=None) -> None:
         self.calls += 1
+        self.last_floor_plane = floor_plane_coefficients
 
 
-def _pipeline(expected_version=None, *, keyframe_config=None):
+def _pipeline(expected_version=None, *, keyframe_config=None, ground_guard=False):
     segmenter = _Segmenter()
     K = np.array([[300.0, 0, 160], [0, 300.0, 120], [0, 0, 1]])
     pipeline = SpoolMappingPipeline(
@@ -38,6 +42,7 @@ def _pipeline(expected_version=None, *, keyframe_config=None):
         0.0,
         expected_transform_version=expected_version,
         keyframe_config=keyframe_config,
+        ground_plane_config=GroundPlaneConfig() if ground_guard else None,
     )
     pipeline.mapper = _Mapper()
     return pipeline, segmenter
@@ -118,3 +123,58 @@ def test_live_keyframe_gate_latches_pose_jump():
     assert pipeline.mapping_blocked_reason is not None
     assert segmenter.calls == 1
     assert pipeline.mapper.calls == 1
+
+
+def test_ground_guard_latches_drift_before_segmentation(monkeypatch):
+    pipeline, segmenter = _pipeline("session-a", ground_guard=True)
+    candidate = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=8.0,
+        plane_coefficients=(0.15, 0.0, 0.0),
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate", lambda *_args: candidate
+    )
+
+    decision = pipeline.process(_observation(10, "session-a"))
+
+    assert decision.reason == "ground_drift"
+    assert pipeline.mapping_blocked_kind == "ground_drift"
+    assert pipeline.ground_drift_events == 1
+    assert segmenter.calls == 0
+    assert pipeline.mapper.calls == 0
+
+
+def test_ground_guard_passes_frame_plane_to_mapper(monkeypatch):
+    pipeline, segmenter = _pipeline("session-a", ground_guard=True)
+    candidate = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=1.0,
+        plane_coefficients=(0.01, -0.01, 0.0),
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate", lambda *_args: candidate
+    )
+
+    decision = pipeline.process(_observation(10, "session-a"))
+
+    assert decision.accept
+    assert segmenter.calls == 1
+    assert pipeline.mapper.calls == 1
+    assert pipeline.mapper.last_floor_plane == candidate.plane_coefficients

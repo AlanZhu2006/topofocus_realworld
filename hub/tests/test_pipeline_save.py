@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 
 from focus_hub.central_mapping import MapperConfig
@@ -35,7 +37,11 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
 
     assert (tmp_path / "central_map.npz").is_file()
     assert (tmp_path / "map_summary.json").is_file()
-    leftover = [p.name for p in tmp_path.iterdir() if p.name not in {"central_map.npz", "map_summary.json"}]
+    leftover = [
+        p.name
+        for p in tmp_path.iterdir()
+        if p.name not in {"central_map.npz", "map_summary.json"}
+    ]
     assert leftover == [], f"stray temp files left behind: {leftover}"
 
     with np.load(tmp_path / "central_map.npz") as data:
@@ -44,10 +50,14 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
         assert str(data["frame_id"].item()) == "shared_world"
         assert str(data["transform_version"].item()) == "test-transform-v1"
         assert str(data["shared_frame_calibration_id"].item()) == "test-calibration-v1"
-        assert str(data["map_format_version"].item()) == "focus-hub-central-map-v2"
+        assert str(data["map_format_version"].item()) == "focus-hub-central-map-v3"
         assert str(data["floor_source"].item()) == "caller_provided_unverified"
+        np.testing.assert_allclose(data["floor_plane_coefficients"], [0.0, 0.0, 0.0])
         assert str(data["obstacle_fusion_mode"].item()) == "max"
         np.testing.assert_allclose(data["obstacle_band_m"], [0.25, 1.5])
+
+    summary = json.loads((tmp_path / "map_summary.json").read_text())
+    assert summary["obstacle_band_m"] == [0.25, 1.5]
 
 
 def test_save_can_be_called_repeatedly(tmp_path):
@@ -60,5 +70,9 @@ def test_save_can_be_called_repeatedly(tmp_path):
     pipeline.save(tmp_path)
 
     assert (tmp_path / "central_map.npz").is_file()
-    leftover = [p.name for p in tmp_path.iterdir() if p.name not in {"central_map.npz", "map_summary.json"}]
+    leftover = [
+        p.name
+        for p in tmp_path.iterdir()
+        if p.name not in {"central_map.npz", "map_summary.json"}
+    ]
     assert leftover == []

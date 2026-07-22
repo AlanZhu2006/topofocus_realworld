@@ -9,6 +9,9 @@ from focus_hub.ground_plane import (
     GroundPlaneConfig,
     estimate_startup_ground,
     fit_ground_candidate,
+    plane_angle_deg,
+    plane_height_at,
+    plane_normal,
 )
 
 
@@ -33,6 +36,8 @@ def test_ground_candidate_recovers_horizontal_plane_with_outliers():
     assert result.ground_z_m == pytest.approx(0.08, abs=0.01)
     assert result.inlier_points > 1000
     assert result.tilt_deg == pytest.approx(0.0, abs=0.2)
+    assert result.plane_coefficients is not None
+    np.testing.assert_allclose(result.plane_coefficients, [0.0, 0.0, 0.08], atol=0.01)
 
 
 def test_startup_ground_requires_three_consistent_frames(monkeypatch):
@@ -52,6 +57,8 @@ def test_startup_ground_requires_three_consistent_frames(monkeypatch):
     assert result.accepted
     assert result.ground_z_m == pytest.approx(0.08, abs=0.01)
     assert len(result.candidates) == 3
+    assert result.plane_coefficients is not None
+    np.testing.assert_allclose(result.plane_coefficients, [0.0, 0.0, 0.08], atol=0.01)
 
 
 def test_startup_ground_rejects_inconsistent_planes(monkeypatch):
@@ -70,3 +77,28 @@ def test_startup_ground_rejects_inconsistent_planes(monkeypatch):
 
     assert not result.accepted
     assert result.reason == "inconsistent_candidates"
+
+
+def test_ground_candidate_preserves_tilted_plane_coefficients():
+    rng = np.random.default_rng(12)
+    xy = rng.uniform(-1.5, 1.5, size=(1600, 2))
+    z = 0.10 * xy[:, 0] - 0.04 * xy[:, 1] + 0.03
+    points = np.column_stack((xy, z))
+
+    result = fit_ground_candidate(
+        points,
+        np.array([0.2, -0.1, 0.60]),
+        GroundPlaneConfig(),
+    )
+
+    assert result.accepted
+    assert result.plane_coefficients is not None
+    np.testing.assert_allclose(
+        result.plane_coefficients, [0.10, -0.04, 0.03], atol=1e-6
+    )
+    assert plane_height_at(result.plane_coefficients, [2.0, 1.0]) == pytest.approx(0.19)
+    normal = plane_normal(result.plane_coefficients)
+    assert np.linalg.norm(normal) == pytest.approx(1.0)
+    assert plane_angle_deg(
+        result.plane_coefficients, result.plane_coefficients
+    ) == pytest.approx(0.0)

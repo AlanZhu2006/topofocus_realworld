@@ -38,7 +38,7 @@ from focus_hub.central_mapping import HM3D_CATEGORY_NAMES, MapperConfig, RedNetS
 from focus_hub.directional_memory import DirectionalMemory  # noqa: E402
 from focus_hub.frontiers import (  # noqa: E402
     extract_frontiers, render_annotated_bev, render_semantic_decision_map)
-from focus_hub.ground_plane import estimate_startup_ground  # noqa: E402
+from focus_hub.ground_plane import GroundPlaneConfig, estimate_startup_ground  # noqa: E402
 from focus_hub.models import Decision  # noqa: E402
 from focus_hub.pipeline import SpoolMappingPipeline, iter_spooled_observations  # noqa: E402
 from focus_hub.pose_gate import (  # noqa: E402
@@ -106,7 +106,16 @@ def write_camera_snapshot(
         "transform_version": pipeline.transform_version,
         "shared_frame_calibration_id": pipeline.shared_frame_calibration_id,
         "floor_z_m": pipeline.mapper.map.floor_z_m,
+        "floor_plane_coefficients": list(
+            pipeline.mapper.map.floor_plane_coefficients
+        ),
         "floor_source": pipeline.floor_source,
+        "ground_rejected_frames": pipeline.ground_rejected_frames,
+        "ground_drift_events": pipeline.ground_drift_events,
+        "last_ground_sequence": pipeline.last_ground_sequence,
+        "last_ground_reason": pipeline.last_ground_reason,
+        "last_ground_tilt_delta_deg": pipeline.last_ground_tilt_delta_deg,
+        "last_ground_height_delta_m": pipeline.last_ground_height_delta_m,
         "written_at_ns": time.time_ns(),
         "last_capture_time_ns": last_metadata.capture_time_ns if last_metadata else None,
         "last_sent_time_ns": last_metadata.sent_time_ns if last_metadata else None,
@@ -209,6 +218,24 @@ def main() -> int:
     parser.add_argument("--obstacle-band-low-m", type=float, default=0.15)
     parser.add_argument("--obstacle-band-high-m", type=float, default=0.75)
     parser.add_argument(
+        "--max-ground-tilt-delta-deg",
+        type=float,
+        default=3.0,
+        help=(
+            "with --ground-mode ransac, halt this map before integration if "
+            "a frame's floor normal differs this much from startup"
+        ),
+    )
+    parser.add_argument(
+        "--max-ground-height-delta-m",
+        type=float,
+        default=0.08,
+        help=(
+            "with --ground-mode ransac, halt this map before integration if "
+            "the local floor height differs this much from startup"
+        ),
+    )
+    parser.add_argument(
         "--obstacle-fusion-mode",
         choices=("max", "log_odds"),
         default="log_odds",
@@ -226,6 +253,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.ground_mode == "ransac" and args.startup_stable_frames < 3:
         parser.error("--ground-mode ransac requires --startup-stable-frames >= 3")
+    if args.max_ground_tilt_delta_deg <= 0.0:
+        parser.error("--max-ground-tilt-delta-deg must be positive")
+    if args.max_ground_height_delta_m <= 0.0:
+        parser.error("--max-ground-height-delta-m must be positive")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     log = args.log.open("a", buffering=1)
@@ -259,6 +290,7 @@ def main() -> int:
         max_interval_s=args.startup_max_interval_s,
     ))
     startup_pending = []
+    ground_config = GroundPlaneConfig()
     startup_transform_version: str | None = None
     highest_sequence = args.start_after_sequence
     if highest_sequence >= 0:
@@ -338,8 +370,12 @@ def main() -> int:
                     [[K.fx, 0, K.cx], [0, K.fy, K.cy], [0, 0, 1.0]]
                 )
                 if args.ground_mode == "ransac":
-                    ground = estimate_startup_ground(stable, K_matrix)
-                    if not ground.accepted or ground.ground_z_m is None:
+                    ground = estimate_startup_ground(stable, K_matrix, ground_config)
+                    if (
+                        not ground.accepted
+                        or ground.ground_z_m is None
+                        or ground.plane_coefficients is None
+                    ):
                         emit(
                             "startup_ground_rejected",
                             reason=ground.reason,
@@ -353,6 +389,7 @@ def main() -> int:
                                     "inlier_points": item.inlier_points,
                                     "inlier_ratio": round(item.inlier_ratio, 4),
                                     "tilt_deg": item.tilt_deg,
+                                    "plane_coefficients": item.plane_coefficients,
                                 }
                                 for item in ground.candidates
                             ],
@@ -360,9 +397,11 @@ def main() -> int:
                         startup_pending = startup_pending[-args.startup_stable_frames:]
                         continue
                     floor_z = ground.ground_z_m
-                    floor_source = "three_frame_ransac_consensus"
+                    floor_plane = ground.plane_coefficients
+                    floor_source = "three_frame_ransac_plane_consensus"
                 else:
                     floor_z = float(z0) - args.camera_height
+                    floor_plane = (0.0, 0.0, floor_z)
                     floor_source = "explicit_camera_height"
                 config = MapperConfig(
                     map_size_m=2 * margin,
@@ -382,6 +421,12 @@ def main() -> int:
                     (float(x0) - margin, float(y0) - margin),
                     floor_z,
                     expected_transform_version=bound_transform_version,
+                    floor_plane_coefficients=floor_plane,
+                    ground_plane_config=(
+                        ground_config if args.ground_mode == "ransac" else None
+                    ),
+                    max_ground_tilt_delta_deg=args.max_ground_tilt_delta_deg,
+                    max_ground_height_delta_m=args.max_ground_height_delta_m,
                     frame_id=stable[-1].metadata.pose.shared_T_camera.parent_frame,
                     robot_id=args.robot_id,
                     shared_frame_calibration_id=args.shared_frame_calibration_id,
@@ -399,6 +444,7 @@ def main() -> int:
                     "mapper_init",
                     origin=[float(x0) - margin, float(y0) - margin],
                     floor_z=floor_z,
+                    floor_plane_coefficients=floor_plane,
                     floor_source=floor_source,
                     transform_version=pipeline.transform_version,
                     frame_id=pipeline.frame_id,
@@ -441,6 +487,20 @@ def main() -> int:
                         translation_m=round(keyframe_decision.translation_m, 4),
                         rotation_deg=round(keyframe_decision.rotation_deg, 3),
                         reason=pipeline.mapping_blocked_reason,
+                    )
+                elif keyframe_decision.reason == "ground_drift":
+                    emit(
+                        "mapping_halted_ground_drift",
+                        sequence=mapping_observation.sequence,
+                        tilt_delta_deg=pipeline.last_ground_tilt_delta_deg,
+                        height_delta_m=pipeline.last_ground_height_delta_m,
+                        reason=pipeline.mapping_blocked_reason,
+                    )
+                elif keyframe_decision.reason.startswith("ground_"):
+                    emit(
+                        "mapping_skipped_ground_rejected",
+                        sequence=mapping_observation.sequence,
+                        reason=keyframe_decision.reason,
                     )
                 if args.snapshot_interval_s > 0:
                     write_camera_snapshot(

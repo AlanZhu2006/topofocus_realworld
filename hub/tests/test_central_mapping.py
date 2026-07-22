@@ -1,4 +1,5 @@
 """Tests for focus_hub.central_mapping's free-space ray marking (2026-07-21)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -37,8 +38,12 @@ def _make_single_point_mapper(
         obstacle_min_hits=obstacle_min_hits,
     )
     mapper = CentralMapper(
-        config=config, K_infra1=K, K_rgb=K,
-        T_rgb_to_infra1=np.eye(4), origin_xy_m=(-1.0, -1.0), floor_z_m=0.0,
+        config=config,
+        K_infra1=K,
+        K_rgb=K,
+        T_rgb_to_infra1=np.eye(4),
+        origin_xy_m=(-1.0, -1.0),
+        floor_z_m=0.0,
     )
     depth = np.zeros((1, 10), dtype=np.float64)
     depth[0, 6] = 1.0  # point_infra1 = (6, 0, 1) * depth = (6, 0, 1)
@@ -54,7 +59,9 @@ def test_ray_tracing_fills_explored_between_camera_and_endpoint():
 
     # Endpoint: world (6, 0) -> row=20 (from y=0), col=140 (from x=6).
     assert grid[1, 20, 140] == pytest.approx(1.0)  # explored at the true endpoint
-    assert grid[0, 20, 140] == pytest.approx(1.0)  # obstacle at the true endpoint (z_rel=1, in band)
+    assert grid[0, 20, 140] == pytest.approx(
+        1.0
+    )  # obstacle at the true endpoint (z_rel=1, in band)
 
     # A cell strictly between the camera (world 0,0 -> row=20,col=20) and the
     # endpoint should now be marked explored by ray tracing.
@@ -73,6 +80,20 @@ def test_ray_trace_steps_zero_preserves_endpoint_only_behavior():
     assert grid[0, 20, 140] == pytest.approx(1.0)
     # No ray tracing means the intermediate cell stays unexplored.
     assert grid[1, 20, 80] == pytest.approx(0.0)
+
+
+def test_tilted_floor_plane_prevents_scalar_height_false_obstacle():
+    mapper, frame, semantic_pred = _make_single_point_mapper(ray_trace_steps=0)
+    # Endpoint is world (6, 0, 1).  Relative to this measured tilted floor it
+    # is only 10 cm high, below the default 25 cm obstacle band.  A scalar
+    # floor_z=0 would incorrectly classify it as a 1 m obstacle.
+    mapper.map.floor_plane_coefficients = (0.15, 0.0, 0.0)
+
+    mapper.integrate(frame, semantic_pred)
+
+    row, col = mapper.map.world_to_cell(np.array([6.0]), np.array([0.0]))
+    assert mapper.map.grid[1, row[0], col[0]] == pytest.approx(1.0)
+    assert mapper.map.grid[0, row[0], col[0]] == pytest.approx(0.0)
 
 
 def test_ray_tracing_does_not_mark_cells_beyond_the_endpoint():

@@ -23,8 +23,10 @@ Deviations from upstream, recorded rather than hidden:
     needed; points are transformed directly into the world frame.
   * upstream gates six semantic channels with a second Grounded-SAM
     predictor; the replay mapper uses RedNet alone (mapping_only scope).
-  * the floor height is estimated from the data (percentile of world z of
-    valid points) because the real camera height is not a Habitat constant.
+  * the floor plane is estimated from real depth because the real camera
+    height is not a Habitat constant. Live mapping keeps all three plane
+    coefficients; collapsing a tilted floor to one scalar z creates false
+    obstacles away from the camera position used to obtain that scalar.
   * added 2026-07-21: each valid depth return also marks the "explored"
     channel along the ray from the camera to that point (not just the
     endpoint cell). Upstream doesn't need this -- Habitat's simulated depth
@@ -138,10 +140,19 @@ class CentralSemanticMap:
     config: MapperConfig
     origin_xy_m: tuple[float, float]
     floor_z_m: float
+    floor_plane_coefficients: tuple[float, float, float] | None = None
     grid: np.ndarray = field(init=False)   # (2 + 15, N, N) float32 in [0, 1]
     frames_fused: int = field(init=False, default=0)
 
     def __post_init__(self) -> None:
+        if not np.isfinite(self.floor_z_m):
+            raise ValueError("floor_z_m must be finite")
+        if self.floor_plane_coefficients is None:
+            self.floor_plane_coefficients = (0.0, 0.0, float(self.floor_z_m))
+        coefficients = np.asarray(self.floor_plane_coefficients, dtype=np.float64)
+        if coefficients.shape != (3,) or not np.all(np.isfinite(coefficients)):
+            raise ValueError("floor_plane_coefficients must contain three finite values")
+        self.floor_plane_coefficients = tuple(float(value) for value in coefficients)
         cells = int(round(self.config.map_size_m / self.config.resolution_m))
         self.grid = np.zeros((2 + len(HM3D_CATEGORY_NAMES), cells, cells), dtype=np.float32)
 
@@ -166,13 +177,19 @@ class CentralMapper:
         T_rgb_to_infra1: np.ndarray,
         origin_xy_m: tuple[float, float],
         floor_z_m: float,
+        floor_plane_coefficients: tuple[float, float, float] | None = None,
     ) -> None:
         self.config = config
         self.K_infra1 = np.asarray(K_infra1, dtype=np.float64)
         self.K_rgb = np.asarray(K_rgb, dtype=np.float64)
         # p_rgb = T_infra1_to_rgb @ p_infra1
         self.T_infra1_to_rgb = np.linalg.inv(np.asarray(T_rgb_to_infra1, dtype=np.float64))
-        self.map = CentralSemanticMap(config=config, origin_xy_m=origin_xy_m, floor_z_m=floor_z_m)
+        self.map = CentralSemanticMap(
+            config=config,
+            origin_xy_m=origin_xy_m,
+            floor_z_m=floor_z_m,
+            floor_plane_coefficients=floor_plane_coefficients,
+        )
         self._pixel_rays: np.ndarray | None = None
         self._pixel_shape: tuple[int, int] | None = None
         self._obstacle_log_odds = np.zeros(
@@ -198,7 +215,13 @@ class CentralMapper:
             self._pixel_shape = shape
         return self._pixel_rays
 
-    def integrate(self, frame, semantic_pred: np.ndarray) -> None:
+    def integrate(
+        self,
+        frame,
+        semantic_pred: np.ndarray,
+        *,
+        floor_plane_coefficients: tuple[float, float, float] | None = None,
+    ) -> None:
         """Fuse one ReplayFrame with its RedNet prediction into the map."""
         cfg = self.config
         depth = frame.depth_m[:: cfg.depth_stride, :: cfg.depth_stride].astype(np.float64)
@@ -259,7 +282,21 @@ class CentralMapper:
         row, col = self.map.world_to_cell(points_world[:, 0], points_world[:, 1])
         in_map = (row >= 0) & (row < cells) & (col >= 0) & (col < cells)
         row, col = row[in_map], col[in_map]
-        z_rel = points_world[in_map, 2] - self.map.floor_z_m
+        map_points = points_world[in_map]
+        active_floor_plane = (
+            self.map.floor_plane_coefficients
+            if floor_plane_coefficients is None
+            else floor_plane_coefficients
+        )
+        coefficients = np.asarray(active_floor_plane, dtype=np.float64)
+        if coefficients.shape != (3,) or not np.all(np.isfinite(coefficients)):
+            raise ValueError("floor plane override must contain three finite values")
+        floor_z = (
+            coefficients[0] * map_points[:, 0]
+            + coefficients[1] * map_points[:, 1]
+            + coefficients[2]
+        )
+        z_rel = map_points[:, 2] - floor_z
         labels = labels[in_map]
 
         flat = row * cells + col

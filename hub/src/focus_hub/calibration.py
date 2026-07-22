@@ -26,17 +26,33 @@ here: Habitat's GPS/compass ground truth never drifts. Live odometry does.
 The transform computed here is only as good as the sync-instant poses it
 was built from; nothing in this module corrects for drift afterward.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
+import math
+
+import numpy as np
 
 from .geometry import compose_rigid, invert_rigid
 
 IDENTITY: tuple[float, ...] = (
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 1.0, 0.0,
-    0.0, 0.0, 0.0, 1.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
 )
 
 
@@ -64,8 +80,12 @@ def compute_shared_frame_transform(
     """
     if reference_to_other_offset is None:
         reference_to_other_offset = IDENTITY
-    other_pose_at_sync_in_shared_world = compose_rigid(reference_pose_at_sync, reference_to_other_offset)
-    return compose_rigid(other_pose_at_sync_in_shared_world, invert_rigid(other_pose_at_sync))
+    other_pose_at_sync_in_shared_world = compose_rigid(
+        reference_pose_at_sync, reference_to_other_offset
+    )
+    return compose_rigid(
+        other_pose_at_sync_in_shared_world, invert_rigid(other_pose_at_sync)
+    )
 
 
 def apply_shared_frame_transform(
@@ -74,3 +94,57 @@ def apply_shared_frame_transform(
 ) -> tuple[float, ...]:
     """Maps one of the other robot's own-frame poses into ``shared_world``."""
     return compose_rigid(shared_world_from_other_odom, other_pose_at_t)
+
+
+def compute_gravity_preserving_alignment(
+    reference_landmark_pose: Sequence[float],
+    other_landmark_pose: Sequence[float],
+) -> tuple[float, ...]:
+    """Align two observations of one landmark with a yaw-only transform.
+
+    Both inputs are poses of the *same physical landmark*, one in the
+    reference/shared frame and one in the other robot's local odometry frame.
+    The returned transform maps the landmark origins exactly, while its
+    rotation is the closest yaw-only rotation to the unconstrained SE(3)
+    alignment.  It therefore cannot tilt gravity when the robot changes yaw.
+
+    A calibration board pose is the intended landmark.  Using camera poses
+    here would align camera centres instead of the observed board and can
+    turn a small orientation residual into a range-dependent board-position
+    error.
+    """
+    reference = np.asarray(
+        compose_rigid(IDENTITY, reference_landmark_pose), dtype=np.float64
+    ).reshape(4, 4)
+    other = np.asarray(
+        compose_rigid(IDENTITY, other_landmark_pose), dtype=np.float64
+    ).reshape(4, 4)
+    unconstrained_rotation = reference[:3, :3] @ other[:3, :3].T
+    yaw = math.atan2(
+        float(unconstrained_rotation[1, 0] - unconstrained_rotation[0, 1]),
+        float(unconstrained_rotation[0, 0] + unconstrained_rotation[1, 1]),
+    )
+    cosine = math.cos(yaw)
+    sine = math.sin(yaw)
+    rotation = np.array(
+        [
+            [cosine, -sine, 0.0],
+            [sine, cosine, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    transform = np.eye(4, dtype=np.float64)
+    transform[:3, :3] = rotation
+    transform[:3, 3] = reference[:3, 3] - rotation @ other[:3, 3]
+    return tuple(float(value) for value in transform.reshape(-1))
+
+
+def gravity_tilt_deg(transform: Sequence[float]) -> float:
+    """Return how far a rigid transform rotates +Z away from gravity +Z."""
+    matrix = np.asarray(compose_rigid(IDENTITY, transform), dtype=np.float64).reshape(
+        4, 4
+    )
+    mapped_up = matrix[:3, 2]
+    cosine = float(np.clip(mapped_up[2] / np.linalg.norm(mapped_up), -1.0, 1.0))
+    return math.degrees(math.acos(cosine))

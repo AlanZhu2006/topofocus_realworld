@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "camera_model": "d455",
+  "camera_frame": "d455_color_optical_frame",
+  "classification": "operator-reported_unverified_against_tf",
+  "base_link_from_camera": {
+    "parent_frame": "base_link",
+    "child_frame": "d455_color_optical_frame",
+    "matrix": [
+      0.0,
+      0.0,
+      1.0,
+      0.203,
+      -1.0,
+      0.0,
+      0.0,
+      -0.127,
+      0.0,
+      -1.0,
+      0.0,
+      0.435,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "provenance_note": "User reported the D455 on the D405 mount, 10 cm higher, level with no roll/pitch/yaw. Translation is 20.3 cm forward, 12.7 cm right and 43.5 cm up. This file preserves the pre-floor-calibration sender constant as an explicit derivation input."
+}

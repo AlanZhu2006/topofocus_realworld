@@ -1,0 +1,167 @@
+{
+  "board": {
+    "cols": 10,
+    "rows": 7,
+    "spacing_m": 0.04,
+    "type": "symmetric_circle_grid"
+  },
+  "calibration_frame": {
+    "board_center_translation_residual_m": 2.498001805406602e-16,
+    "board_normal_residual_deg": 2.6574492727410446,
+    "other": {
+      "capture_time_ns": 1784705474087796224,
+      "metadata": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000145021/metadata.json",
+        "sha256": "f249d6624f2291540f69f9f68d3d9ed2b86cc01a4845f23fecfd2404d9ad072a",
+        "size_bytes": 2220
+      },
+      "rgb": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000145021/rgb.jpg",
+        "sha256": "716c051485af58877be3d40881b5aede456c1b3695189b3265f724c2a41878c4",
+        "size_bytes": 69747
+      },
+      "sequence": 145021,
+      "transform_version": "yunji-d455-local-odom-recal-v2-capture"
+    },
+    "reference": {
+      "capture_time_ns": 1784705474170393066,
+      "metadata": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-0/00000000000000009025/metadata.json",
+        "sha256": "277d382564f3b290fa5361a3f15843c4bb0e10f1b791364b76066a1e81504ee2",
+        "size_bytes": 2198
+      },
+      "rgb": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-0/00000000000000009025/rgb.jpg",
+        "sha256": "43b5844daca62383af2b691586a0fbb0dbb8376448ae5645aec996406b28909e",
+        "size_bytes": 92221
+      },
+      "sequence": 9025,
+      "transform_version": "wsj-tinynav-depth-20260722-session-v1"
+    },
+    "sync_skew_s": 0.082596842
+  },
+  "calibration_method": "shared_circle_board_yaw_only_gravity_preserving",
+  "computed_at_ns": 1784710178349345731,
+  "corrected_other_camera_pose_at_sync": {
+    "matrix": [
+      -0.30687516135765214,
+      -0.016639791466434576,
+      0.9516043046779836,
+      -1.8397038229026506,
+      -0.9491100009124688,
+      -0.06906618015723995,
+      -0.307278487575068,
+      18.137780860777568,
+      0.07083672430066519,
+      -0.9974732979375645,
+      0.00540170268621867,
+      0.435,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "gravity_validation": {
+    "passed": true,
+    "shared_transform_tilt_deg": 0.0
+  },
+  "holdout_validation": {
+    "board_center_translation_residual_m": 0.0054589116019432065,
+    "board_normal_residual_deg": 2.3799400488377374,
+    "checks": {
+      "board_center_residual": true,
+      "board_normal_residual": true,
+      "sync_skew": true
+    },
+    "other": {
+      "capture_time_ns": 1784706247103003648,
+      "metadata": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000146524/metadata.json",
+        "sha256": "edfad8956902203470a23c55e7d00a63636baea0173bc8aab3c603a5022a0d40",
+        "size_bytes": 2321
+      },
+      "rgb": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-1/00000000000000146524/rgb.jpg",
+        "sha256": "80ab8dac405289e1b1112da868f649aa81635350d802c62403548e2ec46de982",
+        "size_bytes": 69908
+      },
+      "sequence": 146524,
+      "transform_version": "yunji-d455-shared-board-20260722-153114-v2"
+    },
+    "reference": {
+      "capture_time_ns": 1784706247292755615,
+      "metadata": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-0/00000000000000009214/metadata.json",
+        "sha256": "5713833c03e90dcecd0a462c3c906ee492e62616b90ea110b119f84b92125b45",
+        "size_bytes": 2199
+      },
+      "rgb": {
+        "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/spool/robot-0/00000000000000009214/rgb.jpg",
+        "sha256": "af9822038f9ddb63905ca034da8383b3102ca38ff3bb2eaffe4b9b58d427fb20",
+        "size_bytes": 97737
+      },
+      "sequence": 9214,
+      "transform_version": "wsj-tinynav-depth-20260722-session-v1"
+    },
+    "sync_skew_s": 0.189751967
+  },
+  "input_provenance": {
+    "calibration_recorded_shared_transform": null,
+    "corrected_other_extrinsic": {
+      "path": "/home/asus/Research/focus_realworld_workspace/hub/config/calibration/yunji_d455_ground_extrinsic_20260722.json",
+      "sha256": "f047c4bb166a7a8d659dd59be174cbdbdb56eb702d5f79e214e01359a776b1b8",
+      "size_bytes": 13885
+    },
+    "holdout_recorded_shared_transform": {
+      "path": "/home/asus/Research/focus_realworld_workspace/hub/runtime/calibration/board_20260722_153114_cst_v2/shared_frame.json",
+      "sha256": "ae5c178d7c90dd7d46d997cb0581a2649664b0be7ff41ee8959e0c17fc1442c3",
+      "size_bytes": 3506
+    },
+    "old_other_extrinsic": {
+      "path": "/home/asus/Research/focus_realworld_workspace/hub/config/calibration/yunji_d455_mount_nominal_20260721.json",
+      "sha256": "640cb6908ee664e66f5e1aef2b77b4f485ce79cb8274125ff9c5808f276a69f6",
+      "size_bytes": 748
+    },
+    "status": "observed_spooled_images_and_source_derived_rigid_alignment"
+  },
+  "note": "Apply this transform after the corrected base_link-camera extrinsic. The rotation is yaw-only; it cannot rotate gravity when the base yaws.",
+  "other_robot": "robot-1",
+  "passed": true,
+  "reference_robot": "robot-0",
+  "safety": {
+    "archived_observations_only": true,
+    "robot_commands_issued": false,
+    "robot_interfaces_used": false
+  },
+  "schema_version": 2,
+  "shared_frame_calibration_id": "shared-board-gravity-20260722-v3",
+  "shared_world_from_other_odom": {
+    "child_frame": "robot-1_odom",
+    "matrix": [
+      -0.20185822948644896,
+      -0.9794147513635866,
+      0.0,
+      16.519205327536575,
+      0.9794147513635866,
+      -0.20185822948644896,
+      0.0,
+      5.395947398432043,
+      0.0,
+      0.0,
+      1.0,
+      -0.12696216544802474,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "parent_frame": "shared_world"
+  },
+  "thresholds": {
+    "max_holdout_center_residual_m": 0.05,
+    "max_holdout_normal_residual_deg": 3.0,
+    "max_sync_skew_s": 0.25
+  },
+  "transform_version": "yunji-d455-gravity-board-20260722-v3"
+}
