@@ -22,16 +22,20 @@ have been cut over. Autonomous navigation remains gated:
 - fresh WSJ and Yunji maps use separate new directories and the same explicit
   calibration ID. Their initial three-frame floor estimates differed by about
   2.4 cm, with no ground rejection, pose jump or mapping block at cutover;
+- an operator-present low-speed run added 85 integrated keyframes over a
+  1.193 m accepted path, changed 1,737 cells and explored 1,574 new cells;
+  every moved-map continuity/quality check passed;
 - the existing relay ports and `/wsj/*`, `/yunji/*`, `/fused/*` topic names
   were retained. `/yunji/camera` is pushed continuously through a
   loopback-bound reverse tunnel, so no new Foxglove layout is required;
 - the driver and sender units are active but deliberately disabled for boot;
-- no planner, velocity command, WATER move endpoint or other robot actuation
-  was invoked.
+- no planner, autonomous GOAL or Hub motion output was invoked. The later
+  moved-map gate used only an explicitly armed operator keyboard session over
+  WATER `/api/joy_control` with the robot-local watchdog and stop authority.
 
-This validates a stationary observation/map cutover, not controlled movement,
-semantic accuracy or autonomous navigation. Keep GOAL output disabled until
-those separate physical gates pass.
+This validates observation cutover and controlled manual map continuity, not
+surveyed metric accuracy, semantic accuracy or autonomous navigation. Keep
+GOAL output disabled until those separate physical gates pass.
 
 ## Observed device contract
 

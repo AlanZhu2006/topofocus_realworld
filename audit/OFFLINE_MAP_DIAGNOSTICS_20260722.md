@@ -119,8 +119,11 @@ It records every input file hash and never talks to a robot.
 
 A synthetic 0.8 m test trajectory passed with 4 accepted keyframes, 30 newly
 explored cells, 3 new obstacles, 5 cleared obstacles and no failed checks.
-That validates the tool mechanics only. The real operator-present moved gate
-is **unverified** and remains required.
+The later real operator-present Yunji/Odin run also passed all checks: 1.193 m
+accepted path, 85 additional keyframes, 1,574 newly explored cells, 97 new and
+85 cleared obstacle cells, with no pose jump, ground rejection or mapping
+block. Exact runtime hashes are recorded in
+`audit/YUNJI_ODIN1_INTEGRATION_20260722.md`.
 
 ## Existing calibration path reused
 
@@ -146,6 +149,7 @@ artifacts remain on the current Hub host:
 | `hub/runtime/analysis/live_map_sweep_yunji_20260722/map_parameter_sweep.json` | 382,335 B | `0250d1863f7354b626ceef7a9b9b1e33dcf2f18833f93890663db2d90ff02ca3` | observed |
 | `hub/runtime/analysis/rednet_spool_wsj_20260722_v3/domain_gap_summary.json` | 29,488 B | `0e7980c37921f6e59e1ae65849ae85c5509244706b0ef7cb33279831850a5536` | observed |
 | `hub/runtime/analysis/rednet_spool_yunji_20260722_v3/domain_gap_summary.json` | 29,608 B | `b1649e922b89772eb0ff79ef3c79d05604f14277e7af0537beb8aa183ee1b920` | observed |
+| `hub/runtime/moved_gate/yunji-report-160808-161282-20260722.json` | 140,315 B | `9d40cbd767381b7333421713bfd7cd7e9b95335eef233deb4d6142419510ee9f` | source-derived from observed real moved run; all checks passed |
 
 Each RedNet JSON additionally hashes all 32 generated sample images and its
 checkpoint/source observations. The full operating procedure is
@@ -159,7 +163,7 @@ Tracked implementation provenance:
 | `hub/src/focus_hub/map_quality.py` | 4,816 B | `d81f5e5267f74ac009f86f29bd20895949eb3ca158229d5a372397e08972ecd7` | implemented, tested |
 | `hub/tools/analyze_live_map_sweep.py` | 16,117 B | `09b84e3cbc23fcfb5add795245464a33fd0d67cb232e70e2465873df4258d025` | implemented, real-data-used |
 | `hub/tools/analyze_rednet_domain_gap.py` | 17,386 B | `3dd87afd2efb83d603ab08b5b741c05387024c6f4d767d09cf43748464a79c10` | modified, real-data-used |
-| `hub/tools/validate_moved_map_run.py` | 14,359 B | `362ef7b2168ced874f8ec2047526feaa9d99138e8a79cf8bf94efde806436d14` | implemented, synthetic-tested; real gate pending |
+| `hub/tools/validate_moved_map_run.py` | 14,359 B | `362ef7b2168ced874f8ec2047526feaa9d99138e8a79cf8bf94efde806436d14` | implemented, synthetic-tested and real-data-used; Yunji/Odin gate passed |
 | `hub/tools/calibrate_shared_frame.py` | 7,948 B | `510a841eef787f7db382b0d31a23bad9cb2b7f431684e533580e781f460d285b` | modified, synthetic-tested |
 | `hub/tools/foxglove_relay.py` | 30,261 B | `592cbdfce0a0880f184dda1c749b147e827e13b85b27a2b77a1ef054cceca27c` | modified, tested, live-used |
 | `hub/foxglove/dual_robot_dashboard.json` | 4,328 B | `b4d2f774de091fb80f32e4020497ca8a0b159ebc3860db2fd3a8d015c304ab1b` | modified, parse-tested; re-import required |

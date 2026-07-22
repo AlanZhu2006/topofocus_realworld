@@ -15,9 +15,11 @@ After the sensor view was corrected, a fresh fit plus independently moved-board
 holdout passed, and completely new WSJ/Odin map directories passed their
 startup ground gates. The old D455 transform and map data were not reused.
 
-No robot command was sent. The Odin driver, sender and verifier have no planner,
-velocity publisher or WATER motion endpoint. Hub health reported
-`goal_output_enabled=false` for both robots.
+No robot command was sent during integration, calibration or relay cutover. A
+later operator-present moved-map gate explicitly used the independent WATER
+keyboard teleop; no command originated from the Hub, sender or mapper. The Odin
+driver, sender and verifier have no planner, velocity publisher or WATER motion
+endpoint. Hub health reported `goal_output_enabled=false` for both robots.
 
 ## Source provenance
 
@@ -197,6 +199,46 @@ runtime maps are ignored and are reported as observed state, not packaged
 replay artifacts. The main relay retained ports 8765/8766, robot labels and
 topic names, so the existing Foxglove layout remains valid.
 
+## Operator-present moved-map gate
+
+The operator subsequently armed Yunji's existing low-speed WATER keyboard
+teleop and moved the robot while WSJ remained stationary. Because motion began
+before a map-directory copy was taken, the before state was deterministically
+replayed from the append-only calibrated spool through sequence 160808. The
+restricted replay contained exactly sequences 159949–160808 and reproduced
+153 integrated frames with no block, pose jump or ground rejection. The after
+snapshot label ends in 161282; its internally consistent map summary ends at
+sequence 161279 because of the three-second snapshot cadence.
+
+`validate_moved_map_run.py` passed all ten checks:
+
+| Metric | Observed | Gate |
+| --- | ---: | ---: |
+| accepted XY path | 1.192797 m | at least 0.5 m |
+| net XY displacement | 1.171807 m | diagnostic |
+| additional integrated keyframes | 85 | at least 3 |
+| maximum adjacent translation | 0.101458 m | at most 2.0 m |
+| maximum adjacent rotation | 0.385104° | at most 90° |
+| changed map cells | 1,737 | at least 1 |
+| newly explored cells | 1,574 | at least 25 |
+| new / cleared obstacle cells | 97 / 85 | diagnostic |
+| after obstacle/explored ratio | 0.05895051 | at most 0.50 |
+| pose jumps / ground rejections / mapping blocks | 0 / 0 / 0 | all zero/null |
+
+Runtime evidence is intentionally ignored by Git but retained on this Hub:
+
+| Artifact | Bytes | SHA-256 | Classification |
+| --- | ---: | --- | --- |
+| `hub/runtime/moved_gate/yunji-before-seq-160808-20260722/central_map.npz` | 22,414 | `921b1e561d1ad8aca1d6fd1137c0ad71a7b7175006714b877bd2b9adb111691b` | source-derived deterministic replay |
+| `hub/runtime/moved_gate/yunji-before-seq-160808-20260722/map_summary.json` | 1,387 | `612d36b5b7be94f5bd7287e8aee3e305ea66194279f69274259d86eb7e5dee7b` | source-derived deterministic replay |
+| `hub/runtime/moved_gate/yunji-after-seq-161282-20260722/central_map.npz` | 22,618 | `018d88101108673698a2c816c16d2f76fae28d02e7f70160d9229693ec773347` | observed live snapshot |
+| `hub/runtime/moved_gate/yunji-after-seq-161282-20260722/map_summary.json` | 1,391 | `93e6f5a27a217d187d6821bdc4b5710ac4fe69b108cfb7f7258ba068ffd58345` | observed live snapshot |
+| `hub/runtime/moved_gate/yunji-report-160808-161282-20260722.json` | 140,315 | `9d40cbd767381b7333421713bfd7cd7e9b95335eef233deb4d6142419510ee9f` | source-derived validation report; hashes every pose input |
+
+This proves continuous bounded map updating during this run. There is no
+surveyed trajectory or floor plan, so it does not establish absolute metric
+SLAM accuracy or authorize autonomous movement.
+
 ## Deployment state and remaining gates
 
 Tracked deployment additions include a headless driver launch, read-only
@@ -235,8 +277,8 @@ At handoff:
 - both Odin units are disabled for boot;
 - the real mode-0600 robot token exists only on nyush-nuc, outside Git.
 
-Remaining physical follow-up is a controlled-motion map test, labelled semantic
-target validation, longer soak and the existing disconnect/timeout/e-stop/HIL
-gates. None of this observation work authorizes GOAL output or autonomous
-navigation. A sensor remount or odometry-origin reset invalidates this artifact
-and requires another fit plus independently moved-board holdout.
+Remaining physical follow-up is labelled semantic-target validation, longer
+soak and the existing disconnect/timeout/e-stop/HIL gates. None of this work
+authorizes GOAL output or autonomous navigation. A sensor remount or
+odometry-origin reset invalidates this artifact and requires another fit plus
+independently moved-board holdout.
