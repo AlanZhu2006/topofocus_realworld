@@ -10,6 +10,21 @@ The first two states are non-motion. The live state still requires one fresh,
 onsite confirmation because the Hub only publishes expiring high-level
 targets; TinyNav/WATER and the robots retain final stop/reject authority.
 
+For normal onsite use, the repository-root `command.txt` wraps the commands
+below without storing an accepted safety confirmation:
+
+```bash
+# New placement: calibration, strict debug, then a separately confirmed run.
+bash command.txt
+
+# Reuse the saved current session.
+bash command.txt debug
+bash command.txt live scene01-chair scene01-chair-run01 chair
+```
+
+The detailed commands below remain authoritative and are what the wrapper
+executes.
+
 ## Before the first command
 
 The local checkout must be clean and both robot deployment roots must contain
