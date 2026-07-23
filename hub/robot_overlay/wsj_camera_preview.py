@@ -21,6 +21,7 @@ script in this project.
 from __future__ import annotations
 
 import argparse
+import os
 import time
 
 import cv2
@@ -80,12 +81,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--relay-url", required=True, help="e.g. http://127.0.0.1:18766")
     parser.add_argument("--name", default="wsj", help="must match the --robot NAME in foxglove_relay.py")
-    parser.add_argument("--token", required=True, help="robot-0's token from hub/runtime/tokens.json")
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("FOCUS_ROBOT_TOKEN", ""),
+        help="robot token; defaults to FOCUS_ROBOT_TOKEN to keep it out of ps output",
+    )
     parser.add_argument("--rgb-topic", default="/camera/camera/color/image_raw")
     parser.add_argument("--max-rate-hz", type=float, default=5.0,
                          help="throttles pushes even if the driver publishes faster; 0 disables")
     parser.add_argument("--jpeg-quality", type=int, default=80)
     args = parser.parse_args()
+    if not args.token:
+        parser.error("--token or FOCUS_ROBOT_TOKEN is required")
 
     rclpy.init()
     node = WsjCameraPreview(args)

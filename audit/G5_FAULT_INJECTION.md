@@ -91,3 +91,21 @@ operator path.
 Both fault-injection hub instances (including the one that was SIGKILLed and
 restarted) were stopped at the end of the run; `ss -tlnp` confirms ports
 8390/8391 free. No GPU or robot involvement in this run.
+
+## 2026-07-22 pre-deployment repeat
+
+The same matrix was repeated after the live VLM shadow and timing-gate work,
+while Yunji was powered off and without starting any WSJ ROS or camera process:
+
+```bash
+hub/.venv/bin/python hub/tools/g5_fault_injection.py \
+  --output hub/runtime/g5_preflight_20260722
+```
+
+Observed result: **9/9 PASS**. The result matrix is 2,051 bytes with SHA-256
+`ab4fa6089faa8ae4d4f6272c097aaf2616efe4c63c2f934e233a72bd82d89c8a`;
+the invoked tool is 21,342 bytes with SHA-256
+`f4d5b38a9753304a85178ada6fa2e0bf8defd2626f81d33891ed115bc6932722`.
+The files under `hub/runtime/g5_preflight_20260722/` are observed runtime
+evidence and are not tracked source. Ports 8390/8391 were released after the
+run. This repeat is still not a hardware-in-the-loop G5 pass.

@@ -49,6 +49,7 @@ class _GeometryFrame:
 @dataclass(frozen=True)
 class SweepProfile:
     name: str
+    obstacle_band_low_m: float
     obstacle_band_high_m: float
     obstacle_fusion_mode: str
     obstacle_min_hits: int
@@ -56,10 +57,13 @@ class SweepProfile:
 
 
 DEFAULT_PROFILES = (
-    SweepProfile("live_default", 0.75, "log_odds", 2, 0.70),
-    SweepProfile("persistence_3", 0.75, "log_odds", 3, 0.70),
-    SweepProfile("lower_band_0p60", 0.60, "log_odds", 2, 0.70),
-    SweepProfile("legacy_irreversible_max", 0.75, "max", 1, 0.70),
+    SweepProfile("live_default", 0.15, 0.75, "log_odds", 2, 0.70),
+    SweepProfile("floor_clearance_0p20", 0.20, 0.75, "log_odds", 2, 0.70),
+    SweepProfile("upstream_floor_clearance_0p25", 0.25, 0.75, "log_odds", 2, 0.70),
+    SweepProfile("floor_clearance_0p30", 0.30, 0.75, "log_odds", 2, 0.70),
+    SweepProfile("persistence_3", 0.15, 0.75, "log_odds", 3, 0.70),
+    SweepProfile("lower_band_0p60", 0.15, 0.60, "log_odds", 2, 0.70),
+    SweepProfile("legacy_irreversible_max", 0.15, 0.75, "max", 1, 0.70),
 )
 
 
@@ -237,7 +241,7 @@ def main() -> int:
                     map_size_m=map_size_m,
                     depth_stride=args.depth_stride,
                     ray_trace_steps=args.ray_trace_steps,
-                    obstacle_band_low_m=0.15,
+                    obstacle_band_low_m=profile.obstacle_band_low_m,
                     obstacle_band_high_m=profile.obstacle_band_high_m,
                     obstacle_fusion_mode=profile.obstacle_fusion_mode,
                     obstacle_min_hits=profile.obstacle_min_hits,

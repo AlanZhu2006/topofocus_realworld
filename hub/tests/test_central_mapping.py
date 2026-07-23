@@ -23,6 +23,10 @@ def _make_single_point_mapper(
     ray_trace_chunk_points: int = 8192,
     obstacle_fusion_mode: str = "max",
     obstacle_min_hits: int = 1,
+    semantic_fusion_mode: str = "max",
+    semantic_min_hits: int = 1,
+    semantic_winner_margin_hits: int = 0,
+    cat_pred_threshold: float = 5.0,
 ) -> tuple[CentralMapper, _FakeFrame, np.ndarray]:
     """One valid depth pixel at image (row=0, col=6), camera at the world
     origin facing +infra1-z. With K=identity intrinsics this places the
@@ -36,6 +40,10 @@ def _make_single_point_mapper(
         ray_trace_chunk_points=ray_trace_chunk_points,
         obstacle_fusion_mode=obstacle_fusion_mode,
         obstacle_min_hits=obstacle_min_hits,
+        semantic_fusion_mode=semantic_fusion_mode,
+        semantic_min_hits=semantic_min_hits,
+        semantic_winner_margin_hits=semantic_winner_margin_hits,
+        cat_pred_threshold=cat_pred_threshold,
     )
     mapper = CentralMapper(
         config=config,
@@ -160,3 +168,23 @@ def test_log_odds_requires_multiple_hits_and_later_free_rays_can_clear():
         mapper.integrate(farther, semantic_pred)
     assert mapper.map.grid[(0,) + rc] == pytest.approx(0.0)
     assert mapper.map.grid[(1,) + rc] == pytest.approx(1.0)
+
+
+def test_multi_view_semantics_require_repeated_keyframes_and_unique_winner():
+    mapper, frame, semantic_pred = _make_single_point_mapper(
+        ray_trace_steps=0,
+        semantic_fusion_mode="multi_view",
+        semantic_min_hits=2,
+        semantic_winner_margin_hits=1,
+        cat_pred_threshold=1.0,
+    )
+    semantic_pred[0, 6] = 4  # source MP3D chair ID
+    endpoint_row, endpoint_col = mapper.map.world_to_cell(
+        np.array([6.0]), np.array([0.0])
+    )
+    rc = (endpoint_row[0], endpoint_col[0])
+
+    mapper.integrate(frame, semantic_pred)
+    assert mapper.map.grid[(2,) + rc] == pytest.approx(0.0)
+    mapper.integrate(frame, semantic_pred)
+    assert mapper.map.grid[(2,) + rc] == pytest.approx(1.0)

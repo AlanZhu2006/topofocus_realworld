@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 env_file=""
 session="${FOCUS_REHEARSAL_SESSION:-focus_live_rehearsal}"
+session_from_cli=false
 TINYNAV_ROOT="${TINYNAV_ROOT:-/home/nvidia/twork/tinynav}"
 PATCHED_ROOT="${TINYNAV_PATCHED_ROOT:-/home/nvidia/twork/tinynav-topofocus}"
 SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
@@ -25,7 +26,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env) env_file="$2"; shift 2 ;;
-    --session) session="$2"; shift 2 ;;
+    --session) session="$2"; session_from_cli=true; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -42,6 +43,9 @@ if [[ -n "$env_file" ]]; then
   PYTHON_BIN="${TINYNAV_PYTHON:-$TINYNAV_ROOT/.venv/bin/python}"
   STATE_DIR="${FOCUS_ROBOT_STATE_DIR:-$HOME/.local/state/topofocus}"
   POWER_SERVICE="${FOCUS_REALSENSE_POWER_SERVICE:-focus-realsense-power.service}"
+  if [[ "$session_from_cli" != true ]]; then
+    session="${FOCUS_REHEARSAL_SESSION:-$session}"
+  fi
 fi
 
 [[ -f "$SETUP_FILE" ]] || { echo "Missing setup file: $SETUP_FILE" >&2; exit 1; }
@@ -78,7 +82,7 @@ cleanup_on_error() {
 trap cleanup_on_error EXIT
 
 camera_command="source '$SETUP_FILE'; set -o pipefail; ros2 launch realsense2_camera rs_launch.py initial_reset:=false publish_tf:=true tf_publish_rate:=1.0 enable_depth:=false enable_color:=true enable_infra1:=true enable_infra2:=true enable_gyro:=true enable_accel:=true enable_sync:=false align_depth.enable:=false depth_module.infra_profile:=848x480x30 rgb_camera.color_profile:=848x480x30 unite_imu_method:=2 2>&1 | tee '$camera_log'"
-tmux new-session -d -s "$session" -n source "bash -lc \"$camera_command\""
+tmux new-session -d -s "$session" -n camera "bash -lc \"$camera_command\""
 tmux set-window-option -t "$session" remain-on-exit on >/dev/null
 
 deadline=$((SECONDS + 60))
@@ -113,11 +117,14 @@ perception_command="source '$SETUP_FILE'; export PYTHONPATH='$PATCHED_ROOT':\${P
 tmux new-window -d -t "$session" -n perception "bash -lc \"$perception_command\""
 
 deadline=$((SECONDS + 60))
-until ros2 topic list 2>/dev/null | grep -qx '/slam/keyframe_odom'; do
-  (( SECONDS < deadline )) || { echo "Timed out waiting for TinyNav keyframe odometry" >&2; exit 1; }
+until ros2 topic list 2>/dev/null | grep -qx '/slam/odometry_visual'; do
+  (( SECONDS < deadline )) || { echo "Timed out waiting for TinyNav visual odometry" >&2; exit 1; }
   sleep 1
 done
-timeout 20 ros2 topic echo --once /slam/keyframe_odom >/dev/null
+# A stationary post-reboot robot can legitimately take longer to select its
+# first keyframe. Continuous visual odometry is the actual perception-health
+# signal; downstream BuildMap startup separately waits for keyframe products.
+timeout 45 ros2 topic echo --once /slam/odometry_visual >/dev/null
 
 launch_complete=true
 trap - EXIT

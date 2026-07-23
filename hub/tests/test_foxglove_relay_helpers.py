@@ -7,6 +7,8 @@ import sys
 import numpy as np
 import pytest
 
+from focus_hub.shadow_coordination import build_shadow_target_payload
+
 
 def load_relay_module():
     path = Path(__file__).resolve().parents[1] / "tools" / "foxglove_relay.py"
@@ -63,6 +65,71 @@ def test_pose_scene_rejects_missing_or_nonfinite_xy(tmp_path):
     assert relay.update_pose_scene(
         source, {"last_camera_xy_m": [float("nan"), 0.0], "frame_id": "world"}
     ) is None
+
+
+def test_semantic_scene_paints_every_chair_cell_without_bounding_box(tmp_path):
+    relay = load_relay_module()
+    grid = np.zeros((17, 20, 20), dtype=np.float32)
+    grid[2, 4:6, 7:9] = 1.0
+    grid[2, 15, 15] = 1.0
+    snapshot = relay.MapSnapshot(
+        grid=grid,
+        origin_xy_m=(-1.0, -2.0),
+        resolution_m=0.05,
+        frame_id="shared_world",
+        transform_version="test-transform",
+        shared_frame_calibration_id="test-calibration",
+        map_format_version="focus-hub-central-map-v3",
+    )
+
+    scene = relay.semantic_scene_from_snapshot(
+        "wsj", snapshot, relay.HM3D_CATEGORY_NAMES
+    )
+
+    encoded = repr(scene)
+    assert 'id: "wsj-semantic-objects"' in encoded
+    assert encoded.count("CubePrimitive {") == 5
+    assert encoded.count("TextPrimitive {") == 1
+    assert "size: Some(Vector3 { x: 0.05, y: 0.05, z: 0.07" in encoded
+    assert "color: Some(Color { r: 0.901960" in encoded
+    assert 'text: "chair"' in encoded
+    assert "position: Some(Vector3 { x: -0.6, y: -1.75, z: 0.16" in encoded
+
+
+def test_shadow_target_scene_is_expiring_and_explicitly_non_authoritative(tmp_path):
+    relay = load_relay_module()
+    grid = np.zeros((17, 20, 20), dtype=np.float32)
+    snapshot = relay.MapSnapshot(
+        grid=grid,
+        origin_xy_m=(-1.0, -2.0),
+        resolution_m=0.05,
+        frame_id="shared_world",
+        transform_version="test-transform",
+        shared_frame_calibration_id="test-calibration",
+        map_format_version="focus-hub-central-map-v3",
+    )
+    payload = build_shadow_target_payload(
+        robot_id="robot-0",
+        frontier_id="B",
+        goal_category="chair",
+        target_xy_m=(1.25, 2.5),
+        yaw_rad=0.0,
+        snapshot=snapshot,
+        created_at_ns=1_000_000_000,
+        expires_at_ns=6_000_000_000,
+        run_manifest="/tmp/shadow_manifest.json",
+        map_snapshot_sha256="a" * 64,
+    )
+
+    scene = relay.shadow_target_scene_from_payload(
+        "wsj", "robot-0", snapshot, payload, now_ns=2_000_000_000
+    )
+
+    encoded = repr(scene)
+    assert 'id: "wsj-vlm-shadow-target"' in encoded
+    assert encoded.count("CylinderPrimitive {") == 1
+    assert "lifetime: Some(Duration { sec: 4, nsec: 0 })" in encoded
+    assert 'text: "SHADOW B · chair · NO MOTION"' in encoded
 
 
 def test_fusion_loop_publishes_geometry_semantics_and_evidence_status(

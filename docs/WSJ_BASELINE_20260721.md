@@ -1,5 +1,9 @@
 # WSJ 基线（2026-07-21）
 
+> 这是 2026-07-21 的历史基线。之后已经加入实测 body-camera 外参、
+> 在线 BuildMap 目标路由和 v2 租约门控；当前状态以
+> [`../CURRENT_STATUS.md`](../CURRENT_STATUS.md) 为准。
+
 以下均为 **observed**，除非明确标注 source-derived。它描述被检查的 WSJ，不保证另一台 Jetson 自动相同。
 
 ## 主机与中间件

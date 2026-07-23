@@ -1,5 +1,10 @@
 # `wsj` TinyNav read-only audit
 
+> Historical baseline from 2026-07-18. Later work added measured body-camera
+> calibration, versioned v2 decisions and an online BuildMap goal router.
+> Current conclusions are in [CURRENT_STATUS.md](../../CURRENT_STATUS.md);
+> the observations below remain provenance evidence.
+
 Observed on 2026-07-18 from `/home/nvidia/twork/tinynav`; no remote source was changed.
 
 ## Platform

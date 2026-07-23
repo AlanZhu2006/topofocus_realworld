@@ -194,6 +194,36 @@ def test_heartbeat_rescues_a_decision_that_would_otherwise_fail_on_stale_health(
     registry.publish_decision(decision, now_ns=later)  # no longer raises
 
 
+def test_runtime_readiness_uses_newer_receiver_heartbeat(observation_factory):
+    now = 20_000_000_000
+    registry = make_registry(allow_goal=True)
+    observation = observation_factory(
+        now_ns=now,
+        mapping_only=False,
+        health_ready=False,
+    )
+    registry.accept_observation(observation, "digest", now_ns=now)
+
+    blocked = registry.runtime_readiness("robot-0", now_ns=now)
+    assert blocked["ready_for_goal"] is False
+    assert "HEALTH_NOT_READY" in blocked["blockers"]
+    assert blocked["health_source"] == "observation"
+
+    heartbeat_now = now + 100_000_000
+    registry.accept_heartbeat(
+        "robot-0",
+        make_health(True),
+        heartbeat_now,
+        now_ns=heartbeat_now,
+    )
+    ready = registry.runtime_readiness(
+        "robot-0", now_ns=heartbeat_now + 10_000_000
+    )
+    assert ready["ready_for_goal"] is True
+    assert ready["blockers"] == []
+    assert ready["health_source"] == "heartbeat"
+
+
 def test_unhealthy_heartbeat_blocks_goal_even_over_a_healthy_observation(observation_factory):
     now = 20_000_000_000
     registry = make_registry(allow_goal=True)
@@ -207,6 +237,87 @@ def test_unhealthy_heartbeat_blocks_goal_even_over_a_healthy_observation(observa
     registry.accept_heartbeat("robot-0", make_health(False), now + 100_000_000, now_ns=now + 100_000_000)
     with pytest.raises(UnsafeDecision, match="does not permit"):
         registry.publish_decision(decision, now_ns=now + 100_000_000)
+
+
+def test_fresh_receiver_heartbeat_is_not_overridden_by_later_mapping_health(
+    observation_factory,
+):
+    now = 20_000_000_000
+    registry = make_registry(allow_goal=True)
+    first = observation_factory(
+        sequence=0,
+        now_ns=now,
+        mapping_only=False,
+        health_ready=False,
+    )
+    registry.accept_observation(first, "digest-0", now_ns=now)
+    heartbeat_now = now + 100_000_000
+    registry.accept_heartbeat(
+        "robot-0",
+        make_health(True),
+        heartbeat_now,
+        now_ns=heartbeat_now,
+    )
+
+    # A command-capable RGB-D frame can land between the receiver's 2 Hz
+    # heartbeats. Its mapping health must not cause a transient GOAL rejection.
+    later_observation = observation_factory(
+        sequence=1,
+        now_ns=heartbeat_now + 100_000_000,
+        mapping_only=False,
+        health_ready=False,
+    )
+    registry.accept_observation(
+        later_observation,
+        "digest-1",
+        now_ns=heartbeat_now + 100_000_000,
+    )
+    publish_now = heartbeat_now + 110_000_000
+    readiness = registry.runtime_readiness("robot-0", now_ns=publish_now)
+    assert readiness["ready_for_goal"] is True
+    assert readiness["health_source"] == "heartbeat"
+    registry.publish_decision(
+        make_goal_decision(now=publish_now),
+        now_ns=publish_now,
+    )
+
+
+def test_stale_receiver_heartbeat_never_falls_back_to_newer_observation(
+    observation_factory,
+):
+    now = 20_000_000_000
+    registry = make_registry(allow_goal=True)
+    first = observation_factory(
+        sequence=0,
+        now_ns=now,
+        mapping_only=False,
+        health_ready=True,
+    )
+    registry.accept_observation(first, "digest-0", now_ns=now)
+    registry.accept_heartbeat(
+        "robot-0",
+        make_health(True),
+        now + 100_000_000,
+        now_ns=now + 100_000_000,
+    )
+
+    later = now + 3_200_000_000
+    fresh_observation = observation_factory(
+        sequence=1,
+        now_ns=later,
+        mapping_only=False,
+        health_ready=True,
+    )
+    registry.accept_observation(fresh_observation, "digest-1", now_ns=later)
+    readiness = registry.runtime_readiness("robot-0", now_ns=later)
+    assert readiness["ready_for_goal"] is False
+    assert readiness["health_source"] == "heartbeat"
+    assert "HEALTH_STALE" in readiness["blockers"]
+    with pytest.raises(UnsafeDecision, match="stale"):
+        registry.publish_decision(
+            make_goal_decision(now=later),
+            now_ns=later,
+        )
 
 
 def test_heartbeat_rejects_stale_and_future(observation_factory):
@@ -234,4 +345,3 @@ def test_heartbeat_requires_known_robot():
     registry = make_registry()
     with pytest.raises(Exception):
         registry.accept_heartbeat("robot-does-not-exist", make_health(True), 1, now_ns=1)
-

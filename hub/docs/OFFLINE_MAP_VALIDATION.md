@@ -1,5 +1,9 @@
 # Offline map diagnostics and operator moved-run gate
 
+> This is a reusable diagnostic procedure. Its dated example directories are
+> historical; current map/calibration identities are in
+> [CURRENT_STATUS.md](../../CURRENT_STATUS.md).
+
 This workflow separates work that is safe to do without a robot operator from
 the one gate that requires physical motion. None of the tools in this document
 publishes a robot target or changes `allow_goal`.

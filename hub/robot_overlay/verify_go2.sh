@@ -4,6 +4,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_COMMIT="576c082e69580f618a5ff313a3e74f3672abb69f"
+LIVE_IMU_RECOVERY_COMMIT="29f26bc058886ff450f02cdc0d6e9977e1c57010"
+LIVE_IMU_PERCEPTION_SHA256="3a695d5210d60ea1f721549ca7458ba89e7bf32db5178cd1c312c633aef1c3b3"
 TINYNAV_ROOT="${TINYNAV_PATCHED_ROOT:-/home/nvidia/twork/tinynav-topofocus}"
 TINYNAV_SETUP="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
 hardware=false
@@ -32,7 +34,7 @@ fail() { echo "FAIL  $*" >&2; failures=$((failures + 1)); }
 grep -q 'Ubuntu 22.04' /etc/os-release 2>/dev/null && pass "Ubuntu 22.04" || warn "verified baseline is Ubuntu 22.04"
 [[ -f "$TINYNAV_SETUP" ]] && pass "setup file $TINYNAV_SETUP" || fail "missing setup file $TINYNAV_SETUP"
 
-if [[ -d "$TINYNAV_ROOT/.git" ]]; then
+if git -C "$TINYNAV_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if git -C "$TINYNAV_ROOT" merge-base --is-ancestor "$BASE_COMMIT" HEAD 2>/dev/null; then
     pass "TinyNav contains pinned base $BASE_COMMIT"
   else
@@ -40,8 +42,12 @@ if [[ -d "$TINYNAV_ROOT/.git" ]]; then
   fi
   if git -C "$TINYNAV_ROOT" apply --reverse --check "$SCRIPT_DIR/tinynav_snapshot/tinynav-required.patch" 2>/dev/null; then
     pass "verified WSJ patch is applied"
+  elif [[ "$(git -C "$TINYNAV_ROOT" rev-parse HEAD 2>/dev/null)" == "$LIVE_IMU_RECOVERY_COMMIT" ]] \
+      && [[ "$(sha256sum "$TINYNAV_ROOT/tinynav/core/perception_node.py" | awk '{print $1}')" == "$LIVE_IMU_PERCEPTION_SHA256" ]] \
+      && [[ -z "$(git -C "$TINYNAV_ROOT" status --porcelain)" ]]; then
+    pass "verified live-tested IMU recovery commit and perception hash"
   else
-    fail "verified WSJ patch is not exactly applied"
+    fail "neither the repository patch nor the live-tested IMU recovery tree matches"
   fi
   git -C "$TINYNAV_ROOT" diff --check >/dev/null && pass "TinyNav diff whitespace check" || fail "TinyNav diff check"
 else

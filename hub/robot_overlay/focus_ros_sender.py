@@ -88,10 +88,11 @@ Topic defaults remain on the hardware-depth path; callers must opt into the
 native path with CLI topic overrides so the depth-source trade-off is visible
 in the session provenance.
 
-This sender only ever uploads `mapping_only=true` and uses an explicit,
-distinctive `--transform-version` test label — never a real shared-frame
-calibration — so the hub's default policy cannot mistake this for a
-calibrated observation, exactly as before this pivot.
+Mapping-only runs may still upload the raw TinyNav tracking pose under a
+distinctive test transform version.  Command-capable observation metadata is
+stricter: it requires both the measured base/camera mount and a versioned
+shared-tracking calibration, and composes the latter before claiming the pose
+is in ``shared_world``.  This sender still has no control or actuator output.
 """
 from __future__ import annotations
 
@@ -100,6 +101,7 @@ import hashlib
 import json
 import math
 import os
+from pathlib import Path
 import signal
 import sys
 import threading
@@ -116,6 +118,13 @@ from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 
 import message_filters
+
+HUB_SRC = Path(__file__).resolve().parents[1] / "src"
+if HUB_SRC.is_dir():
+    sys.path.insert(0, str(HUB_SRC))
+
+from focus_hub.base_camera_calibration import load_base_camera_calibration
+from focus_hub.robot_map_alignment import load_shared_tracking_calibration
 
 DEPTH_SCALE_M = 0.001
 CAMERA_FRAME = "camera_color_optical_frame"
@@ -173,6 +182,157 @@ def depth_msg_to_png16_array(bridge: CvBridge, depth_msg: Image) -> np.ndarray:
     return np.ascontiguousarray(depth)
 
 
+def camera_info_matrix(message: CameraInfo) -> np.ndarray:
+    """Return and validate the 3x3 pinhole matrix carried by CameraInfo."""
+
+    values = np.asarray(message.k, dtype=np.float64)
+    if values.shape != (9,) or not np.all(np.isfinite(values)):
+        raise ValueError("camera_info.k must contain nine finite values")
+    matrix = values.reshape(3, 3)
+    if matrix[0, 0] <= 0.0 or matrix[1, 1] <= 0.0:
+        raise ValueError("camera intrinsics must have positive focal lengths")
+    return matrix
+
+
+def transform_message_matrix(message) -> np.ndarray:
+    """Convert one geometry_msgs/TransformStamped to ``T_target_source``."""
+
+    transform = message.transform
+    translation = transform.translation
+    rotation = transform.rotation
+    x, y, z, w = (
+        float(rotation.x),
+        float(rotation.y),
+        float(rotation.z),
+        float(rotation.w),
+    )
+    values = (
+        float(translation.x),
+        float(translation.y),
+        float(translation.z),
+        x,
+        y,
+        z,
+        w,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("RGB/depth static transform contains a non-finite value")
+    norm = math.sqrt(x * x + y * y + z * z + w * w)
+    if norm <= 1e-12:
+        raise ValueError("RGB/depth static transform has a zero quaternion")
+    x, y, z, w = x / norm, y / norm, z / norm, w / norm
+    matrix = np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w), translation.x],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w), translation.y],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y), translation.z],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    return matrix
+
+
+def register_rgb_onto_depth_grid(
+    rgb_bgr: np.ndarray,
+    depth_m: np.ndarray,
+    K_depth: np.ndarray,
+    K_rgb: np.ndarray,
+    T_rgb_from_depth: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Depth-register a real color frame onto TinyNav's left-IR pixel grid.
+
+    TinyNav's keyframe depth and pose both live in the left-infrared optical
+    frame.  The RealSense color stream is kept for learned semantics, but its
+    pixels cannot merely be renamed as infrared pixels.  Every valid depth
+    sample is therefore lifted with ``K_depth``, transformed through the
+    RealSense static optical extrinsic, projected with ``K_rgb`` and sampled
+    from the color image.  The returned image has exactly the depth shape, so
+    the existing aligned-RGBD transport contract remains true.
+
+    Invalid-depth pixels are initialized with a nearest-neighbour resized color
+    view.  They help the 2-D detector see a complete image but can never enter
+    the BEV: the Hub mapper already rejects their zero depth.  Valid-depth
+    pixels always use the calibrated projection.
+    """
+
+    rgb = np.asarray(rgb_bgr)
+    depth = np.asarray(depth_m, dtype=np.float64)
+    K_depth = np.asarray(K_depth, dtype=np.float64)
+    K_rgb = np.asarray(K_rgb, dtype=np.float64)
+    transform = np.asarray(T_rgb_from_depth, dtype=np.float64)
+    if rgb.ndim != 3 or rgb.shape[2] != 3:
+        raise ValueError(f"RGB image must have shape (H,W,3), got {rgb.shape}")
+    if depth.ndim != 2:
+        raise ValueError(f"depth image must be 2-D, got {depth.shape}")
+    if K_depth.shape != (3, 3) or K_rgb.shape != (3, 3):
+        raise ValueError("RGB and depth intrinsics must both be 3x3")
+    if transform.shape != (4, 4) or not np.all(np.isfinite(transform)):
+        raise ValueError("T_rgb_from_depth must be a finite 4x4 matrix")
+
+    depth_h, depth_w = depth.shape
+    rgb_h, rgb_w = rgb.shape[:2]
+    row_lookup = np.rint(
+        np.linspace(0.0, max(0, rgb_h - 1), depth_h)
+    ).astype(np.int64)
+    col_lookup = np.rint(
+        np.linspace(0.0, max(0, rgb_w - 1), depth_w)
+    ).astype(np.int64)
+    registered = np.ascontiguousarray(
+        rgb[row_lookup[:, None], col_lookup[None, :]].copy()
+    )
+
+    valid = np.isfinite(depth) & (depth > 0.0)
+    valid_count = int(np.count_nonzero(valid))
+    if valid_count == 0:
+        return registered, np.zeros(depth.shape, dtype=bool), 0.0
+    rows, cols = np.nonzero(valid)
+    z_depth = depth[rows, cols]
+    points_depth = np.stack(
+        (
+            (cols - K_depth[0, 2]) / K_depth[0, 0] * z_depth,
+            (rows - K_depth[1, 2]) / K_depth[1, 1] * z_depth,
+            z_depth,
+        ),
+        axis=-1,
+    )
+    points_rgb = (
+        points_depth @ transform[:3, :3].T + transform[:3, 3]
+    )
+    in_front = points_rgb[:, 2] > 1e-6
+    projected_u = np.full(points_rgb.shape[0], -1, dtype=np.int64)
+    projected_v = np.full(points_rgb.shape[0], -1, dtype=np.int64)
+    projected_u[in_front] = np.rint(
+        K_rgb[0, 0]
+        * points_rgb[in_front, 0]
+        / points_rgb[in_front, 2]
+        + K_rgb[0, 2]
+    ).astype(np.int64)
+    projected_v[in_front] = np.rint(
+        K_rgb[1, 1]
+        * points_rgb[in_front, 1]
+        / points_rgb[in_front, 2]
+        + K_rgb[1, 2]
+    ).astype(np.int64)
+    mapped = (
+        in_front
+        & (projected_u >= 0)
+        & (projected_u < rgb_w)
+        & (projected_v >= 0)
+        & (projected_v < rgb_h)
+    )
+    registered[rows[mapped], cols[mapped]] = rgb[
+        projected_v[mapped], projected_u[mapped]
+    ]
+    registered_depth_mask = np.zeros(depth.shape, dtype=bool)
+    registered_depth_mask[rows[mapped], cols[mapped]] = True
+    return (
+        registered,
+        registered_depth_mask,
+        float(np.count_nonzero(mapped) / valid_count),
+    )
+
+
 def odom_to_matrix(odom: Odometry) -> list[float]:
     """Converts nav_msgs/Odometry's pose into this project's row-major flat
     4x4 wire format. Assumes odom.pose.pose IS the camera's own pose
@@ -204,6 +364,29 @@ def odom_to_matrix(odom: Odometry) -> list[float]:
         r20, r21, r22, float(p.z),
         0.0, 0.0, 0.0, 1.0,
     ]
+
+
+def apply_shared_tracking_alignment(
+    tracking_T_camera: list[float] | tuple[float, ...],
+    shared_T_tracking: list[float] | tuple[float, ...],
+) -> list[float]:
+    """Compose a calibrated tracking pose before labeling it shared-world.
+
+    This is deliberately a full SE(3) composition for mapping geometry.  The
+    physical receiver separately projects its shared-to-local goal transform
+    onto SE(2), after enforcing the configured tilt bound.
+    """
+
+    tracking = np.asarray(tracking_T_camera, dtype=np.float64)
+    shared = np.asarray(shared_T_tracking, dtype=np.float64)
+    if tracking.size != 16 or shared.size != 16:
+        raise ValueError("tracking alignment requires two 4x4 transforms")
+    tracking = tracking.reshape(4, 4)
+    shared = shared.reshape(4, 4)
+    result = shared @ tracking
+    if not np.all(np.isfinite(result)):
+        raise ValueError("shared tracking composition is non-finite")
+    return [float(value) for value in result.reshape(-1)]
 
 
 def classify_localization_state(covariance_6x6) -> tuple[str, list[float]]:
@@ -515,6 +698,16 @@ class FocusRosSender(Node):
         self.frames_seen = 0
         self.metrics: list[dict] = []
         self.done = False
+        self.registration_T_rgb_from_depth: np.ndarray | None = None
+        self.registration_tf_listener = None
+        self.registration_tf_buffer = None
+        self.registration_time_zero = None
+        self.registration_timeout = None
+        self.shared_T_tracking = (
+            None
+            if args.shared_tracking_calibration is None
+            else args.shared_tracking_calibration.shared_T_tracking
+        )
 
         try:
             self.sequence = self.transport.last_sequence() + 1
@@ -541,17 +734,41 @@ class FocusRosSender(Node):
         depth_sub = message_filters.Subscriber(self, Image, args.depth_topic, qos_profile=qos_profile_sensor_data)
         info_sub = message_filters.Subscriber(self, CameraInfo, args.info_topic, qos_profile=qos_profile_sensor_data)
         pose_sub = message_filters.Subscriber(self, Odometry, args.pose_topic, qos_profile=qos_profile_sensor_data)
+        synchronized_inputs = [rgb_sub, depth_sub, info_sub, pose_sub]
+        synchronized_callback = self.on_synced
+        if args.register_rgb_to_depth:
+            from rclpy.duration import Duration
+            from rclpy.time import Time
+            from tf2_ros import Buffer, TransformListener
+
+            self.registration_tf_buffer = Buffer()
+            self.registration_tf_listener = TransformListener(
+                self.registration_tf_buffer, self
+            )
+            self.registration_time_zero = Time()
+            self.registration_timeout = Duration(
+                seconds=args.registration_tf_timeout_s
+            )
+            rgb_info_sub = message_filters.Subscriber(
+                self,
+                CameraInfo,
+                args.rgb_info_topic,
+                qos_profile=qos_profile_sensor_data,
+            )
+            synchronized_inputs.append(rgb_info_sub)
+            synchronized_callback = self.on_synced_registered
         self.synchronizer = message_filters.ApproximateTimeSynchronizer(
-            [rgb_sub, depth_sub, info_sub, pose_sub],
+            synchronized_inputs,
             queue_size=args.sync_queue_size, slop=args.sync_slop,
         )
-        self.synchronizer.registerCallback(self.on_synced)
+        self.synchronizer.registerCallback(synchronized_callback)
         self.get_logger().info(
             f"focus_ros_sender ready: rgb={args.rgb_topic} depth={args.depth_topic} "
             f"info={args.info_topic} pose={args.pose_topic} -> {args.base_url} "
             f"(robot_id={args.robot_id}, transform_version={args.transform_version}, "
             f"rate={args.rate_hz}Hz, max_frames={args.max_frames or 'unbounded'}, "
-            f"capture_time_source={args.capture_time_source})"
+            f"capture_time_source={args.capture_time_source}, "
+            f"register_rgb_to_depth={args.register_rgb_to_depth})"
         )
         if args.capture_time_source == "wall":
             self.get_logger().warn(
@@ -563,6 +780,18 @@ class FocusRosSender(Node):
         self.latest_slam_metrics.update(msg.data)
 
     def on_synced(self, rgb_msg, depth_msg, info_msg, pose_msg) -> None:
+        self._handle_synced(rgb_msg, depth_msg, info_msg, pose_msg, None)
+
+    def on_synced_registered(
+        self, rgb_msg, depth_msg, info_msg, pose_msg, rgb_info_msg
+    ) -> None:
+        self._handle_synced(
+            rgb_msg, depth_msg, info_msg, pose_msg, rgb_info_msg
+        )
+
+    def _handle_synced(
+        self, rgb_msg, depth_msg, info_msg, pose_msg, rgb_info_msg
+    ) -> None:
         self.frames_seen += 1
         if self.done:
             return
@@ -571,7 +800,13 @@ class FocusRosSender(Node):
             return
         self.last_upload_monotonic = now_mono
         try:
-            self.process(rgb_msg, depth_msg, info_msg, pose_msg)
+            self.process(
+                rgb_msg,
+                depth_msg,
+                info_msg,
+                pose_msg,
+                rgb_info_msg=rgb_info_msg,
+            )
         except Exception as exc:  # noqa: BLE001 - one bad frame must not kill the node
             self.get_logger().error(f"frame processing failed: {exc}")
             return
@@ -579,10 +814,64 @@ class FocusRosSender(Node):
             self.get_logger().info(f"reached --max-frames {self.args.max_frames}; shutting down")
             self.done = True
 
-    def process(self, rgb_msg, depth_msg, info_msg, pose_msg) -> None:
+    def _registration_transform(self) -> np.ndarray:
+        if self.registration_T_rgb_from_depth is not None:
+            return self.registration_T_rgb_from_depth
+        if self.registration_tf_buffer is None:
+            raise RuntimeError("RGB/depth registration TF buffer is unavailable")
+        message = self.registration_tf_buffer.lookup_transform(
+            self.args.rgb_optical_frame,
+            self.args.depth_optical_frame,
+            self.registration_time_zero,
+            timeout=self.registration_timeout,
+        )
+        matrix = transform_message_matrix(message)
+        self.registration_T_rgb_from_depth = matrix
+        self.get_logger().info(
+            "locked observed RealSense static registration "
+            f"{self.args.rgb_optical_frame} <- {self.args.depth_optical_frame}: "
+            f"translation_m={matrix[:3, 3].round(6).tolist()}"
+        )
+        return matrix
+
+    def process(
+        self,
+        rgb_msg,
+        depth_msg,
+        info_msg,
+        pose_msg,
+        *,
+        rgb_info_msg=None,
+    ) -> None:
         t0 = time.perf_counter()
         rgb = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
         depth = depth_msg_to_png16_array(self.bridge, depth_msg)
+        registration_coverage = None
+        if self.args.register_rgb_to_depth:
+            if rgb_info_msg is None:
+                raise RuntimeError(
+                    "RGB/depth registration requires synchronized RGB CameraInfo"
+                )
+            rgb, registered_depth_mask, registration_coverage = (
+                register_rgb_onto_depth_grid(
+                rgb,
+                depth.astype(np.float32) * DEPTH_SCALE_M,
+                camera_info_matrix(info_msg),
+                camera_info_matrix(rgb_info_msg),
+                self._registration_transform(),
+            )
+            )
+            if registration_coverage < self.args.registration_min_coverage:
+                raise RuntimeError(
+                    "RGB/depth calibrated overlap below gate: "
+                    f"{registration_coverage:.3f} < "
+                    f"{self.args.registration_min_coverage:.3f}"
+                )
+            # The color imager has a narrower FOV than infra1. Keeping depth
+            # outside their calibrated overlap would pair it with fallback
+            # display pixels and silently violate the aligned-RGBD contract.
+            depth = depth.copy()
+            depth[~registered_depth_mask] = 0
         t1 = time.perf_counter()
 
         ok_rgb, jpeg = cv2.imencode(".jpg", rgb, [int(cv2.IMWRITE_JPEG_QUALITY), self.args.jpeg_quality])
@@ -593,9 +882,20 @@ class FocusRosSender(Node):
         t2 = time.perf_counter()
 
         image_capture_ns = stamp_to_ns(rgb_msg.header.stamp)
+        depth_capture_ns = stamp_to_ns(depth_msg.header.stamp)
+        geometry_capture_ns = (
+            depth_capture_ns
+            if self.args.register_rgb_to_depth
+            else image_capture_ns
+        )
         pose_stamp_ns = stamp_to_ns(pose_msg.header.stamp)
-        sync_skew_ns = abs(pose_stamp_ns - image_capture_ns)
+        sync_skew_ns = abs(pose_stamp_ns - geometry_capture_ns)
+        rgb_depth_sync_skew_ns = abs(image_capture_ns - depth_capture_ns)
         matrix = odom_to_matrix(pose_msg)
+        if self.shared_T_tracking is not None:
+            matrix = apply_shared_tracking_alignment(
+                matrix, self.shared_T_tracking
+            )
         covariance_state, covariance_6x6 = classify_localization_state(
             list(pose_msg.pose.covariance))
         localization_state, localization_detail = self.latest_slam_metrics.apply(
@@ -618,7 +918,7 @@ class FocusRosSender(Node):
             # header (the default) so capture_time_ns is the true ROS stamp.
             capture_time_ns = sent_ns - 50_000_000
         else:
-            capture_time_ns = image_capture_ns
+            capture_time_ns = geometry_capture_ns
         metadata = {
             "robot_id": self.args.robot_id,
             "sequence": self.sequence,
@@ -633,7 +933,11 @@ class FocusRosSender(Node):
                 "covariance_6x6": covariance_6x6,
                 "transform_version": self.args.transform_version,
             },
-            "base_T_camera": None,
+            "base_T_camera": (
+                None
+                if self.args.base_camera_calibration is None
+                else self.args.base_camera_calibration.wire_transform()
+            ),
             "intrinsics": {
                 "width": w, "height": h,
                 "fx": float(info_msg.k[0]), "fy": float(info_msg.k[4]),
@@ -655,7 +959,7 @@ class FocusRosSender(Node):
             # optimizer/IMU telemetry with absent covariance is capped at
             # DEGRADED; a fault forces LOST even if covariance appears plausible.
             "health": dict(health_snapshot),
-            "mapping_only": True,
+            "mapping_only": self.args.base_camera_calibration is None,
         }
 
         def restamp(meta: dict) -> dict:
@@ -672,7 +976,26 @@ class FocusRosSender(Node):
         self.metrics.append({
             "sequence": self.sequence,
             "image_capture_ns": image_capture_ns,
+            "depth_capture_ns": depth_capture_ns,
             "pose_sync_skew_ms": round(sync_skew_ns / 1e6, 2),
+            "rgb_depth_sync_skew_ms": round(
+                rgb_depth_sync_skew_ns / 1e6, 2
+            ),
+            "rgb_registration": (
+                None
+                if registration_coverage is None
+                else {
+                    "method": "depth_reprojection_via_realsense_static_tf",
+                    "status": "observed_intrinsics_and_tf_source_derived_projection",
+                    "rgb_topic": self.args.rgb_topic,
+                    "depth_topic": self.args.depth_topic,
+                    "rgb_optical_frame": self.args.rgb_optical_frame,
+                    "depth_optical_frame": self.args.depth_optical_frame,
+                    "valid_depth_overlap_ratio": round(
+                        registration_coverage, 6
+                    ),
+                }
+            ),
             "decode_ms": round((t1 - t0) * 1e3, 1),
             "encode_ms": round((t2 - t1) * 1e3, 1),
             "upload_ms": round((t4 - t3) * 1e3, 1),
@@ -743,6 +1066,30 @@ def main() -> int:
     parser.add_argument("--png-level", type=int, default=1)
     parser.add_argument("--sync-queue-size", type=int, default=40)
     parser.add_argument("--sync-slop", type=float, default=0.05)
+    parser.add_argument(
+        "--register-rgb-to-depth",
+        action="store_true",
+        help=(
+            "calibrated hybrid path: sample the RealSense color stream onto "
+            "TinyNav's left-infrared keyframe-depth grid using CameraInfo and "
+            "the observed static TF; pose and output intrinsics remain in the "
+            "TinyNav depth frame"
+        ),
+    )
+    parser.add_argument(
+        "--rgb-info-topic",
+        default="/camera/camera/color/camera_info",
+    )
+    parser.add_argument(
+        "--rgb-optical-frame",
+        default="camera_color_optical_frame",
+    )
+    parser.add_argument(
+        "--depth-optical-frame",
+        default="camera_infra1_optical_frame",
+    )
+    parser.add_argument("--registration-tf-timeout-s", type=float, default=1.0)
+    parser.add_argument("--registration-min-coverage", type=float, default=0.45)
     parser.add_argument("--goal-category", default="chair")
     parser.add_argument("--metrics-out", default="focus_ros_sender_metrics.json")
     parser.add_argument("--heartbeat-hz", type=float, default=2.0,
@@ -753,7 +1100,70 @@ def main() -> int:
                              "health gate")
     parser.add_argument("--slam-health-timeout-s", type=float, default=5.0,
                         help="mark localization UNKNOWN when /slam/data is older than this")
+    parser.add_argument("--base-camera-calibration-file", type=Path)
+    parser.add_argument("--shared-tracking-calibration-file", type=Path)
+    parser.add_argument("--shared-frame-calibration-id", default="")
+    parser.add_argument("--enable-command-capable-observations", action="store_true")
+    parser.add_argument("--activation-confirmation", default="")
     args = parser.parse_args()
+    if args.registration_tf_timeout_s <= 0.0:
+        parser.error("--registration-tf-timeout-s must be positive")
+    if not 0.0 < args.registration_min_coverage <= 1.0:
+        parser.error("--registration-min-coverage must be in (0, 1]")
+
+    args.base_camera_calibration = None
+    args.shared_tracking_calibration = None
+    if args.enable_command_capable_observations:
+        if args.activation_confirmation != "COMMAND_CAPABLE_OBSERVATION_ONLY":
+            parser.error(
+                "command-capable observations require --activation-confirmation "
+                "COMMAND_CAPABLE_OBSERVATION_ONLY"
+            )
+        if args.base_camera_calibration_file is None:
+            parser.error(
+                "--base-camera-calibration-file is required for command-capable observations"
+            )
+        if args.shared_tracking_calibration_file is None:
+            parser.error(
+                "--shared-tracking-calibration-file is required for "
+                "command-capable observations"
+            )
+        if not args.shared_frame_calibration_id:
+            parser.error(
+                "--shared-frame-calibration-id is required for "
+                "command-capable observations"
+            )
+        if args.capture_time_source != "header":
+            parser.error("command-capable observations require real header timestamps")
+        if args.heartbeat_hz != 0:
+            parser.error(
+                "set --heartbeat-hz 0; the armed v2 receiver owns command health heartbeats"
+            )
+        args.base_camera_calibration = load_base_camera_calibration(
+            args.base_camera_calibration_file,
+            expected_robot_id=args.robot_id,
+            expected_camera_frame=args.camera_frame,
+        )
+        args.shared_tracking_calibration = load_shared_tracking_calibration(
+            args.shared_tracking_calibration_file,
+            robot_id=args.robot_id,
+            expected_transform_version=args.transform_version,
+            expected_calibration_id=args.shared_frame_calibration_id,
+        )
+        print(
+            "command-capable observation metadata enabled; this sender still has no "
+            "planner or actuator output. shared tracking alignment "
+            f"sha256={args.shared_tracking_calibration.source_sha256}; "
+            "v2 receiver heartbeat remains authoritative."
+        )
+    elif (
+        args.base_camera_calibration_file is not None
+        or args.shared_tracking_calibration_file is not None
+        or args.shared_frame_calibration_id
+    ):
+        parser.error(
+            "calibration arguments require --enable-command-capable-observations"
+        )
 
     args.token = os.environ.get("FOCUS_ROBOT_TOKEN", "")
     if not args.token:

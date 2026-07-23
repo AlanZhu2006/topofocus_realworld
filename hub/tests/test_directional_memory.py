@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from focus_hub.directional_memory import DirectionalMemory
 
 
@@ -56,3 +58,24 @@ def test_closest_index_picks_the_nearest_within_threshold():
     idx = m.update((99, 99), 0.0, 1.0)  # closer to the second node
     assert idx == 1
     assert m.history_count == [1, 2]
+
+
+def test_episode_memory_round_trip_preserves_all_hpc_state():
+    memory = DirectionalMemory()
+    memory.update((10, 20), 15.0, 1.25)
+    memory.update((100, 200), 270.0, 0.75)
+
+    restored = DirectionalMemory.from_dict(memory.to_dict())
+
+    assert restored == memory
+
+
+def test_episode_memory_rejects_malformed_state_vector():
+    payload = DirectionalMemory().to_dict()
+    payload["history_nodes"] = [[1, 2]]
+    payload["history_count"] = [1]
+    payload["history_states"] = [[0.0] * 359]
+    payload["history_score"] = [0.0]
+
+    with pytest.raises(ValueError, match="360"):
+        DirectionalMemory.from_dict(payload)

@@ -5,7 +5,7 @@ import hmac
 import time
 from typing import Annotated
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Response, UploadFile
 from pydantic import ValidationError
 
 from .eventlog import DecisionEventLog
@@ -13,6 +13,13 @@ from .models import Decision, DecisionAck, HeartbeatAck, ObservationAck, Observa
 from .registry import HubRegistry, RegistryError
 from .settings import Settings
 from .spool import ObservationSpool, SpoolError
+from .transport_v2 import (
+    DecisionBatchV2,
+    HighLevelDecisionV2,
+    NavigationEventAckV2,
+    NavigationEventV2,
+)
+from .v2_registry import V2DecisionRegistry
 
 
 def _require_token(actual: str | None, expected: str, label: str) -> None:
@@ -25,15 +32,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     registry = HubRegistry(settings.policies, state_path=settings.state_dir / "registry_state.json")
     spool = ObservationSpool(settings.spool_dir, min_free_bytes=settings.min_free_bytes)
     decision_log = DecisionEventLog(settings.state_dir / "decision_events.jsonl")
+    v2_registry = V2DecisionRegistry(
+        registry,
+        settings.policies,
+        max_input_age_ns=settings.v2_max_input_age_ns,
+    )
     app = FastAPI(title="Focus two-robot decision hub", version="0.1.0")
     app.state.registry = registry
     app.state.settings = settings
+    app.state.v2_registry = v2_registry
 
     @app.get("/healthz")
     def health() -> dict[str, object]:
         return {
             "status": "ok",
             "protocol_version": "1.0",
+            "supported_decision_protocols": ["1.0", "2.0"],
             "robots": registry.robot_ids,
             "goal_output_enabled": {
                 robot_id: settings.policies[robot_id].allow_goal for robot_id in registry.robot_ids
@@ -207,6 +221,163 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version = registry.advance_map_version()
         decision_log.append("map_version_advanced", {"map_version": version})
         return {"map_version": version}
+
+    @app.get(
+        "/v2/robots/{robot_id}/decisions/latest",
+        response_model=HighLevelDecisionV2,
+        responses={204: {"description": "No current v2 motion authority"}},
+    )
+    def latest_v2_decision(
+        robot_id: str,
+        x_robot_token: Annotated[str | None, Header()] = None,
+    ) -> HighLevelDecisionV2 | Response:
+        _require_token(x_robot_token, settings.robot_tokens.get(robot_id, ""), "robot")
+        try:
+            decision = v2_registry.effective_decision(robot_id)
+        except RegistryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if decision is None:
+            return Response(status_code=204)
+        return decision
+
+    @app.post(
+        "/v2/robots/{robot_id}/navigation-events",
+        response_model=NavigationEventAckV2,
+        status_code=202,
+    )
+    def ingest_v2_navigation_event(
+        robot_id: str,
+        event: NavigationEventV2,
+        x_robot_token: Annotated[str | None, Header()] = None,
+    ) -> NavigationEventAckV2:
+        _require_token(x_robot_token, settings.robot_tokens.get(robot_id, ""), "robot")
+        if event.robot_id != robot_id:
+            raise HTTPException(status_code=422, detail="event path and body robot_id differ")
+        payload_digest = hashlib.sha256(event.model_dump_json().encode("utf-8")).hexdigest()
+        try:
+            accepted = v2_registry.accept_event(event, payload_digest)
+        except RegistryError as exc:
+            decision_log.append("v2_navigation_event_rejected", {
+                "robot_id": robot_id,
+                "event_id": event.event_id,
+                "decision_id": event.decision_id,
+                "status": event.status.value,
+                "error": str(exc)[:300],
+            })
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if accepted.status == "accepted":
+            decision_log.append("v2_navigation_event", {
+                "robot_id": robot_id,
+                "event_id": event.event_id,
+                "decision_id": event.decision_id,
+                "leg_id": event.leg_id,
+                "lease_sequence": event.lease_sequence,
+                "status": event.status.value,
+                "reason_code": event.reason_code,
+                "robot_timestamp_ns": event.observed_at_ns,
+                "path_length_m_from_episode_start": event.path_length_m_from_episode_start,
+                "velocity_zero_confirmed": event.velocity_zero_confirmed,
+                "received_at_ns": accepted.received_at_ns,
+            })
+        return NavigationEventAckV2(
+            robot_id=robot_id,
+            event_id=event.event_id,
+            status=accepted.status,
+            received_at_ns=accepted.received_at_ns,
+        )
+
+    @app.post("/v2/admin/decision-batches", status_code=202)
+    def publish_v2_decision_batch(
+        batch: DecisionBatchV2,
+        x_admin_token: Annotated[str | None, Header()] = None,
+    ) -> dict[str, object]:
+        _require_token(x_admin_token, settings.admin_token, "admin")
+        try:
+            v2_registry.publish_batch(batch)
+        except RegistryError as exc:
+            decision_log.append("v2_publish_batch_rejected", {
+                "decision_batch_id": batch.decisions[0].decision_batch_id,
+                "decision_ids": [decision.decision_id for decision in batch.decisions],
+                "modes": [decision.mode.value for decision in batch.decisions],
+                "error": str(exc)[:300],
+            })
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        decision_log.append("v2_publish_batch", {
+            "decision_batch_id": batch.decisions[0].decision_batch_id,
+            "scene_id": batch.decisions[0].scene_id,
+            "episode_id": batch.decisions[0].episode_id,
+            "round_index": batch.decisions[0].round_index,
+            "source_step": batch.decisions[0].source_step,
+            "active_robot_ids": list(
+                batch.decisions[0].coordination.active_robot_ids
+            ),
+            "decisions": [
+                {
+                    "robot_id": decision.robot_id,
+                    "decision_id": decision.decision_id,
+                    "leg_id": decision.leg_id,
+                    "lease_sequence": decision.lease_sequence,
+                    "mode": decision.mode.value,
+                    "target_kind": (
+                        None if decision.target is None else decision.target.kind
+                    ),
+                    "map_version": decision.map_provenance.map_version,
+                    "map_snapshot_sha256": (
+                        decision.map_provenance.map_snapshot_sha256
+                    ),
+                    "transform_version": (
+                        decision.map_provenance.transform_version
+                    ),
+                    "shared_frame_calibration_id": (
+                        decision.map_provenance.shared_frame_calibration_id
+                    ),
+                    "expires_at_ns": decision.expires_at_ns,
+                }
+                for decision in batch.decisions
+            ],
+        })
+        return {
+            "accepted": True,
+            "decision_batch_id": batch.decisions[0].decision_batch_id,
+            "decision_ids": [decision.decision_id for decision in batch.decisions],
+        }
+
+    @app.get("/v2/admin/robots/{robot_id}/navigation-state")
+    def get_v2_navigation_state(
+        robot_id: str,
+        x_admin_token: Annotated[str | None, Header()] = None,
+    ) -> dict[str, object]:
+        _require_token(x_admin_token, settings.admin_token, "admin")
+        try:
+            state = v2_registry.navigation_state(robot_id)
+        except RegistryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        return {
+            "robot_id": robot_id,
+            "server_time_ns": time.time_ns(),
+            "latest_event_received_at_ns": state.latest_event_received_at_ns,
+            "latest_decision": (
+                None
+                if state.latest_decision is None
+                else state.latest_decision.model_dump(mode="json")
+            ),
+            "latest_event": (
+                None
+                if state.latest_event is None
+                else state.latest_event.model_dump(mode="json")
+            ),
+        }
+
+    @app.get("/v2/admin/robots/{robot_id}/runtime-readiness")
+    def get_v2_runtime_readiness(
+        robot_id: str,
+        x_admin_token: Annotated[str | None, Header()] = None,
+    ) -> dict[str, object]:
+        _require_token(x_admin_token, settings.admin_token, "admin")
+        try:
+            return registry.runtime_readiness(robot_id)
+        except RegistryError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     return app
 

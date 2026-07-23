@@ -2,6 +2,10 @@
 
 本手册区分三个层次：代码复现、外部资产复现、真机行为复现。仓库可以完整重建代码和 WSJ 部署差异；模型权重、录包和硬件固件因体积或授权原因必须单独提供并校验。
 
+当前真机版本、标定 ID、地图目录和未完成门禁见
+[`CURRENT_STATUS.md`](../CURRENT_STATUS.md)。本文中的旧日期路径只用于复现
+对应历史证据，不能自动替代当前会话参数。
+
 文档中的证据标签：
 
 - **observed**：在本机或 WSJ 实际读取/运行得到；
@@ -180,13 +184,22 @@ python3 hub/robot_overlay/odin1_sender.py --help
 ```
 
 Odin 适配器使用 `/odin1/image`、`/odin1/cloud_slam` 和
-`/odin1/odometry`，不会调用 WATER 运动接口。旧 D455 共享变换不得用于
-Odin。当前这台机器使用
-`hub/config/calibration/yunji_odin1_board_20260722_v1.json`（5,544 bytes，
-SHA-256
-`9e340a882df936e005902de29bb6e54c0a76da6e41c7bda26a040a0ce1421519`），
-其 WSJ/Odin 拟合帧为 13234/159827，独立移动板留出为 13568/159929；留出
-位置残差 1.15 cm、法向残差 0.447°、同步偏差 59.70 ms，均已通过门禁。
+`/odin1/odometry`。观测 sender 不调用 WATER 运动接口；只有显式启动的
+v2 live receiver 才能发送受租约约束的 `/api/move`。旧 D455 共享变换
+不得用于 Odin。
+
+`yunji_odin1_board_20260722_v1.json` 是首个 Odin 历史门禁，不是当前
+会话标定。当前现场会话使用：
+
+- shared ID `shared-board-odin1-20260723-v3`;
+- WSJ transform `wsj-tinynav-depth-20260723-powercycle-v3`;
+- Yunji transform `yunji-odin1-board-20260723-powercycle-v6`.
+
+这些实测 JSON 位于机器人/Hub 的 runtime state，因包含会话路径而不进入
+Git。其源路径、大小和 hash 见
+[`audit/SHARED_FRAME_ODIN1_20260723.md`](../audit/SHARED_FRAME_ODIN1_20260723.md)
+和
+[`audit/YUNJI_REBOOT_CALIBRATION_REVALIDATION_20260723.md`](../audit/YUNJI_REBOOT_CALIBRATION_REVALIDATION_20260723.md)。
 
 这个结果只适用于记录中的相机安装和两端 odom 会话。在另一台 Go2/Yunji、
 传感器拆装或 odom 原点重置后，必须用已有标定板程序的
@@ -249,4 +262,25 @@ daemon 显式使用同一个、独立验证过的
 
 观测层完成：相机/IMU 频率连续、perception health 正常、静止测试无持续漂移、BuildMap 能收到正向保存确认。
 
-Yunji Odin 的操作者低速移动地图门禁已通过（1.193 m 有效路径、85 个新增关键帧、无位姿跳变或地面拒绝）。整体运动层仍未完成：还必须另行通过长时间 soak、断网/超时/急停和 G5 HIL。不得因地图能更新就打开 `allow_goal`。
+Yunji Odin 的操作者低速移动地图门禁已通过（1.193 m 有效路径、85 个新增关键帧、无位姿跳变或地面拒绝）。
+
+双机代码层还应核对当前部署快照：
+
+```text
+WSJ   /home/nvidia/topofocus_buildmap_v2_20260723
+Yunji /home/nyu/topofocus_buildmap_v2_20260723
+```
+
+最后一次双端同步归档 SHA-256 为
+`e1b9001fb188a3890037f5e33927d25afa44473fb50a6b8c40b61a6e123b1b72`。
+这只证明文件已同步，不证明运行进程已加载。
+
+完整运动层仍未完成。`official-run01` 及三个 retry 都是工程尝试，
+全部排除在 SR/SPL 之外。必须先通过：
+
+1. 两端 debug-only 启动与 fresh health/pose/map 检查；
+2. 一次无运动真实 VLM 全栈；
+3. 一次新授权下的有限运动、物理到达和独立成功确认；
+4. 随后才是四场景 × 五次正式采集。
+
+不得因地图、VLM 或命令日志能更新就把工程尝试登记为正式成功。

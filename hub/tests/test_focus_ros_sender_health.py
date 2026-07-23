@@ -113,6 +113,46 @@ def test_depth_conversion_rejects_unknown_encoding_or_shape(monkeypatch):
         )
 
 
+def test_rgb_registration_identity_preserves_valid_depth_pixels(monkeypatch):
+    sender = _load_sender_module(monkeypatch)
+    rgb = np.arange(3 * 3 * 3, dtype=np.uint8).reshape(3, 3, 3)
+    depth = np.ones((3, 3), dtype=np.float32)
+    depth[0, 0] = 0.0
+    intrinsics = np.array(
+        [[2.0, 0.0, 1.0], [0.0, 2.0, 1.0], [0.0, 0.0, 1.0]]
+    )
+
+    registered, registered_depth, coverage = sender.register_rgb_onto_depth_grid(
+        rgb, depth, intrinsics, intrinsics, np.eye(4)
+    )
+
+    np.testing.assert_array_equal(registered, rgb)
+    np.testing.assert_array_equal(registered_depth, depth > 0.0)
+    assert coverage == pytest.approx(1.0)
+
+
+def test_rgb_registration_uses_static_extrinsic_for_valid_depth(monkeypatch):
+    sender = _load_sender_module(monkeypatch)
+    rgb = np.zeros((3, 5, 3), dtype=np.uint8)
+    for column in range(rgb.shape[1]):
+        rgb[:, column] = column * 10
+    depth = np.ones((3, 5), dtype=np.float32)
+    intrinsics = np.array(
+        [[1.0, 0.0, 2.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]]
+    )
+    # At z=1 m, +1 m in color X moves the projected sample one pixel right.
+    T_rgb_from_depth = np.eye(4)
+    T_rgb_from_depth[0, 3] = 1.0
+
+    registered, registered_depth, coverage = sender.register_rgb_onto_depth_grid(
+        rgb, depth, intrinsics, intrinsics, T_rgb_from_depth
+    )
+
+    np.testing.assert_array_equal(registered[:, :4], rgb[:, 1:])
+    assert np.count_nonzero(registered_depth) == 12
+    assert coverage == pytest.approx(0.8)
+
+
 def _slam_payload(
     *,
     initial=1.0,
@@ -185,6 +225,35 @@ def test_odometry_rejects_invalid_pose_instead_of_fabricating_identity(monkeypat
         sender.odom_to_matrix(_odom(quaternion=(0.0, 0.0, 0.0, 0.0)))
     with pytest.raises(ValueError, match="non-finite"):
         sender.odom_to_matrix(_odom(position=(float("nan"), 0.0, 0.0)))
+
+
+def test_shared_tracking_alignment_is_applied_before_upload(monkeypatch):
+    sender = _load_sender_module(monkeypatch)
+    tracking_T_camera = sender.odom_to_matrix(
+        _odom(position=(1.0, 0.0, 0.0))
+    )
+    shared_T_tracking = [
+        0.0, -1.0, 0.0, 2.0,
+        1.0, 0.0, 0.0, 3.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ]
+
+    result = np.asarray(sender.apply_shared_tracking_alignment(
+        tracking_T_camera, shared_T_tracking
+    )).reshape(4, 4)
+
+    np.testing.assert_allclose(result[:3, 3], [2.0, 4.0, 0.0])
+    np.testing.assert_allclose(result[:3, :3], np.asarray(
+        shared_T_tracking
+    ).reshape(4, 4)[:3, :3])
+
+
+def test_shared_tracking_alignment_rejects_bad_shape(monkeypatch):
+    sender = _load_sender_module(monkeypatch)
+
+    with pytest.raises(ValueError, match="two 4x4"):
+        sender.apply_shared_tracking_alignment([1.0], [1.0] * 16)
 
 
 def test_complete_slam_health_is_degraded_without_covariance(monkeypatch):

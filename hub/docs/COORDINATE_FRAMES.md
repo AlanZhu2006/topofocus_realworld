@@ -41,7 +41,15 @@ T_shared_world_base_link =
 
 ## Establishing the shared frame
 
-No shared transform has been observed yet. G4 must choose and document one measurement source, for example:
+The current two-robot session has an observed gravity-preserving board fit
+plus an independently moved-board holdout. Its calibration ID is
+`shared-board-odin1-20260723-v3`; exact deployment transforms and maps are in
+[CURRENT_STATUS.md](../../CURRENT_STATUS.md). It is session-bound and must not
+be treated as a permanent transform after a robot, mount or starting placement
+moves.
+
+For a new session, G4 must choose and document one measurement source, for
+example:
 
 - a surveyed common start pose for each robot;
 - fiducials visible to both robots;
@@ -49,4 +57,3 @@ No shared transform has been observed yet. G4 must choose and document one measu
 - map registration followed by a separately checked physical alignment.
 
 The selected method must produce uncertainty, a stable version ID, and a repeatable validation showing that the same wall/landmark from both robots overlays without rotation, reflection or scale error. An ICP result alone is not accepted as a safety calibration without an independent check.
-

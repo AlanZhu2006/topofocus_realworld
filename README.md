@@ -4,16 +4,29 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 
 目标仓库：`git@github.com:AlanZhu2006/topofocus_realworld.git`
 
-## 当前结论（2026-07-22）
+## 当前结论（2026-07-24）
 
-- Hub 的协议、spool、单机语义映射、前沿/VLM 决策、Foxglove relay、TinyNav 原生 occupancy 适配器及 fail-closed 守门器已实现；本机测试基线为 197 项通过。
-- 实时地图现要求稳定姿态窗和三帧 RANSAC 地面共识，过滤静止重复帧，以可逆 log-odds 融合障碍；位姿跳变会锁止当前地图而不是继续污染。
-- WSJ 的稳定观测路径为 D435i 双红外 + RGB + IMU、TinyNav 修复后的 perception。修复避免重型 stereo inference 阻塞 IMU 回调，并在无效 IMU 区间后重新锚定。
-- Yunji 新接入的传感器已按其 TinyNav `odin1_deployment.md` 确认为 Odin1（序列号 `O1-P070100205`），不是另一台 RealSense。RGB/SLAM 点云/里程计适配、真实地面门禁、WSJ/Odin 标定板拟合和独立移动板留出均已通过；主 Foxglove 已在保持原端口/topic/layout 的情况下切换到全新的 Odin 地图目录，随后 1.193 m 操作者低速移动地图门禁也已通过。
-- 原生 BuildMap 静止门禁已验证保存；刚结束的 2026-07-21 21:35 会话保存 161 个 pose、1024.75 秒，优化路径累计 0.1294 m、首尾仅 0.00155 m，属于静止抖动测试，不是受控移动测试。
-- Hub 和机器人端默认均禁止 `GOAL`。没有通过 G5 真机安全门禁，不得宣称已完成自主双机导航。
-- Foxglove 当前显示 WSJ 与 Odin 两张新地图，并发布共享融合图；两端必须同时保持 `shared-board-odin1-20260722-v1`，否则 relay 会拒绝融合。旧 D455 地图只保留作回滚和审计，不能继续写入新帧。
-- Foxglove 默认使用独立几何频道（灰未知、白自由、黑障碍），语义叠加在真实相机门禁通过前保持隐藏；离线参数扫描和移动验收工具已加入。
+权威状态见 [CURRENT_STATUS.md](CURRENT_STATUS.md)。摘要如下：
+
+- 双机真实链路已经到达“观测、在线地图、VLM、高层 v2 目标、TinyNav/WATER、本地反馈、租约续期和故障 HOLD”，但还没有一次可计入 SR/SPL 的正式场景成功。
+- WSJ 当前为 D435i + 修复后的 TinyNav perception/IMU + 在线
+  BuildMap；Yunji 当前为 Odin1 `O1-P070100205`，不是旧的 RealSense
+  路径。
+- 当前共享标定是 `shared-board-odin1-20260723-v3`。断电本身不要求
+  重标，但下次必须先做无运动位姿差检查。
+- `official-run01-retry3` 连续接受了九个 v2 batch，证明实际 v2
+  heartbeat-authority 修复生效；Yunji 原地判定到达，WSJ 只收到
+  `vx=0.000, wz=-0.200`，现场未见运动，随后本地
+  `ODOMETRY_STALE` fail-closed。该尝试不计入指标。
+- retry3 后的 WSJ 有效速度下限和 odometry/occupancy 独立回调修复已
+  通过本机测试并以相同哈希同步到两台机器人磁盘，但尚未重启加载和
+  真机验证。
+- Hub 默认及当前均为 `GOAL=false`。Hub 只发布版本化、可过期的高层
+  目标；机器人端保留最终停止和拒绝权限。
+- 语义图使用真实模型推理和像素 mask，但 chair/plant 等投影仍是
+  `model_inference_map_projected_unverified`，不能当作真实标签。
+- 四场景 × 五次、标准 SPL/源码兼容 SPL 和 episode 报告已经实现；
+  当前没有有效正式样本，因此 SR/SPL 暂无数值。
 
 ## 从干净克隆开始
 
@@ -74,14 +87,21 @@ bash hub/robot_overlay/start_go2_observation.sh \
 
 ## 文档入口
 
+- [当前权威状态、已验证边界和下一步](CURRENT_STATUS.md)
+- [历史审计索引](audit/README.md)
 - [从零复现本机与新 Go2](docs/REPRODUCE.md)
 - [WSJ 已观察基线与遗留问题](docs/WSJ_BASELINE_20260721.md)
 - [Git 分支、发布与快照更新规则](docs/GIT_WORKFLOW.md)
 - [系统架构](ARCHITECTURE.md)
 - [操作与验证门禁](RUNBOOK.md)
 - [传输协议](hub/docs/TRANSPORT.md)
+- [v2 双机真机最短上线清单](hub/docs/V2_PHYSICAL_QUICKSTART.md)
 - [坐标系约束](hub/docs/COORDINATE_FRAMES.md)
 - [实时地图与 Foxglove 契约](hub/docs/LIVE_MAPPING.md)
+- [双机 VLM 影子调度实测](audit/LIVE_VLM_SHADOW_20260722.md)
+- [HPC 源码派生连续 VLM 场景与边界](audit/SOURCE_DERIVED_VLM_SCENE_RUNNER_20260723.md)
+- [WSJ 重启后明日就绪检查](audit/WSJ_POST_REBOOT_READINESS_20260722.md)
+- [2026-07-23 真机 VLM 最短流程](hub/docs/VLM_LIVE_EXPERIMENT_20260723.md)
 - [Yunji Odin1 替换部署、校验与重新标定](hub/docs/YUNJI_ODIN1_DEPLOYMENT.md)
 - [离线地图诊断、移动验收和既有标定脚本复用](hub/docs/OFFLINE_MAP_VALIDATION.md)
 - [来源与第三方说明](SOURCE_MANIFEST.md)

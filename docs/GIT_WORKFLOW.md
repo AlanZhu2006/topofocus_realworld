@@ -9,6 +9,17 @@
 
 本次目标仓库创建时为空，因此首个可复现基线直接建立 `main`。后续变化走工作分支和 Pull Request。
 
+当前集成分支为 `agent/live-map-recovery-20260722`，目标为 `main`，草稿
+PR 为 GitHub `#1`。截至 2026-07-24，作者身份应为：
+
+```text
+user.name  = AlanZhu2006
+user.email = yz11502@nyu.edu
+```
+
+发布前必须再次用 `gh auth status` 确认实际账号为 `AlanZhu2006`，不能
+只依赖 SSH host 名称。
+
 本机同时配置多个 GitHub 身份时，先确认仓库所有者对应的 SSH host alias：
 
 ```bash
@@ -37,6 +48,10 @@ git diff --cached
 ```
 
 不要使用会把运行目录一起带入的无审阅 `git add -A`。`artifacts/`、`data/`、`logs/`、`hub/runtime/`、虚拟环境、机器人 token 和本机配置永不提交。
+
+大规模现场集成可以形成一个完整的阶段性提交，但仍要先生成显式文件
+清单，逐项检查 `git check-ignore`、文件大小、秘密扫描和 staged diff。
+“所有当前进度”不等于把 runtime 或操作者凭据加入 Git。
 
 ## 提交信息
 
@@ -73,6 +88,16 @@ test(hub): cover occupancy adapter metadata
 - 对应门禁结论没有被夸大。
 
 推荐 tag：`v0.x.y`；若只是实验现场冻结，可用 `wsj-YYYYMMDD`，但不能把实验 tag 描述为生产 release。
+
+机器人部署快照和 Git 提交是两个不同证据：
+
+- 机器人归档 hash 证明某些字节已复制到设备；
+- Git commit 证明另一台机器能取得相同源码；
+- 只有设备重启并核对进程命令/hash，才能证明运行时已加载该版本；
+- 只有现场观察和 episode 报告才能证明真机行为。
+
+四层证据必须分别写成 `implemented`、`synchronized`,
+`loaded/observed` 或 `physically verified`，不得合并描述。
 
 ## 回滚
 

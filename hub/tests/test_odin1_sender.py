@@ -291,6 +291,8 @@ def test_sender_help_is_renderable():
     assert result.returncode == 0, result.stderr
     assert "--calibration-file" in result.stdout
     assert "--dry-run" in result.stdout
+    assert "--enable-command-capable-observations" in result.stdout
+    assert "--base-camera-calibration-file" in result.stdout
 
 
 def test_preview_defaults_are_loopback_only_and_reuse_robot_auth():

@@ -1,11 +1,12 @@
 """The real 3-stage VLM decision cascade, over the local offline
 OpenAI-compatible GLM-4V server.
 
-Mirrors the upstream decision pattern exactly (see `vlm_prompts.py`'s
-module docstring for the full story of why this exists): Perception VLM
-("is this scene worth exploring?") -> Judgment VLM ("explore a new
-frontier or revisit a historical point?") -> gate -> Decision VLM (pick a
-lettered frontier). Each stage reads the local server's deterministic
+Mirrors the upstream decision pattern (see `vlm_prompts.py`'s module
+docstring for the full story of why this exists): Perception VLM ("is this
+scene worth exploring?") -> register the current shared-history visit ->
+Judgment VLM ("explore a new frontier or revisit a historical point?") ->
+gate -> either Decision VLM over lettered frontiers or deterministic first
+argmax over the shared history-score snapshot. Each VLM stage reads the local server's deterministic
 string-probability extension (temperature 0, one token, softmax sliced to
 the candidate strings) — this module owns the request/parse mechanics;
 `vlm_prompts.py` owns the prompt text and pure parsing/scoring helpers.
@@ -24,6 +25,7 @@ import numpy as np
 
 from .directional_memory import DirectionalMemory
 from .frontiers import Frontier
+from .source_episode import select_history_index
 from .vlm_prompts import (
     build_decision_prompt,
     build_judgment_prompt,
@@ -204,7 +206,12 @@ class CascadeResult:
     gate_passed: bool = False
     gate_reason: str = ""
     frontier_choice: FrontierChoice | None = None
+    # ``history_index`` is the node created/updated by this observation.
+    # ``history_choice_index`` is the source algorithm's selected revisit
+    # target when the FN gate chooses history instead of a frontier.
     history_index: int | None = None
+    history_choice_index: int | None = None
+    history_choice_rc: tuple[int, int] | None = None
     errors: list[str] = field(default_factory=list)
 
 
@@ -225,24 +232,21 @@ def run_decision_cascade(
     memory: DirectionalMemory,
     base_url: str,
     timeout_s: float = 120.0,
+    history_candidate_indices: list[int] | None = None,
+    history_candidate_scores: dict[int, float] | None = None,
 ) -> CascadeResult:
     """Full Perception -> Judgment -> gate -> Decision cascade, ported from
     the block in `main.py` immediately following the two VLM calls (the
     `angle_score`/`history_state` update, then
     `if FN_PR[0] >= 0.5 or agent[j].l_step <= 125:`).
 
-    Not ported (explicitly, not silently): when the gate fails, upstream
-    picks among historical observation points instead
-    (`form_prompt_for_DecisionVLM_History` / `Single_Agent_Decision_Prompt_History`).
-    This cascade just reports gate_passed=False and returns no frontier
-    choice in that case — the caller should treat it the same as "no
-    decision this cycle" (safe, fail-closed, but not the full upstream
-    behavior for that branch).
+    When the gate fails, preserve the *executed* HPC ``main.py`` behavior:
+    ``Final_PR = history_score_copy`` followed by first-argmax selection.
+    Although ``SystemPrompt.py`` defines a History Decision prompt, the
+    authoritative loop does not call it in this branch.  No extra VLM call
+    is invented here.
     """
     result = CascadeResult()
-    if not frontiers:
-        result.gate_reason = "no frontier candidates"
-        return result
 
     try:
         result.perception_pr = choose_scene_worth_exploring_glm(
@@ -250,6 +254,29 @@ def run_decision_cascade(
     except Exception as exc:  # noqa: BLE001 - one bad VLM call must not kill the cycle
         result.errors.append(f"perception: {exc}")
         result.perception_pr = (0.5, 0.5)
+
+    # ``main.py`` registers/increments the shared node before constructing
+    # the Judgment prompt, but fills its score only after Judgment.  Keeping
+    # these phases separate is observable on a first visit.
+    history_index, history_is_new = memory.prepare_visit(cur_location_rc)
+    result.history_index = history_index
+
+    if not frontiers:
+        # Source's no-frontier branch still retains Perception evidence in
+        # history, with no Judgment contribution, before choosing a random
+        # map point.  Deployment callers suppress only that unsafe random
+        # physical target; this state update remains source-faithful.
+        memory.apply_score(
+            history_index,
+            history_is_new,
+            heading_deg,
+            result.perception_pr[0] * 2,
+        )
+        result.gate_reason = (
+            "no frontier candidates; source Perception history updated; "
+            "random target belongs to deployment safety adapter"
+        )
+        return result
 
     history_letters = [chr(ord("a") + i) for i in range(26)] + [chr(ord("A") + i) for i in range(26)]
     history_results = "".join(
@@ -268,7 +295,12 @@ def run_decision_cascade(
         result.judgment_pr = (0.5, 0.5)
 
     angle_score = result.perception_pr[0] * 2 + result.judgment_pr[0]
-    result.history_index = memory.update(cur_location_rc, heading_deg, angle_score)
+    memory.apply_score(
+        history_index,
+        history_is_new,
+        heading_deg,
+        angle_score,
+    )
 
     result.gate_passed = result.judgment_pr[0] >= 0.5 or step <= early_episode_step_threshold
     result.gate_reason = (
@@ -277,6 +309,15 @@ def run_decision_cascade(
               else f"gated: judgment_pr_yes={result.judgment_pr[0]:.3f}<0.5 and step {step} past early window")
     )
     if not result.gate_passed:
+        result.history_choice_index = select_history_index(
+            memory,
+            history_candidate_indices,
+            candidate_scores=history_candidate_scores,
+        )
+        if result.history_choice_index is not None:
+            result.history_choice_rc = memory.history_nodes[
+                result.history_choice_index
+            ]
         return result
 
     try:

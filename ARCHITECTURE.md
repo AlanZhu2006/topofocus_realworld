@@ -1,5 +1,9 @@
 # Audited architecture
 
+> This document distinguishes the immutable HPC source architecture from the
+> implemented physical adapter. See [`CURRENT_STATUS.md`](CURRENT_STATUS.md)
+> for the current gate and deployment identifiers.
+
 ## What this repository is
 
 `Focus_realworld` is a two-agent, centralized semantic ObjectNav experiment on a locally modified Habitat/HM3D stack.  A GLM-4V HTTP server is started separately.  `main.py` owns both agents in one process, makes one joint Habitat step, and reports team metrics.
@@ -33,3 +37,52 @@ The CLIP room ranking is logged but is not consumed by the observed goal/frontie
 | in-process agent list | messages from two robot IDs with sequencing and freshness checks |
 
 The mapping, map fusion, frontier allocation, VLM prompting, and high-level target-selection pieces are candidates to reuse.  Simulator reset, episode bookkeeping, ground-truth metrics, and direct Habitat action dispatch are not.
+
+## Implemented physical runtime
+
+The current deployment is centralized but no longer in-process:
+
+```text
+WSJ D435i/TinyNav ── authenticated RGB-D/pose/health ─┐
+                                                       ├─> Hub spool
+Yunji Odin1/WATER ─ authenticated RGB-D/pose/health ──┘
+                                                            │
+                    per-robot online map + shared-frame fusion
+                                                            │
+               YOLO/Perception VLM -> Judgment/FN -> Decision
+                                                            │
+                   atomic expiring v2 high-level target pair
+                              │                    │
+                    WSJ v2 receiver       Yunji v2 receiver
+                              │                    │
+                  online BuildMap A*       WATER /api/move
+                              │                    │
+                 TinyNav controller        WATER controller
+                              │                    │
+                guarded Go2 bridge       local stop/cancel
+                              └──── navigation feedback ─────┘
+```
+
+The Hub owns coordination and the frozen decision provenance. It does not own
+motor velocity or collision avoidance. Each receiver continuously recomputes
+health, transform, map and lease gates and may reject or stop independently.
+
+Transport v1 remains the replayable observation/legacy decision contract.
+Transport v2 adds atomic two-robot decisions, semantic-region payloads,
+independent leases and navigation feedback. A receiver heartbeat, once
+observed, is the command-health authority; a stale heartbeat fails closed and
+cannot fall back to a newer camera observation.
+
+## Current source-fidelity boundary
+
+The non-motion scene runner implements the executable HPC decision schedule,
+shared directional history and sequential frontier removal. The current
+physical one-click runner freezes one VLM decision round, then renews the same
+robot-local navigation leg. It does not yet re-enter the VLM after a physical
+frontier arrival. That multi-round physical loop remains an explicit gate, not
+an implied capability.
+
+Real-world success is independent operator/scene evidence. Habitat
+`success`/geodesic distance is unavailable, so no physical run may reuse the
+simulator's success bit. Standard SPL and the source-compatible maximum-agent
+SPL are both reported only after a run has independently verified success.

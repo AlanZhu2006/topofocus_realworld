@@ -88,10 +88,16 @@ class MapperConfig:
     obstacle_max_log_odds: float = 4.0
     obstacle_probability_threshold: float = 0.70
     obstacle_min_hits: int = 1
+    semantic_fusion_mode: str = "max"  # "max" preserves upstream behavior;
+                                        # "multi_view" requires repeated cells
+    semantic_min_hits: int = 1
+    semantic_winner_margin_hits: int = 0
 
     def __post_init__(self) -> None:
         if self.obstacle_fusion_mode not in {"max", "log_odds"}:
             raise ValueError("obstacle_fusion_mode must be 'max' or 'log_odds'")
+        if self.semantic_fusion_mode not in {"max", "multi_view"}:
+            raise ValueError("semantic_fusion_mode must be 'max' or 'multi_view'")
         if self.obstacle_band_low_m >= self.obstacle_band_high_m:
             raise ValueError("obstacle height band is inverted")
         if self.semantic_band_low_m >= self.semantic_band_high_m:
@@ -104,6 +110,10 @@ class MapperConfig:
             raise ValueError("obstacle probability threshold must be between 0.5 and 1")
         if self.obstacle_min_hits < 1:
             raise ValueError("obstacle_min_hits must be positive")
+        if self.semantic_min_hits < 1:
+            raise ValueError("semantic_min_hits must be positive")
+        if self.semantic_winner_margin_hits < 0:
+            raise ValueError("semantic_winner_margin_hits must be non-negative")
 
 
 class RedNetSegmenter:
@@ -197,6 +207,10 @@ class CentralMapper:
         )
         self._obstacle_hits = np.zeros(
             (self.map.cells, self.map.cells), dtype=np.uint32
+        )
+        self._semantic_hits = np.zeros(
+            (len(HM3D_CATEGORY_NAMES), self.map.cells, self.map.cells),
+            dtype=np.uint16,
         )
 
     def _rays(self, shape: tuple[int, int]) -> np.ndarray:
@@ -328,13 +342,58 @@ class CentralMapper:
             frame_counts[2:].reshape(-1, cells, cells) / cfg.cat_pred_threshold, 0.0, 1.0
         )
 
-        # Explored and semantic channels retain upstream's deterministic max
-        # fusion. Geometry can retain that exact replay mode too, or use the
+        # Explored retains upstream's deterministic max fusion. Semantic
+        # channels can retain the exact source max rule or, for an explicitly
+        # selected real-camera deployment adapter, require repeated keyframe
+        # support and a unique winning category. Geometry can retain the exact
+        # replay mode too, or use the
         # live sensor mode: one free/occupied update per XY cell per frame,
         # with occupied winning an intra-frame conflict. This mirrors the
         # evidence semantics of TinyNav's native occupancy builder and, unlike
         # max fusion, lets later free rays clear a noisy obstacle endpoint.
-        np.maximum(grid[1:], frame_map[1:], out=grid[1:])
+        np.maximum(grid[1], frame_map[1], out=grid[1])
+        if cfg.semantic_fusion_mode == "max":
+            np.maximum(grid[2:], frame_map[2:], out=grid[2:])
+        else:
+            # Count at most one vote per class/cell/keyframe. A dense patch in
+            # one image must not satisfy the multi-view confirmation gate by
+            # itself. Saturation avoids uint16 wraparound in long experiments.
+            supported = (
+                frame_counts[2:].reshape(
+                    len(HM3D_CATEGORY_NAMES), cells, cells
+                )
+                >= cfg.cat_pred_threshold
+            )
+            np.add(
+                self._semantic_hits,
+                supported,
+                out=self._semantic_hits,
+                casting="unsafe",
+                where=self._semantic_hits < np.iinfo(np.uint16).max,
+            )
+            winners = np.argmax(self._semantic_hits, axis=0)
+            winner_hits = np.max(self._semantic_hits, axis=0)
+            if len(HM3D_CATEGORY_NAMES) > 1:
+                runner_up_hits = np.partition(
+                    self._semantic_hits, -2, axis=0
+                )[-2]
+            else:
+                runner_up_hits = np.zeros_like(winner_hits)
+            confirmed = (
+                (winner_hits >= cfg.semantic_min_hits)
+                & (
+                    winner_hits.astype(np.int32)
+                    - runner_up_hits.astype(np.int32)
+                    >= cfg.semantic_winner_margin_hits
+                )
+            )
+            grid[2:] = 0.0
+            confirmed_rows, confirmed_cols = np.nonzero(confirmed)
+            grid[
+                2 + winners[confirmed_rows, confirmed_cols],
+                confirmed_rows,
+                confirmed_cols,
+            ] = 1.0
         if cfg.obstacle_fusion_mode == "max":
             np.maximum(grid[0], frame_map[0], out=grid[0])
         else:

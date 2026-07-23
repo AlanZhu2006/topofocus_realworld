@@ -1,0 +1,251 @@
+{
+  "schema_version": "focus-demo-image-preflight-v1",
+  "preflight_id": "triple_ai_historical_images_20260723",
+  "classification": "observed_historical_inputs_plus_operator_selected_replay_targets",
+  "official_navigation_metrics_eligible": false,
+  "ineligibility_reason": "Static historical RGB-D pairs have no newly executed trajectory, robot-local STOP, surveyed goal-region arrival, or independent terminal verification; they may test Perception-VLM repeatability only.",
+  "repetitions_per_case": 5,
+  "maximum_capture_skew_s": 1.0,
+  "cases": [
+    {
+      "case_id": "chair_shared_view",
+      "target_category": "chair",
+      "purpose": "Positive chair case in which both historical robot views contain the chair; D455-era Yunji input is retained only for image preflight.",
+      "target_assignment": "operator_selected_replay_target",
+      "observations": [
+        {
+          "robot_id": "robot-0",
+          "sequence": 9388,
+          "capture_time_ns": 1784706928479885498,
+          "camera_frame": "camera",
+          "transform_version": "wsj-tinynav-depth-20260722-session-v1",
+          "wire_object_goal_category": "chair",
+          "metadata": {
+            "path": "hub/runtime/spool/robot-0/00000000000000009388/metadata.json",
+            "size_bytes": 2201,
+            "sha256": "60c3fb3f82618b333001da15a53bc69dfa8e0de8e3a04afdcea41d1693ca2ec4",
+            "classification": "observed_local_runtime"
+          },
+          "rgb": {
+            "path": "hub/runtime/spool/robot-0/00000000000000009388/rgb.jpg",
+            "size_bytes": 100769,
+            "sha256": "88acb7d984a2643e99d3e26bb676deb6052f9c4512b6296d14dfefa00ab13820",
+            "classification": "observed_local_runtime"
+          },
+          "depth": {
+            "path": "hub/runtime/spool/robot-0/00000000000000009388/depth.png",
+            "size_bytes": 219965,
+            "sha256": "ef234d2e85c3bd4c67cb8719bc8e39bee92d43160b36ca7acd59c2b57a5279ed",
+            "classification": "observed_local_runtime"
+          }
+        },
+        {
+          "robot_id": "robot-1",
+          "sequence": 147885,
+          "capture_time_ns": 1784706928292309504,
+          "camera_frame": "d455_color_optical_frame",
+          "transform_version": "yunji-d455-shared-board-20260722-153114-v2",
+          "wire_object_goal_category": "water_bottle",
+          "metadata": {
+            "path": "hub/runtime/spool/robot-1/00000000000000147885/metadata.json",
+            "size_bytes": 2317,
+            "sha256": "abee67fbafcdcb1338f13f046d8ea834acf1ea5e2a6b24a1dcbea580b4b30ea1",
+            "classification": "observed_local_runtime"
+          },
+          "rgb": {
+            "path": "hub/runtime/spool/robot-1/00000000000000147885/rgb.jpg",
+            "size_bytes": 75456,
+            "sha256": "989ffecb97c0a2914c4a56c07a6c59e2ab64ba991aa8ea25f8e252f63d8de7cc",
+            "classification": "observed_local_runtime"
+          },
+          "depth": {
+            "path": "hub/runtime/spool/robot-1/00000000000000147885/depth.png",
+            "size_bytes": 171513,
+            "sha256": "55b8fd9460670fb7084e53264c2feb59208591baa5c66473f5502ca5e8e6967b",
+            "classification": "observed_local_runtime"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "plant_single_robot_view",
+      "target_category": "plant",
+      "purpose": "Positive plant case visible to WSJ while the synchronized Yunji view contains only a wall; useful for asymmetric two-agent perception.",
+      "target_assignment": "operator_selected_replay_target",
+      "observations": [
+        {
+          "robot_id": "robot-0",
+          "sequence": 10738,
+          "capture_time_ns": 1784712304888265869,
+          "camera_frame": "camera",
+          "transform_version": "wsj-tinynav-depth-20260722-session-v1",
+          "wire_object_goal_category": "chair",
+          "metadata": {
+            "path": "hub/runtime/spool/robot-0/00000000000000010738/metadata.json",
+            "size_bytes": 2199,
+            "sha256": "42635f5f8fd1f96b4998f4bf418db748f0b3f5d8c20be4cb42dd6079988599a7",
+            "classification": "observed_local_runtime"
+          },
+          "rgb": {
+            "path": "hub/runtime/spool/robot-0/00000000000000010738/rgb.jpg",
+            "size_bytes": 94504,
+            "sha256": "4573154366c66051aef9750c0b4e54150ea93a73a3b3ecd071ce60b402c4f9e6",
+            "classification": "observed_local_runtime"
+          },
+          "depth": {
+            "path": "hub/runtime/spool/robot-0/00000000000000010738/depth.png",
+            "size_bytes": 161887,
+            "sha256": "7de88f3bd24f580b2afbced34fe6d86fe0676b614d9c3434894c1f0685cdd4d6",
+            "classification": "observed_local_runtime"
+          }
+        },
+        {
+          "robot_id": "robot-1",
+          "sequence": 158529,
+          "capture_time_ns": 1784712304860834560,
+          "camera_frame": "d455_color_optical_frame",
+          "transform_version": "yunji-d455-gravity-board-20260722-v3",
+          "wire_object_goal_category": "water_bottle",
+          "metadata": {
+            "path": "hub/runtime/spool/robot-1/00000000000000158529/metadata.json",
+            "size_bytes": 2310,
+            "sha256": "aa5fc919beefbd5501988ac06a6dee244d50ebde70f04eb9481fca027f773c61",
+            "classification": "observed_local_runtime"
+          },
+          "rgb": {
+            "path": "hub/runtime/spool/robot-1/00000000000000158529/rgb.jpg",
+            "size_bytes": 68530,
+            "sha256": "a92e18f98d3eb714565aa24525179a101732acbbf59daa187b494db6e55c0a93",
+            "classification": "observed_local_runtime"
+          },
+          "depth": {
+            "path": "hub/runtime/spool/robot-1/00000000000000158529/depth.png",
+            "size_bytes": 83539,
+            "sha256": "ba964da5111693077cb8c0c5509becb5ddb61f0a3073a2de8e7a70c615a209a8",
+            "classification": "observed_local_runtime"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "chair_with_table_distractor",
+      "target_category": "chair",
+      "purpose": "Chair target visible to WSJ while Yunji sees a table-dominated distractor view; table is not treated as an HPC ObjectNav target.",
+      "target_assignment": "operator_selected_replay_target",
+      "observations": [
+        {
+          "robot_id": "robot-0",
+          "sequence": 9739,
+          "capture_time_ns": 1784708336449639160,
+          "camera_frame": "camera",
+          "transform_version": "wsj-tinynav-depth-20260722-session-v1",
+          "wire_object_goal_category": "chair",
+          "metadata": {
+            "path": "hub/runtime/spool/robot-0/00000000000000009739/metadata.json",
+            "size_bytes": 2200,
+            "sha256": "b65ad82f307de4a5ab0042e2aeb5e342869bb66fac5c1d5a21ca46b17df60e5a",
+            "classification": "observed_local_runtime"
+          },
+          "rgb": {
+            "path": "hub/runtime/spool/robot-0/00000000000000009739/rgb.jpg",
+            "size_bytes": 100607,
+            "sha256": "e10cb9d1e5e22ed8a165aa679504fb7f02f6fb7cfc337bbf0ae4a258ffc54cfa",
+            "classification": "observed_local_runtime"
+          },
+          "depth": {
+            "path": "hub/runtime/spool/robot-0/00000000000000009739/depth.png",
+            "size_bytes": 220281,
+            "sha256": "7359d948e2149d75e119679d75d90a77244870cedc5b56feaf3c6b4460ef8221",
+            "classification": "observed_local_runtime"
+          }
+        },
+        {
+          "robot_id": "robot-1",
+          "sequence": 150697,
+          "capture_time_ns": 1784708335704369920,
+          "camera_frame": "d455_color_optical_frame",
+          "transform_version": "yunji-d455-shared-board-20260722-153114-v2",
+          "wire_object_goal_category": "water_bottle",
+          "metadata": {
+            "path": "hub/runtime/spool/robot-1/00000000000000150697/metadata.json",
+            "size_bytes": 2313,
+            "sha256": "58f62859c5734c9fade30c2c80fe7b8033b4d2309a2f4ca7d75850c6eae5c2a0",
+            "classification": "observed_local_runtime"
+          },
+          "rgb": {
+            "path": "hub/runtime/spool/robot-1/00000000000000150697/rgb.jpg",
+            "size_bytes": 70239,
+            "sha256": "ad45227488a7687f05b73fd38d11dec4aabe88e66ade17fd08828d8de4e674ce",
+            "classification": "observed_local_runtime"
+          },
+          "depth": {
+            "path": "hub/runtime/spool/robot-1/00000000000000150697/depth.png",
+            "size_bytes": 193821,
+            "sha256": "9b7ede7b81858af8ef0f0567be88a2a5dd4e0820b5f9e9fe122e3dd1c56f4436",
+            "classification": "observed_local_runtime"
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "chair_odin_pair",
+      "target_category": "chair",
+      "purpose": "Latest synchronized historical pair using Yunji Odin1; chair is visible to Yunji while WSJ observes the calibration-case area.",
+      "target_assignment": "operator_selected_replay_target",
+      "observations": [
+        {
+          "robot_id": "robot-0",
+          "sequence": 15147,
+          "capture_time_ns": 1784729764342911377,
+          "camera_frame": "camera",
+          "transform_version": "wsj-tinynav-depth-20260722-session-v1",
+          "wire_object_goal_category": "chair",
+          "metadata": {
+            "path": "hub/runtime/spool/robot-0/00000000000000015147/metadata.json",
+            "size_bytes": 2198,
+            "sha256": "73b241a783a737dbb32ef898b0d360b1eef10ca95bc970830f08a16e7690f102",
+            "classification": "observed_local_runtime"
+          },
+          "rgb": {
+            "path": "hub/runtime/spool/robot-0/00000000000000015147/rgb.jpg",
+            "size_bytes": 75511,
+            "sha256": "d63a025a389ac0a9eff3c6bab23f7ee399fb098237b245a62b94bd88674bf1e9",
+            "classification": "observed_local_runtime"
+          },
+          "depth": {
+            "path": "hub/runtime/spool/robot-0/00000000000000015147/depth.png",
+            "size_bytes": 194915,
+            "sha256": "e78cf363018bad49ea53b87cf5803a30c38534af4df36f15a0d6bed9e008e261",
+            "classification": "observed_local_runtime"
+          }
+        },
+        {
+          "robot_id": "robot-1",
+          "sequence": 165736,
+          "capture_time_ns": 1784729764499117144,
+          "camera_frame": "odin1_camera_optical_frame",
+          "transform_version": "yunji-odin1-board-20260722-v1",
+          "wire_object_goal_category": "chair",
+          "metadata": {
+            "path": "hub/runtime/spool/robot-1/00000000000000165736/metadata.json",
+            "size_bytes": 2865,
+            "sha256": "b2ddbc52ec1f84aa4af71f092a8548615d8c931f30baf0f122717f1d43064ea4",
+            "classification": "observed_local_runtime"
+          },
+          "rgb": {
+            "path": "hub/runtime/spool/robot-1/00000000000000165736/rgb.jpg",
+            "size_bytes": 155266,
+            "sha256": "5542e70463fddf1249cfd67621bd521db5725951e1c4d9c11491c23f5e0cd883",
+            "classification": "observed_local_runtime"
+          },
+          "depth": {
+            "path": "hub/runtime/spool/robot-1/00000000000000165736/depth.png",
+            "size_bytes": 221545,
+            "sha256": "a6548e3ccb417979277b2d62d975a73e01265246eb8b6abdd561726eca91d5f1",
+            "classification": "observed_local_runtime"
+          }
+        }
+      ]
+    }
+  ]
+}

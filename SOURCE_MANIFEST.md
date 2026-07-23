@@ -78,3 +78,46 @@ The serial-specific factory calibration and vendor binary SDK remain external;
 their observed identities are recorded in
 `hub/config/calibration/odin1_O1-P070100205_factory_20260722.json` and
 `audit/YUNJI_ODIN1_INTEGRATION_20260722.md`.
+
+## Current robot deployment snapshot (2026-07-24)
+
+The robot deployment roots contain the final pre-publication Hub snapshot,
+which was based on Git commit
+`ee8f84b6646cb08fbcb30fab072b9d0437bf485b`. The Git commit containing this
+section publishes the intended code and documentation; the robots have not
+yet been redeployed from that commit. The pre-publication snapshot was
+synchronized to:
+
+- `/home/nvidia/topofocus_buildmap_v2_20260723`
+- `/home/nyu/topofocus_buildmap_v2_20260723`
+
+The transfer archive contained 392 entries, was 2,371,165 bytes and had
+SHA-256
+`e1b9001fb188a3890037f5e33927d25afa44473fb50a6b8c40b61a6e123b1b72`.
+Both robot computers independently observed that hash before extraction.
+`source/`, `dependencies/`, runtime maps, environments, caches and credentials
+were excluded. See
+[`audit/DUAL_ROBOT_CODE_SYNC_20260723.md`](audit/DUAL_ROBOT_CODE_SYNC_20260723.md).
+
+This transfer proves byte availability, not that a process loaded the new
+files. The retry3 command-floor and router callback changes were staged on
+disk without restarting robot-side processes and remain physically
+unverified.
+
+## Runtime-only calibration and evidence boundary
+
+Current session calibration, map and episode artifacts remain outside Git:
+
+- shared calibration ID `shared-board-odin1-20260723-v3`;
+- WSJ transform `wsj-tinynav-depth-20260723-powercycle-v3`;
+- Yunji transform `yunji-odin1-board-20260723-powercycle-v6`;
+- current map directories under ignored `hub/runtime/`;
+- robot-local measured calibration JSON files under
+  `~/.local/state/topofocus/calibration/`;
+- exact receiver and bridge logs under robot-local
+  `~/.local/state/topofocus/`.
+
+Their observed paths, sizes and checksums are recorded in
+[`CURRENT_STATUS.md`](CURRENT_STATUS.md) and the dated audit records. They must
+not be reconstructed from an undocumented assumption or committed as
+credentials/runtime state.

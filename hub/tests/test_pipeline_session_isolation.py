@@ -31,12 +31,29 @@ class _Mapper:
         self.last_floor_plane = floor_plane_coefficients
 
 
+class _Detector:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def detect_boxes(self, _rgb):
+        self.calls += 1
+        return [
+            SimpleNamespace(
+                class_name="chair",
+                confidence=0.8,
+                xyxy=(0.0, 0.0, 2.0, 2.0),
+            )
+        ]
+
+
 def _pipeline(
     expected_version=None,
     *,
     keyframe_config=None,
     ground_guard=False,
     ground_drift_consecutive_frames=3,
+    semantic_detector=None,
+    semantic_yolo_reinforce_map=True,
 ):
     segmenter = _Segmenter()
     K = np.array([[300.0, 0, 160], [0, 300.0, 120], [0, 0, 1]])
@@ -50,6 +67,8 @@ def _pipeline(
         keyframe_config=keyframe_config,
         ground_plane_config=GroundPlaneConfig() if ground_guard else None,
         ground_drift_consecutive_frames=ground_drift_consecutive_frames,
+        semantic_detector=semantic_detector,
+        semantic_yolo_reinforce_map=semantic_yolo_reinforce_map,
     )
     pipeline.mapper = _Mapper()
     return pipeline, segmenter
@@ -82,6 +101,30 @@ def test_pipeline_binds_to_first_transform_version():
     assert pipeline.first_sequence == 10
     assert pipeline.last_sequence == 11
     assert pipeline.frames_processed == 2
+
+
+def test_stage1_yolo_evidence_does_not_mutate_pixel_semantics():
+    detector = _Detector()
+    pipeline, segmenter = _pipeline(
+        "session-a",
+        semantic_detector=detector,
+        semantic_yolo_reinforce_map=False,
+    )
+
+    decision = pipeline.process(_observation(10, "session-a"))
+    status = pipeline.semantic_yolo_status()
+
+    assert decision.accept
+    assert segmenter.calls == 1
+    assert detector.calls == 1
+    assert pipeline.mapper.calls == 1
+    assert status["enabled"] is True
+    assert status["map_reinforcement_enabled"] is False
+    assert status["method"] == "yolov10_image_detections_for_perception_vlm_only"
+    assert status["frames_with_detections"] == 1
+    assert status["frames_with_evidence"] == 0
+    assert status["last_sequence"] == 10
+    assert status["last_detections"][0]["class_name"] == "chair"
 
 
 def test_pipeline_rejects_version_change_before_segmentation_or_integration():

@@ -23,6 +23,10 @@ class Settings:
     max_rgb_bytes: int = 8 * 1024**2
     max_depth_bytes: int = 16 * 1024**2
     min_free_bytes: int = 20 * 1024**3
+    # The observed dual-robot GLM cascade takes 29-30 s after both sensor
+    # frames are frozen.  Sixty seconds covers that measured inference latency
+    # while command authority remains independently bounded by the 8 s lease.
+    v2_max_input_age_ns: int = 60_000_000_000
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -47,5 +51,8 @@ class Settings:
             spool_dir=Path(os.environ.get("FOCUS_HUB_SPOOL_DIR", "runtime/spool")),
             state_dir=Path(os.environ.get("FOCUS_HUB_STATE_DIR", "runtime/state")),
             min_free_bytes=int(os.environ.get("FOCUS_HUB_MIN_FREE_BYTES", str(20 * 1024**3))),
+            v2_max_input_age_ns=int(
+                float(os.environ.get("FOCUS_HUB_V2_MAX_INPUT_AGE_S", "60"))
+                * 1_000_000_000
+            ),
         )
-

@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "shared_frame": "shared_world",
+  "robots": {
+    "robot-0": {
+      "transform_version": "wsj-tinynav-depth-20260723-powercycle-v3",
+      "allow_goal": true
+    },
+    "robot-1": {
+      "transform_version": "yunji-odin1-board-20260723-powercycle-v6",
+      "allow_goal": true
+    }
+  }
+}

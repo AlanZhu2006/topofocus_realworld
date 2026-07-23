@@ -51,6 +51,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import cv2
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Request, Response
@@ -64,24 +65,32 @@ from foxglove.channels import (  # noqa: E402
     SceneUpdateChannel,
 )
 from foxglove.messages import (  # noqa: E402
-    Color, CompressedImage, CubePrimitive, FrameTransform, Grid, LinePrimitive,
-    LinePrimitiveLineType, Log, LogLevel, PackedElementField,
+    Color, CompressedImage, CubePrimitive, CylinderPrimitive, Duration,
+    FrameTransform, Grid, LinePrimitive, LinePrimitiveLineType, Log, LogLevel,
+    PackedElementField,
     PackedElementFieldNumericType, Point3, Pose, Quaternion, SceneEntity, SceneUpdate,
     TextPrimitive, Timestamp, Vector2, Vector3,
 )
 
 from focus_hub.central_mapping import HM3D_CATEGORY_NAMES  # noqa: E402
+from focus_hub.frontiers import extract_frontiers  # noqa: E402
 from focus_hub.fusion import align_and_fuse_grids  # noqa: E402
 from focus_hub.map_visualization import (  # noqa: E402
+    RobotMapOverlay,
     colorize_geometry_grid,
     colorize_semantic_grid,
     downsample_evidence_grid,
+    render_semantic_overview,
     semantic_evidence_cells,
 )
 from focus_hub.map_snapshot import (  # noqa: E402
     MapSnapshot,
     load_map_snapshot,
     validate_fusion_contract,
+)
+from focus_hub.shadow_coordination import (  # noqa: E402
+    SHADOW_STATUS,
+    validate_shadow_target_payload,
 )
 
 
@@ -95,12 +104,16 @@ class RobotSource:
     geometry_channel: GridChannel
     pose_channel: SceneUpdateChannel
     status_channel: LogChannel
+    overview_channel: CompressedImageChannel | None = None
     last_map_published_at_s: float = 0.0
     last_camera_pushed_at_ns: int | None = None
     camera_frames_pushed: int = 0
     last_camera_message: CompressedImage | None = None
+    last_overview_message: CompressedImage | None = None
     trajectory_xy_m: list[tuple[float, float]] = field(default_factory=list)
     trajectory_frame_id: str | None = None
+    last_pose_xy_m: tuple[float, float] | None = None
+    last_heading_deg: float | None = None
     last_map_stats: dict[str, int] | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -191,6 +204,68 @@ def build_grid_message(
     )
 
 
+def robot_map_overlay(source: RobotSource) -> RobotMapOverlay:
+    """Take one thread-safe snapshot of a robot's persisted display pose."""
+
+    with source.lock:
+        trajectory = tuple(source.trajectory_xy_m)
+        pose = source.last_pose_xy_m
+        heading = source.last_heading_deg
+    if source.name.lower() == "yunji":
+        return RobotMapOverlay(
+            label=source.name,
+            trajectory_xy_m=trajectory,
+            pose_xy_m=pose,
+            heading_deg=heading,
+            trajectory_bgr=(70, 190, 30),
+            pose_bgr=(0, 130, 255),
+        )
+    return RobotMapOverlay(
+        label=source.name,
+        trajectory_xy_m=trajectory,
+        pose_xy_m=pose,
+        heading_deg=heading,
+        trajectory_bgr=(255, 110, 30),
+        pose_bgr=(0, 0, 255),
+    )
+
+
+def semantic_overview_message(
+    snapshot: MapSnapshot,
+    category_names: tuple[str, ...],
+    *,
+    overlays: tuple[RobotMapOverlay, ...],
+) -> CompressedImage:
+    """Encode the readable 2-D map raster used by Foxglove Image panels."""
+
+    frontiers = tuple(
+        extract_frontiers(
+            snapshot.grid,
+            snapshot.origin_xy_m,
+            snapshot.resolution_m,
+        )
+    )
+    image = render_semantic_overview(
+        snapshot.grid,
+        category_names,
+        snapshot.origin_xy_m,
+        snapshot.resolution_m,
+        robot_overlays=overlays,
+        frontiers=frontiers,
+    )
+    ok, encoded = cv2.imencode(
+        ".png", image, [int(cv2.IMWRITE_PNG_COMPRESSION), 3]
+    )
+    if not ok:
+        raise RuntimeError("failed to encode semantic overview PNG")
+    return CompressedImage(
+        timestamp=now_ts(),
+        frame_id=snapshot.frame_id,
+        data=encoded.tobytes(),
+        format="png",
+    )
+
+
 def map_poll_loop(
     sources: list[RobotSource], category_names, *, interval_s: float,
     downsample: int, allow_legacy: bool,
@@ -211,6 +286,7 @@ def map_poll_loop(
                 if snapshot is None:
                     semantic_msg = None
                     geometry_msg = None
+                    overview_msg = None
                 else:
                     semantic_msg = grid_to_message(
                         snapshot.grid,
@@ -237,6 +313,38 @@ def map_poll_loop(
                     }
                     with source.lock:
                         source.last_map_stats = stats
+                    semantic_scene = semantic_scene_from_snapshot(
+                        source.name, snapshot, category_names
+                    )
+                    try:
+                        overview_msg = semantic_overview_message(
+                            snapshot,
+                            tuple(category_names),
+                            overlays=(robot_map_overlay(source),),
+                        )
+                    except (RuntimeError, ValueError) as exc:
+                        overview_msg = None
+                        source.status_channel.log(Log(
+                            timestamp=now_ts(),
+                            level=LogLevel.Warning,
+                            name=source.name,
+                            message=f"semantic overview skipped: {exc}",
+                        ))
+                    try:
+                        shadow_scene = load_shadow_target_scene(
+                            source.name,
+                            source.robot_id,
+                            source.snapshot_dir / "shadow_target.json",
+                            snapshot,
+                        )
+                    except (OSError, ValueError) as exc:
+                        shadow_scene = None
+                        source.status_channel.log(Log(
+                            timestamp=now_ts(),
+                            level=LogLevel.Warning,
+                            name=source.name,
+                            message=f"ignored invalid VLM shadow target: {exc}",
+                        ))
             except (OSError, EOFError, ValueError, zipfile.BadZipFile) as exc:
                 # pipeline.py's save() writes atomically (temp file +
                 # os.replace) so this shouldn't happen -- kept as defense in
@@ -244,6 +352,7 @@ def map_poll_loop(
                 # the thread a client may be actively depending on.
                 semantic_msg = None
                 geometry_msg = None
+                overview_msg = None
                 source.status_channel.log(Log(
                     timestamp=now_ts(),
                     level=LogLevel.Error,
@@ -254,6 +363,13 @@ def map_poll_loop(
             if semantic_msg is not None and geometry_msg is not None:
                 source.map_channel.log(semantic_msg)
                 source.geometry_channel.log(geometry_msg)
+                source.pose_channel.log(semantic_scene)
+                if shadow_scene is not None:
+                    source.pose_channel.log(shadow_scene)
+                if overview_msg is not None and source.overview_channel is not None:
+                    source.overview_channel.log(overview_msg)
+                    with source.lock:
+                        source.last_overview_message = overview_msg
                 source.last_map_published_at_s = now_s
         time.sleep(min(interval_s, 1.0))
 
@@ -264,6 +380,7 @@ def fusion_poll_loop(
     fused_geometry_channel: GridChannel,
     fused_status_channel: LogChannel,
     category_names, *, interval_s: float, downsample: int,
+    fused_overview_channel: CompressedImageChannel | None = None,
 ) -> None:
     """Background thread: real cross-robot map fusion (upstream's
     element-wise max rule, `focus_hub.fusion.align_and_fuse_grids`), not
@@ -312,6 +429,34 @@ def fusion_poll_loop(
                             category_names, downsample, frame_id, view="geometry",
                         )
                     )
+                    if fused_overview_channel is not None:
+                        fused_snapshot = MapSnapshot(
+                            grid=fused_grid,
+                            origin_xy_m=fused_origin,
+                            resolution_m=resolution_m,
+                            frame_id=frame_id,
+                            transform_version="fused-read-only-view",
+                            shared_frame_calibration_id=calibration_id,
+                            map_format_version="focus-hub-fused-read-only-v1",
+                        )
+                        try:
+                            fused_overview_channel.log(
+                                semantic_overview_message(
+                                    fused_snapshot,
+                                    tuple(category_names),
+                                    overlays=tuple(
+                                        robot_map_overlay(source)
+                                        for source in sources
+                                    ),
+                                )
+                            )
+                        except (RuntimeError, ValueError) as exc:
+                            fused_status_channel.log(Log(
+                                timestamp=now_ts(),
+                                level=LogLevel.Warning,
+                                name="fused",
+                                message=f"fused semantic overview skipped: {exc}",
+                            ))
                     explored = int(np.count_nonzero(fused_grid[1] > 0.5))
                     obstacles = int(np.count_nonzero(fused_grid[0] > 0.5))
                     semantic = semantic_evidence_cells(fused_grid)
@@ -377,10 +522,33 @@ def update_pose_scene(source: RobotSource, status: dict) -> SceneUpdate | None:
     ):
         return None
     point = (float(xy[0]), float(xy[1]))
+    heading = status.get("last_camera_heading_deg")
+    if not isinstance(heading, (int, float)) or not np.isfinite(heading):
+        heading = None
+    transported_trajectory = status.get("trajectory_xy_m")
+    valid_trajectory = None
+    if isinstance(transported_trajectory, list):
+        parsed_trajectory = []
+        for item in transported_trajectory:
+            if (
+                not isinstance(item, list)
+                or len(item) != 2
+                or not all(
+                    isinstance(value, (int, float)) and np.isfinite(value)
+                    for value in item
+                )
+            ):
+                parsed_trajectory = []
+                break
+            parsed_trajectory.append((float(item[0]), float(item[1])))
+        if parsed_trajectory:
+            valid_trajectory = parsed_trajectory
     with source.lock:
         if source.trajectory_frame_id != frame_id:
             source.trajectory_xy_m.clear()
             source.trajectory_frame_id = frame_id
+        if valid_trajectory is not None:
+            source.trajectory_xy_m = valid_trajectory[-2000:]
         if (
             not source.trajectory_xy_m
             or np.linalg.norm(
@@ -389,6 +557,10 @@ def update_pose_scene(source: RobotSource, status: dict) -> SceneUpdate | None:
         ):
             source.trajectory_xy_m.append(point)
         trail = tuple(source.trajectory_xy_m[-2000:])
+        source.last_pose_xy_m = point
+        source.last_heading_deg = (
+            None if heading is None else float(heading)
+        )
 
     identity = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
     origin_pose = Pose(
@@ -434,11 +606,226 @@ def update_pose_scene(source: RobotSource, status: dict) -> SceneUpdate | None:
     return SceneUpdate(entities=[entity])
 
 
+def semantic_scene_from_snapshot(
+    source_name: str,
+    snapshot: MapSnapshot,
+    category_names: tuple[str, ...],
+) -> SceneUpdate:
+    """Render every semantic cell as an exact colored world-frame pixel.
+
+    A 5 cm semantic cell is almost invisible in a 26 m Foxglove grid, and the
+    production relay downsamples that grid to 15 cm cells. The Grid remains
+    the exact evidence representation; these very shallow cubes copy every
+    original 5 cm cell onto the already-visible ``/<robot>/map_pose`` topic so
+    the blob is visible above the geometry plane. They preserve the semantic
+    palette and component shape instead of replacing it with a bounding box.
+    One small label is placed over the largest connected component of each
+    present category so the operator can still identify the color.
+    """
+
+    categories = snapshot.grid[2 : 2 + len(category_names)]
+    if categories.shape[0] != len(category_names):
+        raise ValueError(
+            f"grid has {snapshot.grid.shape[0] - 2} semantic channels but "
+            f"{len(category_names)} names were supplied"
+        )
+
+    identity = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+    cubes = []
+    texts = []
+    palette_grid = np.zeros(
+        (2 + len(category_names), 1, len(category_names)), dtype=np.float32
+    )
+    for category_index in range(len(category_names)):
+        palette_grid[2 + category_index, 0, category_index] = 1.0
+    palette_rgb = colorize_semantic_grid(
+        palette_grid, category_names
+    )[0, :, :3].astype(np.float64) / 255.0
+    for category_index in range(len(category_names)):
+        rows, cols = np.nonzero(categories[category_index] > 0.1)
+        if rows.size == 0:
+            continue
+        red, green, blue = palette_rgb[category_index]
+        for row, col in zip(rows.tolist(), cols.tolist()):
+            center_x = snapshot.origin_xy_m[0] + (
+                float(col) + 0.5
+            ) * snapshot.resolution_m
+            center_y = snapshot.origin_xy_m[1] + (
+                float(row) + 0.5
+            ) * snapshot.resolution_m
+            marker_pose = Pose(
+                position=Vector3(x=center_x, y=center_y, z=0.035),
+                orientation=identity,
+            )
+            cubes.append(CubePrimitive(
+                pose=marker_pose,
+                size=Vector3(
+                    x=snapshot.resolution_m,
+                    y=snapshot.resolution_m,
+                    z=0.07,
+                ),
+                color=Color(
+                    r=float(red),
+                    g=float(green),
+                    b=float(blue),
+                    a=1.0,
+                ),
+            ))
+
+        # Keep the label attached to evidence instead of drawing an enclosing
+        # box. The largest component avoids placing it between a real object
+        # and a handful of isolated model-noise cells elsewhere in the map.
+        remaining = set(zip(rows.tolist(), cols.tolist()))
+        largest_component: list[tuple[int, int]] = []
+        while remaining:
+            seed = remaining.pop()
+            stack = [seed]
+            component = [seed]
+            while stack:
+                row, col = stack.pop()
+                for delta_row in (-1, 0, 1):
+                    for delta_col in (-1, 0, 1):
+                        if delta_row == 0 and delta_col == 0:
+                            continue
+                        neighbour = (row + delta_row, col + delta_col)
+                        if neighbour in remaining:
+                            remaining.remove(neighbour)
+                            stack.append(neighbour)
+                            component.append(neighbour)
+            if len(component) > len(largest_component):
+                largest_component = component
+
+        component_array = np.asarray(largest_component, dtype=np.float64)
+        label_row, label_col = component_array.mean(axis=0)
+        label_x = snapshot.origin_xy_m[0] + (
+            float(label_col) + 0.5
+        ) * snapshot.resolution_m
+        label_y = snapshot.origin_xy_m[1] + (
+            float(label_row) + 0.5
+        ) * snapshot.resolution_m
+        texts.append(TextPrimitive(
+            pose=Pose(
+                position=Vector3(x=label_x, y=label_y, z=0.16),
+                orientation=identity,
+            ),
+            billboard=True,
+            font_size=13.0,
+            scale_invariant=True,
+            color=Color(
+                r=float(red),
+                g=float(green),
+                b=float(blue),
+                a=1.0,
+            ),
+            text=category_names[category_index],
+        ))
+
+    return SceneUpdate(entities=[SceneEntity(
+        timestamp=now_ts(),
+        frame_id=snapshot.frame_id,
+        id=f"{source_name}-semantic-objects",
+        frame_locked=True,
+        cubes=cubes,
+        texts=texts,
+    )])
+
+
+def shadow_target_scene_from_payload(
+    source_name: str,
+    robot_id: str,
+    snapshot: MapSnapshot,
+    payload: dict[str, object],
+    *,
+    now_ns: int | None = None,
+) -> SceneUpdate:
+    """Render one expiring, explicitly non-authoritative VLM target."""
+
+    now_ns = time.time_ns() if now_ns is None else now_ns
+    target = validate_shadow_target_payload(
+        payload,
+        robot_id=robot_id,
+        snapshot=snapshot,
+        now_ns=now_ns,
+    )
+    remaining_ns = max(1, target.expires_at_ns - now_ns)
+    lifetime = Duration(
+        remaining_ns // 1_000_000_000,
+        remaining_ns % 1_000_000_000,
+    )
+    identity = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+    marker_color = Color(r=0.95, g=0.15, b=0.85, a=0.90)
+    marker_pose = Pose(
+        position=Vector3(x=target.x_m, y=target.y_m, z=target.z_m + 0.05),
+        orientation=identity,
+    )
+    text_pose = Pose(
+        position=Vector3(x=target.x_m, y=target.y_m, z=target.z_m + 0.35),
+        orientation=identity,
+    )
+    entity = SceneEntity(
+        timestamp=now_ts(),
+        frame_id=snapshot.frame_id,
+        id=f"{source_name}-vlm-shadow-target",
+        lifetime=lifetime,
+        frame_locked=True,
+        cylinders=[CylinderPrimitive(
+            pose=marker_pose,
+            size=Vector3(x=0.36, y=0.36, z=0.10),
+            color=marker_color,
+        )],
+        texts=[TextPrimitive(
+            pose=text_pose,
+            billboard=True,
+            font_size=14.0,
+            scale_invariant=True,
+            color=marker_color,
+            text=(
+                f"SHADOW {target.frontier_id} · {target.goal_category} "
+                "· NO MOTION"
+            ),
+        )],
+    )
+    return SceneUpdate(entities=[entity])
+
+
+def load_shadow_target_scene(
+    source_name: str,
+    robot_id: str,
+    path: Path,
+    snapshot: MapSnapshot,
+) -> SceneUpdate | None:
+    """Load an atomic shadow artifact without letting it block map display."""
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    if not isinstance(payload, dict) or payload.get("status") != SHADOW_STATUS:
+        return None
+    expires_at_ns = int(payload.get("expires_at_ns", 0))
+    now_ns = time.time_ns()
+    if expires_at_ns <= now_ns:
+        return None
+    return shadow_target_scene_from_payload(
+        source_name,
+        robot_id,
+        snapshot,
+        payload,
+        now_ns=now_ns,
+    )
+
+
 def legend_loop(channel: LogChannel, *, interval_s: float = 30.0) -> None:
     message = (
         "MAP LEGEND: gray=unknown; white=observed free; black=current geometric "
         "obstacle; blue=camera trail since relay start; red=current camera XY. "
-        "Semantic overlay is a separate, hidden-by-default topic."
+        "Colored 5cm blocks=model-derived semantic cells (chair=red), copied "
+        "exactly above geometry; one label identifies each present category; "
+        "/<name>/semantic_overview and /fused/semantic_overview are cropped "
+        "2D image views with heading arrows, persistent trajectories and "
+        "lettered frontier candidates; "
+        "magenta SHADOW markers are display-only VLM would-targets and NEVER "
+        "robot commands; semantic Grid is also available separately."
     )
     while True:
         channel.log(Log(
@@ -538,8 +925,14 @@ def camera_latch_loop(sources: list[RobotSource], *, interval_s: float) -> None:
         for source in sources:
             with source.lock:
                 message = source.last_camera_message
+                overview_message = source.last_overview_message
             if message is not None:
                 source.camera_channel.log(message)
+            if (
+                overview_message is not None
+                and source.overview_channel is not None
+            ):
+                source.overview_channel.log(overview_message)
         time.sleep(interval_s)
 
 
@@ -649,6 +1042,9 @@ def main() -> int:
             geometry_channel=GridChannel(f"/{name}/geometry_map"),
             pose_channel=SceneUpdateChannel(f"/{name}/map_pose"),
             status_channel=LogChannel(f"/{name}/status"),
+            overview_channel=CompressedImageChannel(
+                f"/{name}/semantic_overview"
+            ),
         ))
         print(f"  robot_id={robot_id} name={name} snapshot_dir={snapshot_dir}")
     sources_by_name = {s.name: s for s in sources}
@@ -688,15 +1084,23 @@ def main() -> int:
         else:
             fused_semantic_channel = GridChannel("/fused/semantic_map")
             fused_geometry_channel = GridChannel("/fused/geometry_map")
+            fused_overview_channel = CompressedImageChannel(
+                "/fused/semantic_overview"
+            )
             fused_status_channel = LogChannel("/fused/status")
             threading.Thread(
                 target=fusion_poll_loop,
                 args=(sources, fused_semantic_channel, fused_geometry_channel,
                       fused_status_channel, HM3D_CATEGORY_NAMES),
-                kwargs={"interval_s": args.fuse_interval_s, "downsample": args.map_downsample},
+                kwargs={
+                    "interval_s": args.fuse_interval_s,
+                    "downsample": args.map_downsample,
+                    "fused_overview_channel": fused_overview_channel,
+                },
                 daemon=True,
             ).start()
             print(f"  fused maps: /fused/geometry_map + /fused/semantic_map "
+                  f"+ /fused/semantic_overview "
                   f"(every {args.fuse_interval_s}s, "
                   f"{len(sources)} robots)")
 

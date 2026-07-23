@@ -46,6 +46,8 @@ from focus_hub.pose_gate import (  # noqa: E402
     StartupPoseConfig,
     StartupPoseGate,
 )
+from focus_hub.semantic_yolo import SemanticYoloConfig  # noqa: E402
+from focus_hub.segformer_ade20k import SegformerAde20kSegmenter  # noqa: E402
 from focus_hub.vlm_decision import choose_frontier_fallback, choose_frontier_glm, run_decision_cascade  # noqa: E402
 from focus_hub.vlm_prompts import extract_scene_objects, format_scene_objects_for_prompt  # noqa: E402
 from focus_hub.yolo_detector import YoloDetector  # noqa: E402
@@ -124,6 +126,23 @@ def write_camera_snapshot(
         "last_capture_time_ns": last_metadata.capture_time_ns if last_metadata else None,
         "last_sent_time_ns": last_metadata.sent_time_ns if last_metadata else None,
         "last_camera_xy_m": list(pipeline.last_camera_xy) if pipeline.last_camera_xy else None,
+        "last_camera_heading_deg": (
+            heading_deg_from_pose(pipeline.last_camera_T)
+            if pipeline.last_camera_T is not None
+            else None
+        ),
+        "trajectory_xy_m": [
+            [float(x_m), float(y_m)]
+            for x_m, y_m in pipeline.trajectory_xy_m
+        ],
+        "pose_visualization_provenance": {
+            "position": "observed transported shared_T_camera translation",
+            "heading": "source-derived camera optical +Z projected into shared XY",
+            "trajectory": "observed positions deduplicated at 0.05 m; latest 2000",
+            "status": "camera pose, not independently calibrated body footprint",
+        },
+        "semantic_yolo": pipeline.semantic_yolo_status(),
+        "semantic_backend": pipeline.semantic_backend_status(),
     }
     (out_dir / "live_status.json").write_text(json.dumps(status) + "\n")
     if pipeline.last_rgb_bgr is not None:
@@ -164,6 +183,65 @@ def main() -> int:
                              "Judgment stages, no YOLO, no directional memory)")
     parser.add_argument("--yolo-weights", type=Path,
                         default=WORKSPACE / "artifacts" / "vision" / "yolov10m.pt")
+    parser.add_argument(
+        "--semantic-backend",
+        choices=("rednet", "segformer-ade20k"),
+        default="rednet",
+        help=(
+            "rednet preserves the upstream MP3D-40 backend; segformer-ade20k "
+            "is the checksum-pinned real-camera pixel-mask deployment adapter"
+        ),
+    )
+    parser.add_argument(
+        "--segformer-model-dir",
+        type=Path,
+        default=(
+            WORKSPACE
+            / "artifacts"
+            / "vision"
+            / "segformer_b0_ade20k_hf"
+        ),
+    )
+    parser.add_argument("--segformer-min-confidence", type=float, default=0.35)
+    parser.add_argument(
+        "--segformer-category",
+        action="append",
+        default=None,
+        help=(
+            "optional HM3D map category allow-list for SegFormer; repeat for "
+            "multiple categories. By default all direct supported mappings are used."
+        ),
+    )
+    parser.add_argument(
+        "--semantic-yolo",
+        action="store_true",
+        help=(
+            "reinforce RedNet BEV categories with supported YOLO detections "
+            "grounded by the transported aligned depth; independent of GLM/cascade"
+        ),
+    )
+    parser.add_argument(
+        "--semantic-yolo-evidence-only",
+        action="store_true",
+        help=(
+            "run the real source YOLOv10 detector and persist its boxes for "
+            "the Perception VLM, but do not mutate the pixel segmentation or "
+            "project box-derived labels into the BEV; requires --semantic-yolo"
+        ),
+    )
+    parser.add_argument("--semantic-yolo-confidence", type=float, default=0.35)
+    parser.add_argument("--semantic-yolo-depth-anchor-quantile", type=float, default=0.50)
+    parser.add_argument("--semantic-yolo-central-crop-fraction", type=float, default=0.40)
+    parser.add_argument("--semantic-yolo-depth-tolerance-m", type=float, default=0.45)
+    parser.add_argument(
+        "--semantic-yolo-category",
+        action="append",
+        default=None,
+        help=(
+            "HM3D map category to reinforce; repeat for multiple categories. "
+            "Defaults to the current --goal-category only."
+        ),
+    )
     parser.add_argument("--early-episode-steps", type=int, default=125,
                         help="upstream's l_step<=125 override: Decision VLM always runs during "
                              "this many early decision cycles regardless of the Judgment gate")
@@ -210,6 +288,24 @@ def main() -> int:
     parser.add_argument("--keyframe-translation-m", type=float, default=0.20)
     parser.add_argument("--keyframe-rotation-deg", type=float, default=10.0)
     parser.add_argument("--keyframe-max-interval-s", type=float, default=5.0)
+    parser.add_argument(
+        "--runtime-pose-jump-translation-m",
+        type=float,
+        default=2.0,
+        help=(
+            "post-initialization odometry discontinuity threshold; independent "
+            "of the stricter startup stability threshold"
+        ),
+    )
+    parser.add_argument(
+        "--runtime-pose-jump-rotation-deg",
+        type=float,
+        default=90.0,
+        help=(
+            "post-initialization rotation discontinuity threshold; independent "
+            "of the stricter startup stability threshold"
+        ),
+    )
     parser.add_argument(
         "--ground-mode",
         choices=("ransac", "camera-height"),
@@ -263,6 +359,27 @@ def main() -> int:
         default=2,
         help="minimum accepted keyframes supporting a cell before it is an obstacle",
     )
+    parser.add_argument(
+        "--semantic-fusion-mode",
+        choices=("max", "multi_view"),
+        default="max",
+        help=(
+            "max preserves upstream BEV fusion; multi_view requires repeated "
+            "per-cell semantic support and keeps one winning category"
+        ),
+    )
+    parser.add_argument(
+        "--semantic-min-hits",
+        type=int,
+        default=1,
+        help="accepted keyframes required to confirm a semantic map cell",
+    )
+    parser.add_argument(
+        "--semantic-winner-margin-hits",
+        type=int,
+        default=0,
+        help="minimum vote margin between the winning and runner-up class",
+    )
     args = parser.parse_args()
     if args.ground_mode == "ransac" and args.startup_stable_frames < 3:
         parser.error("--ground-mode ransac requires --startup-stable-frames >= 3")
@@ -272,6 +389,12 @@ def main() -> int:
         parser.error("--max-ground-height-delta-m must be positive")
     if args.ground_drift_consecutive_frames <= 0:
         parser.error("--ground-drift-consecutive-frames must be positive")
+    if args.semantic_min_hits <= 0:
+        parser.error("--semantic-min-hits must be positive")
+    if args.semantic_winner_margin_hits < 0:
+        parser.error("--semantic-winner-margin-hits must be non-negative")
+    if args.semantic_yolo_evidence_only and not args.semantic_yolo:
+        parser.error("--semantic-yolo-evidence-only requires --semantic-yolo")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     log = args.log.open("a", buffering=1)
@@ -288,14 +411,49 @@ def main() -> int:
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
-    segmenter = RedNetSegmenter(WORKSPACE / "artifacts" / "checkpoints" / "rednet_semmap_mp3d_40.pth")
+    if args.semantic_backend == "rednet":
+        segmenter = RedNetSegmenter(
+            WORKSPACE
+            / "artifacts"
+            / "checkpoints"
+            / "rednet_semmap_mp3d_40.pth"
+        )
+    else:
+        segmenter = SegformerAde20kSegmenter(
+            args.segformer_model_dir,
+            min_confidence=args.segformer_min_confidence,
+            allowed_categories=(
+                None
+                if args.segformer_category is None
+                else tuple(args.segformer_category)
+            ),
+        )
+    semantic_yolo_config = SemanticYoloConfig(
+        minimum_confidence=args.semantic_yolo_confidence,
+        depth_anchor_quantile=args.semantic_yolo_depth_anchor_quantile,
+        central_crop_fraction=args.semantic_yolo_central_crop_fraction,
+        depth_tolerance_m=args.semantic_yolo_depth_tolerance_m,
+        allowed_map_categories=tuple(
+            args.semantic_yolo_category or [args.goal_category]
+        ),
+    )
     yolo = None
-    if not args.no_cascade and args.glm_url:
+    if args.semantic_yolo or (not args.no_cascade and args.glm_url):
         yolo = YoloDetector(args.yolo_weights)
     memory = DirectionalMemory()
     decision_step = 0
     pre_goal_point: tuple[int, int] | None = None
-    emit("startup", rss_mib=round(rss_mib(), 1), gpu_mib=gpu_mib(), cascade_enabled=not args.no_cascade)
+    emit(
+        "startup",
+        rss_mib=round(rss_mib(), 1),
+        gpu_mib=gpu_mib(),
+        cascade_enabled=not args.no_cascade,
+        semantic_yolo_enabled=args.semantic_yolo,
+        semantic_yolo_evidence_only=args.semantic_yolo_evidence_only,
+        semantic_backend=args.semantic_backend,
+        semantic_backend_provenance=getattr(segmenter, "provenance", None),
+        yolo_model_provenance=None if yolo is None else yolo.provenance,
+    )
 
     pipeline: SpoolMappingPipeline | None = None
     startup_gate = StartupPoseGate(StartupPoseConfig(
@@ -424,6 +582,11 @@ def main() -> int:
                     obstacle_min_hits=args.obstacle_min_hits,
                     obstacle_band_low_m=args.obstacle_band_low_m,
                     obstacle_band_high_m=args.obstacle_band_high_m,
+                    semantic_fusion_mode=args.semantic_fusion_mode,
+                    semantic_min_hits=args.semantic_min_hits,
+                    semantic_winner_margin_hits=(
+                        args.semantic_winner_margin_hits
+                    ),
                 )
                 bound_transform_version = (
                     args.expected_transform_version
@@ -453,10 +616,19 @@ def main() -> int:
                         translation_threshold_m=args.keyframe_translation_m,
                         rotation_threshold_deg=args.keyframe_rotation_deg,
                         max_interval_sec=args.keyframe_max_interval_s,
-                        pose_jump_translation_m=args.startup_max_pose_delta_m,
-                        pose_jump_rotation_deg=args.startup_max_rotation_delta_deg,
+                        pose_jump_translation_m=(
+                            args.runtime_pose_jump_translation_m
+                        ),
+                        pose_jump_rotation_deg=(
+                            args.runtime_pose_jump_rotation_deg
+                        ),
                     ),
                     halt_on_pose_jump=True,
+                    semantic_detector=yolo if args.semantic_yolo else None,
+                    semantic_yolo_config=semantic_yolo_config,
+                    semantic_yolo_reinforce_map=(
+                        not args.semantic_yolo_evidence_only
+                    ),
                 )
                 emit(
                     "mapper_init",
@@ -470,10 +642,17 @@ def main() -> int:
                     stable_sequences=[item.sequence for item in stable],
                     obstacle_fusion_mode=args.obstacle_fusion_mode,
                     obstacle_min_hits=args.obstacle_min_hits,
+                    semantic_fusion_mode=args.semantic_fusion_mode,
+                    semantic_min_hits=args.semantic_min_hits,
+                    semantic_winner_margin_hits=(
+                        args.semantic_winner_margin_hits
+                    ),
                     obstacle_band_m=[
                         args.obstacle_band_low_m,
                         args.obstacle_band_high_m,
                     ],
+                    semantic_yolo=pipeline.semantic_yolo_status(),
+                    semantic_backend=pipeline.semantic_backend_status(),
                 )
                 observations_to_process = stable
                 startup_pending.clear()
@@ -497,6 +676,12 @@ def main() -> int:
                             mean_frame_ms=round(float(np.mean(frame_ms[-100:])), 1),
                             rss_mib=round(rss_mib(), 1),
                             gpu_mib=gpu_mib(),
+                            semantic_yolo_frames_with_evidence=(
+                                pipeline.semantic_yolo_frames_with_evidence
+                            ),
+                            semantic_yolo_category_counts=(
+                                pipeline.semantic_yolo_category_counts
+                            ),
                         )
                 elif keyframe_decision.pose_jump:
                     emit(

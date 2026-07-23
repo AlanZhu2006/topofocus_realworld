@@ -1,6 +1,14 @@
-# Transport contract v1
+# Transport contracts
 
-## Boundary
+> **Current status (2026-07-24):** v1 remains the observation-upload contract.
+> The supervised-demo v2 decision/event extension is implemented and has been
+> exercised through the real TinyNav/WATER paths under operator supervision.
+> Those attempts failed closed and none is an official SR/SPL result. See
+> [the canonical current status](../../CURRENT_STATUS.md),
+> [the v2 contract](TRANSPORT_V2_DEMO_DRAFT.md), and
+> [the physical evidence audit](../../audit/V2_ROBOT_RECEIVERS_20260723.md).
+
+## V1 boundary
 
 Robot-local ROS 2 remains responsible for camera synchronization, TinyNav pose production, local planning, obstacle avoidance, velocity control, controller priority and emergency stop. The hub receives selected observations and returns only high-level decisions.
 
@@ -80,4 +88,3 @@ decision history survives a hub crash.
 ## Payload selection
 
 The v1 payload is aligned RGB plus aligned 16-bit depth because it is portable and retains enough information to replay RedNet mapping centrally. Raw infrared, IMU and full-rate odometry remain in the robot rosbag for diagnosis. A later map-delta message may reduce bandwidth, but it must not replace the replayable observation contract before G3/G4 are demonstrated.
-

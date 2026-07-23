@@ -68,6 +68,81 @@
         "poseEstimateThetaDeviation": 0.26179939
       }
     },
+    "Image!wsjsemantic": {
+      "imageMode": {
+        "imageTopic": "/wsj/semantic_overview",
+        "synchronize": false,
+        "rotation": 0,
+        "annotations": {}
+      },
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {}
+    },
+    "Image!yunjisemantic": {
+      "imageMode": {
+        "imageTopic": "/yunji/semantic_overview",
+        "synchronize": false,
+        "rotation": 0,
+        "annotations": {}
+      },
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {}
+    },
+    "Image!fusedsemantic": {
+      "imageMode": {
+        "imageTopic": "/fused/semantic_overview",
+        "synchronize": false,
+        "rotation": 0,
+        "annotations": {}
+      },
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {}
+    },
     "3D!wsjmap": {
       "cameraState": {
         "distance": 30,
@@ -182,11 +257,11 @@
       "splitPercentage": 50
     },
     "second": {
-      "first": "3D!fusedmap",
+      "first": "Image!fusedsemantic",
       "second": {
         "first": {
-          "first": "3D!wsjmap",
-          "second": "3D!yunjimap",
+          "first": "Image!wsjsemantic",
+          "second": "Image!yunjisemantic",
           "direction": "row",
           "splitPercentage": 50
         },

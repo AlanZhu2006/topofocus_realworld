@@ -12,11 +12,12 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import cv2
 import numpy as np
 
-from .central_mapping import CentralMapper, MapperConfig, RedNetSegmenter
+from .central_mapping import CentralMapper, MapperConfig
 from .depth_align import decode_depth_png16
 from .ground_plane import (
     GroundPlaneConfig,
@@ -27,6 +28,7 @@ from .ground_plane import (
 )
 from .models import ObservationMetadata
 from .pose_gate import KeyframeConfig, KeyframeDecision, KeyframeSelector
+from .semantic_yolo import SemanticYoloConfig, reinforce_rednet_prediction
 
 
 @dataclass(frozen=True)
@@ -86,12 +88,18 @@ class _MapperFrame:
     T_world_infra1: np.ndarray  # depth is RGB-aligned, so this is T_shared_camera
 
 
+class SemanticSegmenter(Protocol):
+    """Small backend contract shared by source RedNet and deployment adapters."""
+
+    def segment(self, rgb_bgr: np.ndarray, depth_m: np.ndarray) -> np.ndarray: ...
+
+
 class SpoolMappingPipeline:
     """Builds the central semantic map for one robot from its spool."""
 
     def __init__(
         self,
-        segmenter: RedNetSegmenter,
+        segmenter: SemanticSegmenter,
         K_rgb: np.ndarray,
         config: MapperConfig,
         origin_xy_m: tuple[float, float],
@@ -109,6 +117,9 @@ class SpoolMappingPipeline:
         floor_source: str = "caller_provided_unverified",
         keyframe_config: KeyframeConfig | None = None,
         halt_on_pose_jump: bool = True,
+        semantic_detector=None,
+        semantic_yolo_config: SemanticYoloConfig | None = None,
+        semantic_yolo_reinforce_map: bool = True,
     ) -> None:
         if not frame_id:
             raise ValueError("frame_id must be non-empty")
@@ -144,6 +155,7 @@ class SpoolMappingPipeline:
         self.last_camera_xy: tuple[float, float] | None = None
         self.last_camera_T: np.ndarray | None = None
         self.last_rgb_bgr: np.ndarray | None = None
+        self.trajectory_xy_m: list[tuple[float, float]] = []
         self.frames_processed = 0
         self.observations_seen = 0
         self.skipped_non_keyframes = 0
@@ -163,6 +175,19 @@ class SpoolMappingPipeline:
         self.floor_source = floor_source
         self.keyframes = KeyframeSelector(keyframe_config) if keyframe_config else None
         self.halt_on_pose_jump = halt_on_pose_jump
+        self.semantic_detector = semantic_detector
+        self.semantic_yolo_config = semantic_yolo_config or SemanticYoloConfig()
+        self.semantic_yolo_reinforce_map = bool(semantic_yolo_reinforce_map)
+        self.semantic_yolo_frames_inferred = 0
+        self.semantic_yolo_frames_with_detections = 0
+        self.semantic_yolo_frames_with_evidence = 0
+        self.semantic_yolo_failures = 0
+        self.semantic_yolo_evidence_pixels = 0
+        self.semantic_yolo_category_counts: dict[str, int] = {}
+        self.last_semantic_yolo_sequence: int | None = None
+        self.last_semantic_yolo_detections: list[dict[str, object]] = []
+        self.last_semantic_yolo_evidence: list[dict[str, object]] = []
+        self.last_semantic_yolo_error: str | None = None
         self.mapping_blocked_reason: str | None = None
         self.mapping_blocked_kind: str | None = None
         self.first_sequence: int | None = None
@@ -194,6 +219,17 @@ class SpoolMappingPipeline:
             float(observation.T_shared_camera[1, 3]),
         )
         self.last_camera_T = observation.T_shared_camera
+        if (
+            not self.trajectory_xy_m
+            or np.linalg.norm(
+                np.asarray(self.last_camera_xy)
+                - np.asarray(self.trajectory_xy_m[-1])
+            )
+            >= 0.05
+        ):
+            self.trajectory_xy_m.append(self.last_camera_xy)
+            if len(self.trajectory_xy_m) > 2000:
+                self.trajectory_xy_m = self.trajectory_xy_m[-2000:]
         # The dashboard camera remains current even when geometry integration
         # is skipped by the keyframe gate or latched after a pose jump.
         self.last_rgb_bgr = observation.rgb_bgr
@@ -312,6 +348,53 @@ class SpoolMappingPipeline:
             return decision
 
         pred = self.segmenter.segment(observation.rgb_bgr, observation.depth_m)
+        if self.semantic_detector is not None:
+            self.semantic_yolo_frames_inferred += 1
+            self.last_semantic_yolo_sequence = observation.sequence
+            try:
+                detections = self.semantic_detector.detect_boxes(observation.rgb_bgr)
+                self.last_semantic_yolo_detections = [
+                    {
+                        "class_name": item.class_name,
+                        "confidence": item.confidence,
+                        "xyxy": list(item.xyxy),
+                        "status": "model_inference_unverified",
+                    }
+                    for item in detections
+                ]
+                if detections:
+                    self.semantic_yolo_frames_with_detections += 1
+                if self.semantic_yolo_reinforce_map:
+                    pred, yolo_evidence = reinforce_rednet_prediction(
+                        pred,
+                        observation.depth_m,
+                        detections,
+                        self.semantic_yolo_config,
+                    )
+                else:
+                    # The executable HPC source sends real YOLOv10 detections
+                    # to the Perception VLM, while its pixel semantic BEV comes
+                    # from the segmentation backend. Preserve that separation
+                    # for real-camera deployment: persist the detections and
+                    # exact source frame without painting box-derived labels
+                    # into the map.
+                    yolo_evidence = []
+                self.last_semantic_yolo_evidence = [
+                    item.to_dict() for item in yolo_evidence
+                ]
+                self.last_semantic_yolo_error = None
+                if yolo_evidence:
+                    self.semantic_yolo_frames_with_evidence += 1
+                    for item in yolo_evidence:
+                        self.semantic_yolo_evidence_pixels += item.labelled_pixels
+                        self.semantic_yolo_category_counts[item.map_category] = (
+                            self.semantic_yolo_category_counts.get(item.map_category, 0) + 1
+                        )
+            except Exception as exc:  # keep RedNet/geometry live if detector fails
+                self.semantic_yolo_failures += 1
+                self.last_semantic_yolo_detections = []
+                self.last_semantic_yolo_evidence = []
+                self.last_semantic_yolo_error = f"{type(exc).__name__}: {exc}"[:300]
         self.mapper.integrate(
             _MapperFrame(
                 depth_m=observation.depth_m,
@@ -334,6 +417,71 @@ class SpoolMappingPipeline:
         for observation in iter_spooled_observations(spool_dir, robot_id):
             self.process(observation)
         return self.frames_processed
+
+    def semantic_yolo_status(self) -> dict[str, object]:
+        provenance = None
+        if self.semantic_detector is not None:
+            provenance = getattr(self.semantic_detector, "provenance", None)
+        return {
+            "enabled": self.semantic_detector is not None,
+            "method": (
+                "yolov10_bbox_central_depth_cluster_to_pixel_label_projection"
+                if self.semantic_yolo_reinforce_map
+                else "yolov10_image_detections_for_perception_vlm_only"
+            ),
+            "status": (
+                (
+                    "model_inference_depth_projected_unverified"
+                    if self.semantic_yolo_reinforce_map
+                    else "model_inference_unverified_stage1_only"
+                )
+                if self.semantic_detector is not None
+                else "disabled"
+            ),
+            "map_reinforcement_enabled": (
+                self.semantic_detector is not None
+                and self.semantic_yolo_reinforce_map
+            ),
+            "model_provenance": provenance,
+            "config": {
+                "minimum_confidence": self.semantic_yolo_config.minimum_confidence,
+                "depth_anchor_quantile": (
+                    self.semantic_yolo_config.depth_anchor_quantile
+                ),
+                "central_crop_fraction": (
+                    self.semantic_yolo_config.central_crop_fraction
+                ),
+                "depth_tolerance_m": self.semantic_yolo_config.depth_tolerance_m,
+                "minimum_valid_pixels": self.semantic_yolo_config.minimum_valid_pixels,
+                "minimum_depth_m": self.semantic_yolo_config.minimum_depth_m,
+                "maximum_depth_m": self.semantic_yolo_config.maximum_depth_m,
+                "allowed_map_categories": list(
+                    self.semantic_yolo_config.allowed_map_categories
+                ),
+            },
+            "frames_inferred": self.semantic_yolo_frames_inferred,
+            "frames_with_detections": self.semantic_yolo_frames_with_detections,
+            "frames_with_evidence": self.semantic_yolo_frames_with_evidence,
+            "failures": self.semantic_yolo_failures,
+            "evidence_pixels_total": self.semantic_yolo_evidence_pixels,
+            "category_detection_counts": dict(
+                sorted(self.semantic_yolo_category_counts.items())
+            ),
+            "last_sequence": self.last_semantic_yolo_sequence,
+            "last_detections": self.last_semantic_yolo_detections,
+            "last_evidence": self.last_semantic_yolo_evidence,
+            "last_error": self.last_semantic_yolo_error,
+        }
+
+    def semantic_backend_status(self) -> dict[str, object]:
+        provenance = getattr(self.segmenter, "provenance", None)
+        if isinstance(provenance, dict):
+            return dict(provenance)
+        return {
+            "backend": "rednet_mp3d40",
+            "status": "source_derived_model_inference_unverified",
+            "method": "mp3d40_rednet_rgbd_confidence_0.8",
+        }
 
     def save(self, out_dir: Path) -> None:
         if not self.transform_version:
@@ -378,12 +526,35 @@ class SpoolMappingPipeline:
                 dtype=np.float64,
             ),
             obstacle_min_hits=np.asarray(self.mapper.config.obstacle_min_hits),
+            semantic_fusion_mode=np.asarray(
+                self.mapper.config.semantic_fusion_mode
+            ),
+            semantic_min_hits=np.asarray(self.mapper.config.semantic_min_hits),
+            semantic_winner_margin_hits=np.asarray(
+                self.mapper.config.semantic_winner_margin_hits
+            ),
+            semantic_fusion=np.asarray(
+                f"{self.semantic_backend_status()['backend']}+yolov10_bbox_depth"
+                if (
+                    self.semantic_detector is not None
+                    and self.semantic_yolo_reinforce_map
+                )
+                else str(self.semantic_backend_status()["backend"])
+            ),
+            semantic_yolo_model_sha256=np.asarray(
+                ""
+                if self.semantic_detector is None
+                else str(
+                    getattr(self.semantic_detector, "weights_sha256", "")
+                )
+            ),
         )
         os.replace(tmp_path, out_dir / "central_map.npz")
         summary = {
             "robot_id": self.robot_id,
             "source_kind": "focus_hub_incremental_rgbd",
             "source_status": "observed_spooled_observations",
+            "semantic_status": "model_inference_unverified",
             "map_format_version": "focus-hub-central-map-v3",
             "frames_processed": self.frames_processed,
             "observations_seen": self.observations_seen,
@@ -417,11 +588,31 @@ class SpoolMappingPipeline:
                 self.mapper.config.obstacle_band_high_m,
             ],
             "obstacle_min_hits": self.mapper.config.obstacle_min_hits,
+            "semantic_fusion_mode": self.mapper.config.semantic_fusion_mode,
+            "semantic_min_hits": self.mapper.config.semantic_min_hits,
+            "semantic_winner_margin_hits": (
+                self.mapper.config.semantic_winner_margin_hits
+            ),
+            "semantic_mapping": {
+                "rednet": {
+                    "enabled": (
+                        self.semantic_backend_status().get("backend")
+                        == "rednet_mp3d40"
+                    ),
+                    "method": "mp3d40_rednet_depth_projection",
+                    "status": "source_derived_model_inference_unverified",
+                },
+                "pixel_segmenter": self.semantic_backend_status(),
+                "yolo_reinforcement": self.semantic_yolo_status(),
+            },
             "first_sequence": self.first_sequence,
             "last_sequence": self.last_sequence,
             "last_observation_sequence": self.last_observation_sequence,
             "obstacle_cells": int((self.mapper.map.grid[0] > 0.5).sum()),
             "explored_cells": int((self.mapper.map.grid[1] > 0.5).sum()),
+            "semantic_cells": int(
+                np.any(self.mapper.map.grid[2:] > 0.1, axis=0).sum()
+            ),
         }
         summary_tmp = out_dir / "map_summary.json.tmp"
         summary_tmp.write_text(

@@ -15,7 +15,7 @@ def panel_ids(node):
     yield from panel_ids(node["second"])
 
 
-def test_dashboard_defaults_to_fused_geometry_and_references_every_panel():
+def test_dashboard_defaults_to_semantic_overviews_and_retains_3d_debug_configs():
     dashboard = json.loads(LAYOUT_PATH.read_text())
     configs = dashboard["configById"]
     fused_topics = configs["3D!fusedmap"]["topics"]
@@ -24,4 +24,19 @@ def test_dashboard_defaults_to_fused_geometry_and_references_every_panel():
     assert fused_topics["/fused/semantic_map"]["visible"] is False
     assert fused_topics["/wsj/map_pose"]["visible"] is True
     assert fused_topics["/yunji/map_pose"]["visible"] is True
-    assert set(panel_ids(dashboard["layout"])) == set(configs)
+    used_panels = set(panel_ids(dashboard["layout"]))
+    assert used_panels.issubset(set(configs))
+    assert {
+        "Image!wsjsemantic",
+        "Image!yunjisemantic",
+        "Image!fusedsemantic",
+    }.issubset(used_panels)
+    assert configs["Image!wsjsemantic"]["imageMode"]["imageTopic"] == (
+        "/wsj/semantic_overview"
+    )
+    assert configs["Image!yunjisemantic"]["imageMode"]["imageTopic"] == (
+        "/yunji/semantic_overview"
+    )
+    assert configs["Image!fusedsemantic"]["imageMode"]["imageTopic"] == (
+        "/fused/semantic_overview"
+    )

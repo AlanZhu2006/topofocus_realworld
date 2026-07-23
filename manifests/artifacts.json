@@ -24,6 +24,30 @@
       "sha256": "40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af"
     },
     {
+      "name": "SegFormer-B0 ADE20K real-camera semantic adapter",
+      "path": "artifacts/vision/segformer_b0_ade20k_hf",
+      "source": "nvidia/segformer-b0-finetuned-ade-512-512",
+      "revision": "489d5cd81a0b59fab9b7ea758d3548ebe99677da",
+      "status": "observed_and_checksum_verified",
+      "files": [
+        {
+          "path": "config.json",
+          "bytes": 6884,
+          "sha256": "209caa9091e4632f7c8883c11170cd08ad29af68b23c09590aa4a5befb1a2a7f"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "bytes": 271,
+          "sha256": "8039d1d210abaa7117ad78e58cdfd6141a2ec72c03dae891b3cd76737e422c6c"
+        },
+        {
+          "path": "model.safetensors",
+          "bytes": 15036944,
+          "sha256": "6ae39addd01de6b1b8bde2cf677d43a5cd733424b8d186de3f95d1c51fee23f9"
+        }
+      ]
+    },
+    {
       "name": "GLM-4V-9B Hugging Face cache",
       "path": "artifacts/models/hf_cache/hub/models--THUDM--glm-4v-9b",
       "directory_bytes": 27815640073,

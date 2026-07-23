@@ -52,9 +52,13 @@ The four model artifacts total roughly 29 GB on disk.  They were copied with `rs
 
 Two selected minival scenes were measured only to scope optional simulator smoke tests: 86 MB and 108 MB.  They are not needed for the hub.
 
-## The adapter that must be built
+## Adapter contract and implemented state
 
 `main.py` assumes Habitat observations and writes Habitat actions.  A real hub needs an adapter with these contracts before reusing its mapping and planning code.
+
+That adapter now exists under `hub/`. The following subsections remain the
+source-derived contract; current implementation and physical-test status are
+tracked in [`CURRENT_STATUS.md`](CURRENT_STATUS.md).
 
 ### Inbound message per robot
 
@@ -69,12 +73,20 @@ Two selected minival scenes were measured only to scope optional simulator smoke
 - optional discrete planner action only for a simulation adapter;
 - an explicit `STOP/HOLD` state.  The robot-side controller must be able to reject an unsafe or stale command.
 
-### Required decisions before implementation
+### Decisions now implemented
 
-1. Choose transport: ROS 2 topics/services (recommended if the robots already use ROS 2) or a gRPC/WebSocket gateway.
-2. Define one shared map frame and localization source.  GPS/compass calls in the simulator cannot be assumed equivalent to physical localization.
-3. Choose whether the hub sends high-level goals (safer first integration) or velocity/action commands (requires tighter safety validation).
-4. Establish time synchronization and dropped-frame behavior; neither is implemented upstream.
+1. Robot-local ROS adapters use authenticated HTTP to a loopback-bound Hub
+   reached through the existing SSH/VPN deployment path.
+2. Every observation declares a versioned shared transform and calibration ID;
+   cross-robot fusion refuses mismatches.
+3. The Hub sends only high-level frontier/semantic-region targets. It never
+   sends motor velocity.
+4. Capture time, receive time, monotonic sequence, payload hash, cross-robot
+   skew, health age and expiring leases are enforced fail-closed.
+
+Transport v2, both robot receivers and feedback are implemented. Physical
+scene completion remains open; implementation is not the same as an official
+navigation pass.
 
 ## What cooperation is already available
 

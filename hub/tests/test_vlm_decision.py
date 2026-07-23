@@ -102,8 +102,34 @@ def test_run_decision_cascade_gate_fails_skips_decision_stage(monkeypatch):
         memory=memory, base_url="http://x")
     assert not result.gate_passed
     assert result.frontier_choice is None
+    assert result.history_choice_index == 0
+    assert result.history_choice_rc == (5, 5)
     assert "gated" in result.gate_reason
     assert len(calls) == 2  # decision stage never called
+
+
+def test_history_branch_uses_source_score_argmax_and_candidate_subset(monkeypatch):
+    calls = _patch_call_glm(monkeypatch, [
+        ({"Yes": 0.1, "No": 0.9}, "No"),
+        ({"Yes": 0.1, "No": 0.9}, "No"),
+    ])
+    memory = DirectionalMemory(
+        history_nodes=[(1, 1), (100, 100)],
+        history_count=[1, 1],
+        history_states=[[0.0] * 360, [0.0] * 360],
+        history_score=[100.0, 50.0],
+    )
+    result = vd.run_decision_cascade(
+        rgb_bgr=_IMG, judgment_map_bgr=_IMG, decision_map_bgr=_IMG,
+        frontiers=[_frontier("A")], target="chair", detections=None,
+        scene_objects="", cur_location_rc=(100, 100), heading_deg=0.0,
+        pre_goal_point=None, step=200, early_episode_step_threshold=125,
+        memory=memory, base_url="http://x", history_candidate_indices=[1],
+    )
+    assert not result.gate_passed
+    assert result.history_choice_index == 1
+    assert result.history_choice_rc == (100, 100)
+    assert len(calls) == 2
 
 
 def test_run_decision_cascade_early_episode_forces_gate_open(monkeypatch):
@@ -124,16 +150,44 @@ def test_run_decision_cascade_early_episode_forces_gate_open(monkeypatch):
     assert result.frontier_choice is not None
 
 
-def test_run_decision_cascade_no_frontiers_short_circuits():
+def test_run_decision_cascade_no_frontiers_preserves_source_perception_history(
+    monkeypatch,
+):
+    calls = _patch_call_glm(
+        monkeypatch,
+        [({"Yes": 0.75, "No": 0.25}, "Yes")],
+    )
     memory = DirectionalMemory()
     result = vd.run_decision_cascade(
         rgb_bgr=_IMG, judgment_map_bgr=_IMG, decision_map_bgr=_IMG, frontiers=[],
         target="chair", detections=None, scene_objects="", cur_location_rc=(5, 5),
         heading_deg=0.0, pre_goal_point=None, step=10, early_episode_step_threshold=125,
         memory=memory, base_url="http://x")
-    assert result.perception_pr is None
+    assert result.perception_pr is not None
+    assert result.perception_pr[0] > result.perception_pr[1]
+    assert result.judgment_pr is None
     assert not result.gate_passed
     assert "no frontier candidates" in result.gate_reason
+    assert len(calls) == 1
+    assert memory.history_nodes == [(5, 5)]
+    assert memory.history_score[0] > 0.0
+
+
+def test_judgment_prompt_includes_current_visit_before_score_update(monkeypatch):
+    calls = _patch_call_glm(monkeypatch, [
+        ({"Yes": 0.9, "No": 0.1}, "Yes"),
+        ({"Yes": 0.9, "No": 0.1}, "Yes"),
+        ({"A": 1.0}, "A"),
+    ])
+    memory = DirectionalMemory()
+    vd.run_decision_cascade(
+        rgb_bgr=_IMG, judgment_map_bgr=_IMG, decision_map_bgr=_IMG,
+        frontiers=[_frontier("A")], target="chair", detections=None,
+        scene_objects="", cur_location_rc=(7, 8), heading_deg=0.0,
+        pre_goal_point=None, step=0, early_episode_step_threshold=125,
+        memory=memory, base_url="http://x",
+    )
+    assert "Coordinates: (7, 8)" in calls[1][0]
 
 
 def test_run_decision_cascade_stage_error_is_recorded_not_raised(monkeypatch):

@@ -5,7 +5,7 @@ import os
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import CommandMode, Decision, ObservationMetadata, RobotHealth
@@ -52,6 +52,16 @@ class RobotState:
     last_heartbeat: RobotHealth | None = None
     last_heartbeat_sent_ns: int = 0
     last_heartbeat_received_at_ns: int = 0
+    observation_history: dict[int, "ObservationIdentityRecord"] = field(
+        default_factory=dict
+    )
+
+
+@dataclass(frozen=True)
+class ObservationIdentityRecord:
+    metadata: ObservationMetadata
+    payload_digest: str
+    received_at_ns: int
 
 
 @dataclass(frozen=True)
@@ -74,6 +84,7 @@ class HubRegistry:
         max_future_skew_ns: int = 250_000_000,
         max_health_age_ns: int = 3_000_000_000,
         max_heartbeat_age_ns: int = 2_000_000_000,
+        observation_history_size: int = 256,
         state_path: "Path | None" = None,
     ) -> None:
         self._policies = dict(policies)
@@ -82,6 +93,9 @@ class HubRegistry:
         self._max_future_skew_ns = max_future_skew_ns
         self._max_health_age_ns = max_health_age_ns
         self._max_heartbeat_age_ns = max_heartbeat_age_ns
+        if observation_history_size < 2:
+            raise ValueError("observation_history_size must be at least two")
+        self._observation_history_size = observation_history_size
         self._lock = threading.RLock()
         self._state_path = state_path
         self._load_persisted_state()
@@ -183,6 +197,13 @@ class HubRegistry:
             state.last_payload_digest = payload_digest
             state.last_observation = metadata
             state.last_received_at_ns = now_ns
+            state.observation_history[metadata.sequence] = ObservationIdentityRecord(
+                metadata=metadata,
+                payload_digest=payload_digest,
+                received_at_ns=now_ns,
+            )
+            while len(state.observation_history) > self._observation_history_size:
+                del state.observation_history[next(iter(state.observation_history))]
             self._persist_state()
             return result
 
@@ -219,13 +240,96 @@ class HubRegistry:
             return now_ns
 
     def _freshest_health(self, state: RobotState) -> tuple[RobotHealth | None, int]:
-        """Returns (health, age_source_received_at_ns) from whichever of the
-        observation stream or the independent heartbeat channel is newer.
+        """Return the command-authoritative health and its receive timestamp.
+
+        Once a robot-local receiver heartbeat has been observed, it remains
+        the command-health authority for the lifetime of this Hub process.
+        RGB-D observations can arrive between 2 Hz heartbeats and may carry
+        mapping/perception health that is deliberately not command-ready; they
+        must not transiently replace a still-fresh receiver heartbeat.  A
+        stale heartbeat also never falls back to observation health, so loss
+        of the robot-local command authority remains fail-closed.
         """
         observation_health = state.last_observation.health if state.last_observation else None
-        if state.last_heartbeat_received_at_ns > state.last_received_at_ns:
+        if state.last_heartbeat_received_at_ns > 0:
             return state.last_heartbeat, state.last_heartbeat_received_at_ns
         return observation_health, state.last_received_at_ns
+
+    def runtime_readiness(
+        self, robot_id: str, *, now_ns: int | None = None
+    ) -> dict[str, object]:
+        """Explain the same live GOAL gates enforced by ``publish_decision``."""
+
+        now_ns = time.time_ns() if now_ns is None else now_ns
+        with self._lock:
+            state = self._state(robot_id)
+            policy = self._policies[robot_id]
+            observation = state.last_observation
+            health, health_received_at_ns = self._freshest_health(state)
+            health_age_ns = (
+                None
+                if health_received_at_ns <= 0
+                else max(0, now_ns - health_received_at_ns)
+            )
+            health_fresh = (
+                health_age_ns is not None
+                and health_age_ns <= self._max_health_age_ns
+            )
+            blockers: list[str] = []
+            if not policy.allow_goal:
+                blockers.append("GOAL_POLICY_DISABLED")
+            if observation is None:
+                blockers.append("NO_ACCEPTED_OBSERVATION")
+            else:
+                if observation.mapping_only:
+                    blockers.append("LATEST_OBSERVATION_MAPPING_ONLY")
+                if observation.base_T_camera is None:
+                    blockers.append("BASE_T_CAMERA_ABSENT")
+                if (
+                    policy.transform_version != "UNSET"
+                    and observation.pose.transform_version
+                    != policy.transform_version
+                ):
+                    blockers.append("TRANSFORM_VERSION_MISMATCH")
+            if health is None:
+                blockers.append("HEALTH_ABSENT")
+            elif not health.ready_for_goal():
+                blockers.append("HEALTH_NOT_READY")
+            if not health_fresh:
+                blockers.append("HEALTH_STALE")
+            return {
+                "robot_id": robot_id,
+                "server_time_ns": now_ns,
+                "ready_for_goal": not blockers,
+                "blockers": blockers,
+                "policy_allow_goal": policy.allow_goal,
+                "policy_transform_version": policy.transform_version,
+                "last_observation_sequence": state.last_sequence,
+                "last_observation_received_at_ns": state.last_received_at_ns,
+                "observation_mapping_only": (
+                    None if observation is None else observation.mapping_only
+                ),
+                "observation_has_base_T_camera": (
+                    None
+                    if observation is None
+                    else observation.base_T_camera is not None
+                ),
+                "observation_transform_version": (
+                    None
+                    if observation is None
+                    else observation.pose.transform_version
+                ),
+                "health_source": (
+                    "heartbeat"
+                    if state.last_heartbeat_received_at_ns > 0
+                    else ("observation" if observation is not None else None)
+                ),
+                "health_received_at_ns": health_received_at_ns,
+                "health_age_ns": health_age_ns,
+                "health": (
+                    None if health is None else health.model_dump(mode="json")
+                ),
+            }
 
     def rollback_observation(
         self,
@@ -243,6 +347,7 @@ class HubRegistry:
             state.last_payload_digest = accepted.previous_digest
             state.last_observation = accepted.previous_observation
             state.last_received_at_ns = accepted.previous_received_at_ns
+            state.observation_history.pop(metadata.sequence, None)
 
     def advance_map_version(self) -> int:
         with self._lock:
@@ -305,4 +410,9 @@ class HubRegistry:
     def snapshot(self, robot_id: str) -> RobotState:
         with self._lock:
             state = self._state(robot_id)
-            return RobotState(**vars(state))
+            return RobotState(
+                **{
+                    **vars(state),
+                    "observation_history": dict(state.observation_history),
+                }
+            )

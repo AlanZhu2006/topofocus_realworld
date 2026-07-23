@@ -33,6 +33,12 @@ from typing import Any
 import cv2
 import numpy as np
 
+HUB_SRC = Path(__file__).resolve().parents[1] / "src"
+if HUB_SRC.is_dir():
+    sys.path.insert(0, str(HUB_SRC))
+
+from focus_hub.base_camera_calibration import load_base_camera_calibration
+
 from yunji_sender import (
     DEPTH_SCALE_M,
     HeartbeatThread,
@@ -596,6 +602,9 @@ def main() -> int:
     parser.add_argument("--metrics-out", default="odin1_sender_metrics.json")
     parser.add_argument("--evidence-dir", default=None)
     parser.add_argument("--dry-run", action="store_true", help="process frames but do not upload")
+    parser.add_argument("--base-camera-calibration-file", type=Path)
+    parser.add_argument("--enable-command-capable-observations", action="store_true")
+    parser.add_argument("--activation-confirmation", default="")
     args = parser.parse_args()
 
     if args.rate_hz < 0.0:
@@ -603,6 +612,30 @@ def main() -> int:
     if args.sync_slop_s <= 0.0 or args.read_timeout_s <= 0.0:
         parser.error("sync slop and read timeout must be positive")
     calibration = load_odin_calibration(args.calibration_file, args.expected_serial)
+    base_camera_calibration = None
+    if args.enable_command_capable_observations:
+        if args.activation_confirmation != "COMMAND_CAPABLE_OBSERVATION_ONLY":
+            parser.error(
+                "command-capable observations require --activation-confirmation "
+                "COMMAND_CAPABLE_OBSERVATION_ONLY"
+            )
+        if args.base_camera_calibration_file is None:
+            parser.error(
+                "--base-camera-calibration-file is required for command-capable observations"
+            )
+        if args.heartbeat_hz != 0:
+            parser.error(
+                "set --heartbeat-hz 0; the armed v2 receiver owns command health heartbeats"
+            )
+        base_camera_calibration = load_base_camera_calibration(
+            args.base_camera_calibration_file,
+            expected_robot_id=args.robot_id,
+            expected_camera_frame=calibration.camera_frame,
+        )
+    elif args.base_camera_calibration_file is not None:
+        parser.error(
+            "--base-camera-calibration-file requires --enable-command-capable-observations"
+        )
     shared_transform_path = args.shared_frame_transform_file or os.environ.get(
         "FOCUS_ODIN1_SHARED_TRANSFORM_FILE"
     )
@@ -610,6 +643,8 @@ def main() -> int:
         shared_transform_path,
         expected_transform_version=args.transform_version,
     )
+    if args.enable_command_capable_observations and shared_transform is None:
+        parser.error("command-capable observations require a passed shared-frame transform")
     parent_frame = "shared_world"
     if shared_transform is None:
         print(
@@ -721,6 +756,9 @@ def main() -> int:
                 depth_min_m=args.depth_min_m,
                 depth_max_m=args.depth_max_m,
             )
+            if base_camera_calibration is not None:
+                metadata["base_T_camera"] = base_camera_calibration.wire_transform()
+                metadata["mapping_only"] = False
             attempts = 0
             ack_status = "dry_run"
             if transport is not None:

@@ -1,5 +1,15 @@
 # VLM decision cascade: full port, render-flip bug fix, live validation — 2026-07-20
 
+> **2026-07-23 executable-source correction.** This audit originally said
+> the gate-fail branch called a separate History Decision VLM and was not
+> ported. A new direct audit of the immutable executable
+> `source/Focus_realworld/main.py` shows the opposite: although
+> `SystemPrompt.py` defines a history prompt, `main.py` assigns
+> `Final_PR = history_score_copy` and takes the first maximum. The current
+> Hub implementation now follows that executed branch. Historical test counts
+> and results below remain dated evidence; the corrected current status is in
+> `audit/SOURCE_DERIVED_VLM_SCENE_RUNNER_20260723.md`.
+
 ## Background
 
 The hub's VLM frontier-choice logic (`choose_frontier_glm`, pre-existing) was a
@@ -16,14 +26,16 @@ agent per step:
    historical point", given a rendered semantic map (frontier points, history
    points, robot pose+heading).
 3. **Directional-memory update** — the combined Perception+Judgment score gets
-   smeared across a ±39° wedge of a 360-bucket per-location array
+   written with the source's exact 39-bucket slice arithmetic into a
+   360-bucket per-location array shared by all agents
    (`history_nodes`/`history_count`/`history_states`/`history_score`), keyed to
    the nearest known position within 25 cells.
 4. **Gate** — `FN_PR[0] >= 0.5 or l_step <= 125`; only if true does the
    Decision VLM actually run.
-5. **Decision VLM** — pick a lettered frontier, using a "Step 4" prompt patch
-   (`patch_frontier_prompt`) that forces decision-first output, because the
-   server only extracts probabilities over the *first* generated token.
+5. **Selection** — if the gate passes, Decision VLM picks a lettered frontier
+   using the decision-first prompt patch. If the gate fails, executable
+   `main.py` selects the first argmax from its frozen shared-history scores;
+   it does not make a History VLM call.
 
 Per the standing HPC-fidelity directive, this was ported in full rather than
 left as the simplified version.
@@ -56,10 +68,10 @@ left as the simplified version.
   logit scores, not this regex parse).
 - `hub/src/focus_hub/directional_memory.py` (new): `DirectionalMemory`,
   ported faithfully including a genuine upstream inconsistency in the
-  first-visit vs. revisit branches' wraparound arithmetic near 0°/360°
-  (first-visit: consistent ±39° window even wrapping; revisit: window width
-  in the wraparound case is `c_angle` itself, not 39) — reproduced exactly,
-  not "fixed", per the standing HPC-fidelity rule.
+  first-visit vs. revisit branches' wraparound arithmetic near 0°/360°.
+  The asymmetric source slice bounds are reproduced exactly, not normalized.
+  The four lists are episode-global in `main.py`, so the continuous adapter
+  uses one shared instance for all agents.
 - `hub/src/focus_hub/yolo_detector.py` (new): thin `YoloDetector` wrapper
   around `ultralytics.YOLO`, matching upstream's exact call shape. Uses the
   already-present `artifacts/vision/yolov10m.pt` (from the original G0
@@ -79,12 +91,15 @@ left as the simplified version.
   tracked across cycles matching upstream's `pre_goal_points[j]`), with a
   `--no-cascade` escape hatch back to the old single-call path.
 
-**Explicitly not ported** (flagged, not silently dropped): when the gate
-fails, upstream picks among historical observation points instead via a
-separate prompt (`form_prompt_for_DecisionVLM_History`). This port just
-reports `gate_passed=False` and returns no frontier choice in that case — a
-safe, fail-closed HOLD-equivalent, but not the full upstream behavior for
-that specific branch.
+**Corrected on 2026-07-23:** the gate-fail branch is now ported as the
+executable source implements it: freeze `history_nodes_copy` and
+`history_score_copy` after agent 0, select the first maximum, and remove a
+selected copied entry only when multiple candidates exist. No extra History
+VLM call is invented. The same correction also preserves source ordering:
+Perception, register/increment the current shared-history node, construct the
+Judgment prompt, then apply the directional score. With no frontier,
+Perception still updates history using `2 * Perception_PR[0]`; only the
+source's unsafe random physical goal is suppressed by the deployment layer.
 
 Other labelled, non-fidelity-breaking substitutions: `heading_deg` for real
 robots is derived from `T_shared_camera`'s own +Z column (approximate — real
@@ -153,6 +168,12 @@ return). Verified:
   memory/prompt tests were added earlier this session and already counted in
   the 93).
 
+The preceding paragraph is the original 2026-07-20 result. As of 2026-07-23,
+the no-frontier regression instead requires one Perception call plus the
+source history update, and new tests cover current-node prompt ordering,
+frozen-history first-argmax, persistent shared state, exact decision steps,
+largest target components, and TV's source 7x7 dilation.
+
 ## Live end-to-end validation against real GLM-4V-9B inference
 
 Started the real offline server (`scripts/run_glm_offline.sh`, port 31511,
@@ -216,11 +237,10 @@ check); GPU memory confirmed back to baseline (991 MiB). Scratch runtime dir
 
 ## What remains open
 
-- The gate-fails "revisit history" branch (Decision-VLM-over-history-points)
-  is still not ported — see "Explicitly not ported" above.
 - `heading_deg_from_pose`'s approximation has not been validated against any
   ground truth (no robot currently reports a clean "forward" heading the way
   Habitat's simulated agent state does).
-- Both live-validation passes used the wsj *replay recording*, not a live
-  `hub_pipeline_daemon.py` run consuming a real-time robot data stream —
-  that still requires wsj (or Yunji) online, which remains blocked.
+- The 2026-07-23 continuous runner is still shadow-only. A model-derived
+  `Find_Goal` cannot become physical navigation success until a robot-local
+  planner produces the source-equivalent `stop && found_goal` result under
+  operator-present HIL safety validation.

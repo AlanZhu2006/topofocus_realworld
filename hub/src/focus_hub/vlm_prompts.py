@@ -20,6 +20,12 @@ agent per step:
   3. Decision VLM — pick a lettered frontier (what `vlm_decision.py`
      already did) — gated on stage 2's answer (or an early-episode override).
 
+The executable ``main.py`` gate-fail branch does *not* invoke the History
+Decision prompt that is also defined in ``SystemPrompt.py``. It assigns
+``Final_PR = history_score_copy`` and takes the first maximum. The deployment
+adapter follows that executed branch and keeps the unused prompt only as
+source provenance, not as a fourth model call.
+
 Verified directly against the original HPC source
 (`ssh alantorch:/scratch/jl9356/Focus_realworld`, `running_inference.md` +
 `run_cmd.txt`): the real baseline experiments run with real YOLOv10

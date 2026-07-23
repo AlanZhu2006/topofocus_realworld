@@ -6,8 +6,23 @@ code and calibration remain available only as a rollback lane.
 
 ## Current state and remaining gate
 
-As of 2026-07-22, the read-only Odin observation path and main Foxglove map
-have been cut over. Autonomous navigation remains gated:
+The canonical current state is
+[CURRENT_STATUS.md](../../CURRENT_STATUS.md). The July 22 transform described
+later in this file is historical. The current deployment uses:
+
+- calibration ID `shared-board-odin1-20260723-v3`;
+- WSJ transform `wsj-tinynav-depth-20260723-powercycle-v3`;
+- Yunji/Odin transform `yunji-odin1-board-20260723-powercycle-v6`;
+- current `rebuild_v12_router025` map pair listed in the canonical status.
+
+Power cycling by itself does not require recalibration when the robot, camera
+mount and physical starting placement are unchanged; reuse still requires the
+no-motion pose-delta gate. The current v2 path has reached WATER under
+supervision but has no official completed scene.
+
+### Historical observed July 22 cutover
+
+The following bullets preserve the original sensor-cutover evidence:
 
 - the native driver publishes image, SLAM cloud and odometry at about 10.3 Hz
   and reports SLAM tracking;
@@ -238,3 +253,48 @@ observed deployment record, not packaged replay data.
 The existing Foxglove layout does not need new topic names when the accepted
 Odin map replaces Yunji under the same relay label. It does need a reconnect if
 the relay process/port changes.
+
+## Initial live chair-semantic cutover (2026-07-22)
+
+After the RedNet-only maps repeatedly missed a clearly visible chair, the
+goal-scoped HPC YOLO reinforcement was enabled in fresh map directories. No
+sender, calibration, robot-control or motion service changed:
+
+- WSJ: `runtime/map_out_wsj_yolo_v1_20260722`, after sequence 14411,
+  `--obstacle-band-low-m 0.25 --semantic-yolo --goal-category chair`;
+- Yunji/Odin: `runtime/map_out_yunji_yolo_v1_20260722`, after sequence 162817,
+  the existing 0.15–0.75 m collision band plus the same chair option;
+- both retain transform versions and calibration ID
+  `shared-board-odin1-20260722-v1`;
+- local tmux session: `shared_maps_yolo_v1_20260722`;
+- relay session: `foxglove_relay_yolo_v1_20260722`, unchanged ports 8765/8766
+  and unchanged `/wsj/*`, `/yunji/*`, `/fused/*` topic names.
+
+The old map directories remain intact as a rollback reference. The existing
+Foxglove layout reconnects to the same port and needs no re-import. Geometry is
+still the visible default; toggle the existing semantic-map topic to inspect
+the chair cells. Exact live evidence and model/input checksums are recorded in
+`audit/YOLO_SEMANTIC_BEV_LIVE_20260722.md`.
+
+## Current cross-view chair correction (2026-07-22)
+
+The initial foreground-depth rule selected a nearer pole inside WSJ's chair
+box, so the two robots projected the same chair about 0.9 m apart despite the
+board calibration's 1.15 cm holdout residual. The current deployment uses the
+central 40% box median and a symmetric ±0.45 m depth cluster in fresh maps:
+
+- WSJ: `runtime/map_out_wsj_yolo_depthcluster_v2_20260722`, after sequence
+  14783;
+- Yunji/Odin: `runtime/map_out_yunji_yolo_depthcluster_v2_20260722`, after
+  sequence 164264;
+- map daemon session: `shared_maps_yolo_depthcluster_v2_20260722`;
+- relay session: `foxglove_relay_yolo_depthcluster_v2_20260722`, unchanged
+  ports 8765/8766 and topic names.
+
+The preserved v2 gate measured the two chair centroids 7.91 cm apart with
+overlapping extents, zero detector failures and no mapping block. The relay
+now paints every original 5 cm semantic cell above the geometry map and adds
+one small class label over the largest connected component; it does not draw
+an enclosing box. The existing layout already displays both `map_pose` topics,
+so neither a new layout nor a re-import is required. The initial v1 directories
+remain a rollback/evidence reference.

@@ -1,5 +1,11 @@
 # TinyNav BuildMap native occupancy adapter
 
+> This file describes the original finalized-map adapter. The current WSJ
+> physical lane uses online BuildMap plus
+> `tinynav_buildmap_goal_router.py`; see
+> [CURRENT_STATUS.md](../../CURRENT_STATUS.md). The offline adapter remains a
+> reproducibility and rollback path.
+
 ## Approved boundary
 
 The robot remains authoritative and this path is mapping-only. It consumes a

@@ -55,12 +55,22 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
         np.testing.assert_allclose(data["floor_plane_coefficients"], [0.0, 0.0, 0.0])
         assert str(data["obstacle_fusion_mode"].item()) == "max"
         np.testing.assert_allclose(data["obstacle_band_m"], [0.25, 1.5])
+        assert str(data["semantic_fusion_mode"].item()) == "max"
+        assert int(data["semantic_min_hits"]) == 1
+        assert int(data["semantic_winner_margin_hits"]) == 0
+        assert str(data["semantic_fusion"].item()) == "rednet_mp3d40"
+        assert str(data["semantic_yolo_model_sha256"].item()) == ""
 
     summary = json.loads((tmp_path / "map_summary.json").read_text())
     assert summary["obstacle_band_m"] == [0.25, 1.5]
     assert summary["ground_drift_frames"] == 0
     assert summary["ground_drift_streak"] == 0
     assert summary["ground_guard"]["consecutive_frames_to_latch"] == 3
+    assert summary["semantic_mapping"]["pixel_segmenter"]["backend"] == (
+        "rednet_mp3d40"
+    )
+    assert summary["semantic_mapping"]["yolo_reinforcement"]["enabled"] is False
+    assert summary["semantic_cells"] == 0
 
 
 def test_save_can_be_called_repeatedly(tmp_path):
