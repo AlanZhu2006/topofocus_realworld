@@ -1,201 +1,128 @@
-#!/usr/bin/env bash
+# TopoFocus 真机实验原始命令清单
 #
-# TopoFocus real-robot entry point.
+# 使用方法：
+#   打开本文件，一次只复制并运行当前需要的一个命令区块。
+#   不要把整个 command.txt 当脚本一次性执行。
 #
-# New placement, calibration, strict debug, then one supervised live episode:
-#   bash command.txt
+# 支持的语义目标：
+#   chair / bed / plant / toilet / tv / sofa
 #
-# Repeat no-motion full-stack debug with the saved current session:
-#   bash command.txt debug
+# 当前默认实验：
+#   goal      = chair
+#   scene     = scene01-chair
+#   first run = scene01-chair-run01
+
+
+# ======================================================================
+# 1. 新物理摆位：一次完成共享标定、fresh map、Foxglove 和严格无运动 debug
+# ======================================================================
 #
-# Run another supervised episode with the saved current session:
-#   bash command.txt live scene01-chair scene01-chair-run01 chair
+# 两台机器人保持静止并且都能看到 7 x 10 圆点标定板。
+# 脚本提示后，只移动标定板，不移动机器人。
+# 每个新摆位必须使用新的、全小写 session ID。
 #
-# Calibrate only (the calibration command still finishes with strict debug):
-#   bash command.txt calibrate 20260725-lab01 chair
+# 成功标志：
+#   DEBUG_FULLSTACK_READY
+#   hub/runtime/sessions/current.json 已生成
 #
-# Optional environment defaults:
-#   FOCUS_GOAL_CATEGORY=chair
-#   FOCUS_SCENE_ID=scene01-chair
-#   FOCUS_EPISODE_ID=scene01-chair-run01
-#   FOCUS_SESSION_ID=20260725-lab01
+cd /home/asus/Research/focus_realworld_workspace
+bash hub/scripts/calibrate_realworld_session.sh \
+  --session-id 20260725-lab01 \
+  --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY \
+  --goal-category chair
+
+
+# ======================================================================
+# 2. 已有 current session：只重新检查全栈，不允许机器人运动
+# ======================================================================
 #
-# Press Ctrl-C during live operation to invoke the underlying fail-closed
-# cleanup. The live confirmation is deliberately read from the terminal on
-# every invocation and is never stored as an accepted confirmation.
-set -euo pipefail
+# 断电重启后、正式实验前或只想检查地图/Foxglove/VLM 时运行。
+#
+cd /home/asus/Research/focus_realworld_workspace
+bash hub/scripts/realworld_oneclick.sh \
+  --session-file current \
+  --mode debug \
+  --scene-id debug-chair \
+  --goal-category chair
 
-WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CALIBRATION_SCRIPT="$WORKSPACE/hub/scripts/calibrate_realworld_session.sh"
-ONECLICK_SCRIPT="$WORKSPACE/hub/scripts/realworld_oneclick.sh"
 
-usage() {
-  cat <<'EOF'
-Usage:
-  bash command.txt
-  bash command.txt full [SCENE_ID] [EPISODE_ID] [GOAL] [SESSION_ID]
-  bash command.txt calibrate [SESSION_ID] [GOAL]
-  bash command.txt debug [GOAL]
-  bash command.txt live [SCENE_ID] [EPISODE_ID] [GOAL]
-  bash command.txt help
+# ======================================================================
+# 3. 正式真机实验：一次 supervised live episode
+# ======================================================================
+#
+# 必须先看到同一 Git/current session 的 DEBUG_FULLSTACK_READY。
+# 两台机器人必须已经上电、站立、周围无障碍，并且操作者在旁边。
+# Ctrl-C 会触发底层 fail-closed cleanup。
+#
+# 每次实验必须使用新的 episode ID。下面是 scene01 的第一次：
+#
+cd /home/asus/Research/focus_realworld_workspace
+bash hub/scripts/realworld_oneclick.sh \
+  --session-file current \
+  --mode live \
+  --scene-id scene01-chair \
+  --episode-id scene01-chair-run01 \
+  --goal-category chair \
+  --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 
-Modes:
-  full       New placement: shared-board calibration, fresh maps, Foxglove,
-             strict no-motion debug, then one separately confirmed live run.
-             This is the default when no mode is supplied.
-  calibrate  Shared-board calibration, fresh maps, Foxglove and strict debug.
-             It never starts the Go2 bridge or WATER live receiver.
-  debug      Recheck the saved current session without motion.
-  live       Run one supervised physical episode using the saved current
-             session. A same-session strict debug result is required.
 
-Supported goals: chair, bed, plant, toilet, tv, sofa.
+# ======================================================================
+# 4. 同一场景后续四次实验
+# ======================================================================
+#
+# 每次只运行其中一条；确认上一条已结束并恢复 GOAL=false 后再运行下一条。
+#
 
-Examples:
-  bash command.txt
-  bash command.txt live scene01-chair scene01-chair-run01 chair
-  FOCUS_SCENE_ID=scene02-plant bash command.txt live
-EOF
-}
+# scene01 / run02
+cd /home/asus/Research/focus_realworld_workspace
+bash hub/scripts/realworld_oneclick.sh \
+  --session-file current \
+  --mode live \
+  --scene-id scene01-chair \
+  --episode-id scene01-chair-run02 \
+  --goal-category chair \
+  --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 
-require_terminal() {
-  [[ -t 0 ]] || {
-    echo "This physical workflow requires an interactive terminal." >&2
-    exit 2
-  }
-}
+# scene01 / run03
+cd /home/asus/Research/focus_realworld_workspace
+bash hub/scripts/realworld_oneclick.sh \
+  --session-file current \
+  --mode live \
+  --scene-id scene01-chair \
+  --episode-id scene01-chair-run03 \
+  --goal-category chair \
+  --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 
-confirm_exact() {
-  local expected="$1" explanation="$2" answer
-  printf '\n%s\n' "$explanation"
-  printf 'Type exactly: %s\n> ' "$expected"
-  IFS= read -r answer
-  [[ "$answer" == "$expected" ]] || {
-    echo "Confirmation did not match; nothing was started." >&2
-    exit 3
-  }
-}
+# scene01 / run04
+cd /home/asus/Research/focus_realworld_workspace
+bash hub/scripts/realworld_oneclick.sh \
+  --session-file current \
+  --mode live \
+  --scene-id scene01-chair \
+  --episode-id scene01-chair-run04 \
+  --goal-category chair \
+  --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 
-validate_goal() {
-  case "$1" in
-    chair|bed|plant|toilet|tv|sofa) ;;
-    *)
-      echo "Unsupported goal '$1'. Use chair, bed, plant, toilet, tv or sofa." >&2
-      exit 2
-      ;;
-  esac
-}
+# scene01 / run05
+cd /home/asus/Research/focus_realworld_workspace
+bash hub/scripts/realworld_oneclick.sh \
+  --session-file current \
+  --mode live \
+  --scene-id scene01-chair \
+  --episode-id scene01-chair-run05 \
+  --goal-category chair \
+  --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 
-validate_scene_id() {
-  [[ "$1" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || {
-    echo "Scene ID must be lowercase and filesystem-safe: $1" >&2
-    exit 2
-  }
-}
 
-validate_episode_id() {
-  [[ "$1" =~ ^[a-z0-9][a-z0-9_.-]{0,127}$ ]] || {
-    echo "Episode ID must be lowercase and filesystem-safe: $1" >&2
-    exit 2
-  }
-}
-
-validate_session_id() {
-  [[ "$1" =~ ^[a-z0-9][a-z0-9_.-]{0,63}$ ]] || {
-    echo "Session ID must be lowercase and filesystem-safe: $1" >&2
-    exit 2
-  }
-}
-
-run_calibration() {
-  local session_id="$1" goal="$2"
-  validate_session_id "$session_id"
-  validate_goal "$goal"
-  require_terminal
-  confirm_exact \
-    OPERATOR_PRESENT_AND_BOARD_ONLY \
-    "Both robots must be stationary. Only the shared 7x10 board may move during calibration."
-  bash "$CALIBRATION_SCRIPT" \
-    --session-id "$session_id" \
-    --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY \
-    --goal-category "$goal"
-}
-
-run_debug() {
-  local goal="$1"
-  validate_goal "$goal"
-  bash "$ONECLICK_SCRIPT" \
-    --session-file current \
-    --mode debug \
-    --scene-id "debug-$goal" \
-    --goal-category "$goal"
-}
-
-run_live() {
-  local scene_id="$1" episode_id="$2" goal="$3"
-  validate_scene_id "$scene_id"
-  validate_episode_id "$episode_id"
-  validate_goal "$goal"
-  require_terminal
-  confirm_exact \
-    OPERATOR_PRESENT_AND_ROBOTS_CLEAR \
-    "Both robots must be powered, standing, clear of obstacles and supervised. Ctrl-C requests fail-closed cleanup."
-  bash "$ONECLICK_SCRIPT" \
-    --session-file current \
-    --mode live \
-    --scene-id "$scene_id" \
-    --episode-id "$episode_id" \
-    --goal-category "$goal" \
-    --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
-}
-
-mode="${1:-full}"
-if [[ $# -gt 0 ]]; then
-  shift
-fi
-
-run_stamp="$(date +%Y%m%d-%H%M%S)"
-
-case "$mode" in
-  full)
-    goal="${3:-${FOCUS_GOAL_CATEGORY:-chair}}"
-    scene_id="${1:-${FOCUS_SCENE_ID:-scene01-$goal}}"
-    episode_id="${2:-${FOCUS_EPISODE_ID:-${scene_id}-run-$run_stamp}}"
-    session_id="${4:-${FOCUS_SESSION_ID:-${run_stamp}-lab01}}"
-    printf 'Full physical workflow\n'
-    printf '  session: %s\n  scene:   %s\n  episode: %s\n  goal:    %s\n' \
-      "$session_id" "$scene_id" "$episode_id" "$goal"
-    run_calibration "$session_id" "$goal"
-    printf '\nStrict calibration/debug completed successfully.\n'
-    run_live "$scene_id" "$episode_id" "$goal"
-    ;;
-  calibrate)
-    session_id="${1:-${FOCUS_SESSION_ID:-${run_stamp}-lab01}}"
-    goal="${2:-${FOCUS_GOAL_CATEGORY:-chair}}"
-    printf 'Calibration/debug workflow\n'
-    printf '  session: %s\n  goal:    %s\n' "$session_id" "$goal"
-    run_calibration "$session_id" "$goal"
-    ;;
-  debug)
-    goal="${1:-${FOCUS_GOAL_CATEGORY:-chair}}"
-    printf 'Strict no-motion debug\n  goal: %s\n' "$goal"
-    run_debug "$goal"
-    ;;
-  live)
-    goal="${3:-${FOCUS_GOAL_CATEGORY:-chair}}"
-    scene_id="${1:-${FOCUS_SCENE_ID:-scene01-$goal}}"
-    episode_id="${2:-${FOCUS_EPISODE_ID:-${scene_id}-run-$run_stamp}}"
-    printf 'Supervised live episode\n'
-    printf '  scene:   %s\n  episode: %s\n  goal:    %s\n' \
-      "$scene_id" "$episode_id" "$goal"
-    run_live "$scene_id" "$episode_id" "$goal"
-    ;;
-  help|-h|--help)
-    usage
-    ;;
-  *)
-    echo "Unknown mode: $mode" >&2
-    usage >&2
-    exit 2
-    ;;
-esac
+# ======================================================================
+# 5. 其他场景
+# ======================================================================
+#
+# 复制第 3 节的 live 命令，只修改以下三项：
+#
+#   --scene-id      例如 scene02-plant
+#   --episode-id    例如 scene02-plant-run01
+#   --goal-category 例如 plant
+#
+# scene/episode ID 必须为全小写，只能使用字母、数字、下划线、点和连字符。
+# 不要修改 --session-file current 或 operator confirmation。

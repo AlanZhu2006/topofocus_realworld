@@ -37,24 +37,16 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 
 ## 实机直接入口
 
-根目录的 [`command.txt`](command.txt) 是可直接运行的 Bash 入口。新摆位
-第一次运行：
+根目录的 [`command.txt`](command.txt) 保存了未经二次封装的完整原始
+命令，包括：
 
-```bash
-bash command.txt
-```
+- 新摆位的一键标定、fresh map、Foxglove 和严格无运动 debug；
+- 复用 `current` session 的 debug；
+- `scene01-chair` 从 run01 到 run05 的五条独立 live 命令；
+- 复制到其他 scene/goal 时必须修改的字段。
 
-它依次执行共享标定、fresh map、Foxglove、严格无运动 debug，并在全部
-通过后再次要求现场确认，才会进入一次正式运动。后续复用 `current`
-session 时可直接运行：
-
-```bash
-bash command.txt debug
-bash command.txt live scene01-chair scene01-chair-run01 chair
-```
-
-每次 live 都必须在终端重新输入现场确认词；确认不会保存到 session，也
-不会因为执行了 `command.txt` 而自动跳过。
+打开文件后一次只复制并运行需要的命令区块，不要把整个文本文件一次性
+当作脚本执行。每个 live 命令仍要求明确的现场操作者确认。
 
 ## 真机实验平台
 

@@ -1,6 +1,6 @@
 # Current project status
 
-Snapshot time: **2026-07-24 04:09 CST**
+Snapshot time: **2026-07-24 04:13 CST**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -246,10 +246,10 @@ attempt.
 The robot-synchronized persistent-session implementation is commit
 `90dd8fe43dad16515017fe4fd9bd017e02277bf6`. The two robot release roots
 contain its exact critical runtime bytes. Repository `main` now also contains
-the synchronization record and direct `command.txt` operator wrapper through
-`eefa8f801682f27bf188f6496b30dbf760e28a37`; GitHub PR #1 is merged.
-Those later wrapper/documentation changes do not alter the remotely checked
-`hub/src/focus_hub` or `hub/robot_overlay` trees.
+the synchronization record and a root `command.txt` containing copy-ready,
+unwrapped calibration/debug/live commands; GitHub PR #1 is merged. Those
+later command-reference/documentation changes do not alter the remotely
+checked `hub/src/focus_hub` or `hub/robot_overlay` trees.
 
 Runtime maps, camera frames, model files, credentials, tokens and robot-local
 calibration state remain intentionally outside Git. Their paths and hashes are

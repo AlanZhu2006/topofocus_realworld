@@ -10,20 +10,11 @@ The first two states are non-motion. The live state still requires one fresh,
 onsite confirmation because the Hub only publishes expiring high-level
 targets; TinyNav/WATER and the robots retain final stop/reject authority.
 
-For normal onsite use, the repository-root `command.txt` wraps the commands
-below without storing an accepted safety confirmation:
-
-```bash
-# New placement: calibration, strict debug, then a separately confirmed run.
-bash command.txt
-
-# Reuse the saved current session.
-bash command.txt debug
-bash command.txt live scene01-chair scene01-chair-run01 chair
-```
-
-The detailed commands below remain authoritative and are what the wrapper
-executes.
+For normal onsite use, the repository-root `command.txt` stores copy-ready
+versions of the unwrapped commands below. It is a command reference, not
+another launcher: copy and run one relevant block at a time rather than
+executing the entire text file. It includes calibration, debug and five
+separate `scene01-chair` live episode commands.
 
 ## Before the first command
 
