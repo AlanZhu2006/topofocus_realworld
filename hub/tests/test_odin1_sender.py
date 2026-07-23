@@ -318,6 +318,28 @@ def test_gravity_board_calibrator_supports_direct_camera_pose():
 
     assert result.returncode == 0, result.stderr
     assert "--other-pose-is-camera" in result.stdout
+    assert "--min-holdout-board-translation-m" in result.stdout
+    assert "--min-holdout-board-rotation-deg" in result.stdout
+
+
+def test_gravity_board_calibrator_measures_holdout_rotation():
+    path = TOOLS / "calibrate_gravity_shared_frame_via_board.py"
+    spec = importlib.util.spec_from_file_location(
+        "focus_test_gravity_board_calibrator", path
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    first = np.eye(4)
+    second = np.eye(4)
+    angle = np.deg2rad(12.0)
+    second[:3, :3] = [
+        [np.cos(angle), -np.sin(angle), 0.0],
+        [np.sin(angle), np.cos(angle), 0.0],
+        [0.0, 0.0, 1.0],
+    ]
+
+    assert module.rotation_delta_deg(first, second) == pytest.approx(12.0)
 
 
 def test_headless_launch_and_services_contain_no_motion_stack():

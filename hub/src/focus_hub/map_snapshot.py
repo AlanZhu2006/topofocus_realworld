@@ -22,6 +22,7 @@ class MapSnapshot:
     transform_version: str
     shared_frame_calibration_id: str | None
     map_format_version: str | None
+    snapshot_id: str | None = None
     legacy_contract: bool = False
 
 
@@ -51,6 +52,7 @@ def load_map_snapshot(
         transform_version = _scalar_string(data, "transform_version")
         calibration_id = _scalar_string(data, "shared_frame_calibration_id")
         format_version = _scalar_string(data, "map_format_version")
+        snapshot_id = _scalar_string(data, "snapshot_id")
 
     if grid.ndim != 3 or grid.shape[0] < 2 or any(size <= 0 for size in grid.shape):
         raise ValueError(f"map grid must have shape (channels>=2,H,W), got {grid.shape}")
@@ -88,6 +90,7 @@ def load_map_snapshot(
         transform_version=transform_version,
         shared_frame_calibration_id=calibration_id,
         map_format_version=format_version,
+        snapshot_id=snapshot_id,
         legacy_contract=legacy,
     )
 

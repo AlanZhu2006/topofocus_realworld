@@ -47,7 +47,11 @@ git diff --cached --stat
 git diff --cached
 ```
 
-不要使用会把运行目录一起带入的无审阅 `git add -A`。`artifacts/`、`data/`、`logs/`、`hub/runtime/`、虚拟环境、机器人 token 和本机配置永不提交。
+不要使用会把运行目录一起带入的无审阅 `git add -A`。`artifacts/`、
+`data/`、`logs/`、`hub/runtime/`、虚拟环境、机器人 token 和本机配置永不
+提交。经过显式选择的公开展示照片/视频可以进入 `media/`，但必须在
+`media/README.md` 或 `media/demo/README.md` 记录路径、大小、SHA-256、
+来源分类和指标资格。
 
 大规模现场集成可以形成一个完整的阶段性提交，但仍要先生成显式文件
 清单，逐项检查 `git check-ignore`、文件大小、秘密扫描和 staged diff。

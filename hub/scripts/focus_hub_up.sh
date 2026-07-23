@@ -35,17 +35,18 @@ spool_dir="$HUB_DIR/runtime/spool"
 state_dir="$HUB_DIR/runtime/state"
 decision_interval="60"
 goal_category="chair"
+print_generated_tokens="false"
 
 usage() {
   cat <<EOF
 Usage: $0 [--port N] [--glm-port N] [--glm-url URL] [--no-glm] [--no-pipeline]
           [--robots-config FILE] [--tokens-file FILE] [--decision-interval S]
-          [--goal-category NAME] [--session NAME]
+          [--goal-category NAME] [--session NAME] [--print-generated-tokens]
 
 Robot tokens: read from --tokens-file (JSON object {robot_id: token}); if the
 file is missing, a fresh random token per robot in --robots-config is
-generated, saved there (chmod 600) and PRINTED ONCE — copy it to the robot's
-FOCUS_ROBOT_TOKEN before deploying a sender.
+generated and saved there (chmod 600). Values are printed only with the
+explicit --print-generated-tokens option.
 
 Stop:
   bash $SCRIPT_DIR/focus_hub_down.sh --session $SESSION_NAME
@@ -64,11 +65,27 @@ while [[ $# -gt 0 ]]; do
     --decision-interval) decision_interval="$2"; shift 2 ;;
     --goal-category) goal_category="$2"; shift 2 ;;
     --session) SESSION_NAME="$2"; shift 2 ;;
+    --print-generated-tokens) print_generated_tokens="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 
+[[ "$SESSION_NAME" =~ ^[A-Za-z0-9_.:-]+$ ]] || {
+  echo "Session name must be tmux-safe." >&2
+  exit 2
+}
+for value in port glm_port; do
+  [[ "${!value}" =~ ^[0-9]+$ ]] \
+    && (( ${!value} >= 1024 && ${!value} <= 65535 )) || {
+      echo "--${value//_/-} must be a non-privileged TCP port." >&2
+      exit 2
+    }
+done
+if [[ -n "$glm_url" && ! "$glm_url" =~ ^http://127\.0\.0\.1:[0-9]+/v1$ ]]; then
+  echo "--glm-url must remain a loopback /v1 endpoint." >&2
+  exit 2
+fi
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Python environment missing: $PYTHON_BIN (run hub/scripts/create_g1_env.sh first)" >&2
   exit 1
@@ -92,13 +109,23 @@ with open(tokens_file, "w") as f:
     json.dump(tokens, f, indent=2)
 import os
 os.chmod(tokens_file, 0o600)
-print("Generated tokens (copy each to the matching robot's FOCUS_ROBOT_TOKEN):")
-for robot_id, token in tokens.items():
+PYEOF
+  echo "Generated robot tokens in $tokens_file (chmod 600)."
+  if [[ "$print_generated_tokens" == "true" ]]; then
+    "$PYTHON_BIN" - "$tokens_file" <<'PYEOF'
+import json
+import sys
+
+print("Generated tokens (copy each to the matching robot):")
+for robot_id, token in json.load(open(sys.argv[1])).items():
     print(f"  {robot_id}: {token}")
 PYEOF
+  fi
 fi
+chmod 600 "$tokens_file"
 compact_tokens_file="$state_dir/.robot_tokens_compact.json"
 "$PYTHON_BIN" -c "import json; json.dump(json.load(open('$tokens_file')), open('$compact_tokens_file', 'w'))"
+chmod 600 "$compact_tokens_file"
 chmod 600 "$compact_tokens_file"
 
 if [[ ! -f "$HUB_DIR/runtime/admin_token" ]]; then
@@ -106,8 +133,7 @@ if [[ ! -f "$HUB_DIR/runtime/admin_token" ]]; then
   chmod 600 "$HUB_DIR/runtime/admin_token"
   echo "Generated admin token: $HUB_DIR/runtime/admin_token (chmod 600)"
 fi
-admin_token="$(cat "$HUB_DIR/runtime/admin_token")"
-
+chmod 600 "$HUB_DIR/runtime/admin_token"
 wait_for_http() {
   local url="$1" timeout_s="${2:-60}" start
   start="$(date +%s)"
@@ -122,8 +148,8 @@ wait_for_http() {
 
 tmux kill-session -t "$SESSION_NAME" >/dev/null 2>&1 || true
 tmux new-session -d -s "$SESSION_NAME" -n hub \
-  "bash -lc 'cd \"$WORKSPACE\" && export FOCUS_HUB_ROBOT_CONFIG=\"$robots_config\" && export FOCUS_HUB_ROBOT_TOKENS_JSON=\"\$(cat \"$compact_tokens_file\")\" && export FOCUS_HUB_ADMIN_TOKEN=\"$admin_token\" && export FOCUS_HUB_SPOOL_DIR=\"$spool_dir\" && export FOCUS_HUB_STATE_DIR=\"$state_dir\" && \"$PYTHON_BIN\" -m uvicorn focus_hub.api:app --host \"$host\" --port \"$port\" 2>&1 | tee \"$HUB_DIR/runtime/hub.log\"'"
-tmux set-option -g remain-on-exit on
+  "bash -lc 'cd \"$WORKSPACE\" && export FOCUS_HUB_ROBOT_CONFIG=\"$robots_config\" && export FOCUS_HUB_ROBOT_TOKENS_JSON=\"\$(cat \"$compact_tokens_file\")\" && export FOCUS_HUB_ADMIN_TOKEN=\"\$(cat \"$HUB_DIR/runtime/admin_token\")\" && export FOCUS_HUB_SPOOL_DIR=\"$spool_dir\" && export FOCUS_HUB_STATE_DIR=\"$state_dir\" && \"$PYTHON_BIN\" -m uvicorn focus_hub.api:app --host \"$host\" --port \"$port\" 2>&1 | tee \"$HUB_DIR/runtime/hub.log\"'"
+tmux set-window-option -t "$SESSION_NAME" remain-on-exit on
 
 echo "Waiting for hub API on $host:$port..."
 wait_for_http "http://$host:$port/healthz" 30

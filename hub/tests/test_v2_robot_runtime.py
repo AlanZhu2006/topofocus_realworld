@@ -85,6 +85,7 @@ def test_path_accumulator_ignores_localization_jump():
     assert path.update(0, 0) == 0
     assert path.update(0.3, 0.4) == pytest.approx(0.5)
     assert path.update(10, 10) == pytest.approx(0.5)
+    assert path.first_xy == (0.0, 0.0)
     assert path.rejected_jumps == 1
 
 

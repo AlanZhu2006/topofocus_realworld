@@ -486,6 +486,11 @@ def main() -> int:
             status=status,
             reason_code=reason_code,
             local_pose=pose,
+            episode_start_pose=(
+                None
+                if path.first_xy is None
+                else (path.first_xy[0], path.first_xy[1], pose[2])
+            ),
             path_length_m=path.length_m,
             velocity_zero_confirmed=zero,
             local_goal=goal,

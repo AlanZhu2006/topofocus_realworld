@@ -12,8 +12,10 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 - WSJ 当前为 D435i + 修复后的 TinyNav perception/IMU + 在线
   BuildMap；Yunji 当前为 Odin1 `O1-P070100205`，不是旧的 RealSense
   路径。
-- 当前共享标定是 `shared-board-odin1-20260723-v3`。断电本身不要求
-  重标，但下次必须先做无运动位姿差检查。
+- 最后一次 predecessor 共享标定是
+  `shared-board-odin1-20260723-v3`；它保留为历史证据，但不会被自动提升为
+  新 `current`。断电本身不等于机械位姿变化；下一次现场仍需先用新的
+  一键入口完成定量移动板留出并生成 persistent session。
 - `official-run01-retry3` 连续接受了九个 v2 batch，证明实际 v2
   heartbeat-authority 修复生效；Yunji 原地判定到达，WSJ 只收到
   `vx=0.000, wz=-0.200`，现场未见运动，随后本地
@@ -27,6 +29,54 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
   `model_inference_map_projected_unverified`，不能当作真实标签。
 - 四场景 × 五次、标准 SPL/源码兼容 SPL 和 episode 报告已经实现；
   当前没有有效正式样本，因此 SR/SPL 暂无数值。
+- 新的一键链路会持久化 Git、标定、transform、地图序号边界和远端部署
+  身份；正常调试/实验不再手工替换 v12 路径。该实现已通过本机回归测试，
+  但还需要一次新的真机标定来生成 `current` 会话。
+
+## 真机实验平台
+
+| 实验室场景 | 双机俯视 |
+| --- | --- |
+| ![WSJ Go2 与 Yunji 平台在实验室场景中](media/image/showcase_1.jpg) | ![WSJ Go2 与 Yunji 平台俯视图](media/image/showcase_2.jpg) |
+
+实验系统由两台异构机器人组成：
+
+- **WSJ**：Unitree Go2，使用 D435i、TinyNav perception、在线
+  BuildMap、TinyNav 局部规划与受保护的 Go2 速度桥；
+- **Yunji**：轮式移动平台，使用 Odin1 RGB/SLAM cloud/odometry 与
+  WATER 高层导航接口；
+- **GPU Hub**：集中构建/融合双机语义地图，运行 YOLO 与
+  Perception/Judgment/Decision VLM，并只向机器人发布可过期的高层目标。
+
+### 双机共享坐标系标定
+
+![WSJ、Yunji 与共享圆点标定板](media/image/calibration.jpg)
+
+两台相机同时观测同一块 7 × 10 对称圆点板。每个新物理摆位采集一组拟合
+观测和一组独立移动后的留出观测，用于求解并验证 gravity-preserving
+共享坐标变换；机器人在标定阶段没有运动命令路径。
+
+### 语义 2D 地图展示目标
+
+![期望的带位姿、轨迹和语义区域的 2D 地图参考](media/image/example.png)
+
+这张图是用户提供的可视化目标参考：最终 Foxglove 2D 图应同时清晰呈现
+机器人位姿、轨迹、可通行/障碍区域、像素级语义色块和类别标签。它不是
+当前算法准确率或成功场景截图。
+
+后续会把已经运行过的失败 demo 视频一并上传到
+[`media/demo/`](media/demo/README.md)，并注明对应 episode、观察到的失败
+原因和是否计入指标。失败 demo 会作为可复现排障材料保留，不计入 SR/SPL
+成功样本。
+
+首个公开片段记录了早期 Foxglove 双机 dashboard 中相机画面正常、但 2D
+占据/语义地图呈现射线状和不规则区域的问题：
+
+[![失败 demo：早期 Foxglove 地图显示](media/demo/dashboard_failure_20260724_poster.jpg)](media/demo/dashboard_failure_20260724.mp4)
+
+[播放 24 秒 MP4](media/demo/dashboard_failure_20260724.mp4)。该片段是失败
+现象展示，不对应可计入指标的正式 episode；地图原因与后续修复证据见
+[实时地图恢复审计](audit/LIVE_MAP_RECOVERY_20260722.md)。
 
 ## 从干净克隆开始
 
@@ -80,6 +130,7 @@ bash hub/robot_overlay/start_go2_observation.sh \
 | `hub/` | 真机协议、Hub、工具、测试和机器人部署层 | 主开发区 |
 | `hub/robot_overlay/tinynav_snapshot/` | WSJ 所用 TinyNav 固定基线补丁与实验快照 | 可审计、可重建 |
 | `audit/` | 已观察结果与门禁证据 | 入库 |
+| `media/` | 真机设备展示、标定照片与公开 demo 索引 | 入库；每个素材记录来源/哈希 |
 | `manifests/` | 来源、环境、外部资产和 SHA-256 | 入库 |
 | `artifacts/`, `data/`, `logs/`, `hub/runtime/` | 权重、录包、地图、日志、token、运行状态 | 永不入库 |
 
@@ -94,6 +145,7 @@ bash hub/robot_overlay/start_go2_observation.sh \
 - [Git 分支、发布与快照更新规则](docs/GIT_WORKFLOW.md)
 - [系统架构](ARCHITECTURE.md)
 - [操作与验证门禁](RUNBOOK.md)
+- [持久标定、无运动调试与正式实验一键流程](hub/docs/ONECLICK_SESSION_WORKFLOW.md)
 - [传输协议](hub/docs/TRANSPORT.md)
 - [v2 双机真机最短上线清单](hub/docs/V2_PHYSICAL_QUICKSTART.md)
 - [坐标系约束](hub/docs/COORDINATE_FRAMES.md)

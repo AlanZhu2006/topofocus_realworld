@@ -8,17 +8,20 @@ code and calibration remain available only as a rollback lane.
 
 The canonical current state is
 [CURRENT_STATUS.md](../../CURRENT_STATUS.md). The July 22 transform described
-later in this file is historical. The current deployment uses:
+later in this file is historical. The last predecessor deployment used:
 
 - calibration ID `shared-board-odin1-20260723-v3`;
 - WSJ transform `wsj-tinynav-depth-20260723-powercycle-v3`;
 - Yunji/Odin transform `yunji-odin1-board-20260723-powercycle-v6`;
-- current `rebuild_v12_router025` map pair listed in the canonical status.
+- the `rebuild_v12_router025` map pair listed in the canonical status.
 
 Power cycling by itself does not require recalibration when the robot, camera
 mount and physical starting placement are unchanged; reuse still requires the
-no-motion pose-delta gate. The current v2 path has reached WATER under
-supervision but has no official completed scene.
+no-motion pose-delta gate. However, that v3 artifact predates the new
+quantitative moved-board field and is not promoted to persistent `current`.
+The next normal onsite entry is
+[`ONECLICK_SESSION_WORKFLOW.md`](ONECLICK_SESSION_WORKFLOW.md). The v2 path has
+reached WATER under supervision but has no official completed scene.
 
 ### Historical observed July 22 cutover
 
@@ -193,8 +196,17 @@ a substitute for a measured floor or camera height.
 ## Fresh shared-board calibration
 
 The old D455 board artifact is invalid for Odin because both the physical
-camera and Odin odometry origin changed. Reuse the existing board detector and
-gravity-preserving solver with its direct-camera-pose mode:
+camera and Odin odometry origin changed. The canonical wrapper now invokes the
+existing board detector and gravity-preserving solver in direct-camera-pose
+mode, auto-selects synchronized pairs and persists the resulting session:
+
+```bash
+bash hub/scripts/calibrate_realworld_session.sh \
+  --session-id <unique-session-id> \
+  --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY
+```
+
+The underlying solver remains directly available for audit/research use:
 
 ```bash
 hub/.venv/bin/python hub/tools/calibrate_gravity_shared_frame_via_board.py \
@@ -276,12 +288,12 @@ still the visible default; toggle the existing semantic-map topic to inspect
 the chair cells. Exact live evidence and model/input checksums are recorded in
 `audit/YOLO_SEMANTIC_BEV_LIVE_20260722.md`.
 
-## Current cross-view chair correction (2026-07-22)
+## Historical cross-view chair correction (2026-07-22)
 
 The initial foreground-depth rule selected a nearer pole inside WSJ's chair
 box, so the two robots projected the same chair about 0.9 m apart despite the
-board calibration's 1.15 cm holdout residual. The current deployment uses the
-central 40% box median and a symmetric ±0.45 m depth cluster in fresh maps:
+board calibration's 1.15 cm holdout residual. That corrected deployment used
+the central 40% box median and a symmetric ±0.45 m depth cluster in fresh maps:
 
 - WSJ: `runtime/map_out_wsj_yolo_depthcluster_v2_20260722`, after sequence
   14783;

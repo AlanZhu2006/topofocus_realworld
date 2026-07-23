@@ -12,8 +12,8 @@
 - 只追加 spool、断点恢复、重复一致性和乱序/陈旧/未来帧拒绝；
 - RedNet 源码基线与校验锁定的 SegFormer 实机像素语义适配器、带启动姿态/地面门禁的实时地图、frontier/VLM 决策；
 - 可逆 occupancy 证据、关键帧过滤和位姿跳变锁止；
-- 显式 frame/calibration 契约下的双图对齐融合；当前会话使用
-  `shared-board-odin1-20260723-v3`；
+- 显式 frame/calibration 契约下的双图对齐融合；新的持久会话必须包含
+  独立移动标定板留出验证；
 - TinyNav 原生 occupancy 导入，保留原 frame，并拒绝错误 frame 融合；
 - Foxglove camera/map relay；
 - Foxglove 位姿、轨迹、像素语义、标签与前沿合成 2-D overview；
@@ -27,20 +27,34 @@
 完成一次带终点独立确认的正式场景；任何脚本都不应把“能建图”或
 `ARRIVED` 解释为自主导航成功。
 
-当前两种启动模式：
+新摆位先运行一次标定与无运动全栈：
+
+```bash
+bash hub/scripts/calibrate_realworld_session.sh \
+  --session-id <unique-session-id> \
+  --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY \
+  --goal-category chair
+```
+
+之后使用两种启动模式：
 
 ```bash
 # 无运动：地图、Foxglove、真实 VLM 和只读接收器
-bash hub/scripts/realworld_oneclick.sh --mode debug --goal-category chair
+bash hub/scripts/realworld_oneclick.sh \
+  --session-file current --mode debug --goal-category chair
 
 # 有运动：还必须在现场一次性提供当次授权
 bash hub/scripts/realworld_oneclick.sh --mode live \
+  --session-file current \
   --scene-id scene01-chair --episode-id run01 --goal-category chair \
   --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 ```
 
-该脚本当前仍绑定 2026-07-24 会话常量；可持久化标定会话的一键入口正在
-当前分支后续提交中替换它。在替换完成前不要把旧会话参数用于新摆位。
+标定命令自动保存 Git/标定/transform/map 边界、机器人部署根目录和 tmux
+身份；debug/live 不再要求人工替换旧 v12 常量。完整说明见
+[持久会话一键流程](docs/ONECLICK_SESSION_WORKFLOW.md)。该流程已通过本机
+测试，尚未在两台真机上完整执行；旧 July v3 会话不会被自动提升为
+`current`。
 
 ## 轻量开发环境
 
@@ -84,6 +98,7 @@ bash hub/robot_overlay/verify_go2.sh --hardware --tests
 
 - [传输协议](docs/TRANSPORT.md)
 - [Triple-AI 真机 Demo：历史图预演与 4×5 SR/SPL 协议](docs/TRIPLE_AI_REALWORLD_DEMO.md)
+- [持久标定、无运动调试与正式实验一键流程](docs/ONECLICK_SESSION_WORKFLOW.md)
 - [坐标系](docs/COORDINATE_FRAMES.md)
 - [TinyNav 原生地图适配](docs/TINYNAV_NATIVE_MAP_ADAPTER.md)
 - [实时地图、Foxglove 与融合契约](docs/LIVE_MAPPING.md)

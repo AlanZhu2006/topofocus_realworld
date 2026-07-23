@@ -43,6 +43,10 @@ core.[0-9]*
 /hub/robot_overlay/focus_ros_sender_metrics.json
 /hub/robot_overlay/focus_ros_sender_window.log
 
+# Preserve original high-resolution demo masters locally; commit only the
+# documented, size-bounded derivatives under media/demo/.
+/media/video/
+
 # Secrets and per-machine configuration. Commit only the matching examples.
 .env
 .env.*

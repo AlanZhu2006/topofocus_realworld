@@ -335,6 +335,7 @@ class NavigationEventV2(StrictModel):
     reason_code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")
     observed_at_ns: int = Field(gt=0)
     local_pose: LocalPoseV2
+    episode_start_local_pose: LocalPoseV2 | None = None
     path_length_m_from_episode_start: float = Field(ge=0)
     velocity_zero_confirmed: bool
     terminal_observation_sequence: int | None = Field(default=None, ge=0)

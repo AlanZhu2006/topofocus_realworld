@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,62 @@ FAILURE_FEEDBACK = {
     "STOPPED",
     "HOLDING",
 }
+
+
+def update_evaluation_events(
+    selected: dict[str, dict[str, object]],
+    states: dict[str, object],
+) -> None:
+    """Preserve ARRIVED evidence across the following coordination HOLD."""
+
+    for robot_id, state in states.items():
+        if not isinstance(state, dict):
+            continue
+        event = state.get("latest_event")
+        if not isinstance(event, dict):
+            continue
+        previous = selected.get(robot_id)
+        if isinstance(previous, dict) and previous.get("status") == "ARRIVED":
+            continue
+        selected[robot_id] = dict(event)
+
+
+def evaluation_seed_from_events(
+    selected: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    seeds: dict[str, object] = {}
+    for robot_id in ("robot-0", "robot-1"):
+        event = selected.get(robot_id)
+        if not isinstance(event, dict):
+            seeds[robot_id] = {"status": "missing_navigation_event"}
+            continue
+        seeds[robot_id] = {
+            "status": "source_derived_from_robot_navigation_event",
+            "latest_navigation_status": event.get("status"),
+            "episode_start_local_pose": event.get(
+                "episode_start_local_pose"
+            ),
+            "stop_local_pose": event.get("local_pose"),
+            "actual_path_length_m": event.get(
+                "path_length_m_from_episode_start"
+            ),
+            "local_planner_stopped": (
+                event.get("status") == "ARRIVED"
+                and event.get("velocity_zero_confirmed") is True
+            ),
+            "terminal_observation_sequence": event.get(
+                "terminal_observation_sequence"
+            ),
+        }
+    return seeds
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def atomic_write_json(path: Path, payload: object) -> None:
@@ -203,6 +260,7 @@ def main() -> int:
     live_started = False
     outcome = "aborted_before_publish"
     final_states: dict[str, object] = {}
+    evaluation_events: dict[str, dict[str, object]] = {}
 
     def publish(batch: DecisionBatchV2, reason: str) -> None:
         nonlocal current, publish_count, live_started
@@ -259,6 +317,7 @@ def main() -> int:
                 for decision in current.decisions
             }
             final_states = states
+            update_evaluation_events(evaluation_events, states)
             current_by_robot = {
                 decision.robot_id: decision for decision in current.decisions
             }
@@ -331,8 +390,14 @@ def main() -> int:
         client.close()
         log.close()
 
+    evaluation_seed = evaluation_seed_from_events(evaluation_events)
+    manifest_path = args.manifest.expanduser().resolve()
+    shadow_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     final_report = {
         "schema_version": "focus-v2-supervised-episode-run-v1",
+        "scene_id": args.scene_id,
+        "episode_id": args.episode_id,
+        "target_category": shadow_payload.get("goal_category"),
         "outcome": outcome,
         "high_level_batches_published": publish_count,
         "live_goal_publication_enabled": True,
@@ -340,6 +405,17 @@ def main() -> int:
         "robot_velocity_commands_sent_by_hub": False,
         "official_success_verified": False,
         "final_navigation_states": final_states,
+        "evaluation_seed": evaluation_seed,
+        "evaluation_status": (
+            "requires surveyed shortest paths, goal-region checks and "
+            "independent terminal target evidence before SR/SPL"
+        ),
+        "shadow_manifest": {
+            "path": str(manifest_path),
+            "size_bytes": manifest_path.stat().st_size,
+            "sha256": sha256_file(manifest_path),
+            "classification": "source_derived_frozen_vlm_input",
+        },
         "controller_event_log": str(event_log_path),
     }
     atomic_write_json(output / "episode_report.json", final_report)

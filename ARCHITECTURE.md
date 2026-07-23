@@ -67,6 +67,14 @@ The Hub owns coordination and the frozen decision provenance. It does not own
 motor velocity or collision avoidance. Each receiver continuously recomputes
 health, transform, map and lease gates and may reject or stop independently.
 
+The physical launcher resolves one persistent session manifest rather than
+dated shell constants. A session hash-binds Git, calibration and transforms,
+spool boundaries, maps, generated Hub policies, robot deployment roots and
+managed process identities. Live startup first completes a strict, immutable
+HOLD-only VLM input freeze in a new Hub epoch; only then can it replace the
+read-only receivers with motion-capable receivers. See
+[`hub/docs/ONECLICK_SESSION_WORKFLOW.md`](hub/docs/ONECLICK_SESSION_WORKFLOW.md).
+
 Transport v1 remains the replayable observation/legacy decision contract.
 Transport v2 adds atomic two-robot decisions, semantic-region payloads,
 independent leases and navigation feedback. A receiver heartbeat, once

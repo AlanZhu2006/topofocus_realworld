@@ -188,25 +188,36 @@ Odin 适配器使用 `/odin1/image`、`/odin1/cloud_slam` 和
 v2 live receiver 才能发送受租约约束的 `/api/move`。旧 D455 共享变换
 不得用于 Odin。
 
-`yunji_odin1_board_20260722_v1.json` 是首个 Odin 历史门禁，不是当前
-会话标定。当前现场会话使用：
+`yunji_odin1_board_20260722_v1.json` 是首个 Odin 历史门禁。最后一次
+现场 predecessor 会话使用：
 
 - shared ID `shared-board-odin1-20260723-v3`;
 - WSJ transform `wsj-tinynav-depth-20260723-powercycle-v3`;
 - Yunji transform `yunji-odin1-board-20260723-powercycle-v6`.
 
 这些实测 JSON 位于机器人/Hub 的 runtime state，因包含会话路径而不进入
-Git。其源路径、大小和 hash 见
+Git。它们保留为历史证据，但旧 v3 artifact 没有新的定量
+`board_moved_independently` 字段，不能手工提升为 persistent `current`
+会话。其源路径、大小和 hash 见
 [`audit/SHARED_FRAME_ODIN1_20260723.md`](../audit/SHARED_FRAME_ODIN1_20260723.md)
 和
 [`audit/YUNJI_REBOOT_CALIBRATION_REVALIDATION_20260723.md`](../audit/YUNJI_REBOOT_CALIBRATION_REVALIDATION_20260723.md)。
 
-这个结果只适用于记录中的相机安装和两端 odom 会话。在另一台 Go2/Yunji、
-传感器拆装或 odom 原点重置后，必须用已有标定板程序的
-`--other-pose-is-camera` 模式重新采集拟合帧和独立移动板留出。通过之前只允许
-独立单机地图，不允许 `--fuse`；每次切换 transform 都要使用新的 map 输出
-目录。标定 JSON 内保存每个输入的源路径、大小、SHA-256 以及 observed /
-source-derived 分类。
+这个结果只适用于记录中的相机安装和两端 odom 会话。新的现场摆位、另一台
+Go2/Yunji、传感器拆装或无法证明 origin 未变时，运行：
+
+```bash
+bash hub/scripts/calibrate_realworld_session.sh \
+  --session-id <unique-session-id> \
+  --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY
+```
+
+该入口沿用已有标定板 detector 与 `--other-pose-is-camera` solver，自动
+采集拟合帧和独立移动板留出、部署相同 hash、创建新 map 输出目录、保存
+完整 session，并执行 strict debug。通过之前只允许独立单机地图，不允许
+`--fuse`。标定 JSON 内保存每个输入的源路径、大小、SHA-256 以及 observed /
+source-derived 分类。完整操作见
+[`hub/docs/ONECLICK_SESSION_WORKFLOW.md`](../hub/docs/ONECLICK_SESSION_WORKFLOW.md)。
 
 以下 D455 内容保留为回滚/历史复现路径：
 
@@ -264,23 +275,26 @@ daemon 显式使用同一个、独立验证过的
 
 Yunji Odin 的操作者低速移动地图门禁已通过（1.193 m 有效路径、85 个新增关键帧、无位姿跳变或地面拒绝）。
 
-双机代码层还应核对当前部署快照：
+双机代码层还应核对 persistent-session publication 对应的部署快照：
 
 ```text
 WSJ   /home/nvidia/topofocus_buildmap_v2_20260723
 Yunji /home/nyu/topofocus_buildmap_v2_20260723
 ```
 
-最后一次双端同步归档 SHA-256 为
-`e1b9001fb188a3890037f5e33927d25afa44473fb50a6b8c40b61a6e123b1b72`。
-这只证明文件已同步，不证明运行进程已加载。
+历史 retry3 双端归档 SHA-256 为
+`e1b9001fb188a3890037f5e33927d25afa44473fb50a6b8c40b61a6e123b1b72`；
+persistent-session publication 的最终 archive identity 见
+[`audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](../audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md)。
+归档 hash 只证明文件已同步，不证明运行进程已加载。
 
 完整运动层仍未完成。`official-run01` 及三个 retry 都是工程尝试，
-全部排除在 SR/SPL 之外。必须先通过：
+全部排除在 SR/SPL 之外。新 persistent session 必须依次通过：
 
-1. 两端 debug-only 启动与 fresh health/pose/map 检查；
-2. 一次无运动真实 VLM 全栈；
+1. 一键标定、独立移动板留出和 fresh map 创建；
+2. 两端 debug-only fresh health/pose/map 与真实 VLM 全栈；
 3. 一次新授权下的有限运动、物理到达和独立成功确认；
-4. 随后才是四场景 × 五次正式采集。
+4. 用 `record_realworld_trial.py` 立即绑定 shortest-path/terminal evidence；
+5. 随后才是四场景 × 五次正式采集。
 
 不得因地图、VLM 或命令日志能更新就把工程尝试登记为正式成功。

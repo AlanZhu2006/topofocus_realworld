@@ -1,14 +1,16 @@
 # V2 dual-robot physical quick start
 
-> **Current deployment note (2026-07-24):** steps 1–5 below explain the
-> contract and remain useful for a new machine, but they are already completed
-> for the present WSJ/Yunji deployment. The current calibration is
-> `shared-board-odin1-20260723-v3`, with WSJ transform
+> **Current deployment note (2026-07-24):** the normal operator path is now
+> [`ONECLICK_SESSION_WORKFLOW.md`](ONECLICK_SESSION_WORKFLOW.md). Steps 1–6
+> below explain the internal contract and remain useful for a new machine, but
+> should not be manually substituted for the persistent launcher. The last
+> predecessor calibration was `shared-board-odin1-20260723-v3`, with WSJ transform
 > `wsj-tinynav-depth-20260723-powercycle-v3` and Yunji transform
 > `yunji-odin1-board-20260723-powercycle-v6`. The live attempts reached both
-> local planner paths but produced no official success. Use
-> [CURRENT_STATUS.md](../../CURRENT_STATUS.md) for current maps and gates; do
-> not substitute the historical placeholders below into the active session.
+> local planner paths but produced no official success. It is not a strict
+> persistent `current` session because it predates the quantitative moved-board
+> field. Use [CURRENT_STATUS.md](../../CURRENT_STATUS.md) for the gate; do not
+> substitute historical placeholders below into a new session.
 
 This is the shortest path from the working v2 synthetic chain to one
 operator-supervised real episode. It deliberately postpones Foxglove styling,
@@ -47,7 +49,7 @@ Implemented and locally tested:
 - default receiver behavior is read-only. Live output requires a robot-specific
   flag and exact operator-presence phrase.
 
-Completed for the current deployment:
+Completed for the predecessor deployment:
 
 1. a two-camera board fit and independently moved-board holdout;
 2. measured `base_link -> camera` artifacts for both robots;
@@ -55,11 +57,11 @@ Completed for the current deployment:
    startup;
 4. fail-closed supervised attempts through TinyNav and WATER.
 
-Still required is loading the last synchronized WSJ command-floor/router
-changes, passing one no-motion full-stack run from the same saved session,
-choosing a target outside both arrival radii, and then completing one bounded
-episode with terminal verification. The tracked 2026-07-22 board artifact
-remains a historical format example, not the current transform.
+The persistent-session implementation is locally tested. Still required is
+one new board calibration through the canonical wrapper, its strict no-motion
+full-stack result, a target outside both arrival radii, and one bounded episode
+with terminal verification. The tracked 2026-07-22 board artifact remains a
+historical format example, not a reusable transform.
 
 ## 1. Record the two body-camera mount transforms
 
@@ -87,10 +89,12 @@ Odin factory calibration.
 
 ## 2. Fresh shared-frame calibration
 
-Run the existing board workflow in
-[YUNJI_ODIN1_DEPLOYMENT.md](YUNJI_ODIN1_DEPLOYMENT.md), including the
-independently moved-board holdout. Use new transform/calibration IDs and new
-map output directories. Do not append to the July 22 maps.
+Run the wrapper in
+[`ONECLICK_SESSION_WORKFLOW.md`](ONECLICK_SESSION_WORKFLOW.md). It reuses the
+existing detector/solver described in
+[YUNJI_ODIN1_DEPLOYMENT.md](YUNJI_ODIN1_DEPLOYMENT.md), requires the
+independently moved-board holdout, and creates new transform/calibration IDs
+and map directories.
 
 Before moving farther, keep both senders in their normal mapping-only mode and
 run each receiver without its `--enable-live-*` flag. This checks TF/WATER map
@@ -187,7 +191,10 @@ must also pass WATER's reachable-point query. It never uses
 
 ## 6. Publish one supervised episode
 
-Only after both receivers remain healthy with no GOAL active:
+This section is an internal/reference expansion. For normal operation, use
+`realworld_oneclick.sh --session-file current --mode live`; it performs these
+steps, freezes exact inputs and restores debug on exit. Only after both
+receivers remain healthy with no GOAL active:
 
 1. set the exact fresh transform versions and `allow_goal=true` for both robots
    in the deployment `robots.json`;

@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import sys
 import time
 from pathlib import Path
@@ -127,6 +128,12 @@ def angle_deg(first: np.ndarray, second: np.ndarray) -> float:
     return math.degrees(math.acos(cosine))
 
 
+def rotation_delta_deg(first: np.ndarray, second: np.ndarray) -> float:
+    relative = np.asarray(first[:3, :3]).T @ np.asarray(second[:3, :3])
+    cosine = float(np.clip((np.trace(relative) - 1.0) / 2.0, -1.0, 1.0))
+    return math.degrees(math.acos(cosine))
+
+
 def other_local_board(
     recorded_camera_pose: np.ndarray,
     old_shared_transform: np.ndarray,
@@ -184,6 +191,24 @@ def main() -> int:
     parser.add_argument("--max-sync-skew-s", type=float, default=0.25)
     parser.add_argument("--max-holdout-center-residual-m", type=float, default=0.05)
     parser.add_argument("--max-holdout-normal-residual-deg", type=float, default=3.0)
+    parser.add_argument(
+        "--min-holdout-board-translation-m",
+        type=float,
+        default=0.10,
+        help=(
+            "minimum fit-to-holdout board translation; a smaller translation "
+            "is accepted only when --min-holdout-board-rotation-deg passes"
+        ),
+    )
+    parser.add_argument(
+        "--min-holdout-board-rotation-deg",
+        type=float,
+        default=5.0,
+        help=(
+            "minimum fit-to-holdout board rotation; translation or rotation "
+            "must prove that the holdout board placement is independent"
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -215,6 +240,11 @@ def main() -> int:
         )
     if args.output.exists():
         parser.error(f"refusing to overwrite existing output: {args.output}")
+    if (
+        args.min_holdout_board_translation_m < 0.0
+        or args.min_holdout_board_rotation_deg < 0.0
+    ):
+        parser.error("holdout board-movement thresholds must be non-negative")
 
     old_extrinsic = (
         np.eye(4)
@@ -303,12 +333,21 @@ def main() -> int:
             np.linalg.norm(href_board[:3, 3] - mapped_holdout[:3, 3])
         )
         normal_residual = angle_deg(href_board[:3, 2], mapped_holdout[:3, 2])
+        board_translation_m = float(
+            np.linalg.norm(href_board[:3, 3] - reference_board[:3, 3])
+        )
+        board_rotation_deg = rotation_delta_deg(reference_board, href_board)
+        board_moved = (
+            board_translation_m >= args.min_holdout_board_translation_m
+            or board_rotation_deg >= args.min_holdout_board_rotation_deg
+        )
         checks = {
             "sync_skew": holdout_skew_s <= args.max_sync_skew_s,
             "board_center_residual": center_residual
             <= args.max_holdout_center_residual_m,
             "board_normal_residual": normal_residual
             <= args.max_holdout_normal_residual_deg,
+            "board_moved_independently": board_moved,
         }
         passed = all(checks.values())
         holdout = {
@@ -317,6 +356,8 @@ def main() -> int:
             "sync_skew_s": holdout_skew_s,
             "board_center_translation_residual_m": center_residual,
             "board_normal_residual_deg": normal_residual,
+            "fit_to_holdout_board_translation_m": board_translation_m,
+            "fit_to_holdout_board_rotation_deg": board_rotation_deg,
             "checks": checks,
         }
 
@@ -369,6 +410,12 @@ def main() -> int:
             "max_sync_skew_s": args.max_sync_skew_s,
             "max_holdout_center_residual_m": args.max_holdout_center_residual_m,
             "max_holdout_normal_residual_deg": args.max_holdout_normal_residual_deg,
+            "min_holdout_board_translation_m": (
+                args.min_holdout_board_translation_m
+            ),
+            "min_holdout_board_rotation_deg": (
+                args.min_holdout_board_rotation_deg
+            ),
         },
         "input_provenance": {
             "old_other_extrinsic": (
@@ -406,9 +453,11 @@ def main() -> int:
     if not passed:
         raise SystemExit("gravity shared-frame calibration failed validation gates")
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
+    temporary = args.output.with_name(f".{args.output.name}.{os.getpid()}.tmp")
+    temporary.write_text(
         json.dumps(output, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    os.replace(temporary, args.output)
     print(f"wrote {args.output}; holdout={holdout is not None}, tilt={tilt:.9f} deg")
     return 0
 

@@ -1,6 +1,6 @@
 # Current project status
 
-Snapshot time: **2026-07-24 02:16 CST**
+Snapshot time: **2026-07-24 03:35 CST**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -24,9 +24,18 @@ selected arrival region. WSJ received only rotation commands at
 The router then reported `ODOMETRY_STALE` and the complete stack returned both
 robots to HOLD.
 
-## Current deployment identity
+Since that attempt, the dated launcher has been replaced by a persistent
+physical-session workflow. Its schemas, launch chain and regression tests pass
+locally, but the new workflow has not yet completed a physical debug or live
+run. There is intentionally no `hub/runtime/sessions/current.json` until a new
+onsite board calibration succeeds.
 
-| Item | Current value |
+## Last observed physical identity
+
+These identifiers describe the last July 24 predecessor session. They remain
+useful evidence, but are **not** promoted to a reusable persistent session:
+
+| Item | Last observed value |
 | --- | --- |
 | Hub API | `http://127.0.0.1:8188` |
 | GLM endpoint | `http://127.0.0.1:31511/v1` |
@@ -43,7 +52,10 @@ robots to HOLD.
 
 Power cycling alone does not invalidate calibration. Reuse is allowed only
 after a no-motion pose-delta check confirms that the robot, sensor mount and
-starting placement did not move.
+starting placement did not move. The legacy v3 artifact predates the new
+quantitative `board_moved_independently` holdout field, so it cannot seed the
+new strict session by assertion. The next onsite run must use
+`calibrate_realworld_session.sh` once and create a new session ID.
 
 ## What is implemented and verified
 
@@ -55,7 +67,7 @@ starting placement did not move.
 - Yunji uses Odin1 `O1-P070100205`, not the retired RealSense lane. The adapter
   consumes native RGB, SLAM cloud and odometry and preserves the factory
   calibration.
-- Both current maps use gravity/ground gates, free-space ray fill, reversible
+- Both last observed maps use gravity/ground gates, free-space ray fill, reversible
   obstacle evidence, pose-jump blocking and online status artifacts.
 - Foxglove publishes camera, occupancy, pose, trajectory, frontiers, semantic
   pixel regions, labels and a fused shared-frame overview.
@@ -69,7 +81,7 @@ starting placement did not move.
 - Agent 0 selects first and its frontier is removed before Agent 1 selects.
 - A detected target semantic component can override a frontier target.
 - The continuous shadow runner preserves the executable HPC decision schedule.
-- The current physical one-click runner uses one frozen VLM round followed by
+- The persistent physical one-click runner uses one frozen VLM round followed by
   supervised lease renewal. Multi-round physical exploration after reaching a
   frontier is implemented only in the non-motion shadow runner and remains a
   physical integration gate.
@@ -93,6 +105,9 @@ starting placement did not move.
 - Episode reports preserve decisions, feedback, path length and failure
   reasons.
 - Standard SPL and the source-compatible SPL variant are implemented.
+- Navigation reports now preserve each robot's local start/stop pose, path and
+  planner STOP evidence. `record_realworld_trial.py` binds independent
+  terminal evidence and surveyed shortest paths to each 4 × 5 trial.
 - No valid official trial exists yet, so current SR/SPL are **not available**.
 
 ## Physical attempt record
@@ -119,7 +134,39 @@ The detailed evidence, hashes and exact command observations are in
 - Cross-view YOLO depth selection using an unrelated foreground surface.
 - Yunji D405-era assumptions after the Odin1 hardware replacement.
 
-## Implemented and synchronized, but not yet physically revalidated
+## Persistent operator workflow
+
+The new authoritative sequence is:
+
+```text
+one board-calibration command
+  -> persisted, hash-bound session
+  -> strict no-motion debug
+  -> one freshly authorized live episode
+  -> immediate SR/SPL evidence recording
+```
+
+It removes all operator-supplied map, calibration and tmux identifiers from
+normal startup. Debug/live resolve one immutable session contract, checksum
+both remote code trees, start a clean Hub epoch, reject stale/torn inputs and
+replace a mismatched managed Foxglove relay. Each map directory separately
+binds its code/sequence/transform/calibration/backend contract; a missing or
+blocked map can be reconstructed from that exact boundary before strict input
+freezing. Live validates a HOLD-only VLM result before either motion-capable
+receiver is armed. Cleanup always restores mapping-only Hub policy and
+robot-side stop/reject authority.
+
+The implementation and complete Hub regression suite are locally observed.
+Physical execution of this new sequence is still unverified. See
+[`hub/docs/ONECLICK_SESSION_WORKFLOW.md`](hub/docs/ONECLICK_SESSION_WORKFLOW.md)
+and
+[`audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md).
+
+The episode controller also preserves a robot's observed `ARRIVED` event
+across the subsequent coordination HOLD, preventing its start/stop/path seed
+from being overwritten before trial recording.
+
+## Last synchronized retry3 follow-up
 
 After retry3, two WSJ changes were locally tested and synchronized to both
 versioned robot deployment roots:
@@ -140,9 +187,13 @@ SHA-256
 Both robots independently observed the same hash before extraction. See
 [`audit/DUAL_ROBOT_CODE_SYNC_20260723.md`](audit/DUAL_ROBOT_CODE_SYNC_20260723.md).
 
+That archive is historical. The publication/synchronization identity for the
+new persistent workflow is recorded after its final Git push; until then, do
+not claim the robots have loaded or physically verified it.
+
 ## Current safety state
 
-At the final check:
+At the last physical check:
 
 - local Hub was running the debug robot configuration;
 - `goal_output_enabled=false` for both robots;
@@ -155,29 +206,29 @@ attempt.
 
 ## Remaining gates
 
-1. Load the synchronized WSJ router/command-floor changes in debug mode.
-2. Verify fresh WSJ odometry, map status, camera registration and pose delta
-   without a bridge.
-3. Verify Yunji/Odin observation freshness, WATER canceled state and pose
-   delta.
-4. Run a no-motion full-stack debug round and preserve its session manifest.
-5. Place/choose a target outside both arrival radii and verify its semantic
-   projection before arming motion.
-6. Obtain one fresh operator-present confirmation at the live entry point.
-7. Complete one bounded scene with physical arrival and independent operator
-   success confirmation.
-8. Only then begin four scenes times five official runs and compute SR/SPL.
-9. Integrate the continuous multi-round VLM runner with physical execution if
-   a scene requires exploration beyond one frozen decision.
+1. Publish the persistent-session commit and byte-verify its code-only archive
+   in both configured robot roots.
+2. Onsite, run the one-command board calibration with a new session ID. It
+   also creates fresh maps and runs strict no-motion debug.
+3. Confirm `DEBUG_FULLSTACK_READY`, fresh WSJ/Yunji health, correct Foxglove
+   views and a target outside both arrival radii.
+4. Obtain one fresh operator-present confirmation and complete one bounded
+   live episode.
+5. Record surveyed shortest paths, goal-region judgments and independent
+   terminal evidence immediately; only a complete record is metric-eligible.
+6. Then collect four scenes × five official trials.
+7. Integrate physical multi-round VLM re-planning if a chosen scene cannot be
+   completed by the current one-frozen-decision leg.
 
 ## Git and reproducibility state
 
-The final robot synchronization was made from a pre-publication working tree
-based on commit `ee8f84b6646cb08fbcb30fab072b9d0437bf485b`. The Git commit
-containing this page captures the intended code, tests, configuration, audit
-and documentation as the reproducible baseline. The two robot roots have not
-yet been redeployed from that Git commit; their exact pre-publication archive
-identity is retained above so the distinction remains auditable.
+The reproducible baseline is commit
+`2b1371e7fb4583d488247cf978938f772e737579` on
+`agent/live-map-recovery-20260722`, published to
+`AlanZhu2006/topofocus_realworld` in draft PR #1. The persistent-session
+changes described above are the next publication unit and remain distinct
+from the historical pre-publication robot archive until final synchronization
+is recorded.
 
 Runtime maps, camera frames, model files, credentials, tokens and robot-local
 calibration state remain intentionally outside Git. Their paths and hashes are

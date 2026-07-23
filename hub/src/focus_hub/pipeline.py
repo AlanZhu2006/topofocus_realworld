@@ -12,6 +12,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+import time
 from typing import Protocol
 
 import cv2
@@ -487,6 +488,10 @@ class SpoolMappingPipeline:
         if not self.transform_version:
             raise ValueError("cannot save a map before binding a transform_version")
         out_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_id = (
+            f"{self.robot_id or 'unknown'}:"
+            f"{self.last_observation_sequence}:{time.time_ns()}"
+        )
         # Atomic write: a concurrent reader (e.g. foxglove_relay.py polling
         # this same directory while the daemon periodically re-saves) must
         # never observe a partially-written file. np.savez_compressed writes
@@ -517,6 +522,7 @@ class SpoolMappingPipeline:
                 self.shared_frame_calibration_id or ""
             ),
             map_format_version=np.asarray("focus-hub-central-map-v3"),
+            snapshot_id=np.asarray(snapshot_id),
             obstacle_fusion_mode=np.asarray(self.mapper.config.obstacle_fusion_mode),
             obstacle_band_m=np.asarray(
                 [
@@ -556,6 +562,7 @@ class SpoolMappingPipeline:
             "source_status": "observed_spooled_observations",
             "semantic_status": "model_inference_unverified",
             "map_format_version": "focus-hub-central-map-v3",
+            "snapshot_id": snapshot_id,
             "frames_processed": self.frames_processed,
             "observations_seen": self.observations_seen,
             "skipped_non_keyframes": self.skipped_non_keyframes,

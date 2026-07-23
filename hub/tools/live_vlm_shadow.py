@@ -312,6 +312,16 @@ def main() -> int:
         default=None,
         help="reject maps from any other calibration/session ID",
     )
+    parser.add_argument(
+        "--realworld-session-id",
+        default=None,
+        help="bind this frozen shadow run to one persistent deployment session",
+    )
+    parser.add_argument(
+        "--realworld-session-contract-sha256",
+        default=None,
+        help="bind this run to the immutable portion of that session manifest",
+    )
     parser.add_argument("--vlm-timeout-s", type=float, default=300.0)
     parser.add_argument(
         "--early-episode-steps",
@@ -404,6 +414,20 @@ def main() -> int:
         for value in expected_map_hashes.values()
     ):
         parser.error("expected map hashes must be 64 hexadecimal characters")
+    if (args.realworld_session_id is None) != (
+        args.realworld_session_contract_sha256 is None
+    ):
+        parser.error(
+            "real-world session ID and contract SHA-256 must be supplied together"
+        )
+    if args.realworld_session_contract_sha256 is not None and (
+        len(args.realworld_session_contract_sha256) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in args.realworld_session_contract_sha256.lower()
+        )
+    ):
+        parser.error("real-world session contract must be a SHA-256 value")
     if args.preflight_only and (args.publish_hold or args.write_foxglove_targets):
         parser.error(
             "--preflight-only cannot publish HOLD or write Foxglove targets"
@@ -477,6 +501,10 @@ def main() -> int:
         },
         "started_at_ns": started_at_ns,
         "goal_category": args.goal_category,
+        "realworld_session_id": args.realworld_session_id,
+        "realworld_session_contract_sha256": (
+            args.realworld_session_contract_sha256
+        ),
         "source_episode": {
             "enabled": scene_state is not None,
             "logical_l_step": source_step,

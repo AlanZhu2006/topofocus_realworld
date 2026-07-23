@@ -178,19 +178,21 @@ defined as the session-local Odin odom only, with a unique transform version
 and no shared calibration ID. Such a map must remain a per-robot view and may
 not enter `--fuse`. The observed 2026-07-22 cutover passed a fresh board fit and
 independently moved-board holdout. That historical result used
-`shared-board-odin1-20260722-v1`. The current 2026-07-24 fused view instead
-uses `shared-board-odin1-20260723-v3` and the `rebuild_v12_router025` map pair
-listed in [CURRENT_STATUS.md](../../CURRENT_STATUS.md). The exact current ID
-must match on both maps. See
+`shared-board-odin1-20260722-v1`. The last predecessor 2026-07-24 fused view
+used `shared-board-odin1-20260723-v3` and the `rebuild_v12_router025` map pair
+listed in [CURRENT_STATUS.md](../../CURRENT_STATUS.md). It is evidence, not a
+strict persistent `current` session. Every active session's exact ID must
+match on both maps. See
 [YUNJI_ODIN1_DEPLOYMENT.md](YUNJI_ODIN1_DEPLOYMENT.md).
 
 Every calibration ID is session-bound, not a permanent camera extrinsic. Old
-maps remain frozen audit evidence. A power cycle may reuse the current
-calibration only after a no-motion pose-delta check proves that robot pose,
-mount and placement did not move; otherwise create a new fit/holdout,
-calibration ID and pair of map directories. The original session procedure is
-preserved in
-[VLM_LIVE_EXPERIMENT_20260723.md](VLM_LIVE_EXPERIMENT_20260723.md).
+maps remain frozen audit evidence. A power cycle can preserve mechanical
+calibration only when a no-motion pose/origin check proves that robot pose,
+mount and placement did not move. The normal new-session path is
+[`ONECLICK_SESSION_WORKFLOW.md`](ONECLICK_SESSION_WORKFLOW.md); it creates the
+fit/holdout, calibration ID, sequence-bound map contract and map pair
+together. The original manual procedure is preserved only as historical
+detail in [VLM_LIVE_EXPERIMENT_20260723.md](VLM_LIVE_EXPERIMENT_20260723.md).
 
 ## Dashboard interpretation
 

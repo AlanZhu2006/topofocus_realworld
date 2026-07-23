@@ -4,6 +4,35 @@
 
 ### Dual-robot physical stack (2026-07-22 through 2026-07-24)
 
+- Replace the dated, hard-coded v12 launcher with a persistent physical-session
+  contract that binds Git, calibration, transforms, spool boundaries, maps,
+  remote roots, generated policies and managed process identities.
+- Add one-command board calibration using the existing detector/solver, fresh
+  synchronized pair selection, quantitative independent-board movement
+  holdout, checksummed robot deployment, fresh maps and strict no-motion
+  debug.
+- Make debug/live verify both remote code trees, start a clean Hub epoch,
+  reject stale/blocked/torn inputs, atomically freeze accepted map/camera
+  generations and replace mismatched managed Foxglove relays.
+- Bind every map directory to a separate code/session/sequence/transform/
+  calibration/backend contract and allow one-click to reconstruct a missing
+  or blocked map before applying strict VLM freshness gates.
+- Arm motion receivers only after a frozen HOLD-only VLM round; preserve
+  fail-closed cleanup to mapping-only Hub policy and robot-local stop/reject
+  authority.
+- Add explicit real-world trial capture with local start/stop poses,
+  accumulated path, planner STOP evidence, surveyed shortest paths and hashed
+  independent terminal evidence for incomplete/complete 4 × 5 SR/SPL reports.
+- Preserve an observed ARRIVED event across the following coordination HOLD
+  so the successful robot's metric seed cannot be overwritten.
+- Remove predecessor calibration/transform fallbacks from both robot v2
+  launchers; a session identity is now mandatory.
+- Prevent Hub admin-token expansion in tmux metadata and make generated token
+  printing opt-in.
+- Audit staged and untracked files in the repository verifier, including
+  Python/shell/JSON/YAML syntax, whitespace, secret and size checks.
+- Add user-provided physical-platform, calibration-board and semantic-map
+  showcase assets with byte provenance and a future failed-demo index.
 - Replace Yunji's interim RealSense lane with the observed Odin1
   `O1-P070100205` RGB/SLAM-cloud/odometry path and preserve its factory
   calibration and driver patch provenance.

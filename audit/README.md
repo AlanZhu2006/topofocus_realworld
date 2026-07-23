@@ -7,6 +7,9 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](REPOSITORY_AND_ONECLICK_AUDIT_20260724.md):
+  complete repository/startup-chain audit, persistent-session replacement,
+  local verification boundary and final robot synchronization record.
 - [`V2_ROBOT_RECEIVERS_20260723.md`](V2_ROBOT_RECEIVERS_20260723.md): v2
   receiver implementation, online BuildMap routing, official-run engineering
   attempts, exact failures and retry3 follow-up.

@@ -5,11 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELEASE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="${FOCUS_ODIN_ENV_FILE:-/home/nyu/focus_sender_odin1/focus-odin1.env}"
-CALIBRATION_FILE="${FOCUS_YUNJI_SHARED_CALIBRATION_FILE:-/home/nyu/.local/state/topofocus/calibration/shared_board_odin1_20260723_v3_yunji_powercycle_v6.json}"
+CALIBRATION_FILE="${FOCUS_YUNJI_SHARED_CALIBRATION_FILE:-}"
 BASE_CAMERA_CALIBRATION="${FOCUS_YUNJI_BASE_CAMERA_CALIBRATION:-/home/nyu/.local/state/topofocus/calibration/yunji_odin1_base_camera_20260723_operator.json}"
 FACTORY_CALIBRATION="${FOCUS_ODIN_FACTORY_CALIBRATION:-$SCRIPT_DIR/../config/calibration/odin1_O1-P070100205_factory_20260722.json}"
-TRANSFORM_VERSION="${FOCUS_YUNJI_TRANSFORM_VERSION:-yunji-odin1-board-20260723-powercycle-v6}"
-CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-shared-board-odin1-20260723-v3}"
+TRANSFORM_VERSION="${FOCUS_YUNJI_TRANSFORM_VERSION:-}"
+CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 mode="debug"
 confirmation=""
@@ -33,6 +33,22 @@ if [[ "$mode" == live && "$confirmation" != OPERATOR_PRESENT_AND_YUNJI_CLEAR ]];
   echo "Live Yunji mode requires OPERATOR_PRESENT_AND_YUNJI_CLEAR." >&2
   exit 2
 fi
+[[ "$TRANSFORM_VERSION" =~ ^[A-Za-z0-9_.-]+$ ]] || {
+  echo "FOCUS_YUNJI_TRANSFORM_VERSION must be explicit and filesystem-safe." >&2
+  exit 2
+}
+[[ "$CALIBRATION_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || {
+  echo "FOCUS_SHARED_CALIBRATION_ID must be explicit and filesystem-safe." >&2
+  exit 2
+}
+[[ "$CALIBRATION_FILE" = /* ]] || {
+  echo "FOCUS_YUNJI_SHARED_CALIBRATION_FILE must be an explicit absolute path." >&2
+  exit 2
+}
+[[ "$HUB_URL" =~ ^http://127\.0\.0\.1:[0-9]+$ ]] || {
+  echo "FOCUS_HUB_BASE_URL must remain loopback-only." >&2
+  exit 2
+}
 for required in \
   "$SCRIPT_DIR/run_yunji_mapping_observation.sh" \
   "$SCRIPT_DIR/v2_yunji_receiver.py" \
@@ -61,6 +77,7 @@ stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 metrics="/home/nyu/.local/state/topofocus/yunji-command-observation-${stamp}.json"
 if ! systemctl is-active --quiet "$SENDER_UNIT"; then
   for unit in \
+    focus-yunji-calibration-observation-v1.service \
     focus-yunji-odin1-calibrated-v2.service \
     focus-yunji-command-observation.service \
     "$SENDER_UNIT"; do

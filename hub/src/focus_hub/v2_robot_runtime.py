@@ -219,12 +219,15 @@ class PathAccumulator:
     max_step_m: float = 2.0
     length_m: float = 0.0
     last_xy: tuple[float, float] | None = None
+    first_xy: tuple[float, float] | None = None
     rejected_jumps: int = 0
 
     def update(self, x: float, y: float) -> float:
         if not all(math.isfinite(value) for value in (x, y)):
             raise ValueError("path pose contains a non-finite value")
         current = (float(x), float(y))
+        if self.first_xy is None:
+            self.first_xy = current
         if self.last_xy is not None:
             step = math.hypot(current[0] - self.last_xy[0], current[1] - self.last_xy[1])
             if step <= self.max_step_m:
@@ -493,6 +496,7 @@ def navigation_event(
     status: NavigationStatusV2,
     reason_code: str,
     local_pose: tuple[float, float, float],
+    episode_start_pose: tuple[float, float, float] | None = None,
     path_length_m: float,
     velocity_zero_confirmed: bool,
     local_goal: LocalHighLevelGoal | None = None,
@@ -536,6 +540,20 @@ def navigation_event(
             "y": local_pose[1],
             "yaw_rad": local_pose[2],
         },
+        episode_start_local_pose=(
+            None
+            if episode_start_pose is None
+            else {
+                "frame_id": (
+                    local_goal.frame_id
+                    if local_goal is not None
+                    else f"{decision.robot_id}/map"
+                ),
+                "x": episode_start_pose[0],
+                "y": episode_start_pose[1],
+                "yaw_rad": episode_start_pose[2],
+            }
+        ),
         path_length_m_from_episode_start=path_length_m,
         velocity_zero_confirmed=velocity_zero_confirmed,
         terminal_observation_sequence=(

@@ -84,6 +84,16 @@ def gpu_mib() -> int:
     return int(out.stdout.split()[0]) if out.returncode == 0 else -1
 
 
+def atomic_write_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with temporary.open("wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
 def write_camera_snapshot(
     pipeline: SpoolMappingPipeline, out_dir: Path, robot_id: str,
     last_metadata, frames_total: int,
@@ -144,11 +154,14 @@ def write_camera_snapshot(
         "semantic_yolo": pipeline.semantic_yolo_status(),
         "semantic_backend": pipeline.semantic_backend_status(),
     }
-    (out_dir / "live_status.json").write_text(json.dumps(status) + "\n")
+    atomic_write_bytes(
+        out_dir / "live_status.json",
+        (json.dumps(status) + "\n").encode("utf-8"),
+    )
     if pipeline.last_rgb_bgr is not None:
         ok, jpeg = cv2.imencode(".jpg", pipeline.last_rgb_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
         if ok:
-            (out_dir / "latest_rgb.jpg").write_bytes(jpeg.tobytes())
+            atomic_write_bytes(out_dir / "latest_rgb.jpg", jpeg.tobytes())
 
 
 def write_map_snapshot(pipeline: SpoolMappingPipeline, out_dir: Path) -> None:

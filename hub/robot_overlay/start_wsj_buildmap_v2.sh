@@ -7,10 +7,10 @@ SESSION="${FOCUS_WSJ_NAV_SESSION:-tinynav_semantic_nav_auto}"
 SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
 PYTHON_BIN="${TINYNAV_PYTHON:-/home/nvidia/twork/tinynav/.venv/bin/python}"
 TOKEN_FILE="${FOCUS_ROBOT_TOKEN_FILE:-/home/nvidia/focus_sender/.token}"
-CALIBRATION_FILE="${FOCUS_SHARED_CALIBRATION_FILE:-/home/nvidia/.local/state/topofocus/calibration/shared_board_odin1_20260723_v3_yunji_powercycle_v6.json}"
+CALIBRATION_FILE="${FOCUS_SHARED_CALIBRATION_FILE:-}"
 BASE_CAMERA_CALIBRATION_FILE="${FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE:-/home/nvidia/.local/state/topofocus/calibration/wsj_tinynav_camera_base_20260723_operator.json}"
-TRANSFORM_VERSION="${FOCUS_WSJ_TRANSFORM_VERSION:-wsj-tinynav-depth-20260723-powercycle-v3}"
-CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-shared-board-odin1-20260723-v3}"
+TRANSFORM_VERSION="${FOCUS_WSJ_TRANSFORM_VERSION:-}"
+CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 PATCHED_ROOT="${TINYNAV_PERCEPTION_PATCHED_ROOT:-/home/nvidia/focus_sender/tinynav_imu_fix_worktree_20260721}"
 PATCHED_COMMIT="${TINYNAV_PERCEPTION_PATCHED_COMMIT:-29f26bc058886ff450f02cdc0d6e9977e1c57010}"
@@ -38,6 +38,22 @@ if [[ "$mode" == live && "$confirmation" != OPERATOR_PRESENT_AND_WSJ_CLEAR ]]; t
   echo "Live WSJ mode requires OPERATOR_PRESENT_AND_WSJ_CLEAR." >&2
   exit 2
 fi
+[[ "$TRANSFORM_VERSION" =~ ^[A-Za-z0-9_.-]+$ ]] || {
+  echo "FOCUS_WSJ_TRANSFORM_VERSION must be explicit and filesystem-safe." >&2
+  exit 2
+}
+[[ "$CALIBRATION_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || {
+  echo "FOCUS_SHARED_CALIBRATION_ID must be explicit and filesystem-safe." >&2
+  exit 2
+}
+[[ "$CALIBRATION_FILE" = /* ]] || {
+  echo "FOCUS_SHARED_CALIBRATION_FILE must be an explicit absolute path." >&2
+  exit 2
+}
+[[ "$HUB_URL" =~ ^http://127\.0\.0\.1:[0-9]+$ ]] || {
+  echo "FOCUS_HUB_BASE_URL must remain loopback-only." >&2
+  exit 2
+}
 for required in \
   "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   "$SCRIPT_DIR/start_go2_buildmap.sh" \

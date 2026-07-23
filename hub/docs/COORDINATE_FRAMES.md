@@ -25,7 +25,10 @@ The robot-side goal guard must use exactly the `transform_version` named by the 
 
 ## Camera and body
 
-The current TinyNav documentation establishes the color optical pose chain but also records that no calibrated `base_link -> camera_link` transform exists. The wire contract therefore distinguishes:
+The original TinyNav snapshot did not contain a calibrated
+`base_link -> camera_link` transform. The physical deployment now uses
+separately measured, robot-local base-camera artifacts, while the wire
+contract continues to distinguish:
 
 - `T_shared_world_camera_color`: required for central RGB-D mapping;
 - `T_base_link_camera_color`: required before an observation may be command-capable.
@@ -41,12 +44,19 @@ T_shared_world_base_link =
 
 ## Establishing the shared frame
 
-The current two-robot session has an observed gravity-preserving board fit
-plus an independently moved-board holdout. Its calibration ID is
-`shared-board-odin1-20260723-v3`; exact deployment transforms and maps are in
-[CURRENT_STATUS.md](../../CURRENT_STATUS.md). It is session-bound and must not
-be treated as a permanent transform after a robot, mount or starting placement
-moves.
+The last predecessor two-robot session had an observed gravity-preserving
+board fit and holdout under calibration ID
+`shared-board-odin1-20260723-v3`; exact historical transforms/maps are in
+[CURRENT_STATUS.md](../../CURRENT_STATUS.md). It predates the new
+quantitative moved-board field and is therefore not promoted to persistent
+`current`.
+
+For a new placement, the canonical
+[`ONECLICK_SESSION_WORKFLOW.md`](ONECLICK_SESSION_WORKFLOW.md) captures a fit
+pair plus an independently moved holdout, writes uncertainty/residual checks,
+and binds the resulting transform to one session, code commit and fresh map
+boundary. It must not be treated as a permanent transform after a robot,
+mount, tracking origin or starting placement moves.
 
 For a new session, G4 must choose and document one measurement source, for
 example:

@@ -104,9 +104,16 @@ files. The retry3 command-floor and router callback changes were staged on
 disk without restarting robot-side processes and remain physically
 unverified.
 
+The later persistent-session publication and its code-only transfer are
+recorded separately in
+[`audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md).
+Its archive supersedes the retry3 archive for code availability but likewise
+does not prove that any robot process loaded or physically verified it.
+
 ## Runtime-only calibration and evidence boundary
 
-Current session calibration, map and episode artifacts remain outside Git:
+Physical-session calibration, map and episode artifacts remain outside Git.
+The last predecessor identifiers were:
 
 - shared calibration ID `shared-board-odin1-20260723-v3`;
 - WSJ transform `wsj-tinynav-depth-20260723-powercycle-v3`;
@@ -120,4 +127,6 @@ Current session calibration, map and episode artifacts remain outside Git:
 Their observed paths, sizes and checksums are recorded in
 [`CURRENT_STATUS.md`](CURRENT_STATUS.md) and the dated audit records. They must
 not be reconstructed from an undocumented assumption or committed as
-credentials/runtime state.
+credentials/runtime state. A strict persistent `current` pointer is generated
+only by `calibrate_realworld_session.sh`; the legacy v3 artifact is not
+silently promoted.

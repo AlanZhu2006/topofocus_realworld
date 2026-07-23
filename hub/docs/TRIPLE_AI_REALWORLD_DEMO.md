@@ -129,11 +129,34 @@ complete.
 
 ## What remains before physical collection
 
-The image preflight, metric accounting and v2 target/feedback transport are
-implemented. Shared-frame and body-camera calibration have also been produced
-for the current deployment. Before physical collection can begin, the
-synchronized post-retry3 router changes must be loaded, a complete no-motion
-debug run must pass, the chosen target must lie outside both arrival radii, and
-one bounded operator-authorized episode must end with local STOP plus
-independent target/goal-region verification. Only that later episode is
-eligible for the 4 × 5 protocol.
+The image preflight, metric accounting, v2 target/feedback transport and
+persistent-session operator flow are implemented. Before physical collection,
+run the one-command board calibration for a new session, require its strict
+no-motion debug result, and choose a target outside both arrival radii. One
+bounded operator-authorized episode must end with local STOP plus independent
+target/goal-region verification.
+
+Immediately convert the episode report into an auditable trial:
+
+```bash
+hub/.venv/bin/python hub/tools/record_realworld_trial.py \
+  --episode-report <episode_report.json> \
+  --results hub/runtime/triple_ai_demo_results.json \
+  --experiment-id <experiment-id> \
+  --trial-index <1-5> \
+  --termination completed \
+  --robot-0-shortest-m <surveyed-metres> \
+  --robot-0-shortest-evidence <survey-file> \
+  --robot-0-reached-goal-region <yes-or-no> \
+  --robot-0-target-verified <yes-or-no> \
+  --robot-1-shortest-m <surveyed-metres> \
+  --robot-1-shortest-evidence <survey-file> \
+  --robot-1-reached-goal-region <yes-or-no> \
+  --robot-1-target-verified <yes-or-no>
+```
+
+Add each successful robot's `--robot-*-terminal-evidence` file. The adjacent
+metrics stays `incomplete` until all four scenes × five unique trials exist.
+Only complete, independently evidenced trials are eligible for SR/SPL. The
+full operator sequence is
+[`ONECLICK_SESSION_WORKFLOW.md`](ONECLICK_SESSION_WORKFLOW.md).
