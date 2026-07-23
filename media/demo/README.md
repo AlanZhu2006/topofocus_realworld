@@ -15,6 +15,56 @@ change their metric status.
 
 ## Published failed demos
 
+### Third-view two-robot engineering clips
+
+Both clips were observed as user-provided files in the workspace on
+2026-07-24. They show WSJ Go2 and Yunji together from an external laboratory
+view. Capture time, episode/session identity, navigation outcome and failure
+reason are not inferred from video pixels alone.
+
+#### Clip 1 — landscape
+
+- Published video:
+  `third_view_failure_1_20260724.mp4`
+- Poster:
+  `third_view_failure_1_20260724_poster.jpg`
+- Metric status: **excluded engineering demonstration**, not an official
+  episode.
+- Original user-provided master:
+  `media/video/third_view_failure_1.mp4`, 1,296,348 bytes, HEVC Main/AAC,
+  1280 × 720, nominal 30 fps, 10.167 seconds, SHA-256
+  `19d3e8958ab27fa7a1381d16c00842a113f64a051d0b4651217b48f3687718e2`;
+  retained locally and ignored.
+- Published derivative: 1,712,294 bytes, H.264 High, `yuv420p`, 1280 × 720,
+  30 fps, no audio, 10.167 seconds, SHA-256
+  `98fd321a207fd099c741338309cc0c313e0dbdab3ba98ad1438853aa377b82a5`.
+- Poster: 174,685 bytes, 1280 × 720, SHA-256
+  `f7fc9b6425e2ac3e8f2a611a687916ad2a2fb730486914c0668ed6b1d3962ade`.
+
+#### Clip 2 — portrait
+
+- Published video:
+  `third_view_failure_2_20260724.mp4`
+- Poster:
+  `third_view_failure_2_20260724_poster.jpg`
+- Metric status: **excluded engineering demonstration**, not an official
+  episode.
+- Original user-provided master:
+  `media/video/third_view_failure_2.mp4`, 767,264 bytes, HEVC Main/AAC,
+  720 × 1280, nominal 30 fps, 4.833 seconds, SHA-256
+  `4c51517313c01e6310e170368c0c3336027523569d03467f12b6ea9c77fbe456`;
+  retained locally and ignored.
+- Published derivative: 1,182,484 bytes, H.264 High, `yuv420p`, 720 × 1280,
+  30 fps, no audio, 4.834 seconds, SHA-256
+  `5cb70e13fe4a6ac53102a09b0f4ad874efd385021fc1e43a567c5a4ac4f316e1`.
+- Poster: 194,849 bytes, 720 × 1280, SHA-256
+  `a3d2796b08be9416653df85eec5f509e94431c4e8feef9d1a7355372d7623cb2`.
+
+Both public derivatives were produced with the locally observed `ffmpeg`
+4.4.2 using the source video stream, normalized 30 fps, `libx264` CRF 24,
+`yuv420p`, fast-start MP4 and no audio. Source masters were not modified.
+Posters were sampled at 2.5 seconds and 2.0 seconds respectively.
+
 ### Early Foxglove dashboard map failure
 
 - Published video:

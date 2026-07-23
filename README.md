@@ -63,6 +63,18 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 - **GPU Hub**：集中构建/融合双机语义地图，运行 YOLO 与
   Perception/Judgment/Decision VLM，并只向机器人发布可过期的高层目标。
 
+### 第三视角真机片段
+
+| 横屏第三视角 | 竖屏第三视角 |
+| --- | --- |
+| [![第三视角片段 1：WSJ Go2 与 Yunji](media/demo/third_view_failure_1_20260724_poster.jpg)](media/demo/third_view_failure_1_20260724.mp4) | [![第三视角片段 2：Yunji 与 WSJ Go2](media/demo/third_view_failure_2_20260724_poster.jpg)](media/demo/third_view_failure_2_20260724.mp4) |
+| [播放 10.2 秒 MP4](media/demo/third_view_failure_1_20260724.mp4) | [播放 4.8 秒 MP4](media/demo/third_view_failure_2_20260724.mp4) |
+
+两个片段从实验室第三视角展示 WSJ Go2、Yunji 及其实际传感器/计算设备。
+仅凭视频无法可靠绑定具体 episode、session 或失败原因，因此暂按工程测试
+片段保留并排除在 SR/SPL 之外；完整文件哈希和转码来源见
+[`media/demo/README.md`](media/demo/README.md)。
+
 ### 双机共享坐标系标定
 
 ![WSJ、Yunji 与共享圆点标定板](media/image/calibration.jpg)
