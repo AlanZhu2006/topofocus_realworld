@@ -81,34 +81,36 @@ their observed identities are recorded in
 
 ## Current robot deployment snapshot (2026-07-24)
 
-The robot deployment roots contain the final pre-publication Hub snapshot,
-which was based on Git commit
-`ee8f84b6646cb08fbcb30fab072b9d0437bf485b`. The Git commit containing this
-section publishes the intended code and documentation; the robots have not
-yet been redeployed from that commit. The pre-publication snapshot was
-synchronized to:
+The current code-availability snapshot is the persistent-session
+implementation at Git object
+`90dd8fe43dad16515017fe4fd9bd017e02277bf6`. It was synchronized without
+starting or restarting robot processes to:
 
 - `/home/nvidia/topofocus_buildmap_v2_20260723`
 - `/home/nyu/topofocus_buildmap_v2_20260723`
 
-The transfer archive contained 392 entries, was 2,371,165 bytes and had
+The `git archive <object> hub` transfer contained 326 entries, was 2,133,790
+bytes and had
 SHA-256
-`e1b9001fb188a3890037f5e33927d25afa44473fb50a6b8c40b61a6e123b1b72`.
-Both robot computers independently observed that hash before extraction.
-`source/`, `dependencies/`, runtime maps, environments, caches and credentials
-were excluded. See
-[`audit/DUAL_ROBOT_CODE_SYNC_20260723.md`](audit/DUAL_ROBOT_CODE_SYNC_20260723.md).
+`4298f048591ca8b6a7cfa9d9aa3fe3ba34058965329f32bfba827af72f2a097f`.
+Both robot computers independently observed that hash before extraction and
+matched a 175-record critical runtime manifest afterward. The manifest was
+23,560 bytes with SHA-256
+`bc16cbaa3337b1e27237de64e88d5e0c94cc7e81e64365f95d625f86142bb6bf`.
+All 196 Python files in the archive parsed and all 39 shell files passed
+`bash -n` on both robots. `source/`, `dependencies/`, runtime maps,
+environments, caches and credentials were excluded. See
+[`audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md).
 
 This transfer proves byte availability, not that a process loaded the new
-files. The retry3 command-floor and router callback changes were staged on
-disk without restarting robot-side processes and remain physically
-unverified.
+files. The observed final process state was WSJ receiver 0 / Go2 bridge 0 and
+Yunji receiver 0 / live and debug services inactive. The persistent
+calibration/debug/live workflow remains physically unverified.
 
-The later persistent-session publication and its code-only transfer are
-recorded separately in
-[`audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md).
-Its archive supersedes the retry3 archive for code availability but likewise
-does not prove that any robot process loaded or physically verified it.
+The superseded retry3 archive remains preserved as historical evidence in
+[`audit/DUAL_ROBOT_CODE_SYNC_20260723.md`](audit/DUAL_ROBOT_CODE_SYNC_20260723.md):
+392 entries, 2,371,165 bytes, SHA-256
+`e1b9001fb188a3890037f5e33927d25afa44473fb50a6b8c40b61a6e123b1b72`.
 
 ## Runtime-only calibration and evidence boundary
 

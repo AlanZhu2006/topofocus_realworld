@@ -1,6 +1,6 @@
 # Current project status
 
-Snapshot time: **2026-07-24 03:35 CST**
+Snapshot time: **2026-07-24 04:01 CST**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -26,9 +26,11 @@ robots to HOLD.
 
 Since that attempt, the dated launcher has been replaced by a persistent
 physical-session workflow. Its schemas, launch chain and regression tests pass
-locally, but the new workflow has not yet completed a physical debug or live
-run. There is intentionally no `hub/runtime/sessions/current.json` until a new
-onsite board calibration succeeds.
+locally. The implementation commit has also been byte-verified in both robot
+release roots without restarting robot-side processes, but the new workflow
+has not yet completed a physical debug or live run. There is intentionally no
+`hub/runtime/sessions/current.json` until a new onsite board calibration
+succeeds.
 
 ## Last observed physical identity
 
@@ -166,7 +168,7 @@ The episode controller also preserves a robot's observed `ARRIVED` event
 across the subsequent coordination HOLD, preventing its start/stop/path seed
 from being overwritten before trial recording.
 
-## Last synchronized retry3 follow-up
+## Latest robot code availability
 
 After retry3, two WSJ changes were locally tested and synchronized to both
 versioned robot deployment roots:
@@ -177,28 +179,49 @@ versioned robot deployment roots:
   three-thread router executor; the one-second stale-odometry fail-closed
   threshold remains unchanged.
 
-The code is on both robot computers but robot-side processes were deliberately
-not restarted during the final synchronization. These changes will load on
-the next controlled stack start and are still physically unverified.
+Those changes are included in the newer persistent-session implementation
+commit
+`90dd8fe43dad16515017fe4fd9bd017e02277bf6`. A code-only archive from that
+exact Git object was synchronized to:
 
-The synchronized 392-entry deployment archive was 2,371,165 bytes with
+- WSJ `/home/nvidia/topofocus_buildmap_v2_20260723`;
+- Yunji `/home/nyu/topofocus_buildmap_v2_20260723`.
+
+The latest archive contained 326 entries, was 2,133,790 bytes and had
+SHA-256
+`4298f048591ca8b6a7cfa9d9aa3fe3ba34058965329f32bfba827af72f2a097f`.
+Both robots matched that archive before extraction and then independently
+matched all 175 tracked files under `hub/src/focus_hub` and
+`hub/robot_overlay`. Both parsed the archive's 196 Python files and passed
+`bash -n` for all 39 shell files using Python 3.10.12.
+
+Robot-side processes were deliberately not restarted: the observed final
+state was WSJ receiver 0 / Go2 bridge 0 and Yunji receiver 0 / live service
+inactive / debug service inactive. The files will first be loaded by the next
+controlled stack start and remain physically unverified.
+
+The older retry3 archive contained 392 entries, was 2,371,165 bytes and had
 SHA-256
 `e1b9001fb188a3890037f5e33927d25afa44473fb50a6b8c40b61a6e123b1b72`.
-Both robots independently observed the same hash before extraction. See
+It remains historical evidence. See
 [`audit/DUAL_ROBOT_CODE_SYNC_20260723.md`](audit/DUAL_ROBOT_CODE_SYNC_20260723.md).
 
-That archive is historical. The publication/synchronization identity for the
-new persistent workflow is recorded after its final Git push; until then, do
-not claim the robots have loaded or physically verified it.
+The newer transfer and independently observed checks are recorded in
+[`audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md).
+Archive availability must not be described as process loading or physical
+verification.
 
 ## Current safety state
 
 At the last physical check:
 
-- local Hub was running the debug robot configuration;
+- local Hub was recreated from the current checkout on `127.0.0.1:8188`
+  with the debug robot configuration after the code-only transfer;
 - `goal_output_enabled=false` for both robots;
 - WSJ live receiver count was zero and Go2 bridge count was zero;
-- Yunji live receiver count was zero;
+- Yunji live receiver count was zero and its live/debug services were
+  inactive;
+- temporary transfer files and the loopback HTTP tmux session were removed;
 - all previously supplied operator confirmations were consumed.
 
 Never reuse an earlier confirmation after cleanup, restart or a failed
@@ -206,29 +229,27 @@ attempt.
 
 ## Remaining gates
 
-1. Publish the persistent-session commit and byte-verify its code-only archive
-   in both configured robot roots.
-2. Onsite, run the one-command board calibration with a new session ID. It
+1. Onsite, run the one-command board calibration with a new session ID. It
    also creates fresh maps and runs strict no-motion debug.
-3. Confirm `DEBUG_FULLSTACK_READY`, fresh WSJ/Yunji health, correct Foxglove
+2. Confirm `DEBUG_FULLSTACK_READY`, fresh WSJ/Yunji health, correct Foxglove
    views and a target outside both arrival radii.
-4. Obtain one fresh operator-present confirmation and complete one bounded
+3. Obtain one fresh operator-present confirmation and complete one bounded
    live episode.
-5. Record surveyed shortest paths, goal-region judgments and independent
+4. Record surveyed shortest paths, goal-region judgments and independent
    terminal evidence immediately; only a complete record is metric-eligible.
-6. Then collect four scenes × five official trials.
-7. Integrate physical multi-round VLM re-planning if a chosen scene cannot be
+5. Then collect four scenes × five official trials.
+6. Integrate physical multi-round VLM re-planning if a chosen scene cannot be
    completed by the current one-frozen-decision leg.
 
 ## Git and reproducibility state
 
-The reproducible baseline is commit
-`2b1371e7fb4583d488247cf978938f772e737579` on
-`agent/live-map-recovery-20260722`, published to
-`AlanZhu2006/topofocus_realworld` in draft PR #1. The persistent-session
-changes described above are the next publication unit and remain distinct
-from the historical pre-publication robot archive until final synchronization
-is recorded.
+The published persistent-session implementation is commit
+`90dd8fe43dad16515017fe4fd9bd017e02277bf6` on
+`agent/live-map-recovery-20260722` in
+`AlanZhu2006/topofocus_realworld` draft PR #1. The two robot release roots
+contain its exact critical runtime bytes. Documentation-only commits after
+that object do not alter the remotely checked `hub/src/focus_hub` or
+`hub/robot_overlay` trees.
 
 Runtime maps, camera frames, model files, credentials, tokens and robot-local
 calibration state remain intentionally outside Git. Their paths and hashes are

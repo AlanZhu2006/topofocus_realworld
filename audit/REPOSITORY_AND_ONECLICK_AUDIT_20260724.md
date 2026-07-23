@@ -276,7 +276,50 @@ passes debug and terminal evidence is recorded.
 
 ## Final robot synchronization
 
-This section is intentionally completed only after the publication commit is
-transferred to both configured robot roots. A later append records the exact
-archive size/SHA-256 and the independently observed remote verification
-results.
+Observed deployment source:
+
+- Git object:
+  `90dd8fe43dad16515017fe4fd9bd017e02277bf6`
+  (`feat: add persistent physical experiment sessions`);
+- archive construction: `git archive <object> hub`;
+- archive contents: 326 entries (300 files and 26 directories), 2,133,790
+  bytes;
+- archive SHA-256:
+  `4298f048591ca8b6a7cfa9d9aa3fe3ba34058965329f32bfba827af72f2a097f`;
+- path inspection: no absolute path, `..` component or symbolic link;
+- critical runtime manifest: all 175 tracked files under
+  `hub/src/focus_hub` and `hub/robot_overlay`, 23,560 bytes, SHA-256
+  `bc16cbaa3337b1e27237de64e88d5e0c94cc7e81e64365f95d625f86142bb6bf`.
+
+The archive and manifest were served only from local
+`127.0.0.1:8188`. The two already-running SSH reverse tunnels exposed that
+listener only as each robot's `127.0.0.1:18089`; no LAN-facing transfer
+listener or additional SSH connection was created. The temporary HTTP tmux
+session, archive, manifest and directory were removed after verification.
+The original local debug Hub was then recreated on `127.0.0.1:8188`; its
+observed health response again reported `goal_output_enabled=false` for both
+robots.
+
+Observed remote results:
+
+| Host | Release root | Post-extraction verification | Process state |
+| --- | --- | --- | --- |
+| WSJ `tegra-ubuntu` | `/home/nvidia/topofocus_buildmap_v2_20260723` | archive hash/326 entries matched; all 175 runtime hashes matched; 196 Python files parsed and 39 shell files passed `bash -n` under Python 3.10.12 at `2026-07-23T20:00:18Z` | receiver 0; Go2 bridge 0 |
+| Yunji `nyush-nuc` | `/home/nyu/topofocus_buildmap_v2_20260723` | archive hash/326 entries matched; all 175 runtime hashes matched; 196 Python files parsed and 39 shell files passed `bash -n` under Python 3.10.12 at `2026-07-23T20:00:17Z` | receiver 0; live service inactive; debug service inactive |
+
+Before transfer, WSJ had 5,222,384 KiB available in its release filesystem
+and Yunji had 57,816,768 KiB. Both release roots existed. Neither robot-side
+process was started, stopped or restarted by the synchronization.
+
+Two command-wrapper errors were kept outside the success claim. The first
+verification wrapper interpreted a no-match `pgrep` as a `pipefail` error and
+stopped before extraction. The corrected wrapper extracted the already
+hash-verified archive and passed the 175-file checksum and shell checks, but
+its inline Python quotation was stripped by the remote shell. A final
+quotation-free parse command then produced the successful results above.
+Neither wrapper created a motion process.
+
+This proves byte availability for the persistent-session implementation. It
+does **not** prove that a robot process has loaded those bytes, that the new
+calibration wrapper succeeds on the cameras, or that a physical episode
+works. Those remain onsite gates.

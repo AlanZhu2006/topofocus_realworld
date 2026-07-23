@@ -282,11 +282,17 @@ WSJ   /home/nvidia/topofocus_buildmap_v2_20260723
 Yunji /home/nyu/topofocus_buildmap_v2_20260723
 ```
 
-历史 retry3 双端归档 SHA-256 为
-`e1b9001fb188a3890037f5e33927d25afa44473fb50a6b8c40b61a6e123b1b72`；
-persistent-session publication 的最终 archive identity 见
+当前 persistent-session 实现提交为
+`90dd8fe43dad16515017fe4fd9bd017e02277bf6`。其双端归档为 2,133,790
+字节、326 个条目，SHA-256 为
+`4298f048591ca8b6a7cfa9d9aa3fe3ba34058965329f32bfba827af72f2a097f`；
+两端解包后还必须匹配 175 条运行时文件清单。完整证据见
 [`audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](../audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md)。
 归档 hash 只证明文件已同步，不证明运行进程已加载。
+
+历史 retry3 归档 SHA-256
+`e1b9001fb188a3890037f5e33927d25afa44473fb50a6b8c40b61a6e123b1b72`
+仅作为旧部署证据保留。
 
 完整运动层仍未完成。`official-run01` 及三个 retry 都是工程尝试，
 全部排除在 SR/SPL 之外。新 persistent session 必须依次通过：
