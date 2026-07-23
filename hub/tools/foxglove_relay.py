@@ -43,7 +43,9 @@ synchronized when they aren't.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import sys
 import threading
 import time
@@ -58,6 +60,32 @@ from fastapi import FastAPI, Header, HTTPException, Request, Response
 
 WORKSPACE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WORKSPACE / "hub" / "src"))
+
+SEMANTIC_OVERVIEW_CONTRACT = "focus-semantic-overview-v2"
+
+
+def _loaded_relay_source_sha256() -> str:
+    """Identify the exact visualization code loaded by this process.
+
+    This value is computed once at import time. A long-running relay therefore
+    cannot claim that newly-written source is active merely because the file
+    on disk changed after process startup.
+    """
+
+    digest = hashlib.sha256()
+    for path in (
+        Path(__file__).resolve(),
+        WORKSPACE / "hub" / "src" / "focus_hub" / "map_visualization.py",
+    ):
+        payload = path.read_bytes()
+        digest.update(str(path.relative_to(WORKSPACE)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(payload)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+LOADED_RELAY_SOURCE_SHA256 = _loaded_relay_source_sha256()
 
 import foxglove  # noqa: E402
 from foxglove.channels import (  # noqa: E402
@@ -116,6 +144,35 @@ class RobotSource:
     last_heading_deg: float | None = None
     last_map_stats: dict[str, int] | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+@dataclass
+class FusionSourceState:
+    """Thread-safe readiness exposed by the read-only health endpoint."""
+
+    enabled: bool
+    semantic_overview_ready: bool = False
+    last_published_at_ns: int | None = None
+    calibration_id: str | None = None
+    last_error: str | None = None
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+def update_fusion_source_state(
+    state: FusionSourceState | None,
+    *,
+    ready: bool,
+    calibration_id: str | None = None,
+    error: str | None = None,
+) -> None:
+    if state is None:
+        return
+    with state.lock:
+        state.semantic_overview_ready = ready
+        state.calibration_id = calibration_id
+        state.last_error = error
+        if ready:
+            state.last_published_at_ns = time.time_ns()
 
 
 def now_ts() -> Timestamp:
@@ -381,6 +438,7 @@ def fusion_poll_loop(
     fused_status_channel: LogChannel,
     category_names, *, interval_s: float, downsample: int,
     fused_overview_channel: CompressedImageChannel | None = None,
+    fusion_state: FusionSourceState | None = None,
 ) -> None:
     """Background thread: real cross-robot map fusion (upstream's
     element-wise max rule, `focus_hub.fusion.align_and_fuse_grids`), not
@@ -440,17 +498,27 @@ def fusion_poll_loop(
                             map_format_version="focus-hub-fused-read-only-v1",
                         )
                         try:
-                            fused_overview_channel.log(
-                                semantic_overview_message(
-                                    fused_snapshot,
-                                    tuple(category_names),
-                                    overlays=tuple(
-                                        robot_map_overlay(source)
-                                        for source in sources
-                                    ),
-                                )
+                            overview_message = semantic_overview_message(
+                                fused_snapshot,
+                                tuple(category_names),
+                                overlays=tuple(
+                                    robot_map_overlay(source)
+                                    for source in sources
+                                ),
+                            )
+                            fused_overview_channel.log(overview_message)
+                            update_fusion_source_state(
+                                fusion_state,
+                                ready=True,
+                                calibration_id=calibration_id,
                             )
                         except (RuntimeError, ValueError) as exc:
+                            update_fusion_source_state(
+                                fusion_state,
+                                ready=False,
+                                calibration_id=calibration_id,
+                                error=f"semantic overview skipped: {exc}",
+                            )
                             fused_status_channel.log(Log(
                                 timestamp=now_ts(),
                                 level=LogLevel.Warning,
@@ -468,11 +536,21 @@ def fusion_poll_loop(
                                 f"semantic_evidence={semantic}",
                         name="fused"))
                 else:
+                    update_fusion_source_state(
+                        fusion_state,
+                        ready=False,
+                        error="waiting for all robot map snapshots",
+                    )
                     fused_status_channel.log(Log(
                         timestamp=now_ts(), level=LogLevel.Warning, name="fused",
                         message="waiting for all robots to have a map snapshot before fusing"))
                 last_published_at_s = now_s
             except (OSError, EOFError, ValueError, zipfile.BadZipFile) as exc:
+                update_fusion_source_state(
+                    fusion_state,
+                    ready=False,
+                    error=f"fusion failed: {exc}",
+                )
                 fused_status_channel.log(Log(
                     timestamp=now_ts(), level=LogLevel.Error, name="fused",
                     message=f"fusion failed this cycle: {exc}"))
@@ -505,13 +583,29 @@ def frame_tree_loop(channel: FrameTransformChannel, *, interval_s: float = 5.0) 
 
 
 def update_pose_scene(source: RobotSource, status: dict) -> SceneUpdate | None:
-    """Update a relay-lifetime camera trail and return its scene message.
+    """Update a persistent robot trail and return its 3-D scene message.
 
-    The wire contract currently exposes camera XY but not a separately
-    calibrated body pose.  The marker is therefore labelled as a camera
-    position and deliberately carries no fabricated heading.
+    New map daemons derive ``shared_T_base`` from the transported camera pose
+    and the observation's measured ``base_T_camera``. Historical snapshots
+    expose only camera pose, which remains an explicit labelled fallback.
     """
-    xy = status.get("last_camera_xy_m")
+
+    xy = status.get("last_robot_xy_m")
+    heading = status.get("last_robot_heading_deg")
+    transported_trajectory = status.get("robot_trajectory_xy_m")
+    pose_kind = "base"
+    if not (
+        isinstance(xy, list)
+        and len(xy) == 2
+        and all(
+            isinstance(value, (int, float)) and np.isfinite(value)
+            for value in xy
+        )
+    ):
+        xy = status.get("last_camera_xy_m")
+        heading = status.get("last_camera_heading_deg")
+        transported_trajectory = status.get("trajectory_xy_m")
+        pose_kind = "camera fallback"
     frame_id = status.get("frame_id")
     if (
         not isinstance(xy, list)
@@ -522,10 +616,8 @@ def update_pose_scene(source: RobotSource, status: dict) -> SceneUpdate | None:
     ):
         return None
     point = (float(xy[0]), float(xy[1]))
-    heading = status.get("last_camera_heading_deg")
     if not isinstance(heading, (int, float)) or not np.isfinite(heading):
         heading = None
-    transported_trajectory = status.get("trajectory_xy_m")
     valid_trajectory = None
     if isinstance(transported_trajectory, list):
         parsed_trajectory = []
@@ -580,10 +672,27 @@ def update_pose_scene(source: RobotSource, status: dict) -> SceneUpdate | None:
             points=[Point3(x=x, y=y, z=0.05) for x, y in trail],
             color=Color(r=0.10, g=0.45, b=1.0, a=1.0),
         ))
+    if heading is not None:
+        heading_rad = math.radians(float(heading))
+        lines.append(LinePrimitive(
+            type=LinePrimitiveLineType.LineList,
+            pose=origin_pose,
+            thickness=0.08,
+            scale_invariant=False,
+            points=[
+                Point3(x=point[0], y=point[1], z=0.12),
+                Point3(
+                    x=point[0] + 0.45 * math.cos(heading_rad),
+                    y=point[1] + 0.45 * math.sin(heading_rad),
+                    z=0.12,
+                ),
+            ],
+            color=Color(r=0.90, g=0.10, b=0.10, a=1.0),
+        ))
     entity = SceneEntity(
         timestamp=now_ts(),
         frame_id=frame_id,
-        id=f"{source.name}-camera-trail",
+        id=f"{source.name}-robot-trail",
         frame_locked=True,
         lines=lines,
         cubes=[CubePrimitive(
@@ -600,7 +709,7 @@ def update_pose_scene(source: RobotSource, status: dict) -> SceneUpdate | None:
             font_size=14.0,
             scale_invariant=True,
             color=Color(r=0.90, g=0.10, b=0.10, a=1.0),
-            text=f"{source.name} camera",
+            text=f"{source.name} {pose_kind}",
         )],
     )
     return SceneUpdate(entities=[entity])
@@ -818,7 +927,8 @@ def load_shadow_target_scene(
 def legend_loop(channel: LogChannel, *, interval_s: float = 30.0) -> None:
     message = (
         "MAP LEGEND: gray=unknown; white=observed free; black=current geometric "
-        "obstacle; blue=camera trail since relay start; red=current camera XY. "
+        "obstacle; blue=robot trail; red=current base pose/heading "
+        "(explicit camera fallback for historical snapshots). "
         "Colored 5cm blocks=model-derived semantic cells (chair=red), copied "
         "exactly above geometry; one label identifies each present category; "
         "/<name>/semantic_overview and /fused/semantic_overview are cropped "
@@ -832,6 +942,50 @@ def legend_loop(channel: LogChannel, *, interval_s: float = 30.0) -> None:
             timestamp=now_ts(), level=LogLevel.Info, name="map-legend", message=message
         ))
         time.sleep(interval_s)
+
+
+def snapshot_freshness(
+    status: dict[str, object] | None,
+    map_path: Path,
+    *,
+    now_ns: int,
+) -> dict[str, object]:
+    """Separate observation/map-content age from file rewrite age."""
+
+    def age_seconds(value: object) -> float | None:
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and np.isfinite(value)
+            and value > 0
+        ):
+            return max(0.0, (now_ns - int(value)) / 1e9)
+        return None
+
+    status = status if isinstance(status, dict) else {}
+    input_age_s = age_seconds(status.get("last_capture_time_ns"))
+    map_age_s = age_seconds(status.get("last_map_capture_time_ns"))
+    if map_age_s is None and input_age_s is not None:
+        map_age_s = input_age_s
+        map_age_source = "legacy_last_input_capture_time_fallback"
+    elif map_age_s is None:
+        map_age_source = "unavailable"
+    else:
+        map_age_source = "integrated_keyframe_capture_time"
+    try:
+        file_age_s = max(0.0, (now_ns - map_path.stat().st_mtime_ns) / 1e9)
+    except OSError:
+        file_age_s = None
+    return {
+        "input_capture_age_s": input_age_s,
+        "map_content_age_s": map_age_s,
+        "map_content_age_source": map_age_source,
+        "snapshot_file_age_s": file_age_s,
+        "last_observation_sequence": status.get(
+            "last_observation_sequence"
+        ),
+        "last_map_sequence": status.get("last_map_sequence"),
+    }
 
 
 def status_loop(sources: list[RobotSource], *, interval_s: float) -> None:
@@ -857,12 +1011,12 @@ def status_loop(sources: list[RobotSource], *, interval_s: float) -> None:
                     snapshot_status = json.loads(status_path.read_text())
                 except (json.JSONDecodeError, OSError):
                     snapshot_status = None
-            map_age_s = None
             map_path = source.snapshot_dir / "central_map.npz"
-            try:
-                map_age_s = (now_ns - map_path.stat().st_mtime_ns) / 1e9
-            except OSError:
-                pass
+            freshness = snapshot_freshness(
+                snapshot_status,
+                map_path,
+                now_ns=now_ns,
+            )
 
             parts = [f"{source.name} ({source.robot_id}):"]
             level = LogLevel.Info
@@ -873,12 +1027,35 @@ def status_loop(sources: list[RobotSource], *, interval_s: float) -> None:
             else:
                 parts.append("camera: no pushed frames yet")
                 level = LogLevel.Warning
-            if map_age_s is not None:
-                parts.append(f"map snapshot age {map_age_s:.1f}s")
-                if map_age_s > 30.0:
+            input_age_s = freshness["input_capture_age_s"]
+            if isinstance(input_age_s, float):
+                parts.append(f"input capture age {input_age_s:.1f}s")
+                if input_age_s > 30.0:
                     level = LogLevel.Warning
             else:
-                parts.append("map: no snapshot yet")
+                parts.append("input capture age unavailable")
+                level = LogLevel.Warning
+            map_content_age_s = freshness["map_content_age_s"]
+            if isinstance(map_content_age_s, float):
+                age_label = "map content age"
+                if (
+                    freshness["map_content_age_source"]
+                    == "legacy_last_input_capture_time_fallback"
+                ):
+                    age_label += " (legacy input fallback)"
+                parts.append(f"{age_label} {map_content_age_s:.1f}s")
+                if map_content_age_s > 30.0:
+                    level = LogLevel.Warning
+            else:
+                snapshot_file_age_s = freshness["snapshot_file_age_s"]
+                if isinstance(snapshot_file_age_s, float):
+                    parts.append(
+                        "map content age unavailable; snapshot file write age "
+                        f"{snapshot_file_age_s:.1f}s is not freshness"
+                    )
+                else:
+                    parts.append("map: no snapshot yet")
+                level = LogLevel.Warning
 
             if snapshot_status is not None:
                 integrated = snapshot_status.get("frames_total")
@@ -936,7 +1113,11 @@ def camera_latch_loop(sources: list[RobotSource], *, interval_s: float) -> None:
         time.sleep(interval_s)
 
 
-def build_app(sources_by_name: dict[str, RobotSource], tokens_by_robot_id: dict[str, str]) -> FastAPI:
+def build_app(
+    sources_by_name: dict[str, RobotSource],
+    tokens_by_robot_id: dict[str, str],
+    fusion_state: FusionSourceState | None = None,
+) -> FastAPI:
     app = FastAPI()
 
     @app.post("/camera/{name}")
@@ -964,7 +1145,71 @@ def build_app(sources_by_name: dict[str, RobotSource], tokens_by_robot_id: dict[
 
     @app.get("/healthz")
     async def healthz():
-        return {"status": "ok", "robots": list(sources_by_name.keys())}
+        now_ns = time.time_ns()
+        robots: dict[str, dict[str, object]] = {}
+        for name, source in sources_by_name.items():
+            snapshot_status = None
+            try:
+                snapshot_status = json.loads(
+                    (
+                        source.snapshot_dir / "live_status.json"
+                    ).read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError):
+                pass
+            freshness = snapshot_freshness(
+                snapshot_status,
+                source.snapshot_dir / "central_map.npz",
+                now_ns=now_ns,
+            )
+            with source.lock:
+                robots[name] = {
+                    "camera_ready": source.last_camera_message is not None,
+                    "semantic_overview_ready": (
+                        source.last_overview_message is not None
+                    ),
+                    "pose_ready": source.last_pose_xy_m is not None,
+                    "map_stats": (
+                        None
+                        if source.last_map_stats is None
+                        else dict(source.last_map_stats)
+                    ),
+                    **freshness,
+                }
+        if fusion_state is None:
+            fused = {
+                "enabled": False,
+                "semantic_overview_ready": False,
+                "last_publish_age_s": None,
+                "calibration_id": None,
+                "last_error": None,
+            }
+        else:
+            with fusion_state.lock:
+                last_published_at_ns = fusion_state.last_published_at_ns
+                fused = {
+                    "enabled": fusion_state.enabled,
+                    "semantic_overview_ready": (
+                        fusion_state.semantic_overview_ready
+                    ),
+                    "last_publish_age_s": (
+                        None
+                        if last_published_at_ns is None
+                        else max(
+                            0.0,
+                            (now_ns - last_published_at_ns) / 1e9,
+                        )
+                    ),
+                    "calibration_id": fusion_state.calibration_id,
+                    "last_error": fusion_state.last_error,
+                }
+        return {
+            "status": "ok",
+            "semantic_overview_contract": SEMANTIC_OVERVIEW_CONTRACT,
+            "loaded_relay_source_sha256": LOADED_RELAY_SOURCE_SHA256,
+            "robots": robots,
+            "fused": fused,
+        }
 
     return app
 
@@ -1029,6 +1274,11 @@ def main() -> int:
     )
     print(f"Foxglove relay listening on ws://{args.host}:{args.port} "
           f"(connect Foxglove to this address)")
+    print(
+        "  semantic overview contract="
+        f"{SEMANTIC_OVERVIEW_CONTRACT} "
+        f"source_sha256={LOADED_RELAY_SOURCE_SHA256}"
+    )
 
     sources = []
     for robot_id, name, snapshot_dir in args.robots:
@@ -1048,6 +1298,7 @@ def main() -> int:
         ))
         print(f"  robot_id={robot_id} name={name} snapshot_dir={snapshot_dir}")
     sources_by_name = {s.name: s for s in sources}
+    fusion_state = FusionSourceState(enabled=args.fuse)
 
     threading.Thread(
         target=frame_tree_loop, args=(FrameTransformChannel("/tf"),), daemon=True,
@@ -1096,6 +1347,7 @@ def main() -> int:
                     "interval_s": args.fuse_interval_s,
                     "downsample": args.map_downsample,
                     "fused_overview_channel": fused_overview_channel,
+                    "fusion_state": fusion_state,
                 },
                 daemon=True,
             ).start()
@@ -1106,7 +1358,7 @@ def main() -> int:
 
     print(f"Camera preview push endpoint on http://{args.host}:{args.preview_port} "
           f"(POST /camera/{{name}}, X-Robot-Token header)")
-    app = build_app(sources_by_name, tokens_by_robot_id)
+    app = build_app(sources_by_name, tokens_by_robot_id, fusion_state)
     try:
         uvicorn.run(app, host=args.host, port=args.preview_port, log_level="warning")
     finally:

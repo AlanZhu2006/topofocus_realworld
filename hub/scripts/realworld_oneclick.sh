@@ -352,8 +352,28 @@ print(urlparse(os.environ["GLM_URL_VALUE"]).port)
   done
 }
 
+foxglove_source_sha256() {
+  "$PYTHON_BIN" - "$WORKSPACE" \
+    "$HUB_DIR/tools/foxglove_relay.py" \
+    "$HUB_DIR/src/focus_hub/map_visualization.py" <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+
+workspace = Path(sys.argv[1]).resolve()
+digest = hashlib.sha256()
+for raw_path in sys.argv[2:]:
+    path = Path(raw_path).resolve()
+    digest.update(str(path.relative_to(workspace)).encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(path.read_bytes())
+    digest.update(b"\0")
+print(digest.hexdigest())
+PY
+}
+
 foxglove_matches() {
-  local dead start
+  local dead start health expected_sha
   dead="$(
     tmux display-message -p -t "$FOXGLOVE_SESSION:relay" '#{pane_dead}' \
       2>/dev/null || true
@@ -368,9 +388,43 @@ foxglove_matches() {
      && "$start" == *"$YUNJI_MAP"* \
      && "$start" == *"--port $FOCUS_FOXGLOVE_PORT"* \
      && "$start" == *"--preview-port $FOCUS_PREVIEW_PORT"* \
-     && "$start" == *"--fuse"* ]] \
-    && curl -fsS --max-time 3 \
-      "http://127.0.0.1:$FOCUS_PREVIEW_PORT/healthz" >/dev/null 2>&1
+     && "$start" == *"--fuse"* ]] || return 1
+  health="$(
+    curl -fsS --max-time 3 \
+      "http://127.0.0.1:$FOCUS_PREVIEW_PORT/healthz" 2>/dev/null
+  )" || return 1
+  expected_sha="$(foxglove_source_sha256)" || return 1
+  FOCUS_FOXGLOVE_HEALTH="$health" \
+    FOCUS_FOXGLOVE_EXPECTED_SHA="$expected_sha" \
+    "$PYTHON_BIN" - <<'PY'
+import json
+import os
+
+health = json.loads(os.environ["FOCUS_FOXGLOVE_HEALTH"])
+if health.get("semantic_overview_contract") != "focus-semantic-overview-v2":
+    raise SystemExit(1)
+if (
+    health.get("loaded_relay_source_sha256")
+    != os.environ["FOCUS_FOXGLOVE_EXPECTED_SHA"]
+):
+    raise SystemExit(1)
+robots = health.get("robots")
+if not isinstance(robots, dict):
+    raise SystemExit(1)
+for name in ("wsj", "yunji"):
+    if not isinstance(robots.get(name), dict):
+        raise SystemExit(1)
+    if robots[name].get("semantic_overview_ready") is not True:
+        raise SystemExit(1)
+fused = health.get("fused")
+if not isinstance(fused, dict):
+    raise SystemExit(1)
+if (
+    fused.get("enabled") is not True
+    or fused.get("semantic_overview_ready") is not True
+):
+    raise SystemExit(1)
+PY
 }
 
 ensure_foxglove() {

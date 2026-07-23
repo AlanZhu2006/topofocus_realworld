@@ -27,6 +27,9 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
   目标；机器人端保留最终停止和拒绝权限。
 - 语义图使用真实模型推理和像素 mask，但 chair/plant 等投影仍是
   `model_inference_map_projected_unverified`，不能当作真实标签。
+- `example.png` 风格的双机 2D 图已经作为 WSJ、Yunji 和 fused 三个
+  Foxglove Image topic 实现：像素语义、标签、轨迹、base 位姿/朝向和
+  A–D 前沿同时显示；旧 relay 源码哈希不一致时一键启动会自动拒绝。
 - 四场景 × 五次、标准 SPL/源码兼容 SPL 和 episode 报告已经实现；
   当前没有有效正式样本，因此 SR/SPL 暂无数值。
 - 新的一键链路会持久化 Git、标定、transform、地图序号边界和远端部署
@@ -90,6 +93,12 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 这张图是用户提供的可视化目标参考：最终 Foxglove 2D 图应同时清晰呈现
 机器人位姿、轨迹、可通行/障碍区域、像素级语义色块和类别标签。它不是
 当前算法准确率或成功场景截图。
+
+2026-07-24 的完整复核已用当前双机快照生成并通过协议订阅验证上述三张
+图；renderer 不会把 RGBA 下采样混色当成新类别，也不会让静止定时刷新
+冒充第二个语义视角。现存 v12 图仍是历史模型推理证据，不会被事后清洗；
+详细根因、哈希和验证边界见
+[语义 2D/Foxglove 复核](audit/SEMANTIC_OVERVIEW_REAUDIT_20260724.md)。
 
 后续会把已经运行过的失败 demo 视频一并上传到
 [`media/demo/`](media/demo/README.md)，并注明对应 episode、观察到的失败

@@ -305,7 +305,23 @@ def render_semantic_overview(
     # callout near its largest component while avoiding earlier labels; this is
     # especially important in fused views where chair/table evidence can be
     # adjacent.
+    # Reserve the visible robot/frontier annotations before placing semantic
+    # callouts.  The previous renderer placed class labels first and then drew
+    # poses on top, which made a correct chair/plant label look corrupted when
+    # an agent or frontier occupied the same small crop.
     occupied_label_rects: list[tuple[int, int, int, int]] = []
+    for frontier in frontiers:
+        center = to_pixel(int(frontier.row), int(frontier.col))
+        if center is None:
+            continue
+        occupied_label_rects.append(
+            (
+                center[0] - 3 * scale,
+                center[1] - 3 * scale,
+                center[0] + 12 * scale,
+                center[1] + 7 * scale,
+            )
+        )
 
     def overlaps_existing(rect: tuple[int, int, int, int]) -> bool:
         left, top, right, bottom = rect
@@ -317,6 +333,130 @@ def render_semantic_overview(
             for other_left, other_top, other_right, other_bottom
             in occupied_label_rects
         )
+
+    # Reserve every pose marker first, then choose a non-overlapping text
+    # origin for each robot.  Doing this in two passes prevents the first
+    # robot's label from being placed on top of a nearby second robot pose.
+    robot_label_origins: list[tuple[int, int] | None] = [
+        None for _overlay in robot_overlays
+    ]
+    robot_annotation_info: list[
+        tuple[
+            int,
+            tuple[int, int],
+            int,
+            int,
+            int,
+            int,
+        ]
+    ] = []
+    for overlay_index, overlay in enumerate(robot_overlays):
+        if overlay.pose_xy_m is None:
+            continue
+        center = to_pixel(*world_to_cell(overlay.pose_xy_m))
+        if center is None:
+            continue
+        pose_size = max(9, 5 * scale)
+        font_scale = max(0.45, 0.25 * scale)
+        thickness = max(1, scale // 2)
+        (text_width, text_height), baseline = cv2.getTextSize(
+            overlay.label,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            thickness,
+        )
+        occupied_label_rects.append(
+            (
+                center[0] - pose_size,
+                center[1] - pose_size,
+                center[0] + pose_size,
+                center[1] + pose_size,
+            )
+        )
+        robot_annotation_info.append(
+            (
+                overlay_index,
+                center,
+                pose_size,
+                text_width,
+                text_height,
+                baseline,
+            )
+        )
+
+    for (
+        overlay_index,
+        center,
+        pose_size,
+        text_width,
+        text_height,
+        baseline,
+    ) in robot_annotation_info:
+        gap = max(4, scale)
+        candidate_origins = (
+            (center[0] + pose_size + gap, center[1] + pose_size),
+            (center[0] + pose_size + gap, center[1] - pose_size - gap),
+            (center[0] - pose_size - gap - text_width, center[1] + pose_size),
+            (
+                center[0] - pose_size - gap - text_width,
+                center[1] - pose_size - gap,
+            ),
+            (
+                center[0] - text_width // 2,
+                center[1] + pose_size + gap + text_height + 1,
+            ),
+            (
+                center[0] - text_width // 2,
+                center[1] - pose_size - gap - baseline - 1,
+            ),
+        )
+        selected_origin: tuple[int, int] | None = None
+        selected_rect: tuple[int, int, int, int] | None = None
+        for origin_x, origin_y in candidate_origins:
+            candidate = (
+                int(origin_x - 1),
+                int(origin_y - text_height - 1),
+                int(origin_x + text_width + 1),
+                int(origin_y + baseline + 1),
+            )
+            if (
+                candidate[0] < 0
+                or candidate[1] < 0
+                or candidate[2] >= image.shape[1]
+                or candidate[3] >= image.shape[0]
+                or overlaps_existing(candidate)
+            ):
+                continue
+            selected_origin = (int(origin_x), int(origin_y))
+            selected_rect = candidate
+            break
+        if selected_origin is None:
+            # Extremely small crops can exhaust all six placements. Keep the
+            # label visible inside the image; semantic callouts still avoid
+            # this clipped fallback rectangle.
+            origin_x = int(
+                np.clip(
+                    center[0] + pose_size + gap,
+                    1,
+                    max(1, image.shape[1] - text_width - 2),
+                )
+            )
+            origin_y = int(
+                np.clip(
+                    center[1] + pose_size,
+                    text_height + 2,
+                    max(text_height + 2, image.shape[0] - baseline - 2),
+                )
+            )
+            selected_origin = (origin_x, origin_y)
+            selected_rect = (
+                origin_x - 1,
+                origin_y - text_height - 1,
+                origin_x + text_width + 1,
+                origin_y + baseline + 1,
+            )
+        robot_label_origins[overlay_index] = selected_origin
+        occupied_label_rects.append(selected_rect)
 
     for row, col, category_name, category_bgr in semantic_labels:
         position = to_pixel(row, col)
@@ -407,7 +547,7 @@ def render_semantic_overview(
             cv2.LINE_AA,
         )
 
-    for overlay in robot_overlays:
+    for overlay_index, overlay in enumerate(robot_overlays):
         trail_pixels = []
         for point in overlay.trajectory_xy_m:
             pixel = to_pixel(*world_to_cell(point))
@@ -447,16 +587,18 @@ def render_semantic_overview(
             overlay.pose_bgr,
             cv2.LINE_AA,
         )
-        cv2.putText(
-            image,
-            overlay.label,
-            (center[0] + size, center[1] + size),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            max(0.45, 0.25 * scale),
-            overlay.pose_bgr,
-            max(1, scale // 2),
-            cv2.LINE_AA,
-        )
+        label_origin = robot_label_origins[overlay_index]
+        if label_origin is not None:
+            cv2.putText(
+                image,
+                overlay.label,
+                label_origin,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                max(0.45, 0.25 * scale),
+                overlay.pose_bgr,
+                max(1, scale // 2),
+                cv2.LINE_AA,
+            )
 
     for frontier in frontiers:
         center = to_pixel(int(frontier.row), int(frontier.col))

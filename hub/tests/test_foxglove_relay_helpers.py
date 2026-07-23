@@ -67,6 +67,71 @@ def test_pose_scene_rejects_missing_or_nonfinite_xy(tmp_path):
     ) is None
 
 
+def test_pose_scene_prefers_calibrated_robot_pose_over_camera_fallback(tmp_path):
+    relay = load_relay_module()
+    source = make_source(relay, tmp_path)
+
+    scene = relay.update_pose_scene(
+        source,
+        {
+            "frame_id": "shared_world",
+            "last_robot_xy_m": [1.0, 2.0],
+            "last_robot_heading_deg": 90.0,
+            "robot_trajectory_xy_m": [[0.5, 2.0], [1.0, 2.0]],
+            "last_camera_xy_m": [9.0, 9.0],
+            "trajectory_xy_m": [[9.0, 9.0]],
+        },
+    )
+
+    assert source.last_pose_xy_m == (1.0, 2.0)
+    assert source.last_heading_deg == 90.0
+    assert source.trajectory_xy_m == [(0.5, 2.0), (1.0, 2.0)]
+    encoded = repr(scene)
+    assert 'id: "wsj-robot-trail"' in encoded
+    assert 'text: "wsj base"' in encoded
+
+
+def test_snapshot_freshness_uses_integrated_capture_not_file_mtime(tmp_path):
+    relay = load_relay_module()
+    map_path = tmp_path / "central_map.npz"
+    map_path.write_bytes(b"snapshot")
+
+    freshness = relay.snapshot_freshness(
+        {
+            "last_capture_time_ns": 9_000_000_000,
+            "last_map_capture_time_ns": 8_000_000_000,
+            "last_observation_sequence": 12,
+            "last_map_sequence": 11,
+        },
+        map_path,
+        now_ns=10_000_000_000,
+    )
+
+    assert freshness["input_capture_age_s"] == pytest.approx(1.0)
+    assert freshness["map_content_age_s"] == pytest.approx(2.0)
+    assert freshness["map_content_age_source"] == (
+        "integrated_keyframe_capture_time"
+    )
+    assert freshness["last_observation_sequence"] == 12
+    assert freshness["last_map_sequence"] == 11
+
+
+def test_snapshot_freshness_labels_legacy_capture_fallback(tmp_path):
+    relay = load_relay_module()
+
+    freshness = relay.snapshot_freshness(
+        {"last_capture_time_ns": 8_000_000_000},
+        tmp_path / "missing-map.npz",
+        now_ns=10_000_000_000,
+    )
+
+    assert freshness["map_content_age_s"] == pytest.approx(2.0)
+    assert freshness["map_content_age_source"] == (
+        "legacy_last_input_capture_time_fallback"
+    )
+    assert freshness["snapshot_file_age_s"] is None
+
+
 def test_semantic_scene_paints_every_chair_cell_without_bounding_box(tmp_path):
     relay = load_relay_module()
     grid = np.zeros((17, 20, 20), dtype=np.float32)
@@ -177,6 +242,8 @@ def test_fusion_loop_publishes_geometry_semantics_and_evidence_status(
     semantic = Channel()
     geometry = Channel()
     status = Channel()
+    overview = Channel()
+    fusion_state = relay.FusionSourceState(enabled=True)
     sources = [make_source(relay, tmp_path), make_source(relay, tmp_path)]
 
     with pytest.raises(StopLoop):
@@ -188,10 +255,17 @@ def test_fusion_loop_publishes_geometry_semantics_and_evidence_status(
             relay.HM3D_CATEGORY_NAMES,
             interval_s=8.0,
             downsample=1,
+            fused_overview_channel=overview,
+            fusion_state=fusion_state,
         )
 
     assert semantic.messages == ["semantic"]
     assert geometry.messages == ["geometry"]
+    assert len(overview.messages) == 1
+    assert fusion_state.semantic_overview_ready is True
+    assert fusion_state.calibration_id == "test-calibration"
+    assert fusion_state.last_error is None
+    assert fusion_state.last_published_at_ns is not None
     assert len(status.messages) == 1
     status_text = repr(status.messages[0])
     assert "calibration=test-calibration" in status_text

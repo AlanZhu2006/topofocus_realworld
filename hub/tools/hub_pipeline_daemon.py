@@ -69,6 +69,15 @@ def heading_deg_from_pose(T_shared_camera: np.ndarray) -> float:
     return math.degrees(math.atan2(forward_world[1], forward_world[0]))
 
 
+def heading_deg_from_base_pose(T_shared_base: np.ndarray) -> float:
+    """World-frame base_link heading from its conventional +X axis."""
+
+    forward_world = T_shared_base[:2, 0]
+    if np.linalg.norm(forward_world) < 1e-9:
+        return 0.0
+    return math.degrees(math.atan2(forward_world[1], forward_world[0]))
+
+
 def rss_mib() -> float:
     with open(f"/proc/{os.getpid()}/statm") as f:
         return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2**20
@@ -135,22 +144,60 @@ def write_camera_snapshot(
         "written_at_ns": time.time_ns(),
         "last_capture_time_ns": last_metadata.capture_time_ns if last_metadata else None,
         "last_sent_time_ns": last_metadata.sent_time_ns if last_metadata else None,
+        "last_observation_sequence": pipeline.last_observation_sequence,
+        "last_map_sequence": pipeline.last_sequence,
+        "last_map_capture_time_ns": (
+            pipeline.last_integrated_capture_time_ns
+        ),
         "last_camera_xy_m": list(pipeline.last_camera_xy) if pipeline.last_camera_xy else None,
         "last_camera_heading_deg": (
             heading_deg_from_pose(pipeline.last_camera_T)
             if pipeline.last_camera_T is not None
             else None
         ),
+        "last_robot_xy_m": (
+            list(pipeline.last_robot_xy)
+            if pipeline.last_robot_xy
+            else None
+        ),
+        "last_robot_heading_deg": (
+            heading_deg_from_base_pose(pipeline.last_robot_T)
+            if pipeline.last_robot_T is not None
+            else None
+        ),
         "trajectory_xy_m": [
             [float(x_m), float(y_m)]
             for x_m, y_m in pipeline.trajectory_xy_m
         ],
+        "robot_trajectory_xy_m": [
+            [float(x_m), float(y_m)]
+            for x_m, y_m in pipeline.robot_trajectory_xy_m
+        ],
         "pose_visualization_provenance": {
-            "position": "observed transported shared_T_camera translation",
-            "heading": "source-derived camera optical +Z projected into shared XY",
-            "trajectory": "observed positions deduplicated at 0.05 m; latest 2000",
-            "status": "camera pose, not independently calibrated body footprint",
+            "position": pipeline.robot_pose_source,
+            "heading": (
+                "source-derived base_link +X projected into shared XY"
+                if pipeline.robot_pose_source.startswith("source_derived")
+                else "source-derived camera optical +Z projected into shared XY"
+            ),
+            "trajectory": (
+                "robot base positions deduplicated at 0.05 m; latest 2000"
+            ),
+            "status": (
+                "calibrated base_link pose"
+                if pipeline.robot_pose_source.startswith("source_derived")
+                else "camera pose fallback; base_T_camera absent"
+            ),
         },
+        "semantic_vote_policy": (
+            "pose_change_keyframes_only_interval_geometry_refresh"
+            if pipeline.mapper.config.semantic_fusion_mode == "multi_view"
+            else "every_integrated_keyframe"
+        ),
+        "semantic_vote_frames": pipeline.semantic_vote_frames,
+        "semantic_interval_frames_without_vote": (
+            pipeline.semantic_interval_frames_without_vote
+        ),
         "semantic_yolo": pipeline.semantic_yolo_status(),
         "semantic_backend": pipeline.semantic_backend_status(),
     }
@@ -171,6 +218,25 @@ def write_map_snapshot(pipeline: SpoolMappingPipeline, out_dir: Path) -> None:
     compressed-npz save is real work, unlike the camera write above.
     """
     pipeline.save(out_dir)
+
+
+def map_snapshot_revision(
+    pipeline: SpoolMappingPipeline,
+) -> tuple[int | None, int, str | None]:
+    """Return the state that makes a persisted map generation meaningful.
+
+    A recurring wall-clock timer is not a map update.  Re-saving an unchanged
+    tensor fabricated a fresh file mtime and a new ``snapshot_id`` every few
+    seconds even after robot input stopped.  The daemon now writes only after
+    a new observation was handled, an integration count changed, or a
+    fail-closed mapping latch changed.
+    """
+
+    return (
+        pipeline.last_observation_sequence,
+        pipeline.frames_processed,
+        pipeline.mapping_blocked_reason,
+    )
 
 
 def main() -> int:
@@ -487,6 +553,7 @@ def main() -> int:
     frame_ms: list[float] = []
     last_decision_at = time.monotonic()
     last_snapshot_at = time.monotonic()
+    last_snapshot_revision: tuple[int | None, int, str | None] | None = None
     last_metadata = None
     admin_token = args.admin_token_file.read_text().strip()
 
@@ -737,10 +804,18 @@ def main() -> int:
                     )
 
         now = time.monotonic()
-        if (args.snapshot_interval_s > 0 and pipeline is not None
-                and now - last_snapshot_at >= args.snapshot_interval_s):
+        current_snapshot_revision = (
+            None if pipeline is None else map_snapshot_revision(pipeline)
+        )
+        if (
+            args.snapshot_interval_s > 0
+            and pipeline is not None
+            and now - last_snapshot_at >= args.snapshot_interval_s
+            and current_snapshot_revision != last_snapshot_revision
+        ):
             last_snapshot_at = now
             write_map_snapshot(pipeline, args.out_dir)
+            last_snapshot_revision = current_snapshot_revision
 
         if pipeline is not None and now - last_decision_at >= args.decision_interval:
             last_decision_at = now
@@ -754,10 +829,10 @@ def main() -> int:
             cascade_info: dict | None = None
             if frontiers:
                 robot_rc = None
-                if pipeline.last_camera_xy is not None:
+                if pipeline.last_robot_xy is not None:
                     row, col = pipeline.mapper.map.world_to_cell(
-                        np.array([pipeline.last_camera_xy[0]]),
-                        np.array([pipeline.last_camera_xy[1]]))
+                        np.array([pipeline.last_robot_xy[0]]),
+                        np.array([pipeline.last_robot_xy[1]]))
                     robot_rc = (int(row[0]), int(col[0]))
 
                 if args.glm_url and not args.no_cascade and robot_rc is not None and pipeline.last_rgb_bgr is not None:
@@ -765,7 +840,11 @@ def main() -> int:
                         scene_objects_dict = extract_scene_objects(grid[2:2 + len(HM3D_CATEGORY_NAMES)], HM3D_CATEGORY_NAMES)
                         scene_objects_str = format_scene_objects_for_prompt(scene_objects_dict)
                         detections = yolo.detect(pipeline.last_rgb_bgr) if yolo else {}
-                        heading = heading_deg_from_pose(pipeline.last_camera_T)
+                        heading = (
+                            heading_deg_from_base_pose(pipeline.last_robot_T)
+                            if pipeline.last_robot_T is not None
+                            else heading_deg_from_pose(pipeline.last_camera_T)
+                        )
                         judgment_map = render_semantic_decision_map(
                             grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading,
                             history_nodes=memory.history_nodes)

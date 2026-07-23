@@ -41,6 +41,20 @@
 - Add goal-scoped YOLO semantic BEV reinforcement, pixel-region overlays,
   category labels, trajectory/pose/frontier visualization and shared Foxglove
   overviews.
+- Prevent interval-only stationary keyframes from counting as independent
+  multi-view semantic votes; preserve their geometry refresh.
+- Render calibrated base-link pose/heading and trajectory when the measured
+  camera mount is present, with an explicit camera fallback for historical
+  snapshots.
+- Reset the operator trajectory on a pose-discontinuity latch so visualization
+  cannot connect two incompatible coordinate frames with a false path.
+- Add deterministic annotation collision avoidance and a read-only,
+  checksum-manifested semantic-overview exporter matching the Foxglove Image
+  topics.
+- Make one-click reject a stale Foxglove process by loaded-source hash and
+  require both robot overviews plus the fused overview to be ready.
+- Stop rewriting unchanged map snapshots and report observation/map-content
+  age from capture timestamps instead of treating file mtime as freshness.
 - Add source-derived Perception, Judgment/FN and Decision VLM stages, shared
   directional memory, sequential two-agent allocation and continuous
   non-motion scene state.

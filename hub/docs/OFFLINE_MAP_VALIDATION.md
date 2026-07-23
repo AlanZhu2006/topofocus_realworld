@@ -16,8 +16,12 @@ The relay publishes two map views per robot:
   observed free space, and black is current geometric obstacle evidence.
 - `/<name>/semantic_map`: geometry plus RedNet categories. It is retained for
   diagnosis but hidden by default while the real-camera semantic gate is open.
-- `/<name>/map_pose`: red current camera XY and a blue trail sampled since the
-  relay process started. It is a camera marker, not a fabricated body pose.
+- `/<name>/map_pose`: red calibrated robot-base XY/heading and a blue
+  persisted trajectory when the live status contains measured
+  `base_T_camera`; historical status is explicitly shown as a camera fallback.
+- `/<name>/semantic_overview` and `/fused/semantic_overview`: the readable
+  `example.png`-style Image panels with exact semantic pixels, labels,
+  base-pose arrows, trajectories and A–D frontiers.
 
 Evidence is reduced before colors are assigned. The old RGBA block average
 could blend unrelated category colors into irregular purple/yellow patches;
@@ -25,6 +29,15 @@ the new path always emits an exact legend/category color.
 
 Foxglove does not update an already-imported layout when the repository JSON
 changes. Re-import `hub/foxglove/dual_robot_dashboard.json` after deployment.
+The relay `/healthz` must also show
+`semantic_overview_contract=focus-semantic-overview-v2`, a loaded-source hash
+matching the checkout, both per-robot overviews ready and the fused overview
+ready. A listening port alone is not proof that the current renderer is
+loaded.
+
+To export and hash exactly the same 2-D representation without Foxglove or any
+robot-control path, use `hub/tools/export_semantic_overview.py` as documented
+in [LIVE_MAPPING.md](LIVE_MAPPING.md).
 
 ## 2. Bounded geometry parameter replay
 

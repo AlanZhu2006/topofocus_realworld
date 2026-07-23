@@ -1,6 +1,6 @@
 # Current project status
 
-Snapshot time: **2026-07-24 04:13 CST**
+Snapshot time: **2026-07-24 05:17 CST**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -31,6 +31,15 @@ release roots without restarting robot-side processes, but the new workflow
 has not yet completed a physical debug or live run. There is intentionally no
 `hub/runtime/sessions/current.json` until a new onsite board calibration
 succeeds.
+
+A subsequent semantic/Foxglove re-audit closed four local issues before that
+next run: the production relay could remain on older loaded source, stationary
+interval frames could satisfy the nominal two-view semantic gate, visualization
+used camera pose instead of calibrated base pose, and recurring identical map
+writes could look fresh by mtime. The current read-only relay now delivers all
+three `example.png`-style overview topics. Mapper/pipeline corrections take
+effect only in a future fresh map session; the historical v12 map was not
+rewritten or cleaned.
 
 ## Last observed physical identity
 
@@ -72,7 +81,15 @@ new strict session by assertion. The next onsite run must use
 - Both last observed maps use gravity/ground gates, free-space ray fill, reversible
   obstacle evidence, pose-jump blocking and online status artifacts.
 - Foxglove publishes camera, occupancy, pose, trajectory, frontiers, semantic
-  pixel regions, labels and a fused shared-frame overview.
+  pixel regions, labels and a fused shared-frame overview. Its health contract
+  binds the exact loaded renderer hash and separately reports both robot
+  overview readiness and fused readiness.
+- The 2-D overview paints exact semantic components, avoids annotation
+  collisions and prefers calibrated `base_link` pose/heading/trajectory.
+  Historical snapshots explicitly use a camera-pose fallback.
+- Real-camera `multi_view` no longer counts an interval-only stationary
+  refresh as independent semantic confirmation. Map status separately records
+  true input age and last integrated-map capture time.
 - Real YOLO inference is enabled by default for the live semantic target path.
   Its map projection remains model inference, not ground truth.
 
@@ -134,6 +151,10 @@ The detailed evidence, hashes and exact command observations are in
 - Frozen/blank Foxglove panels, ray-fill interpretation and map-session
   contamination across pose discontinuities.
 - Cross-view YOLO depth selection using an unrelated foreground surface.
+- Stationary interval keyframes falsely satisfying two-view semantic
+  confirmation.
+- Old loaded Foxglove source and open-port-only readiness checks.
+- Rewritten snapshot mtime falsely appearing to be fresh map content.
 - Yunji D405-era assumptions after the Odin1 hardware replacement.
 
 ## Persistent operator workflow
@@ -218,6 +239,13 @@ At the last physical check:
 - local Hub was recreated from the current checkout on `127.0.0.1:8188`
   with the debug robot configuration after the code-only transfer;
 - `goal_output_enabled=false` for both robots;
+- the read-only production Foxglove relay was reloaded from current source and
+  protocol subscriptions decoded non-empty WSJ, Yunji and fused overview PNGs;
+- the fresh relay intentionally retained no camera JPEG; camera panels require
+  the next real preview push and no stale frame was synthesized;
+- the predecessor v12 map daemons were gracefully stopped after their final
+  snapshots were frozen, preventing a future robot reconnect from mixing a new
+  placement into the old calibration; the static Foxglove views remain ready;
 - WSJ live receiver count was zero and Go2 bridge count was zero;
 - Yunji live receiver count was zero and its live/debug services were
   inactive;
@@ -231,8 +259,9 @@ attempt.
 
 1. Onsite, run the one-command board calibration with a new session ID. It
    also creates fresh maps and runs strict no-motion debug.
-2. Confirm `DEBUG_FULLSTACK_READY`, fresh WSJ/Yunji health, correct Foxglove
-   views and a target outside both arrival radii.
+2. Re-import `hub/foxglove/dual_robot_dashboard.json` once, then confirm
+   `DEBUG_FULLSTACK_READY`, fresh WSJ/Yunji health, all three semantic
+   overviews, calibrated base poses and a target outside both arrival radii.
 3. Obtain one fresh operator-present confirmation and complete one bounded
    live episode.
 4. Record surveyed shortest paths, goal-region judgments and independent
@@ -253,4 +282,6 @@ checked `hub/src/focus_hub` or `hub/robot_overlay` trees.
 
 Runtime maps, camera frames, model files, credentials, tokens and robot-local
 calibration state remain intentionally outside Git. Their paths and hashes are
-recorded in manifests and dated audits.
+recorded in manifests and dated audits. The 2026-07-24 semantic/visualization
+root-cause evidence and offline/live image hashes are in
+[`audit/SEMANTIC_OVERVIEW_REAUDIT_20260724.md`](audit/SEMANTIC_OVERVIEW_REAUDIT_20260724.md).

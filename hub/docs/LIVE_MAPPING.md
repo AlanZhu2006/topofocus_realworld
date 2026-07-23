@@ -32,7 +32,9 @@ The live defaults accept a mapping keyframe after 0.20 m translation, 10
 degrees rotation, or 5 s. A translation above 2.0 m or rotation above 90
 degrees between adjacent observations latches the map as halted; it does not
 resume irreversible fusion into a potentially different pose frame. Start a
-new output directory/session after investigating the discontinuity.
+new output directory/session after investigating the discontinuity. The
+operator trajectory is reset to the current point when such a latch occurs, so
+the display cannot draw a false connecting line across two coordinate frames.
 
 With RANSAC ground mode, every observation is checked before the keyframe gate
 or RedNet inference. A frame with no accepted floor candidate is skipped. A
@@ -60,7 +62,11 @@ preserves the upstream semantic maximum. The real-camera adapter may instead
 use `multi_view`: one class/cell/keyframe vote, a configurable minimum hit
 count, and one winning class per cell. The current clean-map launcher requires
 two supporting keyframes and a one-vote winner margin. This prevents one model
-frame or a conflicting class from becoming permanent map color.
+frame or a conflicting class from becoming permanent map color. A keyframe
+accepted only because the five-second refresh interval elapsed still updates
+geometry, but no longer adds a semantic vote: repeated inference from one
+stationary view is not independent multi-view confirmation. The live status
+records semantic-vote and interval-without-vote counters.
 
 ## Real-camera pixel semantic adapter
 
@@ -132,8 +138,16 @@ least:
 - obstacle fusion mode, height band and hit threshold;
 - semantic backend provenance, semantic fusion mode/hit gates, optional YOLO
   model checksum and goal-category allowlist;
+- last handled observation sequence, last actually integrated map sequence and
+  that keyframe's capture timestamp;
 - ground rejection/drift counters, thresholds and last residuals;
 - `map_format_version=focus-hub-central-map-v3`.
+
+The snapshot timer no longer rewrites an unchanged map merely because wall
+clock time elapsed. A new persisted generation requires a newly handled
+observation, a changed integration count or a changed fail-closed latch.
+Foxglove reports source-capture and integrated-map-content age; a file mtime is
+retained only as write provenance and is never presented as sensor freshness.
 
 Foxglove refuses legacy snapshots without frame/transform metadata unless
 `--allow-legacy-maps` is explicitly given for an unverified per-robot view.
@@ -203,14 +217,15 @@ detail in [VLM_LIVE_EXPERIMENT_20260723.md](VLM_LIVE_EXPERIMENT_20260723.md).
   in the checked-in layout. The July 22 chair reinforcement gate produced
   non-zero chair cells on both robots; enable this topic in the existing 3D
   panel to inspect them without importing a new layout;
-- `/<name>/map_pose` draws a red current camera XY and a blue relay-lifetime
-  camera trail. It also copies every original 5 cm semantic cell as a shallow
+- `/<name>/map_pose` draws a red calibrated robot-base XY/heading and a blue
+  persistent base trajectory when `base_T_camera` is present. Historical
+  snapshots without the new fields are explicitly labelled as camera-pose
+  fallback. It also copies every original 5 cm semantic cell as a shallow
   palette-colored block just above the geometry plane (chair is red). This
   makes the complete semantic pixel blob visible without replacing it by a
   bounding box or changing its footprint. A single small class label is
   anchored over the largest connected component, so the color remains
-  identifiable without covering the blob. The camera marker is not a
-  calibrated body footprint or heading. An unexpired VLM shadow allocation
+  identifiable without covering the blob. An unexpired VLM shadow allocation
   is drawn on this same topic as one magenta cylinder labelled
   `SHADOW <frontier> · <goal> · NO MOTION`; it is a display artifact, not a
   planner or robot command;
@@ -226,9 +241,12 @@ detail in [VLM_LIVE_EXPERIMENT_20260723.md](VLM_LIVE_EXPERIMENT_20260723.md).
 - `/<name>/semantic_overview` is the example-style 2-D operator image: near
   white unknown, light-gray explored, charcoal obstacle endpoints, exact
   semantic pixel components, compact non-overlapping class callouts, the
-  transported camera trajectory and current heading triangle, plus optional
-  A–D frontier markers. Tiny missing-depth slits are closed only in this
-  display raster; the evidence tensor and VLM inputs are untouched;
+  calibrated base trajectory and current heading triangle, plus optional A–D
+  frontier markers. Robot names, pose markers, frontier letters and semantic
+  callouts share a deterministic non-overlap layout. Historical snapshots
+  fall back to their recorded camera pose. Tiny missing-depth slits are closed
+  only in this display raster; the evidence tensor and VLM inputs are
+  untouched;
 - `/fused/semantic_overview` renders the same representation after the strict
   shared-frame fusion contract passes, with both robot trajectories and
   current poses. These three Image topics are the checked-in layout's default
@@ -237,6 +255,29 @@ detail in [VLM_LIVE_EXPERIMENT_20260723.md](VLM_LIVE_EXPERIMENT_20260723.md).
 Foxglove does not update an already imported local layout when this repository
 file changes. Re-import `hub/foxglove/dual_robot_dashboard.json` after a layout
 revision.
+
+The relay health endpoint exposes
+`semantic_overview_contract=focus-semantic-overview-v2`, a SHA-256 over the
+exact relay/renderer source loaded at process start, per-robot overview
+readiness and fused-overview readiness. The persistent one-click launcher
+rejects a stale process unless the loaded hash matches the current checkout
+and all three overview images have actually been generated.
+
+For a reproducible PNG/manifest export from a persisted session without
+contacting a planner, receiver or robot:
+
+```bash
+eval "$(hub/.venv/bin/python hub/tools/manage_realworld_session.py resolve \
+  --session-file current --mode status --format shell)"
+hub/.venv/bin/python hub/tools/export_semantic_overview.py \
+  --robot "wsj:$FOCUS_WSJ_MAP" \
+  --robot "yunji:$FOCUS_YUNJI_MAP" \
+  --fuse \
+  --output-dir "hub/runtime/analysis/semantic_overview_$(date +%Y%m%d_%H%M%S)"
+```
+
+The manifest records every input/reference/output path, byte size, SHA-256 and
+whether it was observed, model/source-derived or unverified.
 
 `hub/tools/live_vlm_shadow.py` is the one-round live multi-robot scheduler.
 It freezes and hashes both map/RGB/depth inputs, validates the shared-frame
@@ -268,9 +309,10 @@ It cannot yield a complete room outline. Movement tests require an operator at
 the robot and remain separate from Hub software deployment.
 
 The relay retains the latest JPEG and republishes it with its original
-timestamp for late/reconnected Foxglove subscribers. Status age is based only
-on real camera pushes and the actual map file mtime, so this retention does not
-claim a stale image is fresh.
+timestamp for late/reconnected Foxglove subscribers. Camera age is based only
+on real pushes. Input/map ages come from transported capture timestamps; the
+snapshot file's write time is never treated as observation freshness, so
+retention or a periodic disk write cannot make stale data look current.
 
 Offline parameter replay, RedNet confidence diagnosis, the operator-present
 moved-map acceptance gate and reuse of the existing board calibration scripts

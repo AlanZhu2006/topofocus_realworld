@@ -270,9 +270,9 @@
         "splitPercentage": 70
       },
       "direction": "row",
-      "splitPercentage": 50
+      "splitPercentage": 68
     },
     "direction": "column",
-    "splitPercentage": 40
+    "splitPercentage": 35
   }
 }

@@ -155,8 +155,12 @@ class SpoolMappingPipeline:
         self.ground_drift_consecutive_frames = ground_drift_consecutive_frames
         self.last_camera_xy: tuple[float, float] | None = None
         self.last_camera_T: np.ndarray | None = None
+        self.last_robot_xy: tuple[float, float] | None = None
+        self.last_robot_T: np.ndarray | None = None
         self.last_rgb_bgr: np.ndarray | None = None
         self.trajectory_xy_m: list[tuple[float, float]] = []
+        self.robot_trajectory_xy_m: list[tuple[float, float]] = []
+        self.robot_pose_source = "camera_pose_fallback_no_base_T_camera"
         self.frames_processed = 0
         self.observations_seen = 0
         self.skipped_non_keyframes = 0
@@ -193,7 +197,10 @@ class SpoolMappingPipeline:
         self.mapping_blocked_kind: str | None = None
         self.first_sequence: int | None = None
         self.last_sequence: int | None = None
+        self.last_integrated_capture_time_ns: int | None = None
         self.last_observation_sequence: int | None = None
+        self.semantic_vote_frames = 0
+        self.semantic_interval_frames_without_vote = 0
 
     def process(self, observation: SpooledObservation) -> KeyframeDecision:
         observation_version = observation.metadata.pose.transform_version
@@ -220,6 +227,45 @@ class SpoolMappingPipeline:
             float(observation.T_shared_camera[1, 3]),
         )
         self.last_camera_T = observation.T_shared_camera
+        base_T_camera = getattr(observation.metadata, "base_T_camera", None)
+        if base_T_camera is None:
+            shared_T_robot = observation.T_shared_camera
+            self.robot_pose_source = (
+                "camera_pose_fallback_no_base_T_camera"
+            )
+        else:
+            base_matrix = np.asarray(
+                base_T_camera.matrix,
+                dtype=np.float64,
+            ).reshape(4, 4)
+            shared_T_robot = (
+                observation.T_shared_camera @ np.linalg.inv(base_matrix)
+            )
+            self.robot_pose_source = (
+                "source_derived_shared_T_camera_times_inverse_"
+                "observed_base_T_camera"
+            )
+        self.last_robot_T = shared_T_robot
+        self.last_robot_xy = (
+            float(shared_T_robot[0, 3]),
+            float(shared_T_robot[1, 3]),
+        )
+        # The dashboard camera/pose remains current even when map integration
+        # is latched.  Do not extend a trajectory inside a blocked coordinate
+        # session: repeatedly appending those poses can draw a convincing but
+        # false line across the discontinuity that caused the latch.
+        self.last_rgb_bgr = observation.rgb_bgr
+        if self.mapping_blocked_reason is not None:
+            self.trajectory_xy_m = [self.last_camera_xy]
+            self.robot_trajectory_xy_m = [self.last_robot_xy]
+            self.skipped_non_keyframes += 1
+            return KeyframeDecision(
+                False,
+                f"{self.mapping_blocked_kind or 'mapping_blocked'}_latched",
+                0.0,
+                0.0,
+                0.0,
+            )
         if (
             not self.trajectory_xy_m
             or np.linalg.norm(
@@ -231,19 +277,19 @@ class SpoolMappingPipeline:
             self.trajectory_xy_m.append(self.last_camera_xy)
             if len(self.trajectory_xy_m) > 2000:
                 self.trajectory_xy_m = self.trajectory_xy_m[-2000:]
-        # The dashboard camera remains current even when geometry integration
-        # is skipped by the keyframe gate or latched after a pose jump.
-        self.last_rgb_bgr = observation.rgb_bgr
-
-        if self.mapping_blocked_reason is not None:
-            self.skipped_non_keyframes += 1
-            return KeyframeDecision(
-                False,
-                f"{self.mapping_blocked_kind or 'mapping_blocked'}_latched",
-                0.0,
-                0.0,
-                0.0,
+        if (
+            not self.robot_trajectory_xy_m
+            or np.linalg.norm(
+                np.asarray(self.last_robot_xy)
+                - np.asarray(self.robot_trajectory_xy_m[-1])
             )
+            >= 0.05
+        ):
+            self.robot_trajectory_xy_m.append(self.last_robot_xy)
+            if len(self.robot_trajectory_xy_m) > 2000:
+                self.robot_trajectory_xy_m = (
+                    self.robot_trajectory_xy_m[-2000:]
+                )
 
         # Validate gravity/floor geometry before either the keyframe selector
         # commits this pose or RedNet spends GPU time.  A frame with no
@@ -343,6 +389,8 @@ class SpoolMappingPipeline:
                     f"translation_m={decision.translation_m:.3f}, "
                     f"rotation_deg={decision.rotation_deg:.2f}"
                 )
+                self.trajectory_xy_m = [self.last_camera_xy]
+                self.robot_trajectory_xy_m = [self.last_robot_xy]
             return decision
         if not decision.accept:
             self.skipped_non_keyframes += 1
@@ -396,6 +444,15 @@ class SpoolMappingPipeline:
                 self.last_semantic_yolo_detections = []
                 self.last_semantic_yolo_evidence = []
                 self.last_semantic_yolo_error = f"{type(exc).__name__}: {exc}"[:300]
+        semantic_vote_enabled = not (
+            self.mapper.config.semantic_fusion_mode == "multi_view"
+            and decision.reason == "interval"
+        )
+        if self.mapper.config.semantic_fusion_mode == "multi_view":
+            if semantic_vote_enabled:
+                self.semantic_vote_frames += 1
+            else:
+                self.semantic_interval_frames_without_vote += 1
         self.mapper.integrate(
             _MapperFrame(
                 depth_m=observation.depth_m,
@@ -407,10 +464,14 @@ class SpoolMappingPipeline:
                 if ground_candidate is None
                 else ground_candidate.plane_coefficients
             ),
+            semantic_vote_enabled=semantic_vote_enabled,
         )
         if self.first_sequence is None:
             self.first_sequence = observation.sequence
         self.last_sequence = observation.sequence
+        self.last_integrated_capture_time_ns = (
+            observation.metadata.capture_time_ns
+        )
         self.frames_processed += 1
         return decision
 
@@ -539,6 +600,13 @@ class SpoolMappingPipeline:
             semantic_winner_margin_hits=np.asarray(
                 self.mapper.config.semantic_winner_margin_hits
             ),
+            semantic_vote_policy=np.asarray(
+                (
+                    "pose_change_keyframes_only_interval_geometry_refresh"
+                    if self.mapper.config.semantic_fusion_mode == "multi_view"
+                    else "every_integrated_keyframe"
+                )
+            ),
             semantic_fusion=np.asarray(
                 f"{self.semantic_backend_status()['backend']}+yolov10_bbox_depth"
                 if (
@@ -553,6 +621,14 @@ class SpoolMappingPipeline:
                 else str(
                     getattr(self.semantic_detector, "weights_sha256", "")
                 )
+            ),
+            last_map_sequence=np.asarray(
+                -1 if self.last_sequence is None else self.last_sequence
+            ),
+            last_map_capture_time_ns=np.asarray(
+                -1
+                if self.last_integrated_capture_time_ns is None
+                else self.last_integrated_capture_time_ns
             ),
         )
         os.replace(tmp_path, out_dir / "central_map.npz")
@@ -600,6 +676,15 @@ class SpoolMappingPipeline:
             "semantic_winner_margin_hits": (
                 self.mapper.config.semantic_winner_margin_hits
             ),
+            "semantic_vote_policy": (
+                "pose_change_keyframes_only_interval_geometry_refresh"
+                if self.mapper.config.semantic_fusion_mode == "multi_view"
+                else "every_integrated_keyframe"
+            ),
+            "semantic_vote_frames": self.semantic_vote_frames,
+            "semantic_interval_frames_without_vote": (
+                self.semantic_interval_frames_without_vote
+            ),
             "semantic_mapping": {
                 "rednet": {
                     "enabled": (
@@ -614,6 +699,9 @@ class SpoolMappingPipeline:
             },
             "first_sequence": self.first_sequence,
             "last_sequence": self.last_sequence,
+            "last_map_capture_time_ns": (
+                self.last_integrated_capture_time_ns
+            ),
             "last_observation_sequence": self.last_observation_sequence,
             "obstacle_cells": int((self.mapper.map.grid[0] > 0.5).sum()),
             "explored_cells": int((self.mapper.map.grid[1] > 0.5).sum()),

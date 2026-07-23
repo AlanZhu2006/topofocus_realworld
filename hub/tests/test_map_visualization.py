@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import cv2
 import numpy as np
 import pytest
 
@@ -102,3 +105,62 @@ def test_semantic_overview_combines_pixels_trajectory_pose_and_frontier():
     assert np.any(np.all(image == overlay.trajectory_bgr, axis=-1))
     assert np.any(np.all(image == overlay.pose_bgr, axis=-1))
     assert np.any(np.all(image == (0, 0, 0), axis=-1))
+
+
+def test_semantic_overview_separates_nearby_robot_labels():
+    grid = np.zeros((3, 30, 30), dtype=np.float32)
+    grid[1, 5:25, 5:25] = 1.0
+    overlays = (
+        RobotMapOverlay(
+            label="wsj",
+            pose_xy_m=(0.75, 0.75),
+            pose_bgr=(0, 0, 255),
+        ),
+        RobotMapOverlay(
+            label="yunji",
+            pose_xy_m=(0.80, 0.75),
+            pose_bgr=(0, 130, 255),
+        ),
+    )
+
+    with patch.object(cv2, "putText", wraps=cv2.putText) as put_text:
+        render_semantic_overview(
+            grid,
+            ("chair",),
+            (0.0, 0.0),
+            0.05,
+            robot_overlays=overlays,
+            minimum_output_pixels=200,
+        )
+
+    label_calls = {
+        call.args[1]: call.args
+        for call in put_text.call_args_list
+        if call.args[1] in {"wsj", "yunji"}
+    }
+    assert set(label_calls) == {"wsj", "yunji"}
+    label_rects = []
+    for label in ("wsj", "yunji"):
+        args = label_calls[label]
+        origin_x, origin_y = args[2]
+        (width, height), baseline = cv2.getTextSize(
+            label,
+            args[3],
+            args[4],
+            args[6],
+        )
+        label_rects.append(
+            (
+                origin_x - 1,
+                origin_y - height - 1,
+                origin_x + width + 1,
+                origin_y + baseline + 1,
+            )
+        )
+    first, second = label_rects
+    assert not (
+        first[0] < second[2]
+        and first[2] > second[0]
+        and first[1] < second[3]
+        and first[3] > second[1]
+    )

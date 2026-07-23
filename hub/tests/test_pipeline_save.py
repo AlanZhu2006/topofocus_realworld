@@ -58,8 +58,13 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
         assert str(data["semantic_fusion_mode"].item()) == "max"
         assert int(data["semantic_min_hits"]) == 1
         assert int(data["semantic_winner_margin_hits"]) == 0
+        assert str(data["semantic_vote_policy"].item()) == (
+            "every_integrated_keyframe"
+        )
         assert str(data["semantic_fusion"].item()) == "rednet_mp3d40"
         assert str(data["semantic_yolo_model_sha256"].item()) == ""
+        assert int(data["last_map_sequence"]) == -1
+        assert int(data["last_map_capture_time_ns"]) == -1
 
     summary = json.loads((tmp_path / "map_summary.json").read_text())
     assert summary["obstacle_band_m"] == [0.25, 1.5]
@@ -70,6 +75,10 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
         "rednet_mp3d40"
     )
     assert summary["semantic_mapping"]["yolo_reinforcement"]["enabled"] is False
+    assert summary["semantic_vote_policy"] == "every_integrated_keyframe"
+    assert summary["semantic_vote_frames"] == 0
+    assert summary["semantic_interval_frames_without_vote"] == 0
+    assert summary["last_map_capture_time_ns"] is None
     assert summary["semantic_cells"] == 0
 
 

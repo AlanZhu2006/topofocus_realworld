@@ -40,3 +40,5 @@ def test_dashboard_defaults_to_semantic_overviews_and_retains_3d_debug_configs()
     assert configs["Image!fusedsemantic"]["imageMode"]["imageTopic"] == (
         "/fused/semantic_overview"
     )
+    assert dashboard["layout"]["splitPercentage"] == 35
+    assert dashboard["layout"]["second"]["splitPercentage"] == 68

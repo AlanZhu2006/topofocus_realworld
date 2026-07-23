@@ -21,14 +21,24 @@ class _Segmenter:
 
 
 class _Mapper:
-    def __init__(self) -> None:
+    def __init__(self, config: MapperConfig) -> None:
         self.calls = 0
         self.last_floor_plane = None
+        self.semantic_vote_enabled: list[bool] = []
+        self.config = config
         self.map = SimpleNamespace(floor_plane_coefficients=(0.0, 0.0, 0.0))
 
-    def integrate(self, _frame, _prediction, *, floor_plane_coefficients=None) -> None:
+    def integrate(
+        self,
+        _frame,
+        _prediction,
+        *,
+        floor_plane_coefficients=None,
+        semantic_vote_enabled=True,
+    ) -> None:
         self.calls += 1
         self.last_floor_plane = floor_plane_coefficients
+        self.semantic_vote_enabled.append(semantic_vote_enabled)
 
 
 class _Detector:
@@ -54,13 +64,15 @@ def _pipeline(
     ground_drift_consecutive_frames=3,
     semantic_detector=None,
     semantic_yolo_reinforce_map=True,
+    semantic_fusion_mode="max",
 ):
     segmenter = _Segmenter()
     K = np.array([[300.0, 0, 160], [0, 300.0, 120], [0, 0, 1]])
+    config = MapperConfig(semantic_fusion_mode=semantic_fusion_mode)
     pipeline = SpoolMappingPipeline(
         segmenter,
         K,
-        MapperConfig(),
+        config,
         (0.0, 0.0),
         0.0,
         expected_transform_version=expected_version,
@@ -70,13 +82,14 @@ def _pipeline(
         semantic_detector=semantic_detector,
         semantic_yolo_reinforce_map=semantic_yolo_reinforce_map,
     )
-    pipeline.mapper = _Mapper()
+    pipeline.mapper = _Mapper(config)
     return pipeline, segmenter
 
 
 def _observation(sequence: int, version: str) -> SpooledObservation:
     metadata = SimpleNamespace(
         capture_time_ns=sequence * 1_000_000_000,
+        base_T_camera=None,
         pose=SimpleNamespace(
             transform_version=version,
             shared_T_camera=SimpleNamespace(parent_frame="shared_world"),
@@ -95,11 +108,15 @@ def test_pipeline_binds_to_first_transform_version():
     pipeline, _ = _pipeline()
 
     pipeline.process(_observation(10, "session-a"))
-    pipeline.process(_observation(11, "session-a"))
+    latest = _observation(11, "session-a")
+    pipeline.process(latest)
 
     assert pipeline.transform_version == "session-a"
     assert pipeline.first_sequence == 10
     assert pipeline.last_sequence == 11
+    assert pipeline.last_integrated_capture_time_ns == (
+        latest.metadata.capture_time_ns
+    )
     assert pipeline.frames_processed == 2
 
 
@@ -157,6 +174,42 @@ def test_live_keyframe_gate_skips_duplicate_before_segmentation():
     assert pipeline.last_observation_sequence == 11
 
 
+def test_interval_keyframe_refreshes_geometry_without_semantic_vote():
+    pipeline, _ = _pipeline(
+        "session-a",
+        keyframe_config=KeyframeConfig(max_interval_sec=5.0),
+        semantic_fusion_mode="multi_view",
+    )
+
+    first = pipeline.process(_observation(10, "session-a"))
+    interval = pipeline.process(_observation(15, "session-a"))
+
+    assert first.reason == "first"
+    assert interval.reason == "interval"
+    assert pipeline.mapper.semantic_vote_enabled == [True, False]
+    assert pipeline.semantic_vote_frames == 1
+    assert pipeline.semantic_interval_frames_without_vote == 1
+
+
+def test_pipeline_derives_robot_base_pose_from_observed_mount():
+    pipeline, _ = _pipeline("session-a")
+    observation = _observation(10, "session-a")
+    observation.T_shared_camera[0, 3] = 1.0
+    observation.T_shared_camera[1, 3] = 2.0
+    base_T_camera = np.eye(4)
+    base_T_camera[0, 3] = 0.3
+    observation.metadata.base_T_camera = SimpleNamespace(
+        matrix=tuple(base_T_camera.reshape(-1))
+    )
+
+    pipeline.process(observation)
+
+    assert pipeline.last_camera_xy == pytest.approx((1.0, 2.0))
+    assert pipeline.last_robot_xy == pytest.approx((0.7, 2.0))
+    assert pipeline.robot_trajectory_xy_m == pytest.approx([(0.7, 2.0)])
+    assert pipeline.robot_pose_source.startswith("source_derived")
+
+
 def test_live_keyframe_gate_latches_pose_jump():
     pipeline, segmenter = _pipeline(
         "session-a", keyframe_config=KeyframeConfig(max_interval_sec=5.0)
@@ -173,6 +226,8 @@ def test_live_keyframe_gate_latches_pose_jump():
     assert pipeline.mapping_blocked_reason is not None
     assert segmenter.calls == 1
     assert pipeline.mapper.calls == 1
+    assert pipeline.trajectory_xy_m == [(0.0, 0.0)]
+    assert pipeline.robot_trajectory_xy_m == [(0.0, 0.0)]
 
 
 def test_ground_guard_latches_only_after_consecutive_drift_before_segmentation(

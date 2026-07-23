@@ -126,3 +126,20 @@ bash hub/scripts/realworld_oneclick.sh \
 #
 # scene/episode ID 必须为全小写，只能使用字母、数字、下划线、点和连字符。
 # 不要修改 --session-file current 或 operator confirmation。
+
+
+# ======================================================================
+# 6. 可选：导出当前 session 的 example.png 风格 2D 图和 SHA-256 清单
+# ======================================================================
+#
+# 这是纯只读命令：不连接 planner/receiver，不发布目标，也不会运动机器人。
+# 输出目录带时间戳，不覆盖旧证据。
+#
+cd /home/asus/Research/focus_realworld_workspace
+eval "$(hub/.venv/bin/python hub/tools/manage_realworld_session.py resolve \
+  --session-file current --mode status --format shell)"
+hub/.venv/bin/python hub/tools/export_semantic_overview.py \
+  --robot "wsj:$FOCUS_WSJ_MAP" \
+  --robot "yunji:$FOCUS_YUNJI_MAP" \
+  --fuse \
+  --output-dir "hub/runtime/analysis/semantic_overview_$(date +%Y%m%d_%H%M%S)"

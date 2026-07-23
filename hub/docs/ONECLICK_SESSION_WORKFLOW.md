@@ -109,9 +109,12 @@ not prevent this recovery path: immutable session/code/debug validation runs
 first, then the new daemon must produce a fresh matching generation before the
 VLM may continue.
 
-The command also replaces a stale project Foxglove relay when its map paths
-or ports differ. If an unmanaged process owns a required port, it fails with a
-clear error instead of leaving an old picture visible.
+The command also replaces a stale project Foxglove relay when its map paths,
+ports, semantic-overview contract or loaded relay/renderer source hash differ.
+It waits until both per-robot semantic overviews and the fused overview are
+actually generated; a listening port is not considered ready. If an unmanaged
+process owns a required port, it fails with a clear error instead of leaving
+an old picture visible.
 
 Debug has no stale-map or blocked-map bypass. It freezes one stable generation
 of each map, requires command-capable and health-ready observations received

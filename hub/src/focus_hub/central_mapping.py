@@ -235,8 +235,17 @@ class CentralMapper:
         semantic_pred: np.ndarray,
         *,
         floor_plane_coefficients: tuple[float, float, float] | None = None,
+        semantic_vote_enabled: bool = True,
     ) -> None:
-        """Fuse one ReplayFrame with its RedNet prediction into the map."""
+        """Fuse one ReplayFrame with its semantic prediction into the map.
+
+        ``semantic_vote_enabled`` affects only the real-camera ``multi_view``
+        adapter.  Geometry and explored evidence are still integrated when it
+        is false.  This lets a periodic, stationary keyframe refresh obstacle
+        evidence without counting the same camera viewpoint repeatedly as
+        independent semantic confirmation.  Source-compatible ``max`` fusion
+        intentionally retains its every-frame behavior.
+        """
         cfg = self.config
         depth = frame.depth_m[:: cfg.depth_stride, :: cfg.depth_stride].astype(np.float64)
         rays = self._rays(frame.depth_m.shape)
@@ -354,10 +363,13 @@ class CentralMapper:
         np.maximum(grid[1], frame_map[1], out=grid[1])
         if cfg.semantic_fusion_mode == "max":
             np.maximum(grid[2:], frame_map[2:], out=grid[2:])
-        else:
+        elif semantic_vote_enabled:
             # Count at most one vote per class/cell/keyframe. A dense patch in
             # one image must not satisfy the multi-view confirmation gate by
-            # itself. Saturation avoids uint16 wraparound in long experiments.
+            # itself. The caller additionally suppresses interval-only,
+            # stationary refresh frames, so "multi_view" means pose-changing
+            # evidence rather than repeated inference from one frozen view.
+            # Saturation avoids uint16 wraparound in long experiments.
             supported = (
                 frame_counts[2:].reshape(
                     len(HM3D_CATEGORY_NAMES), cells, cells

@@ -188,3 +188,25 @@ def test_multi_view_semantics_require_repeated_keyframes_and_unique_winner():
     assert mapper.map.grid[(2,) + rc] == pytest.approx(0.0)
     mapper.integrate(frame, semantic_pred)
     assert mapper.map.grid[(2,) + rc] == pytest.approx(1.0)
+
+
+def test_interval_geometry_refresh_does_not_confirm_semantics():
+    mapper, frame, semantic_pred = _make_single_point_mapper(
+        ray_trace_steps=0,
+        semantic_fusion_mode="multi_view",
+        semantic_min_hits=2,
+        semantic_winner_margin_hits=1,
+        cat_pred_threshold=1.0,
+    )
+    semantic_pred[0, 6] = 4
+    endpoint_row, endpoint_col = mapper.map.world_to_cell(
+        np.array([6.0]), np.array([0.0])
+    )
+    rc = (endpoint_row[0], endpoint_col[0])
+
+    mapper.integrate(frame, semantic_pred)
+    mapper.integrate(frame, semantic_pred, semantic_vote_enabled=False)
+    assert mapper.map.grid[(2,) + rc] == pytest.approx(0.0)
+
+    mapper.integrate(frame, semantic_pred)
+    assert mapper.map.grid[(2,) + rc] == pytest.approx(1.0)
