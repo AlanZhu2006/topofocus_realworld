@@ -71,6 +71,8 @@ from manage_realworld_session import resolve_session_argument  # noqa: E402
 LIVE_CONFIRMATION = "OPERATOR_PRESENT_AND_ROBOTS_CLEAR"
 RUN_SCHEMA_VERSION = "focus-v2-supervised-episode-run-v1"
 SCENE_SCHEMA_VERSION = "focus-v2-source-live-scene-v1"
+VLM_TARGET_EVENT_SCHEMA_VERSION = "focus-vlm-target-event-v1"
+VLM_TARGET_EVENT_FILENAME = "vlm_target_event.json"
 ACTIVE_FEEDBACK = {"RECEIVED", "ACCEPTED", "NAVIGATING"}
 FAILURE_FEEDBACK = {
     "REJECTED",
@@ -126,6 +128,110 @@ def append_jsonl(path: Path, payload: dict[str, object]) -> None:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
+
+
+def vlm_target_event_payload(
+    decision,
+    *,
+    publication_reason: str,
+    published_at_ns: int,
+) -> dict[str, object]:
+    """Build the compact event consumed by the Foxglove Log panel.
+
+    Frontier targets carry an authoritative shared-frame point. A semantic
+    target is a region, not a point, so its logged coordinate is explicitly
+    the display-only centroid; the robot-local adapter still resolves and
+    freezes one reachable approach point for the leg.
+    """
+
+    target = decision.target
+    target_summary: dict[str, object] | None = None
+    if target is not None and target.kind == "FRONTIER_POINT":
+        target_summary = {
+            "kind": target.kind,
+            "target_id": target.frontier_id,
+            "frame_id": target.pose.frame_id,
+            "shared_xy_m": [target.pose.x, target.pose.y],
+            "yaw_rad": target.pose.yaw_rad,
+            "coordinate_authority": "authoritative_frontier_goal_pose",
+        }
+    elif target is not None and target.kind == "SEMANTIC_REGION":
+        target_summary = {
+            "kind": target.kind,
+            "target_id": target.category,
+            "frame_id": target.display_centroid.frame_id,
+            "shared_xy_m": [
+                target.display_centroid.x,
+                target.display_centroid.y,
+            ],
+            "coordinate_authority": (
+                "display_only_semantic_region_centroid"
+            ),
+            "component_size_cells": target.region.component_size_cells,
+            "region_origin_xy_m": list(target.region.origin_xy_m),
+            "region_resolution_m": target.region.resolution_m,
+            "region_height": target.region.height,
+            "region_width": target.region.width,
+        }
+    active = decision.robot_id in decision.coordination.active_robot_ids
+    return {
+        "schema_version": VLM_TARGET_EVENT_SCHEMA_VERSION,
+        "event_id": (
+            f"{decision.decision_id}:{publication_reason}"
+        ),
+        "published_at_ns": published_at_ns,
+        "status": "hub_accepted_high_level_decision",
+        "classification": (
+            "observed_hub_accepted_source_derived_vlm_decision"
+        ),
+        "robot_id": decision.robot_id,
+        "scene_id": decision.scene_id,
+        "episode_id": decision.episode_id,
+        "round_index": decision.round_index,
+        "source_step": decision.source_step,
+        "decision_batch_id": decision.decision_batch_id,
+        "decision_id": decision.decision_id,
+        "leg_id": decision.leg_id,
+        "lease_sequence": decision.lease_sequence,
+        "execution_epoch": decision.coordination.execution_epoch,
+        "active": active,
+        "mode": decision.mode.value,
+        "goal_category": decision.goal_category,
+        "publication_reason": publication_reason,
+        "decision_reason": decision.reason,
+        "target": target_summary,
+    }
+
+
+def write_foxglove_vlm_target_events(
+    session: RealworldSession,
+    batch: DecisionBatchV2,
+    *,
+    publication_reason: str,
+    published_at_ns: int,
+) -> dict[str, str]:
+    """Atomically expose the actual post-guard batch to the dashboard relay."""
+
+    decisions = {decision.robot_id: decision for decision in batch.decisions}
+    written: dict[str, str] = {}
+    for robot in session.robots:
+        decision = decisions.get(robot.robot_id)
+        if decision is None:
+            raise ValueError(
+                f"published batch lacks session robot {robot.robot_id}"
+            )
+        map_dir = resolve_workspace_path(WORKSPACE, robot.map_dir)
+        path = map_dir / VLM_TARGET_EVENT_FILENAME
+        atomic_write_json(
+            path,
+            vlm_target_event_payload(
+                decision,
+                publication_reason=publication_reason,
+                published_at_ns=published_at_ns,
+            ),
+        )
+        written[robot.robot_id] = str(path)
+    return written
 
 
 def artifact_record(
@@ -984,9 +1090,15 @@ def main() -> int:
             {"t_ns": time.time_ns(), "event": event, **fields},
         )
 
-    def publish(batch: DecisionBatchV2, reason: str) -> None:
+    def publish(
+        batch: DecisionBatchV2,
+        reason: str,
+        *,
+        expose_new_vlm_target: bool = False,
+    ) -> None:
         nonlocal current, epoch, publish_count
         response = client.publish(batch)
+        published_at_ns = time.time_ns()
         current = batch
         epoch = batch.decisions[0].coordination.execution_epoch
         publish_count += 1
@@ -995,6 +1107,14 @@ def main() -> int:
             output / f"batch_{publish_count:03d}_{safe_reason}.json",
             batch.model_dump(mode="json"),
         )
+        foxglove_events = {}
+        if expose_new_vlm_target:
+            foxglove_events = write_foxglove_vlm_target_events(
+                session,
+                batch,
+                publication_reason=reason,
+                published_at_ns=published_at_ns,
+            )
         emit(
             "batch_published",
             reason=reason,
@@ -1004,6 +1124,7 @@ def main() -> int:
                 batch.decisions[0].coordination.active_robot_ids
             ),
             decision_ids=[item.decision_id for item in batch.decisions],
+            foxglove_vlm_target_events=foxglove_events,
             response=response,
         )
 
@@ -1358,6 +1479,7 @@ def main() -> int:
                 publish(
                     guarded_batch,
                     f"round_{requested_round}_no_allocation_hold",
+                    expose_new_vlm_target=True,
                 )
                 final_states = wait_for_hold_ack(
                     client,
@@ -1369,7 +1491,11 @@ def main() -> int:
                 break
             readiness = readiness_for(active)
             atomic_write_json(round_dir / "runtime_readiness.json", readiness)
-            publish(guarded_batch, f"round_{requested_round}_goal")
+            publish(
+                guarded_batch,
+                f"round_{requested_round}_goal",
+                expose_new_vlm_target=True,
+            )
             round_result = monitor_round(
                 target_found=target_found,
                 step_quota=step_quota,

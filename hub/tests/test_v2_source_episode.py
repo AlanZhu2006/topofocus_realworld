@@ -151,6 +151,73 @@ def test_round_inspection_distinguishes_semantic_and_frontier_arrival(
     assert inspected.frontier_arrivals == {}
 
 
+def test_foxglove_target_events_record_the_actual_post_guard_batch(
+    tmp_path,
+    observation_factory,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = load_module()
+    monkeypatch.setattr(module, "WORKSPACE", tmp_path)
+    now, manifest, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    built = build_batch_from_shadow_manifest(
+        manifest,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-trial-1",
+        execution_epoch=3,
+        now_ns=now,
+        robot_config_path=config,
+    )
+    robots = []
+    for robot_id in ("robot-0", "robot-1"):
+        map_dir = tmp_path / "hub" / "runtime" / f"map-{robot_id}"
+        map_dir.mkdir(parents=True)
+        robots.append(
+            SimpleNamespace(
+                robot_id=robot_id,
+                map_dir=str(map_dir.relative_to(tmp_path)),
+            )
+        )
+    session = SimpleNamespace(robots=tuple(robots))
+
+    paths = module.write_foxglove_vlm_target_events(
+        session,
+        built.batch,
+        publication_reason="round_0_goal",
+        published_at_ns=now + 1,
+    )
+
+    assert set(paths) == {"robot-0", "robot-1"}
+    events = {
+        robot.robot_id: json.loads(
+            (
+                tmp_path
+                / robot.map_dir
+                / module.VLM_TARGET_EVENT_FILENAME
+            ).read_text(encoding="utf-8")
+        )
+        for robot in robots
+    }
+    assert all(
+        event["schema_version"] == module.VLM_TARGET_EVENT_SCHEMA_VERSION
+        for event in events.values()
+    )
+    assert all(
+        event["status"] == "hub_accepted_high_level_decision"
+        for event in events.values()
+    )
+    assert events["robot-0"]["target"]["kind"] == "SEMANTIC_REGION"
+    assert events["robot-0"]["target"]["coordinate_authority"] == (
+        "display_only_semantic_region_centroid"
+    )
+    assert events["robot-1"]["target"]["kind"] == "FRONTIER_POINT"
+    assert events["robot-1"]["target"]["coordinate_authority"] == (
+        "authoritative_frontier_goal_pose"
+    )
+
+
 def test_semantic_arrival_seed_survives_following_hold():
     module = load_module()
     arrival = {

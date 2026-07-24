@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 
@@ -195,6 +196,46 @@ def test_shadow_target_scene_is_expiring_and_explicitly_non_authoritative(tmp_pa
     assert encoded.count("CylinderPrimitive {") == 1
     assert "lifetime: Some(Duration { sec: 4, nsec: 0 })" in encoded
     assert 'text: "SHADOW B · chair · NO MOTION"' in encoded
+
+
+def test_vlm_target_event_is_logged_once_with_coordinate_authority(tmp_path):
+    relay = load_relay_module()
+    source = make_source(relay, tmp_path)
+    payload = {
+        "schema_version": relay.VLM_TARGET_EVENT_SCHEMA_VERSION,
+        "event_id": "decision-1:round_0_goal",
+        "published_at_ns": 2_000_000_123,
+        "status": "hub_accepted_high_level_decision",
+        "robot_id": "robot-0",
+        "round_index": 0,
+        "source_step": 0,
+        "decision_id": "decision-1",
+        "leg_id": "leg-1",
+        "lease_sequence": 0,
+        "mode": "GOAL",
+        "active": True,
+        "decision_reason": "source frontier D",
+        "target": {
+            "kind": "FRONTIER_POINT",
+            "shared_xy_m": [1.25, -0.5],
+            "coordinate_authority": "authoritative_frontier_goal_pose",
+        },
+    }
+    (tmp_path / relay.VLM_TARGET_EVENT_FILENAME).write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    event = relay.consume_vlm_target_event(source)
+
+    assert event is not None
+    encoded = repr(event)
+    assert 'name="vlm-target"' in encoded
+    assert "VLM DOWNLINK" in encoded
+    assert "wsj (robot-0)" in encoded
+    assert "shared_xy=(1.250,-0.500)m" in encoded
+    assert "authority=authoritative_frontier_goal_pose" in encoded
+    assert relay.consume_vlm_target_event(source) is None
 
 
 def test_fusion_loop_publishes_geometry_semantics_and_evidence_status(

@@ -62,6 +62,8 @@ WORKSPACE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WORKSPACE / "hub" / "src"))
 
 SEMANTIC_OVERVIEW_CONTRACT = "focus-semantic-overview-v2"
+VLM_TARGET_EVENT_SCHEMA_VERSION = "focus-vlm-target-event-v1"
+VLM_TARGET_EVENT_FILENAME = "vlm_target_event.json"
 
 
 def _loaded_relay_source_sha256() -> str:
@@ -143,6 +145,8 @@ class RobotSource:
     last_pose_xy_m: tuple[float, float] | None = None
     last_heading_deg: float | None = None
     last_map_stats: dict[str, int] | None = None
+    last_vlm_target_event_id: str | None = None
+    last_vlm_target_error: str | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -924,6 +928,133 @@ def load_shadow_target_scene(
     )
 
 
+def vlm_target_log_message(
+    source: RobotSource,
+    payload: dict[str, object],
+) -> str:
+    if payload.get("schema_version") != VLM_TARGET_EVENT_SCHEMA_VERSION:
+        raise ValueError("VLM target event has the wrong schema")
+    if payload.get("status") != "hub_accepted_high_level_decision":
+        raise ValueError("VLM target event was not accepted by the Hub")
+    if payload.get("robot_id") != source.robot_id:
+        raise ValueError("VLM target event robot identity mismatch")
+    event_id = payload.get("event_id")
+    if not isinstance(event_id, str) or not event_id:
+        raise ValueError("VLM target event lacks event_id")
+    mode = str(payload.get("mode", "UNKNOWN"))
+    active = payload.get("active") is True
+    target = payload.get("target")
+    if target is None:
+        target_text = "target=none"
+    elif isinstance(target, dict):
+        xy = target.get("shared_xy_m")
+        if (
+            not isinstance(xy, list)
+            or len(xy) != 2
+            or not all(
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(float(value))
+                for value in xy
+            )
+        ):
+            raise ValueError("VLM target event has invalid shared_xy_m")
+        authority = str(target.get("coordinate_authority", "unknown"))
+        coordinate_name = (
+            "shared_xy"
+            if authority == "authoritative_frontier_goal_pose"
+            else "display_centroid"
+        )
+        target_text = (
+            f"kind={target.get('kind')} "
+            f"{coordinate_name}=({float(xy[0]):.3f},"
+            f"{float(xy[1]):.3f})m authority={authority}"
+        )
+        if target.get("kind") == "SEMANTIC_REGION":
+            target_text += (
+                f" region_cells={target.get('component_size_cells')}"
+            )
+    else:
+        raise ValueError("VLM target event target is malformed")
+    return (
+        "VLM DOWNLINK | "
+        f"round={payload.get('round_index')} "
+        f"step={payload.get('source_step')} | "
+        f"{source.name} ({source.robot_id}) | "
+        f"mode={mode} active={str(active).lower()} | "
+        f"{target_text} | "
+        f"decision={payload.get('decision_id')} "
+        f"leg={payload.get('leg_id')} "
+        f"lease={payload.get('lease_sequence')} | "
+        f"reason={payload.get('decision_reason')}"
+    )
+
+
+def consume_vlm_target_event(source: RobotSource) -> Log | None:
+    path = source.snapshot_dir / VLM_TARGET_EVENT_FILENAME
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError("VLM target event root is not an object")
+    event_id = payload.get("event_id")
+    with source.lock:
+        if event_id == source.last_vlm_target_event_id:
+            return None
+    message = vlm_target_log_message(source, payload)
+    published_at_ns = payload.get("published_at_ns")
+    if (
+        not isinstance(published_at_ns, int)
+        or isinstance(published_at_ns, bool)
+        or published_at_ns <= 0
+    ):
+        raise ValueError("VLM target event has invalid published_at_ns")
+    with source.lock:
+        source.last_vlm_target_event_id = str(event_id)
+        source.last_vlm_target_error = None
+    return Log(
+        timestamp=Timestamp(
+            published_at_ns // 1_000_000_000,
+            published_at_ns % 1_000_000_000,
+        ),
+        level=LogLevel.Info,
+        name="vlm-target",
+        message=message,
+    )
+
+
+def vlm_target_log_loop(
+    sources: list[RobotSource],
+    channel: LogChannel,
+    *,
+    interval_s: float = 0.25,
+) -> None:
+    while True:
+        for source in sources:
+            try:
+                event = consume_vlm_target_event(source)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                error = str(exc)
+                with source.lock:
+                    already_reported = source.last_vlm_target_error == error
+                    source.last_vlm_target_error = error
+                if not already_reported:
+                    channel.log(Log(
+                        timestamp=now_ts(),
+                        level=LogLevel.Warning,
+                        name="vlm-target",
+                        message=(
+                            f"{source.name}: ignored invalid VLM target "
+                            f"event: {error}"
+                        ),
+                    ))
+                continue
+            if event is not None:
+                channel.log(event)
+        time.sleep(interval_s)
+
+
 def legend_loop(channel: LogChannel, *, interval_s: float = 30.0) -> None:
     message = (
         "MAP LEGEND: gray=unknown; white=observed free; black=current geometric "
@@ -935,7 +1066,9 @@ def legend_loop(channel: LogChannel, *, interval_s: float = 30.0) -> None:
         "2D image views with heading arrows, persistent trajectories and "
         "lettered frontier candidates; "
         "magenta SHADOW markers are display-only VLM would-targets and NEVER "
-        "robot commands; semantic Grid is also available separately."
+        "robot commands; /vlm/targets logs each post-guard high-level decision "
+        "accepted by the Hub once per VLM round; semantic Grid is also "
+        "available separately."
     )
     while True:
         channel.log(Log(
@@ -1325,6 +1458,11 @@ def main() -> int:
     threading.Thread(
         target=legend_loop,
         args=(LogChannel("/map/legend"),),
+        daemon=True,
+    ).start()
+    threading.Thread(
+        target=vlm_target_log_loop,
+        args=(sources, LogChannel("/vlm/targets")),
         daemon=True,
     ).start()
 
