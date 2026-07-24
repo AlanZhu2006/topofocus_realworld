@@ -160,7 +160,9 @@ PY
 remote_run() {
   local target="$1" command="$2" token line deadline output rc
   token="FOCUS_$(date +%s%N)_${RANDOM}"
-  printf -v line 'bash -lc %q; rc=$?; echo __%s_RC=$rc' "$command" "$token"
+  printf -v line \
+    'bash -lc %q; rc=$?; echo; echo __%s_RC=$rc' \
+    "$command" "$token"
   tmux send-keys -t "$target" "$line" Enter
   deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do

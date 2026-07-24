@@ -117,9 +117,15 @@ process owns a required port, it fails with a clear error instead of leaving
 an old picture visible.
 
 Debug has no stale-map or blocked-map bypass. It freezes one stable generation
-of each map, requires command-capable and health-ready observations received
-in the new Hub epoch, checks age and cross-robot skew, then runs the real
-Perception/Judgment/Decision VLM while publishing HOLD only.
+of each map, requires command-capable observations with strict mapping health
+received in the new Hub epoch, checks age and cross-robot skew, then runs the
+real Perception/Judgment/Decision VLM while publishing HOLD only. For WSJ,
+strict mapping health means the TinyNav optimizer and every IMU interval
+passed even when TinyNav's all-zero odometry covariance prevents the sender
+from claiming command-ready `TRACKING`. That exact fail-closed
+`DEGRADED` state is valid only for freezing perception input. It cannot enable
+motion: live GOAL publication still requires a fresh `READY` heartbeat from
+the armed WSJ receiver and all local planner/occupancy checks.
 
 ## 3. Run one supervised physical episode
 

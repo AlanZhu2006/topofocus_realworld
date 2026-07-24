@@ -48,6 +48,12 @@ def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():
     assert "GLM endpoint is live but not owned by a verified GLM tmux." in source
 
 
+def test_remote_completion_marker_always_starts_on_a_new_line():
+    for name in ("realworld_oneclick.sh", "calibrate_realworld_session.sh"):
+        source = (SCRIPTS / name).read_text()
+        assert "'bash -lc %q; rc=$?; echo; echo __%s_RC=$rc'" in source
+
+
 def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
     source = (SCRIPTS / "calibrate_realworld_session.sh").read_text()
 

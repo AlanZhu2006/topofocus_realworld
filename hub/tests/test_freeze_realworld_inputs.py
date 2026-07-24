@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from focus_hub.models import RobotHealth
 from focus_hub.realworld_session import RobotSession
 
 
@@ -119,7 +120,7 @@ def build_inputs(
     return session, frozen, spool
 
 
-def test_frozen_input_requires_current_epoch_and_ready_command_metadata(
+def test_frozen_input_requires_current_epoch_and_strict_mapping_metadata(
     tmp_path, observation_factory
 ):
     module = load_module()
@@ -146,6 +147,87 @@ def test_frozen_input_requires_current_epoch_and_ready_command_metadata(
     assert record["source_sequence"] == 10
     assert snapshot.transform_version == "calib-test-v1"
     assert metadata.mapping_only is False
+    assert record["source_mapping_health"]["classification"] == "command_ready"
+
+
+def test_frozen_input_accepts_exact_fail_closed_wsj_mapping_health(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now_ns = 100_000_000_000
+    observation = observation_factory(
+        sequence=10,
+        now_ns=now_ns,
+        mapping_only=False,
+        health_ready=False,
+    ).model_copy(
+        update={
+            "health": RobotHealth(
+                safety_state="UNKNOWN",
+                localization_state="DEGRADED",
+                estop_engaged=False,
+                collision_avoidance_ready=False,
+                motor_controller_ready=False,
+                detail=module.WSJ_MAPPING_HEALTH_DETAIL,
+            )
+        }
+    )
+    session, frozen, spool = build_inputs(tmp_path, observation)
+
+    record, _, _ = module.validate_frozen_robot(
+        session,
+        "robot-0",
+        frozen,
+        tmp_path / "accepted/wsj",
+        spool,
+        now_ns=now_ns,
+        max_input_age_s=1.0,
+        minimum_source_sequence=10,
+    )
+
+    assert record["source_mapping_health"] == {
+        "classification": "tinynav_optimizer_imu_valid_covariance_unavailable",
+        "command_ready": False,
+        "localization_state": "DEGRADED",
+        "detail": module.WSJ_MAPPING_HEALTH_DETAIL,
+    }
+
+
+def test_frozen_input_rejects_unqualified_degraded_health(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now_ns = 100_000_000_000
+    observation = observation_factory(
+        sequence=10,
+        now_ns=now_ns,
+        mapping_only=False,
+        health_ready=False,
+    ).model_copy(
+        update={
+            "health": RobotHealth(
+                safety_state="UNKNOWN",
+                localization_state="DEGRADED",
+                estop_engaged=False,
+                collision_avoidance_ready=False,
+                motor_controller_ready=False,
+                detail="slam_metrics_stale:6.0s",
+            )
+        }
+    )
+    session, frozen, spool = build_inputs(tmp_path, observation)
+
+    with pytest.raises(ValueError, match="strict mapping"):
+        module.validate_frozen_robot(
+            session,
+            "robot-0",
+            frozen,
+            tmp_path / "accepted/wsj",
+            spool,
+            now_ns=now_ns,
+            max_input_age_s=1.0,
+            minimum_source_sequence=10,
+        )
 
 
 def test_frozen_input_rejects_source_before_clean_hub_epoch(

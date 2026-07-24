@@ -29,7 +29,11 @@ from focus_hub.map_snapshot import (  # noqa: E402
     load_map_snapshot,
     validate_fusion_contract,
 )
-from focus_hub.models import ObservationMetadata  # noqa: E402
+from focus_hub.models import (  # noqa: E402
+    LocalizationState,
+    ObservationMetadata,
+    SafetyState,
+)
 from focus_hub.realworld_session import (  # noqa: E402
     RealworldSession,
     expected_map_session_contract,
@@ -47,6 +51,44 @@ REQUIRED_MAP_FILES = (
     "live_status.json",
     "map_session_contract.json",
 )
+
+WSJ_MAPPING_HEALTH_DETAIL = (
+    "slam_optimizer_imu_valid;covariance_unavailable"
+)
+
+
+def mapping_health_classification(
+    robot_id: str,
+    metadata: ObservationMetadata,
+) -> str:
+    """Require pose health appropriate to freezing perception inputs.
+
+    Command readiness and map-input readiness are deliberately separate.
+    TinyNav currently publishes an all-zero odometry covariance, so the WSJ
+    sender correctly refuses to claim command-ready TRACKING even when its
+    independently checked optimizer/IMU telemetry passes.  The armed WSJ
+    receiver remains the sole authority that may later post READY command
+    health; accepting this exact fail-closed sender state here cannot enable
+    motion.
+    """
+
+    health = metadata.health
+    if health.ready_for_goal():
+        return "command_ready"
+    if (
+        robot_id == "robot-0"
+        and health.safety_state == SafetyState.UNKNOWN
+        and health.localization_state == LocalizationState.DEGRADED
+        and not health.estop_engaged
+        and not health.collision_avoidance_ready
+        and not health.motor_controller_ready
+        and health.detail == WSJ_MAPPING_HEALTH_DETAIL
+    ):
+        return "tinynav_optimizer_imu_valid_covariance_unavailable"
+    raise ValueError(
+        f"{robot_id} source health is not ready for strict mapping: "
+        f"{health.detail or health.localization_state.value}"
+    )
 
 
 def sha256_file(path: Path) -> str:
@@ -192,11 +234,7 @@ def validate_frozen_robot(
         raise ValueError(f"{robot_id} source observation transform mismatch")
     if metadata.mapping_only or metadata.base_T_camera is None:
         raise ValueError(f"{robot_id} source observation is not command-capable")
-    if not metadata.health.ready_for_goal():
-        raise ValueError(
-            f"{robot_id} source health is not ready for a formal run: "
-            f"{metadata.health.detail}"
-        )
+    mapping_health = mapping_health_classification(robot_id, metadata)
     age_s = (now_ns - metadata.capture_time_ns) / 1e9
     if age_s < -0.25 or age_s > max_input_age_s:
         raise ValueError(
@@ -225,6 +263,12 @@ def validate_frozen_robot(
         "source_sequence": sequence,
         "source_capture_time_ns": metadata.capture_time_ns,
         "source_age_s": age_s,
+        "source_mapping_health": {
+            "classification": mapping_health,
+            "command_ready": metadata.health.ready_for_goal(),
+            "localization_state": metadata.health.localization_state.value,
+            "detail": metadata.health.detail,
+        },
         "source_metadata": artifact(
             metadata_path,
             classification="observed_append_only_hub_spool_metadata",
@@ -321,6 +365,8 @@ def freeze(
                 "local_artifacts_read_only": True,
                 "robot_interfaces_used": False,
                 "robot_commands_issued": False,
+                "strict_mapping_health": True,
+                "command_health_deferred_to_live_receiver": True,
             },
         }
         manifest_path = temporary / "accepted_inputs.json"
