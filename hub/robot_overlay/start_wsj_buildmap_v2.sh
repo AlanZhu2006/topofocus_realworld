@@ -229,6 +229,8 @@ receiver=(
   --tinynav-map-frame world
   --local-map-frame wsj/world
   --occupancy-topic /semantic_mapping/occupancy_bev
+  --start-snap-radius-m 0.75
+  --start-footprint-override-m 0.35
   --alignment-output "$alignment"
   --log "$log"
 )

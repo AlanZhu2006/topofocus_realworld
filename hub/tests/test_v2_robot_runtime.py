@@ -151,6 +151,34 @@ def test_occupancy_can_bound_start_seed_without_crossing_unknown():
     )
 
 
+def test_occupancy_can_enter_a_cropped_grid_only_through_measured_footprint():
+    grid = OccupancyGrid2D(
+        7,
+        7,
+        1.0,
+        0.0,
+        0.0,
+        tuple([0] * 49),
+    )
+
+    assert not grid.reachable_component(
+        -0.2,
+        3.5,
+        clearance_cells=1,
+        start_snap_radius_m=2.0,
+        start_footprint_override_m=0.6,
+    )
+    component = grid.reachable_component(
+        -0.2,
+        3.5,
+        clearance_cells=1,
+        start_snap_radius_m=2.0,
+        start_footprint_override_m=0.8,
+    )
+
+    assert grid.point_in_component(1.5, 3.5, component)
+
+
 def test_occupancy_can_escape_only_the_measured_blocked_start_footprint():
     data = [0] * 121
     for row in range(3, 6):

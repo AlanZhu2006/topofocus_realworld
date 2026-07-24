@@ -269,6 +269,13 @@ def test_wsj_launcher_bridges_one_source_keyframe_plus_one_grid_cell():
     assert '--max-cached-map-motion-m \\"$MAX_CACHED_MAP_MOTION_M\\"' in source
     assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-2.0' in source
     assert '--input-timeout-s \\"$ODOMETRY_INPUT_TIMEOUT_S\\"' in source
+    assert 'FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75' in source
+    assert 'FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35' in source
+    assert '--start-snap-radius-m \\"$START_SNAP_RADIUS_M\\"' in source
+    assert (
+        '--start-footprint-override-m '
+        '\\"$START_FOOTPRINT_OVERRIDE_M\\"'
+    ) in source
 
 
 def test_a_star_can_use_bounded_known_free_start_seed():

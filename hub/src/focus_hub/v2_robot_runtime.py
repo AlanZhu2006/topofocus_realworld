@@ -339,7 +339,38 @@ class OccupancyGrid2D:
             raise ValueError("seed distances must be finite and non-negative")
         start = self.cell(start_x_m, start_y_m)
         if start is None:
-            return None
+            # A forward-looking online grid can be cropped at the camera
+            # frustum and therefore omit the measured base even though the
+            # first map row/column begins inside that base/camera footprint.
+            # Enter only through the geometrically nearest boundary cell and
+            # only when that cell is inside the explicit measured-footprint
+            # override.  From there the normal four-connected search below
+            # still refuses every unknown/occupied cell outside the override.
+            raw_column = math.floor(
+                (start_x_m - self.origin_x_m) / self.resolution_m
+            )
+            raw_row = math.floor(
+                (start_y_m - self.origin_y_m) / self.resolution_m
+            )
+            start = (
+                min(max(raw_row, 0), self.height - 1),
+                min(max(raw_column, 0), self.width - 1),
+            )
+            boundary_x, boundary_y = self.cell_center(*start)
+            boundary_distance_sq = (
+                (boundary_x - start_x_m) ** 2
+                + (boundary_y - start_y_m) ** 2
+            )
+            if (
+                start_footprint_override_m <= 0
+                or boundary_distance_sq
+                > start_footprint_override_m
+                * start_footprint_override_m
+                + 1e-12
+                or boundary_distance_sq
+                > max_distance_m * max_distance_m + 1e-12
+            ):
+                return None
         if (
             self.data[start[0] * self.width + start[1]] != 0
             and start_footprint_override_m <= 0

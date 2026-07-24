@@ -24,6 +24,11 @@ MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
 # fail-closed while allowing that measured transient rather than rejecting the
 # first supervised goal at the old 1.0 s default.
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
+# The WSJ forward-looking grid was observed to begin 0.318 m ahead of the
+# measured base after reboot.  Bridge only that bounded camera/base footprint;
+# the selected seed must still be known-free with the requested clearance.
+START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
+START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 
 usage() {
   echo "Usage: $0 [--session NAME] [--output DIR] [--frame-id FRAME]"
@@ -122,7 +127,7 @@ tmux new-window -d -t "$SESSION" -n planning \
 started_windows+=("planning")
 
 tmux new-window -d -t "$SESSION" -n goal-router \
-  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id \"$FRAME_ID\" --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\"'"
+  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id \"$FRAME_ID\" --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\"'"
 started_windows+=("goal-router")
 
 tmux new-window -d -t "$SESSION" -n control \

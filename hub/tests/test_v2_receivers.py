@@ -335,6 +335,8 @@ def test_wsj_live_bridge_uses_observed_effective_command_floors() -> None:
     assert "GO2_MAX_WZ=0.50" in launcher
     assert "GO2_MIN_CMD_V=0.15" in launcher
     assert "GO2_MIN_CMD_W=0.30" in launcher
+    assert "--start-snap-radius-m 0.75" in launcher
+    assert "--start-footprint-override-m 0.35" in launcher
 
 
 def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
