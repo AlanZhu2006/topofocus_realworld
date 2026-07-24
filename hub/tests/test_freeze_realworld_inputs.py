@@ -193,6 +193,56 @@ def test_frozen_input_accepts_exact_fail_closed_wsj_mapping_health(
     }
 
 
+def test_frozen_input_accepts_provenanced_stable_overwrite_recovery(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now_ns = 100_000_000_000
+    detail = (
+        "slam_optimizer_imu_valid_after_overwrite_recovery:"
+        "20142;covariance_unavailable"
+    )
+    observation = observation_factory(
+        sequence=10,
+        now_ns=now_ns,
+        mapping_only=False,
+        health_ready=False,
+    ).model_copy(
+        update={
+            "health": RobotHealth(
+                safety_state="UNKNOWN",
+                localization_state="DEGRADED",
+                estop_engaged=False,
+                collision_avoidance_ready=False,
+                motor_controller_ready=False,
+                detail=detail,
+            )
+        }
+    )
+    session, frozen, spool = build_inputs(tmp_path, observation)
+
+    record, _, _ = module.validate_frozen_robot(
+        session,
+        "robot-0",
+        frozen,
+        tmp_path / "accepted/wsj",
+        spool,
+        now_ns=now_ns,
+        max_input_age_s=1.0,
+        minimum_source_sequence=10,
+    )
+
+    assert record["source_mapping_health"] == {
+        "classification": (
+            "tinynav_optimizer_imu_valid_after_stable_"
+            "overwrite_recovery"
+        ),
+        "command_ready": False,
+        "localization_state": "DEGRADED",
+        "detail": detail,
+    }
+
+
 def test_frozen_input_rejects_unqualified_degraded_health(
     tmp_path, observation_factory
 ):

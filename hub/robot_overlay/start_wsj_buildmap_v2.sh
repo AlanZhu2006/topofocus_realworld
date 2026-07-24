@@ -127,6 +127,35 @@ verify_patched_perception() {
 
 verify_patched_perception
 
+wsj_rgb_is_fresh() {
+  (
+    set +o pipefail
+    timeout 6 ros2 topic hz /camera/camera/color/image_raw \
+      2>/dev/null | grep -qm1 '^average rate:'
+  )
+}
+
+set +u
+source "$SETUP_FILE"
+set -u
+if ! wsj_rgb_is_fresh; then
+  tmux display-message -p -t "$SESSION:camera" '#{pane_dead}' \
+    >/dev/null 2>&1 || {
+      echo "WSJ RGB stream is stale and the managed camera pane is absent." >&2
+      exit 1
+    }
+  tmux respawn-pane -k -t "$SESSION:camera"
+  deadline=$((SECONDS + 30))
+  until wsj_rgb_is_fresh; do
+    (( SECONDS < deadline )) || {
+      echo "WSJ RealSense remained stale after camera-pane recovery." >&2
+      exit 1
+    }
+    sleep 1
+  done
+  echo "WSJ RealSense stream recovered by respawning the camera pane."
+fi
+
 bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   --session "$SESSION" \
   --shared-tracking-calibration "$CALIBRATION_FILE" \
@@ -165,6 +194,8 @@ if tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx v2-receiver; t
       --mode debug \
       --frame-id world \
       --camera-frame camera \
+      --fresh-image-topic /camera/camera/color/image_raw \
+      --fresh-image-topic /slam/depth \
       --timeout-s 35
     echo "WSJ v2 BuildMap stack is already ready: mode=debug"
     echo "Safety: no Go2 bridge; physical motion is impossible through this stack."
@@ -246,6 +277,8 @@ source "$SETUP_FILE"
   --mode "$mode" \
   --frame-id world \
   --camera-frame camera \
+  --fresh-image-topic /camera/camera/color/image_raw \
+  --fresh-image-topic /slam/depth \
   --timeout-s 35
 
 startup_complete="true"

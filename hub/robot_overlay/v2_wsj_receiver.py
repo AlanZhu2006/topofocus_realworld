@@ -72,6 +72,8 @@ LIVE_CONFIRMATIONS = {
 SLAM_IMU_MIN_COVERAGE_RATIO = 0.80
 SLAM_IMU_MAX_SAMPLE_GAP_S = 0.05
 SLAM_IMU_END_TOLERANCE_S = 0.01
+SLAM_OVERWRITE_RECOVERY_MIN_REPORTS = 3
+SLAM_OVERWRITE_RECOVERY_MIN_S = 2.0
 TRANSIENT_SLAM_FAILURES = frozenset(
     {
         "imu_intervals_invalid",
@@ -128,7 +130,9 @@ def transform_message_matrix(message: Any) -> tuple[float, ...]:
     return quaternion_pose_matrix(pose)
 
 
-def slam_metrics_gate(raw_json: str) -> tuple[bool, str]:
+def slam_metrics_gate(
+    raw_json: str, *, ignore_cumulative_overwrite: bool = False
+) -> tuple[bool, str]:
     """Mirror the sender's independent optimizer/IMU health gate."""
 
     try:
@@ -147,7 +151,10 @@ def slam_metrics_gate(raw_json: str) -> tuple[bool, str]:
             return False, "optimizer_graph_empty"
         if metrics.get("imu_intervals_valid") is not True:
             return False, "imu_intervals_invalid"
-        if int(stats.get("imu_messages_overwritten", 0)) > 0:
+        if (
+            int(stats.get("imu_messages_overwritten", 0)) > 0
+            and not ignore_cumulative_overwrite
+        ):
             return False, "imu_buffer_overwritten"
         intervals = metrics.get("imu_intervals")
         if not isinstance(intervals, list) or not intervals:
@@ -211,9 +218,39 @@ class SlamHealthDebouncer:
         self.max_last_good_age_s = max_last_good_age_s
         self.last_good_ns = 0
         self.transient_failures = 0
+        self.last_overwritten_count: int | None = None
+        self.overwrite_stable_reports = 0
+        self.overwrite_stable_since_ns = 0
 
     def update(self, raw_json: str, *, received_ns: int) -> tuple[bool, str]:
         passed, detail = slam_metrics_gate(raw_json)
+        if detail == "imu_buffer_overwritten":
+            current_valid, _ = slam_metrics_gate(
+                raw_json, ignore_cumulative_overwrite=True
+            )
+            try:
+                overwritten = int(
+                    json.loads(raw_json)["stats"][
+                        "imu_messages_overwritten"
+                    ]
+                )
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                current_valid = False
+                overwritten = -1
+            if current_valid and overwritten >= 0:
+                passed, detail = self._recover_cumulative_overwrite(
+                    overwritten, received_ns=received_ns
+                )
+            else:
+                self.overwrite_stable_reports = 0
+                self.overwrite_stable_since_ns = 0
+        elif passed:
+            self.last_overwritten_count = 0
+            self.overwrite_stable_reports = 0
+            self.overwrite_stable_since_ns = 0
+        else:
+            self.overwrite_stable_reports = 0
+            self.overwrite_stable_since_ns = 0
         if passed:
             self.last_good_ns = received_ns
             self.transient_failures = 0
@@ -237,6 +274,37 @@ class SlamHealthDebouncer:
                 f"{self.transient_failures}/{self.max_transient_failures}",
             )
         return False, detail
+
+    def _recover_cumulative_overwrite(
+        self, count: int, *, received_ns: int
+    ) -> tuple[bool, str]:
+        if self.last_overwritten_count != count:
+            self.last_overwritten_count = count
+            self.overwrite_stable_reports = 1
+            self.overwrite_stable_since_ns = received_ns
+            return False, f"imu_buffer_overwritten:{count}"
+        self.overwrite_stable_reports += 1
+        if self.overwrite_stable_since_ns <= 0:
+            self.overwrite_stable_since_ns = received_ns
+        stable_s = max(
+            0.0, (received_ns - self.overwrite_stable_since_ns) / 1e9
+        )
+        if (
+            self.overwrite_stable_reports
+            >= SLAM_OVERWRITE_RECOVERY_MIN_REPORTS
+            and stable_s >= SLAM_OVERWRITE_RECOVERY_MIN_S
+        ):
+            return (
+                True,
+                "slam_optimizer_imu_valid_after_overwrite_recovery:"
+                f"{count}",
+            )
+        return (
+            False,
+            "imu_buffer_recovery:"
+            f"{self.overwrite_stable_reports}/"
+            f"{SLAM_OVERWRITE_RECOVERY_MIN_REPORTS}",
+        )
 
 
 def occupancy_from_message(

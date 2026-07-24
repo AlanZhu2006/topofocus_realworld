@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import time
@@ -55,6 +56,10 @@ REQUIRED_MAP_FILES = (
 WSJ_MAPPING_HEALTH_DETAIL = (
     "slam_optimizer_imu_valid;covariance_unavailable"
 )
+WSJ_RECOVERED_MAPPING_HEALTH = re.compile(
+    r"^slam_optimizer_imu_valid_after_overwrite_recovery:"
+    r"[1-9][0-9]*;covariance_unavailable$"
+)
 
 
 def mapping_health_classification(
@@ -75,16 +80,23 @@ def mapping_health_classification(
     health = metadata.health
     if health.ready_for_goal():
         return "command_ready"
-    if (
+    wsj_mapping_health = (
         robot_id == "robot-0"
         and health.safety_state == SafetyState.UNKNOWN
         and health.localization_state == LocalizationState.DEGRADED
         and not health.estop_engaged
         and not health.collision_avoidance_ready
         and not health.motor_controller_ready
-        and health.detail == WSJ_MAPPING_HEALTH_DETAIL
-    ):
+    )
+    if wsj_mapping_health and health.detail == WSJ_MAPPING_HEALTH_DETAIL:
         return "tinynav_optimizer_imu_valid_covariance_unavailable"
+    if wsj_mapping_health and WSJ_RECOVERED_MAPPING_HEALTH.fullmatch(
+        health.detail
+    ):
+        return (
+            "tinynav_optimizer_imu_valid_after_stable_"
+            "overwrite_recovery"
+        )
     raise ValueError(
         f"{robot_id} source health is not ready for strict mapping: "
         f"{health.detail or health.localization_state.value}"

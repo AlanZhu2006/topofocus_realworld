@@ -40,11 +40,15 @@ def valid_slam_payload(
     coverage_ratio: float = 1.0,
     max_sample_gap_s: float = 0.005,
     end_error_s: float = 0.0,
+    overwritten: int = 0,
 ) -> str:
     import json
 
     return json.dumps({
-        "stats": {"optimizer_status": "ok", "imu_messages_overwritten": 0},
+        "stats": {
+            "optimizer_status": "ok",
+            "imu_messages_overwritten": overwritten,
+        },
         "metrics": {
             "initial_error": 1.0,
             "final_error": 0.5,
@@ -114,6 +118,21 @@ def test_wsj_slam_gate_rejects_bad_imu_and_accepts_complete_report():
     )
     bad = valid_slam_payload().replace('"imu_intervals_valid": true', '"imu_intervals_valid": false')
     assert wsj.slam_metrics_gate(bad)[0] is False
+
+
+def test_wsj_receiver_recovers_only_after_stable_valid_overwrite_count():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    gate = wsj.SlamHealthDebouncer()
+    payload = valid_slam_payload(overwritten=17)
+
+    assert gate.update(payload, received_ns=10_000_000_000)[0] is False
+    assert gate.update(payload, received_ns=11_000_000_000)[0] is False
+    passed, detail = gate.update(payload, received_ns=12_100_000_000)
+    assert passed is True
+    assert detail.endswith(":17")
+
+    increased = valid_slam_payload(overwritten=18)
+    assert gate.update(increased, received_ns=13_000_000_000)[0] is False
 
 
 def test_wsj_slam_gate_matches_sender_numeric_thresholds():
@@ -336,6 +355,12 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "focus-tinynav-data-plane-verification-v1" in verifier
     assert "get_publishers_info_by_topic" in verifier
     assert "get_subscriptions_info_by_topic" in verifier
+    assert "--fresh-image-topic" in wsj
+    assert "--fresh-image-topic" in yunji
+    assert "--fresh-image-topic /slam/depth" in wsj
+    assert "/slam/keyframe_depth" not in wsj
+    assert "tmux respawn-pane -k" in wsj
+    assert "WSJ RealSense remained stale" in wsj
     assert "fail_closed_on_error" in wsj
     assert "fail_closed_on_error" in yunji
     assert "focus-yunji-water-bridge-live-v1.service" in yunji

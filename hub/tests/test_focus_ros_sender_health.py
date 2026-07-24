@@ -278,6 +278,37 @@ def test_complete_slam_health_preserves_real_tracking_covariance(monkeypatch):
     assert detail == "slam_optimizer_imu_valid"
 
 
+def test_slam_health_recovers_only_after_stable_valid_overwrite_count(
+    monkeypatch,
+):
+    sender = _load_sender_module(monkeypatch)
+    metrics = sender.LatestSlamMetrics()
+    payload = _slam_payload(overwritten=17)
+
+    metrics.update(payload, received_monotonic=10.0)
+    assert metrics.apply(
+        "UNKNOWN", timeout_s=5.0, now_monotonic=10.1
+    )[0] == "LOST"
+    metrics.update(payload, received_monotonic=11.0)
+    assert metrics.apply(
+        "UNKNOWN", timeout_s=5.0, now_monotonic=11.1
+    )[0] == "UNKNOWN"
+    metrics.update(payload, received_monotonic=12.1)
+    state, detail = metrics.apply(
+        "UNKNOWN", timeout_s=5.0, now_monotonic=12.2
+    )
+    assert state == "DEGRADED"
+    assert detail == (
+        "slam_optimizer_imu_valid_after_overwrite_recovery:"
+        "17;covariance_unavailable"
+    )
+
+    metrics.update(_slam_payload(overwritten=18), received_monotonic=13.0)
+    assert metrics.apply(
+        "UNKNOWN", timeout_s=5.0, now_monotonic=13.1
+    )[0] == "LOST"
+
+
 def test_nonfinite_optimizer_forces_lost(monkeypatch):
     sender = _load_sender_module(monkeypatch)
     metrics = sender.LatestSlamMetrics()
@@ -297,7 +328,7 @@ def test_nonfinite_optimizer_forces_lost(monkeypatch):
         (_slam_payload(coverage=0.2), "slam_imu_intervals_invalid"),
         (_slam_payload(max_gap=0.2), "slam_imu_intervals_invalid"),
         (_slam_payload(end_error=0.2), "slam_imu_intervals_invalid"),
-        (_slam_payload(overwritten=1), "slam_imu_buffer_overwritten"),
+        (_slam_payload(overwritten=1), "slam_imu_buffer_overwritten:1"),
         (_slam_payload(initial=0.5, final=1.0), "slam_optimizer_worsened"),
     ],
 )

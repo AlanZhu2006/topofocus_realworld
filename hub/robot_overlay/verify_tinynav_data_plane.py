@@ -121,6 +121,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         QoSProfile,
         ReliabilityPolicy,
     )
+    from sensor_msgs.msg import Image
     from std_msgs.msg import String
 
     rclpy.init()
@@ -167,6 +168,18 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 volatile_qos,
             )
         )
+    for index, topic in enumerate(args.fresh_image_topic):
+        key = f"image_{index}"
+        subscriptions.append(
+            node.create_subscription(
+                Image,
+                topic,
+                lambda message, image_key=key: latest.__setitem__(
+                    image_key, message
+                ),
+                volatile_qos,
+            )
+        )
 
     topics = {
         "raw": args.raw_cmd_topic,
@@ -192,6 +205,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     required_messages = {"odom", "occupancy", "router"}
     if args.platform_status_topic:
         required_messages.add("platform")
+    required_messages.update(
+        f"image_{index}" for index in range(len(args.fresh_image_topic))
+    )
     observed_graph: dict[str, dict[str, list[str]]] = {}
     try:
         while time.monotonic() < deadline:
@@ -302,6 +318,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 latest["occupancy"], frame_id=args.frame_id
             ),
             "router": validate_router_status(latest["router"]),
+            "fresh_image_topics": list(args.fresh_image_topic),
             "command_graph": observed_graph,
         }
         if args.platform_status_topic:
@@ -330,6 +347,12 @@ def main() -> int:
         "--router-status-topic", default="/mapping/buildmap_online_status"
     )
     parser.add_argument("--platform-status-topic", default="")
+    parser.add_argument(
+        "--fresh-image-topic",
+        action="append",
+        default=[],
+        help="image topic that must deliver a new volatile sample",
+    )
     parser.add_argument("--raw-cmd-topic", default="/cmd_vel")
     parser.add_argument("--guarded-cmd-topic", default="/focus_guarded_cmd_vel")
     parser.add_argument("--target-topic", default="/control/target_pose")

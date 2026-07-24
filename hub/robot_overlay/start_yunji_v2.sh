@@ -257,6 +257,7 @@ bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" verify \
   --mode "$mode" \
   --frame-id world \
   --camera-frame odin1_camera_optical_frame \
+  --fresh-image-topic /slam/depth \
   --platform-status-topic /focus/water/cmd_bridge_status \
   --timeout-s 35
 

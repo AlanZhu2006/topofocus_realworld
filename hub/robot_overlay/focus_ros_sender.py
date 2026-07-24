@@ -141,6 +141,8 @@ COVARIANCE_ZERO_EPS = 1e-15
 SLAM_IMU_MIN_COVERAGE_RATIO = 0.80
 SLAM_IMU_MAX_SAMPLE_GAP_S = 0.05
 SLAM_IMU_END_TOLERANCE_S = 0.01
+SLAM_OVERWRITE_RECOVERY_MIN_REPORTS = 3
+SLAM_OVERWRITE_RECOVERY_MIN_S = 2.0
 
 
 def stamp_to_ns(stamp) -> int:
@@ -515,11 +517,15 @@ class LatestSlamMetrics:
         self._received_monotonic: float | None = None
         self._gate = "UNKNOWN"
         self._detail = "slam_metrics_missing"
+        self._last_overwritten_count: int | None = None
+        self._overwrite_stable_reports = 0
+        self._overwrite_stable_since: float | None = None
 
     def update(self, raw_json: str, *, received_monotonic: float | None = None) -> None:
         received = time.monotonic() if received_monotonic is None else received_monotonic
         gate = "UNKNOWN"
         detail = "slam_metrics_invalid"
+        current_intervals_valid = False
         try:
             payload = json.loads(raw_json)
             stats = payload.get("stats")
@@ -563,21 +569,65 @@ class LatestSlamMetrics:
                     )
                 elif not isinstance(intervals, list) or not intervals:
                     detail = "slam_imu_health_missing"
-                elif int(stats.get("imu_messages_overwritten", 0)) > 0:
-                    gate = "LOST"
-                    detail = "slam_imu_buffer_overwritten"
                 elif not all(self._interval_is_valid(interval) for interval in intervals):
                     gate = "LOST"
                     detail = "slam_imu_intervals_invalid"
                 else:
-                    gate = "PASS"
-                    detail = "slam_optimizer_imu_valid"
+                    current_intervals_valid = True
+                    gate, detail = self._overwrite_gate(
+                        int(stats.get("imu_messages_overwritten", 0)),
+                        received_monotonic=received,
+                    )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             pass
+        if not current_intervals_valid:
+            self._overwrite_stable_reports = 0
+            self._overwrite_stable_since = None
         with self._lock:
             self._received_monotonic = received
             self._gate = gate
             self._detail = detail
+
+    def _overwrite_gate(
+        self,
+        count: int,
+        *,
+        received_monotonic: float,
+    ) -> tuple[str, str]:
+        if count < 0:
+            return "LOST", "slam_imu_overwrite_counter_invalid"
+        if count == 0:
+            self._last_overwritten_count = 0
+            self._overwrite_stable_reports = 0
+            self._overwrite_stable_since = None
+            return "PASS", "slam_optimizer_imu_valid"
+        if self._last_overwritten_count != count:
+            self._last_overwritten_count = count
+            self._overwrite_stable_reports = 1
+            self._overwrite_stable_since = received_monotonic
+            return "LOST", f"slam_imu_buffer_overwritten:{count}"
+        self._overwrite_stable_reports += 1
+        if self._overwrite_stable_since is None:
+            self._overwrite_stable_since = received_monotonic
+        stable_s = max(
+            0.0, received_monotonic - self._overwrite_stable_since
+        )
+        if (
+            self._overwrite_stable_reports
+            >= SLAM_OVERWRITE_RECOVERY_MIN_REPORTS
+            and stable_s >= SLAM_OVERWRITE_RECOVERY_MIN_S
+        ):
+            return (
+                "PASS",
+                "slam_optimizer_imu_valid_after_overwrite_recovery:"
+                f"{count}",
+            )
+        return (
+            "UNKNOWN",
+            "slam_imu_buffer_recovery:"
+            f"{self._overwrite_stable_reports}/"
+            f"{SLAM_OVERWRITE_RECOVERY_MIN_REPORTS}",
+        )
 
     @staticmethod
     def _interval_is_valid(interval: object) -> bool:
