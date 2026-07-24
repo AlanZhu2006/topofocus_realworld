@@ -68,6 +68,22 @@ def valid_slam_payload(
     })
 
 
+def test_data_plane_verifier_waits_for_resolved_endpoint_identity():
+    verifier = load_overlay("verify_tinynav_data_plane.py")
+    endpoints = [
+        SimpleNamespace(
+            node_namespace="_NODE_NAMESPACE_UNKNOWN_",
+            node_name="_NODE_NAME_UNKNOWN_",
+        ),
+        SimpleNamespace(
+            node_namespace="/",
+            node_name="cmd_vel_control_node",
+        ),
+    ]
+
+    assert verifier.endpoint_names(endpoints) == ["/cmd_vel_control_node"]
+
+
 def test_receiver_pose_conversions_preserve_planar_yaw():
     wsj = load_overlay("v2_wsj_receiver.py")
     yunji = load_overlay("v2_yunji_receiver.py")

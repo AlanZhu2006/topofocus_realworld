@@ -19,6 +19,15 @@ def endpoint_names(endpoints: list[Any]) -> list[str]:
     for endpoint in endpoints:
         namespace = str(getattr(endpoint, "node_namespace", "/")).rstrip("/")
         name = str(getattr(endpoint, "node_name", ""))
+        # Fast DDS can expose an endpoint before its participant identity has
+        # propagated. Treat that as discovery still in progress; accepting it
+        # would make the exclusive-route check fail nondeterministically.
+        if (
+            not name
+            or name == "_NODE_NAME_UNKNOWN_"
+            or namespace == "_NODE_NAMESPACE_UNKNOWN_"
+        ):
+            continue
         names.append(f"{namespace}/{name}" if namespace else f"/{name}")
     return sorted(names)
 
