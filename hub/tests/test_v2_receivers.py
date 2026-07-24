@@ -381,7 +381,9 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert '"/api/move"' not in launcher + bridge
     assert "verify_tinynav_data_plane.py" in launcher
     assert 'FOCUS_YUNJI_START_SNAP_RADIUS_M:-1.0' in launcher
+    assert 'FOCUS_YUNJI_ODOMETRY_INPUT_TIMEOUT_S:-2.0' in launcher
     assert '--start-snap-radius-m "$START_SNAP_RADIUS_M"' in launcher
+    assert '--input-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"' in launcher
     assert launcher.count(
         '--start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"'
     ) == 2

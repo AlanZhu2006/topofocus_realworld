@@ -22,6 +22,13 @@ TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus
 REACHABILITY_CLEARANCE_M="${FOCUS_YUNJI_REACHABILITY_CLEARANCE_M:-0.34}"
 START_SNAP_RADIUS_M="${FOCUS_YUNJI_START_SNAP_RADIUS_M:-1.0}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_YUNJI_START_FOOTPRINT_OVERRIDE_M:-0.34}"
+# Observed during the first two-robot live episode on 2026-07-24: Odin normally
+# publishes /slam/odometry at about 3.5 Hz (0.26--0.35 s intervals), but one
+# processing transient exceeded the router's old 1.0 s default and aborted the
+# whole coordinated episode.  Match the receiver's existing 2.0 s localization
+# freshness bound.  This does not extend physical velocity authority: the
+# WATER bridge independently zeros a stale guarded command after 0.30 s.
+ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_YUNJI_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
 mode="debug"
 confirmation=""
 reuse_verified_debug_core="false"
@@ -217,6 +224,7 @@ else
       --clearance-m "$REACHABILITY_CLEARANCE_M" \
       --start-snap-radius-m "$START_SNAP_RADIUS_M" \
       --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
+      --input-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S" \
       --max-cached-map-motion-m 0.25
 
   start_unit focus-yunji-tinynav-controller-v1.service \
