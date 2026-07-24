@@ -27,9 +27,11 @@ Usage: bash hub/scripts/calibrate_realworld_session.sh \
   [--goal-category chair] [--no-debug]
 
 The robots must remain stationary. The script:
-  1. starts raw mapping-only observation streams;
-  2. asks the operator to place the 7x10 board, then move only the board;
-  3. automatically selects fresh synchronized pairs and validates the holdout;
+  1. starts raw mapping-only observation streams and one Foxglove preview;
+  2. waits until both camera previews are live, then asks for Enter once the
+     complete 7x10 board is visible in both views;
+  3. computes the initial fit, asks the operator to move only the board, then
+     waits for a second Enter and validates the independent holdout;
   4. copies the checksummed calibration to both robots through existing SSH/tmux;
   5. starts calibrated read-only stacks and completely fresh central maps;
   6. saves hub/runtime/sessions/<id>/session.json and makes it current;
@@ -120,6 +122,7 @@ calibration_id="shared-board-odin1-${session_id}-v1"
 raw_config="$work_dir/robots_raw.json"
 final_debug_config="$work_dir/robots_debug.json"
 calibration_file="$work_dir/shared_frame.json"
+fit_only_calibration="$work_dir/fit_only_unvalidated.json"
 fit_pair="$work_dir/fit_pair.json"
 holdout_pair="$work_dir/holdout_pair.json"
 map_session="shared_maps_${session_id}"
@@ -273,6 +276,41 @@ ensure_calibration_relay() {
   done
 }
 
+wait_for_calibration_cameras() {
+  local deadline health
+  deadline=$((SECONDS + 90))
+  while (( SECONDS < deadline )); do
+    health="$(
+      curl -fsS --max-time 3 \
+        http://127.0.0.1:8766/healthz 2>/dev/null
+    )" || {
+      sleep 1
+      continue
+    }
+    if FOCUS_CALIBRATION_PREVIEW_HEALTH="$health" \
+      "$PYTHON_BIN" - <<'PY'
+import json
+import os
+
+health = json.loads(os.environ["FOCUS_CALIBRATION_PREVIEW_HEALTH"])
+robots = health.get("robots")
+if not isinstance(robots, dict):
+    raise SystemExit(1)
+for name in ("wsj", "yunji"):
+    row = robots.get(name)
+    if not isinstance(row, dict) or row.get("camera_ready") is not True:
+        raise SystemExit(1)
+PY
+    then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for both Foxglove camera previews." >&2
+  curl -sS --max-time 3 http://127.0.0.1:8766/healthz >&2 || true
+  return 1
+}
+
 latest_sequence() {
   local robot_id="$1" token
   token="$(
@@ -355,24 +393,65 @@ remote_run "$YUNJI_TMUX_TARGET" \
   "bash '$YUNJI_ROOT/hub/robot_overlay/start_yunji_calibration_observation.sh' --transform-version '$yunji_raw_transform' --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY"
 
 echo "Foxglove: ws://$(hostname -I | awk '{print $1}'):8765"
-read -r -p "Place the full 7x10 board in both camera views; press Enter when stable. "
+wait_for_calibration_cameras
+echo "CALIBRATION_PREVIEW_READY: both WSJ and Yunji camera previews are live."
+read -r -p "Confirm the COMPLETE 7x10 board is visible in BOTH previews, then press Enter to compute the initial fit. "
 fit_after_wsj="$(latest_sequence robot-0)"
 fit_after_yunji="$(latest_sequence robot-1)"
 capture_pair fit "$fit_pair" "$fit_after_wsj" "$fit_after_yunji"
 
-read -r -p "Move only the board by at least 10 cm or rotate it by at least 5 deg; press Enter when stable. "
+read -r fit_wsj fit_yunji < <(
+  "$PYTHON_BIN" - "$fit_pair" <<'PY'
+import json
+import sys
+
+fit = json.load(open(sys.argv[1]))
+print(
+    int(fit["reference"]["sequence"]),
+    int(fit["other"]["sequence"]),
+)
+PY
+)
+
+"$PYTHON_BIN" "$HUB_DIR/tools/calibrate_gravity_shared_frame_via_board.py" \
+  --spool "$HUB_DIR/runtime/spool" \
+  --reference-robot robot-0 \
+  --other-robot robot-1 \
+  --reference-sequence "$fit_wsj" \
+  --other-sequence "$fit_yunji" \
+  --other-pose-is-camera \
+  --transform-version "$yunji_final_transform" \
+  --calibration-id "$calibration_id" \
+  --output "$fit_only_calibration"
+
+"$PYTHON_BIN" - "$fit_only_calibration" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1]))
+frame = payload["calibration_frame"]
+gravity = payload["gravity_validation"]
+print(
+    "INITIAL_BOARD_FIT_READY: "
+    f"sync_skew={frame['sync_skew_s']:.3f}s, "
+    f"center_residual={frame['board_center_translation_residual_m']:.4f}m, "
+    f"normal_residual={frame['board_normal_residual_deg']:.3f}deg, "
+    f"tilt={gravity['shared_transform_tilt_deg']:.6f}deg"
+)
+PY
+
+read -r -p "Move ONLY the board by at least 10 cm or rotate it by at least 5 deg. When the COMPLETE board is again visible in BOTH previews, press Enter to validate and finish. "
 holdout_after_wsj="$(latest_sequence robot-0)"
 holdout_after_yunji="$(latest_sequence robot-1)"
 capture_pair holdout "$holdout_pair" "$holdout_after_wsj" "$holdout_after_yunji"
 
-read -r fit_wsj fit_yunji holdout_wsj holdout_yunji < <(
-  "$PYTHON_BIN" - "$fit_pair" "$holdout_pair" <<'PY'
-import json, sys
-fit = json.load(open(sys.argv[1]))
-holdout = json.load(open(sys.argv[2]))
+read -r holdout_wsj holdout_yunji < <(
+  "$PYTHON_BIN" - "$holdout_pair" <<'PY'
+import json
+import sys
+
+holdout = json.load(open(sys.argv[1]))
 print(
-    int(fit["reference"]["sequence"]),
-    int(fit["other"]["sequence"]),
     int(holdout["reference"]["sequence"]),
     int(holdout["other"]["sequence"]),
 )
@@ -392,6 +471,7 @@ PY
   --calibration-id "$calibration_id" \
   --output "$calibration_file"
 
+echo "CALIBRATION_HOLDOUT_PASSED: deploying the checked shared transform."
 deploy_calibration "$WSJ_TMUX_TARGET" "$wsj_remote_calibration"
 deploy_calibration "$YUNJI_TMUX_TARGET" "$yunji_remote_calibration"
 

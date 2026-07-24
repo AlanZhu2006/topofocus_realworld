@@ -58,19 +58,27 @@ The command performs this sequence:
 1. proves the Git tree is clean and both remote deployment trees are
    byte-identical;
 2. disables Hub GOAL and starts mapping-only camera streams—no WSJ bridge,
-   WATER receiver or planner command path;
-3. asks for the first stable board placement;
-4. asks the operator to move only the board by at least 10 cm or rotate it by
-   at least 5 degrees;
-5. automatically selects two fresh, synchronized camera pairs and rejects a
-   holdout that does not prove independent board movement;
-6. writes the calibration atomically and deploys the same checked bytes to
+   WATER receiver or planner command path—and opens one Foxglove preview;
+3. waits for fresh WSJ and Yunji camera images, then asks the operator to
+   confirm that the complete board is visible in both views and press Enter;
+4. captures the first synchronized pair, runs the initial board fit and prints
+   `INITIAL_BOARD_FIT_READY`;
+5. asks the operator to move only the board by at least 10 cm or rotate it by
+   at least 5 degrees, then press Enter a second time once the complete board
+   is visible in both views;
+6. captures the holdout and rejects it unless it proves independent board
+   movement and cross-camera alignment;
+7. writes the calibration atomically and deploys the same checked bytes to
    both robots;
-7. starts calibrated read-only observation, completely fresh maps and a
+8. starts calibrated read-only observation, completely fresh maps and a
    Foxglove relay bound to those exact maps;
-8. writes
+9. writes
    `hub/runtime/sessions/20260725-lab01/session.json`, updates the ignored
    `current.json` pointer and runs strict no-motion VLM debug.
+
+There are exactly two operator pauses. The fit-only result produced after the
+first Enter is retained as provenance but is never deployed; only the second,
+independently moved-board result can become the session calibration.
 
 Success ends with `DEBUG_FULLSTACK_READY`. The session file binds:
 

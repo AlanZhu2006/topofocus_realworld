@@ -67,6 +67,17 @@ def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
     assert "realworld_oneclick.sh" in source
     assert "--mode debug" in source
     assert "OPERATOR_PRESENT_AND_ROBOTS_CLEAR" not in source
+    assert "CALIBRATION_PREVIEW_READY" in source
+    assert "INITIAL_BOARD_FIT_READY" in source
+    assert "CALIBRATION_HOLDOUT_PASSED" in source
+    assert source.index("CALIBRATION_PREVIEW_READY") < source.index(
+        "INITIAL_BOARD_FIT_READY"
+    )
+    assert source.index("INITIAL_BOARD_FIT_READY") < source.index(
+        "CALIBRATION_HOLDOUT_PASSED"
+    )
+    assert source.count("read -r -p") == 2
+    assert 'row.get("camera_ready") is not True' in source
 
 
 def test_calibration_robot_entries_contain_no_live_motion_flag():
