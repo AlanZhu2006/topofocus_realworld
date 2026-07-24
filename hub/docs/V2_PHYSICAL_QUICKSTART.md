@@ -23,8 +23,9 @@ GLM/VLM + source-derived allocation (Hub)
   -> atomic pair of expiring shared_world high-level targets
      -> robot-0 receiver -> TinyNav POI -> TinyNav planner/controller
         -> raw /cmd_vel -> local lease gate -> guarded /cmd_vel -> Go2 bridge
-     -> robot-1 receiver -> WATER /api/move
-        -> WATER move_base/local planner/controller
+     -> robot-1 receiver -> TinyNav POI -> TinyNav planner/controller
+        -> raw /cmd_vel -> local lease gate -> guarded /cmd_vel
+           -> WATER /api/joy_control velocity bridge
 ```
 
 The Hub never sends wheel velocity. Both GOAL leases may be active at the same
@@ -42,8 +43,9 @@ Implemented and locally tested:
 - real shadow-manifest to semantic-region/frontier batch conversion;
 - WSJ TinyNav POI receiver, local occupancy reachability, `nav_done` arrival,
   and a distinct raw-to-guarded `/cmd_vel` lease gate;
-- Yunji WATER receiver using `/api/move`, `/api/move/cancel`,
-  `/api/robot_status` and `/api/map/accessible_point_query`;
+- Yunji Odin-to-TinyNav adapter, fresh online occupancy, the same TinyNav
+  A*/local planner/controller chain, and a guarded WATER `/api/joy_control`
+  bridge;
 - live receiver health heartbeats and command-capable sender metadata that
   remain disabled unless a measured `base_T_camera` artifact is loaded;
 - default receiver behavior is read-only. Live output requires a robot-specific
@@ -97,9 +99,9 @@ independently moved-board holdout, and creates new transform/calibration IDs
 and map directories.
 
 Before moving farther, keep both senders in their normal mapping-only mode and
-run each receiver without its `--enable-live-*` flag. This checks TF/WATER map
-alignment and writes a checksummed local alignment artifact without publishing
-POI, pause, Twist, `/api/move` or `/api/move/cancel`.
+run each receiver without its `--enable-live-*` flag. This checks the online
+TinyNav frame/map alignment and writes a checksummed local alignment artifact
+without publishing a POI or writing a physical velocity.
 
 ## 3. Arm command-capable observations, not motion
 
@@ -166,28 +168,36 @@ directly to raw `/cmd_vel`, and a bridge subscribes to
 
 ## 5. Yunji local chain
 
-With Odin and the command-capable sender already running:
+The normal launcher installs the pinned planner-only TinyNav revision
+idempotently, starts the Odin adapter, online occupancy mapper, A* router,
+TinyNav local planner/controller, guarded WATER bridge and v2 receiver:
 
 ```bash
-source /opt/ros/humble/setup.bash
-source /home/nyu/odin_ws/install/setup.bash
-export PYTHONPATH=<TOPOFOCUS_REPO>/hub/src
-export FOCUS_ROBOT_TOKEN="$(< /path/to/robot-token)"
-python3 -u <TOPOFOCUS_REPO>/hub/robot_overlay/v2_yunji_receiver.py \
-  --calibration-file <FRESH_SHARED_BOARD_ARTIFACT> \
-  --base-camera-calibration-file <YUNJI_ODIN_MEASURED_ARTIFACT> \
-  --odin-factory-calibration-file \
-    <TOPOFOCUS_REPO>/hub/config/calibration/odin1_O1-P070100205_factory_20260722.json \
-  --transform-version <FRESH_YUNJI_TRANSFORM_VERSION> \
-  --shared-frame-calibration-id <FRESH_SHARED_CALIBRATION_ID> \
-  --enable-live-water-motion \
+FOCUS_YUNJI_SHARED_CALIBRATION_FILE=<FRESH_SHARED_BOARD_ARTIFACT> \
+FOCUS_YUNJI_BASE_CAMERA_CALIBRATION=<YUNJI_ODIN_MEASURED_ARTIFACT> \
+FOCUS_YUNJI_TRANSFORM_VERSION=<FRESH_YUNJI_TRANSFORM_VERSION> \
+FOCUS_SHARED_CALIBRATION_ID=<FRESH_SHARED_CALIBRATION_ID> \
+bash <TOPOFOCUS_REPO>/hub/robot_overlay/start_yunji_v2.sh --mode debug
+```
+
+Debug mode runs the full graph but the WATER bridge is dry-run. Live mode adds
+the exact operator phrase:
+
+```bash
+# Only with the operator beside a clear, powered robot:
+<same environment> \
+bash <TOPOFOCUS_REPO>/hub/robot_overlay/start_yunji_v2.sh \
+  --mode live \
   --operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR
 ```
 
-At startup the receiver aligns Odin odometry and WATER's current saved-map pose
-using synchronized read-only samples. Every semantic-region or frontier goal
-must also pass WATER's reachable-point query. It never uses
-`/api/joy_control`.
+Odin `odom` is the fresh session-local TinyNav `world`: calibrated depth drives
+the local planner, and the synchronized SLAM cloud drives the online occupancy
+map. The Hub still emits only an expiring high-level POI. WATER is used only as
+the final velocity executor and health/watchdog authority. The active path does
+not call `/api/map/accessible_point_query`, `/api/make_plan`, `/api/move`, or
+depend on a WATER saved map. The old `v2_yunji_receiver.py` remains in the
+repository only as historical/rollback evidence and is not launched.
 
 ## 6. Publish one supervised episode
 
@@ -220,8 +230,13 @@ score SR/SPL only after the separate terminal image/region verification in
 
 ## Provenance note
 
-The WATER endpoint behavior above is source-derived from the vendor's WATER
-software API manual v1.8.7. The new receiver and guard behavior is locally
-tested but unverified on physical motion. Runtime alignment, trajectory and
-terminal evidence must retain their absolute source path, size, SHA-256 and
-observed/source-derived/unverified classification.
+The `/api/joy_control` limits (±0.5 m/s, ±1.0 rad/s), 0.5-second command
+duration and refresh behavior are source-derived from the vendor's WATER
+software API manual v1.8.7. The bridge is capped further at 0.15 m/s and
+0.40 rad/s. The TinyNav source is pinned to
+`AlanZhu2006/go2_tinynav@5705bb61dafb407594970ab2bc85c63fc71e0a24`;
+the installer records paths, sizes and SHA-256 values. The adapter, bridge and
+new Yunji chain are locally tested but physical motion remains unverified.
+Runtime alignment, trajectory and terminal evidence must retain their absolute
+source path, size, SHA-256 and observed/source-derived/unverified
+classification.

@@ -260,7 +260,8 @@ entire region to its local map and either:
 
 1. give the full region to a local region-capable planner; or
 2. derive a collision-free observation/approach pose from the region and live
-   obstacle map for a point-goal API such as TinyNav POI or Yunji `/api/move`.
+   obstacle map for a point-goal API such as the TinyNav POI used by both
+   deployed robots.
 
 The second path is an explicitly recorded real-world adapter because the
 current robot APIs accept points. The chosen local pose, algorithm/version,

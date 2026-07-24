@@ -193,6 +193,28 @@ def test_wsj_slam_gate_tolerates_only_one_transient_interval_blip():
     )
 
 
+def test_external_odin_odometry_health_uses_covariance_fail_closed():
+    receiver = load_overlay("v2_wsj_receiver.py")
+    covariance = [0.0] * 36
+    covariance[0] = 0.001
+    covariance[7] = 0.002
+    covariance[35] = 0.003
+
+    assert receiver.external_odometry_covariance_gate(covariance) == (
+        True,
+        "external_odometry_covariance_tracking",
+    )
+    covariance[7] = 0.02
+    assert receiver.external_odometry_covariance_gate(covariance) == (
+        False,
+        "external_odometry_covariance_not_tracking",
+    )
+    assert receiver.external_odometry_covariance_gate([0.0] * 35) == (
+        False,
+        "external_odometry_covariance_malformed",
+    )
+
+
 def test_receiver_help_exposes_separate_explicit_live_gates():
     cases = {
         "v2_wsj_receiver.py": (
@@ -280,14 +302,30 @@ def test_wsj_live_bridge_uses_observed_effective_command_floors() -> None:
     assert "GO2_MIN_CMD_W=0.30" in launcher
 
 
-def test_yunji_uses_high_level_move_cancel_and_reachability_not_joy_control():
-    source = (OVERLAY / "v2_yunji_receiver.py").read_text(encoding="utf-8")
-    assert '"/api/move"' in source
-    assert '"/api/move/cancel"' in source
-    assert '"/api/map/accessible_point_query"' in source
-    assert '"/api/software/get_version"' in source
-    assert "WATER move_base/local planner/controller" in source
-    assert "/api/joy_control" not in source
+def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
+    launcher = (OVERLAY / "start_yunji_v2.sh").read_text(encoding="utf-8")
+    component = (OVERLAY / "run_yunji_tinynav_component.sh").read_text(
+        encoding="utf-8"
+    )
+    bridge = (OVERLAY / "water_cmd_vel_bridge.py").read_text(encoding="utf-8")
+
+    assert "odin1_tinynav_adapter.py" in launcher
+    assert "run_yunji_tinynav_planner.py" in component
+    assert "cmd_vel_control.py" in component
+    assert "--external-odometry-health" in launcher
+    assert "--enable-live-tinynav-motion" in launcher
+    assert "/focus_guarded_cmd_vel" in launcher
+    assert "/api/joy_control" in bridge
+    assert "/api/accessible_point_query" not in launcher + bridge
+    assert '"/api/move"' not in launcher + bridge
+
+
+def test_yunji_direct_water_map_receiver_is_retained_as_legacy_only():
+    legacy = (OVERLAY / "v2_yunji_receiver.py").read_text(encoding="utf-8")
+    launcher = (OVERLAY / "start_yunji_v2.sh").read_text(encoding="utf-8")
+
+    assert '"/api/move"' in legacy
+    assert "v2_yunji_receiver.py" not in launcher
 
 
 def test_yunji_old_firmware_capability_is_parsed_fail_closed():

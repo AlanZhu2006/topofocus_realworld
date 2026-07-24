@@ -184,9 +184,12 @@ python3 hub/robot_overlay/odin1_sender.py --help
 ```
 
 Odin 适配器使用 `/odin1/image`、`/odin1/cloud_slam` 和
-`/odin1/odometry`。观测 sender 不调用 WATER 运动接口；只有显式启动的
-v2 live receiver 才能发送受租约约束的 `/api/move`。旧 D455 共享变换
-不得用于 Odin。
+`/odin1/odometry`。观测 sender 不调用 WATER 运动接口；正式链路把这些
+输入适配为 TinyNav 在线深度、位姿和 occupancy，由 TinyNav 完成 A*、
+局部规划与控制。只有显式启动的 live WATER bridge 才会把新鲜的
+`/focus_guarded_cmd_vel` 转成短时 `/api/joy_control`。正式链路不使用
+WATER saved map、`accessible_point_query`、`make_plan` 或 `/api/move`。
+旧 D455 共享变换不得用于 Odin。
 
 `yunji_odin1_board_20260722_v1.json` 是首个 Odin 历史门禁。最后一次
 现场 predecessor 会话使用：

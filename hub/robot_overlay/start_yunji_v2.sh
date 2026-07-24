@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the minimal Yunji Odin observation + v2 WATER receiver stack.
+# Start Yunji with Odin + online TinyNav + guarded WATER velocity output.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,18 +11,20 @@ FACTORY_CALIBRATION="${FOCUS_ODIN_FACTORY_CALIBRATION:-$SCRIPT_DIR/../config/cal
 TRANSFORM_VERSION="${FOCUS_YUNJI_TRANSFORM_VERSION:-}"
 CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
+TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus/tinynav-runtime}"
 mode="debug"
 confirmation=""
+
+usage() {
+  echo "Usage: $0 --mode debug|live [--operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR]"
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) mode="$2"; shift 2 ;;
     --operator-confirmation) confirmation="$2"; shift 2 ;;
-    -h|--help)
-      echo "Usage: $0 --mode debug|live [--operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR]"
-      exit 0
-      ;;
-    *) echo "Unknown argument: $1" >&2; exit 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 [[ "$mode" == debug || "$mode" == live ]] || {
@@ -50,117 +52,194 @@ fi
   exit 2
 }
 for required in \
+  "$SCRIPT_DIR/install_yunji_tinynav_runtime.sh" \
+  "$SCRIPT_DIR/run_yunji_tinynav_component.sh" \
   "$SCRIPT_DIR/run_yunji_mapping_observation.sh" \
-  "$SCRIPT_DIR/v2_yunji_receiver.py" \
+  "$SCRIPT_DIR/odin1_tinynav_adapter.py" \
+  "$SCRIPT_DIR/water_cmd_vel_bridge.py" \
+  "$SCRIPT_DIR/v2_wsj_receiver.py" \
   "$ENV_FILE" \
   "$CALIBRATION_FILE" \
   "$BASE_CAMERA_CALIBRATION" \
   "$FACTORY_CALIBRATION"; do
-  [[ -r "$required" ]] || { echo "Missing required file: $required" >&2; exit 1; }
+  [[ -r "$required" ]] || {
+    echo "Missing required file: $required" >&2
+    exit 1
+  }
 done
 systemctl is-active --quiet focus-yunji-odin1-driver.service || {
   echo "Odin driver is not active." >&2
   exit 1
 }
-
-SENDER_UNIT="focus-yunji-command-observation-v2.service"
-RECEIVER_UNIT="focus-yunji-v2-${mode}-v2.service"
-if systemctl is-active --quiet "$SENDER_UNIT" \
-   && systemctl is-active --quiet "$RECEIVER_UNIT"; then
-  echo "Yunji v2 stack is already ready: mode=$mode"
-  [[ "$mode" == debug ]] \
-    && echo "Safety: receiver is read-only; no WATER move/cancel is emitted."
-  exit 0
+if pgrep -af 'keyboard.*teleop|yunji_wasd_teleop' >/dev/null 2>&1; then
+  echo "Refusing startup while a Yunji manual command process exists." >&2
+  exit 1
 fi
 
-stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-metrics="/home/nyu/.local/state/topofocus/yunji-command-observation-${stamp}.json"
-if ! systemctl is-active --quiet "$SENDER_UNIT"; then
-  for unit in \
-    focus-yunji-calibration-observation-v1.service \
-    focus-yunji-odin1-calibrated-v2.service \
-    focus-yunji-command-observation.service \
-    "$SENDER_UNIT"; do
-    sudo -n systemctl stop "$unit" >/dev/null 2>&1 || true
-    sudo -n systemctl reset-failed "$unit" >/dev/null 2>&1 || true
-  done
+FOCUS_YUNJI_TINYNAV_RUNTIME="$TINYNAV_RUNTIME" \
+  bash "$SCRIPT_DIR/install_yunji_tinynav_runtime.sh"
+
+stop_unit() {
+  local unit="$1"
+  sudo -n systemctl stop "$unit" >/dev/null 2>&1 || true
+  sudo -n systemctl reset-failed "$unit" >/dev/null 2>&1 || true
+}
+
+start_unit() {
+  local unit="$1"
+  shift
+  stop_unit "$unit"
   sudo -n systemd-run \
-    --unit="${SENDER_UNIT%.service}" \
+    --unit="${unit%.service}" \
     --property=Type=exec \
+    --property=KillMode=control-group \
     --uid=nyu --gid=nyu \
     --working-directory="$RELEASE_ROOT" \
+    --setenv="FOCUS_YUNJI_TINYNAV_RUNTIME=$TINYNAV_RUNTIME" \
+    "$@" >/dev/null
+}
+
+# Remove every previous direct-/api/move receiver before creating the new
+# online TinyNav command path.
+for unit in \
+  focus-yunji-v2-readonly-v4.service \
+  focus-yunji-v2-runtime.service \
+  focus-yunji-v2-debug-v2.service \
+  focus-yunji-v2-live-v2.service \
+  focus-yunji-v2-debug-v3.service \
+  focus-yunji-v2-live-v3.service \
+  focus-yunji-water-bridge-debug-v1.service \
+  focus-yunji-water-bridge-live-v1.service; do
+  stop_unit "$unit"
+done
+
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+state_root="/home/nyu/.local/state/topofocus"
+map_output="$state_root/yunji-tinynav-online-map-$stamp"
+mkdir -p "$map_output"
+
+SENDER_UNIT="focus-yunji-command-observation-v2.service"
+if ! systemctl is-active --quiet "$SENDER_UNIT"; then
+  metrics="$state_root/yunji-command-observation-$stamp.json"
+  start_unit "$SENDER_UNIT" \
     /bin/bash "$SCRIPT_DIR/run_yunji_mapping_observation.sh" \
       --transform-version "$TRANSFORM_VERSION" \
       --shared-frame-transform-file "$CALIBRATION_FILE" \
       --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
       --command-capable \
       --env "$ENV_FILE" \
-      --metrics-out "$metrics" >/dev/null
-  sleep 2
-  systemctl is-active --quiet "$SENDER_UNIT" || {
-    journalctl -u "$SENDER_UNIT" -n 60 --no-pager >&2
-    exit 1
-  }
+      --metrics-out "$metrics"
 fi
 
-for unit in \
-  focus-yunji-v2-readonly-v4.service \
-  focus-yunji-v2-runtime.service \
-  focus-yunji-v2-debug-v2.service \
-  focus-yunji-v2-live-v2.service; do
-  [[ "$unit" == "$RECEIVER_UNIT" ]] && continue
-  sudo -n systemctl stop "$unit" >/dev/null 2>&1 || true
-  sudo -n systemctl reset-failed "$unit" >/dev/null 2>&1 || true
-done
-# A stopped systemd-run transient unit can remain loaded as "failed".  The
-# active/ready case returned above, so it is safe and necessary to clear the
-# selected non-active unit before recreating it with the same stable name.
-sudo -n systemctl stop "$RECEIVER_UNIT" >/dev/null 2>&1 || true
-sudo -n systemctl reset-failed "$RECEIVER_UNIT" >/dev/null 2>&1 || true
+start_unit focus-yunji-tinynav-adapter-v1.service \
+  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" adapter \
+    --calibration-file "$FACTORY_CALIBRATION"
 
-alignment="/home/nyu/.local/state/topofocus/yunji-v2-${mode}-${stamp}.json"
-log="/home/nyu/.local/state/topofocus/yunji-v2-${mode}-${stamp}.jsonl"
-receiver=(
-  /usr/bin/python3 -u "$SCRIPT_DIR/v2_yunji_receiver.py"
+start_unit focus-yunji-tinynav-occupancy-v1.service \
+  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" occupancy \
+    --ros-args \
+    -p topics.pointcloud_input:=/focus/odin1/cloud_world \
+    -p topics.camera_pose:=/focus/odin1/camera_pose_world \
+    -p frames.target_frame:=world \
+    -p output.directory:="$map_output" \
+    -p output.save_on_shutdown:=true \
+    -p bev.publish_rate_hz:=2.0
+
+start_unit focus-yunji-tinynav-planner-v1.service \
+  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" planner \
+    --body-radius-m 0.283 \
+    --camera-forward-m 0.23 \
+    --safety-margin-m 0.05
+
+start_unit focus-yunji-tinynav-router-v1.service \
+  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" router \
+    --frame-id world \
+    --occupancy-topic /semantic_mapping/occupancy_bev \
+    --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
+    --clearance-m 0.34 \
+    --start-footprint-override-m 0.34 \
+    --max-cached-map-motion-m 0.25
+
+start_unit focus-yunji-tinynav-controller-v1.service \
+  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" controller
+
+bridge_args=(
+  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" bridge
+  --input-topic /focus_guarded_cmd_vel
+  --status-topic /focus/water/cmd_bridge_status
+  --max-linear-mps 0.15
+  --max-angular-radps 0.40
+)
+if [[ "$mode" == live ]]; then
+  bridge_args+=(
+    --enable-live-water-output
+    --operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR
+  )
+fi
+BRIDGE_UNIT="focus-yunji-water-bridge-${mode}-v1.service"
+start_unit "$BRIDGE_UNIT" "${bridge_args[@]}"
+
+alignment="$state_root/yunji-v2-tinynav-$mode-$stamp.json"
+log="$state_root/yunji-v2-tinynav-$mode-$stamp.jsonl"
+receiver_args=(
+  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" receiver
   --base-url "$HUB_URL"
+  --robot-id robot-1
   --calibration-file "$CALIBRATION_FILE"
   --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION"
-  --odin-factory-calibration-file "$FACTORY_CALIBRATION"
+  --base-camera-frame odin1_camera_optical_frame
   --transform-version "$TRANSFORM_VERSION"
   --shared-frame-calibration-id "$CALIBRATION_ID"
+  --online-buildmap-world
+  --tracking-frame world
+  --tinynav-map-frame world
+  --local-map-frame yunji/world
+  --occupancy-topic /semantic_mapping/occupancy_bev
+  --external-odometry-health
+  --platform-health-topic /focus/water/cmd_bridge_status
+  --reachability-clearance-m 0.34
+  --start-footprint-override-m 0.34
   --alignment-output "$alignment"
   --log "$log"
 )
 if [[ "$mode" == live ]]; then
-  receiver+=(
-    --enable-live-water-motion
+  receiver_args+=(
+    --enable-live-tinynav-motion
     --operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR
   )
 fi
-printf -v receiver_text '%q ' "${receiver[@]}"
-sudo -n systemd-run \
-  --unit="${RECEIVER_UNIT%.service}" \
-  --property=Type=exec \
-  --uid=nyu --gid=nyu \
-  --working-directory="$RELEASE_ROOT" \
-  /bin/bash -c \
-  "set -a; source '$ENV_FILE'; set +a; unset COLCON_CURRENT_PREFIX AMENT_CURRENT_PREFIX; source /opt/ros/humble/setup.bash; unset COLCON_CURRENT_PREFIX; source /home/nyu/odin_ws/install/setup.bash; export PYTHONPATH='$SCRIPT_DIR/../src':\${PYTHONPATH:-}; exec $receiver_text" \
-  >/dev/null
+RECEIVER_UNIT="focus-yunji-v2-${mode}-v3.service"
+start_unit "$RECEIVER_UNIT" \
+  /bin/bash -lc \
+  "set -a; source '$ENV_FILE'; set +a; exec $(printf '%q ' "${receiver_args[@]}")"
 
-deadline=$((SECONDS + 35))
+deadline=$((SECONDS + 50))
 until [[ -s "$alignment" ]]; do
-  systemctl is-active --quiet "$RECEIVER_UNIT" || {
-    journalctl -u "$RECEIVER_UNIT" -n 80 --no-pager >&2
-    exit 1
-  }
+  for unit in \
+    focus-yunji-tinynav-adapter-v1.service \
+    focus-yunji-tinynav-occupancy-v1.service \
+    focus-yunji-tinynav-planner-v1.service \
+    focus-yunji-tinynav-router-v1.service \
+    focus-yunji-tinynav-controller-v1.service \
+    "$BRIDGE_UNIT" \
+    "$RECEIVER_UNIT"; do
+    systemctl is-active --quiet "$unit" || {
+      journalctl -u "$unit" -n 80 --no-pager >&2
+      exit 1
+    }
+  done
   (( SECONDS < deadline )) || {
-    echo "Timed out waiting for Yunji v2 alignment." >&2
+    echo "Timed out waiting for Yunji online TinyNav alignment." >&2
     exit 1
   }
   sleep 1
 done
 
-echo "Yunji v2 stack ready: mode=$mode alignment=$alignment"
+echo "Yunji online TinyNav stack ready: mode=$mode"
+echo "  alignment: $alignment"
+echo "  online map: $map_output"
+echo "  planner: pinned TinyNav A*/local planner/controller"
+echo "  chassis: guarded /focus_guarded_cmd_vel -> WATER /api/joy_control"
 if [[ "$mode" == debug ]]; then
-  echo "Safety: receiver is read-only; no WATER move/cancel is emitted."
+  echo "Safety: WATER bridge is dry-run; physical motion is impossible through this stack."
 fi

@@ -7,6 +7,10 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`YUNJI_TINYNAV_MIGRATION_20260724.md`](YUNJI_TINYNAV_MIGRATION_20260724.md):
+  Yunji's migration from WATER saved-map navigation to online TinyNav with a
+  guarded WATER velocity-only bridge, including pinned-source provenance and
+  the current physical-verification boundary.
 - [`REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](REPOSITORY_AND_ONECLICK_AUDIT_20260724.md):
   complete repository/startup-chain audit, persistent-session replacement,
   local verification boundary and final robot synchronization record.

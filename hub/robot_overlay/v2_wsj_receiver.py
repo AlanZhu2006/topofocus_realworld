@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WSJ robot-local v2 receiver for TinyNav POI navigation.
+"""Robot-local v2 receiver for TinyNav POI navigation.
 
 The VLM/Hub supplies only an expiring high-level target. TinyNav keeps global
 planning, local planning and velocity control. In explicitly armed live mode
@@ -7,8 +7,10 @@ this node gates TinyNav's raw ``/cmd_vel`` onto a separate guarded topic; the
 Go2 bridge must subscribe only to that guarded topic. Lease expiry, HOLD,
 disconnect or receiver failure closes the gate and publishes zero locally.
 
-Default mode is read-only: it aligns ``shared_world`` to TinyNav's saved map,
+Default mode is read-only: it aligns ``shared_world`` to TinyNav's map,
 validates decisions and reachability, but never publishes POI, pause or Twist.
+The same transport and lease gate is used by WSJ/Go2 and Yunji/WATER; only the
+final guarded velocity bridge differs.
 """
 from __future__ import annotations
 
@@ -59,6 +61,10 @@ from focus_hub.v2_robot_runtime import (  # noqa: E402
 
 
 LIVE_CONFIRMATION = "OPERATOR_PRESENT_AND_WSJ_CLEAR"
+LIVE_CONFIRMATIONS = {
+    "robot-0": LIVE_CONFIRMATION,
+    "robot-1": "OPERATOR_PRESENT_AND_YUNJI_CLEAR",
+}
 # Mirror the independently enforced sender thresholds exactly.  The receiver
 # still recomputes every interval check instead of trusting the producer's
 # ``imu_intervals_valid`` boolean, but must not reject telemetry that the
@@ -74,6 +80,8 @@ TRANSIENT_SLAM_FAILURES = frozenset(
         "imu_interval_threshold",
     }
 )
+EXTERNAL_ODOMETRY_MAX_POS_VAR_M2 = 0.01
+EXTERNAL_ODOMETRY_MAX_YAW_VAR_RAD2 = 0.01
 
 
 def quaternion_pose_matrix(pose: Any) -> tuple[float, ...]:
@@ -159,6 +167,28 @@ def slam_metrics_gate(raw_json: str) -> tuple[bool, str]:
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return False, "slam_metrics_malformed"
     return True, "slam_optimizer_imu_valid"
+
+
+def external_odometry_covariance_gate(
+    covariance: Any,
+) -> tuple[bool, str]:
+    """Fail closed on the same Odin covariance contract used by its sender."""
+
+    try:
+        values = [float(value) for value in covariance]
+    except (TypeError, ValueError):
+        return False, "external_odometry_covariance_malformed"
+    if len(values) != 36 or not all(math.isfinite(value) for value in values):
+        return False, "external_odometry_covariance_malformed"
+    var_x, var_y, var_yaw = values[0], values[7], values[35]
+    if min(var_x, var_y, var_yaw) < 0.0:
+        return False, "external_odometry_covariance_invalid"
+    if (
+        max(var_x, var_y) > EXTERNAL_ODOMETRY_MAX_POS_VAR_M2
+        or var_yaw > EXTERNAL_ODOMETRY_MAX_YAW_VAR_RAD2
+    ):
+        return False, "external_odometry_covariance_not_tracking"
+    return True, "external_odometry_covariance_tracking"
 
 
 class SlamHealthDebouncer:
@@ -288,7 +318,12 @@ def main() -> int:
         "--base-camera-calibration-file",
         type=Path,
         required=True,
-        help="measured base_link_T_camera artifact for robot-0",
+        help="measured base_link_T_camera artifact for this robot",
+    )
+    parser.add_argument(
+        "--base-camera-frame",
+        default="camera",
+        help="camera frame declared by the measured mount artifact",
     )
     parser.add_argument("--transform-version", required=True)
     parser.add_argument("--shared-frame-calibration-id", required=True)
@@ -297,6 +332,19 @@ def main() -> int:
     parser.add_argument("--local-map-frame", default="wsj/map")
     parser.add_argument("--odom-topic", default="/slam/odometry")
     parser.add_argument("--slam-data-topic", default="/slam/data")
+    parser.add_argument(
+        "--external-odometry-health",
+        action="store_true",
+        help=(
+            "derive localization freshness from the externally validated "
+            "odometry stream instead of TinyNav optimizer diagnostics"
+        ),
+    )
+    parser.add_argument(
+        "--platform-health-topic",
+        default="",
+        help="optional local chassis-bridge JSON status topic",
+    )
     parser.add_argument("--occupancy-topic", default="/mapping/static_occupancy_grid")
     parser.add_argument("--cmd-pois-topic", default="/mapping/cmd_pois")
     parser.add_argument("--nav-done-topic", default="/mapping/nav_done")
@@ -345,10 +393,17 @@ def main() -> int:
         ),
     )
     parser.add_argument("--enable-live-go2-motion", action="store_true")
+    parser.add_argument(
+        "--enable-live-tinynav-motion",
+        action="store_true",
+        help="enable the platform-neutral guarded TinyNav command gate",
+    )
     parser.add_argument("--operator-confirmation", default="")
     args = parser.parse_args()
-    if args.robot_id != "robot-0":
-        parser.error("the WSJ receiver is fixed to canonical robot-0")
+    if args.robot_id not in LIVE_CONFIRMATIONS:
+        parser.error("robot ID must be canonical robot-0 or robot-1")
+    if args.enable_live_go2_motion and args.robot_id != "robot-0":
+        parser.error("--enable-live-go2-motion is valid only for robot-0")
     if args.raw_cmd_topic == args.guarded_cmd_topic:
         parser.error("raw and guarded cmd_vel topics must differ")
     if min(
@@ -367,10 +422,14 @@ def main() -> int:
         or args.start_footprint_override_m < 0
     ):
         parser.error("reachability distances must be non-negative")
-    live = bool(args.enable_live_go2_motion)
-    if live and args.operator_confirmation != LIVE_CONFIRMATION:
+    live = bool(
+        args.enable_live_go2_motion or args.enable_live_tinynav_motion
+    )
+    expected_confirmation = LIVE_CONFIRMATIONS[args.robot_id]
+    if live and args.operator_confirmation != expected_confirmation:
         parser.error(
-            "live Go2 output requires --operator-confirmation " + LIVE_CONFIRMATION
+            "live TinyNav output requires --operator-confirmation "
+            + expected_confirmation
         )
     if args.online_buildmap_world:
         if args.tracking_frame != args.tinynav_map_frame:
@@ -397,7 +456,7 @@ def main() -> int:
     base_camera_calibration = load_base_camera_calibration(
         args.base_camera_calibration_file,
         expected_robot_id=args.robot_id,
-        expected_camera_frame="camera",
+        expected_camera_frame=args.base_camera_frame,
     )
 
     state_dir = Path(
@@ -406,15 +465,16 @@ def main() -> int:
         )
     ).expanduser()
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    robot_label = "wsj" if args.robot_id == "robot-0" else "yunji"
     alignment_output = (
         args.alignment_output.expanduser()
         if args.alignment_output
-        else state_dir / f"wsj-v2-map-alignment-{stamp}.json"
+        else state_dir / f"{robot_label}-v2-map-alignment-{stamp}.json"
     )
     log_path = (
         args.log.expanduser()
         if args.log
-        else state_dir / f"wsj-v2-receiver-{stamp}.jsonl"
+        else state_dir / f"{robot_label}-v2-receiver-{stamp}.jsonl"
     )
     for output in (alignment_output, log_path):
         if output.exists():
@@ -445,7 +505,9 @@ def main() -> int:
 
     class WsjReceiverNode(Node):
         def __init__(self) -> None:
-            super().__init__("focus_v2_wsj_receiver")
+            super().__init__(
+                f"focus_v2_{args.robot_id.replace('-', '_')}_tinynav_receiver"
+            )
             self.tf_buffer = Buffer(cache_time=Duration(seconds=30.0))
             self.tf_listener = TransformListener(self.tf_buffer, self)
             self.world_T_camera: tuple[float, ...] | None = None
@@ -459,6 +521,14 @@ def main() -> int:
                 max_transient_failures=args.slam_max_transient_failures,
                 max_last_good_age_s=args.slam_transient_grace_s,
             )
+            self.platform_pass = not bool(args.platform_health_topic)
+            self.platform_detail = (
+                "platform_health_not_configured"
+                if not args.platform_health_topic
+                else "platform_health_missing"
+            )
+            self.platform_received_ns = 0
+            self.platform_estop = False
             self.nav_done = False
             self.raw_cmd_received_ns = 0
             self.trajectory_received_ns = 0
@@ -481,7 +551,17 @@ def main() -> int:
                 Twist, args.guarded_cmd_topic, 10
             )
             self.create_subscription(Odometry, args.odom_topic, self.on_odom, 20)
-            self.create_subscription(String, args.slam_data_topic, self.on_slam, 20)
+            if not args.external_odometry_health:
+                self.create_subscription(
+                    String, args.slam_data_topic, self.on_slam, 20
+                )
+            if args.platform_health_topic:
+                self.create_subscription(
+                    String,
+                    args.platform_health_topic,
+                    self.on_platform_health,
+                    pause_qos,
+                )
             self.create_subscription(
                 OccupancyGrid,
                 args.occupancy_topic,
@@ -509,6 +589,13 @@ def main() -> int:
             try:
                 self.world_T_camera = quaternion_pose_matrix(message.pose.pose)
                 self.odom_received_ns = time.time_ns()
+                if args.external_odometry_health:
+                    self.slam_pass, self.slam_detail = (
+                        external_odometry_covariance_gate(
+                            message.pose.covariance
+                        )
+                    )
+                    self.slam_received_ns = self.odom_received_ns
             except ValueError as exc:
                 emit("odometry_rejected", error=str(exc))
 
@@ -519,6 +606,32 @@ def main() -> int:
                 received_ns=received_ns,
             )
             self.slam_received_ns = received_ns
+
+        def on_platform_health(self, message: String) -> None:
+            try:
+                payload = json.loads(message.data)
+                if not isinstance(payload, dict):
+                    raise ValueError("platform status is not an object")
+                schema = str(payload.get("schema_version", ""))
+                if schema != "focus-water-cmd-bridge-v1":
+                    raise ValueError(f"unsupported platform schema {schema!r}")
+                if live and payload.get("live") is not True:
+                    raise ValueError("platform bridge is not live")
+                self.platform_pass = payload.get("ready") is True
+                water = payload.get("water")
+                if not isinstance(water, dict):
+                    water = {}
+                self.platform_estop = bool(water.get("estop_engaged"))
+                self.platform_detail = (
+                    f"water_bridge_ready={self.platform_pass}; "
+                    f"last_reason={payload.get('last_reason', '')}; "
+                    f"error_code={water.get('error_code', '')}"
+                )
+                self.platform_received_ns = time.time_ns()
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                self.platform_pass = False
+                self.platform_detail = f"platform_status_rejected:{exc}"
+                self.platform_received_ns = time.time_ns()
 
         def on_occupancy(self, message: OccupancyGrid) -> None:
             try:
@@ -592,7 +705,7 @@ def main() -> int:
 
         def publish_goal(self, payload: str, expires_at_ns: int) -> None:
             if not live:
-                raise RuntimeError("live Go2 output is disabled")
+                raise RuntimeError("live TinyNav output is disabled")
             self.nav_done = False
             paused = Bool()
             paused.data = False
@@ -863,6 +976,14 @@ def main() -> int:
                 and now_ns - node.slam_received_ns
                 <= int(args.local_data_timeout_s * 1e9)
             )
+            platform_fresh = (
+                not args.platform_health_topic
+                or (
+                    node.platform_received_ns > 0
+                    and now_ns - node.platform_received_ns
+                    <= int(args.local_data_timeout_s * 1e9)
+                )
+            )
             graph_ready, graph_detail = node.planner_graph_ready()
             ready = (
                 local_fresh
@@ -870,6 +991,8 @@ def main() -> int:
                 and alignment_stable
                 and graph_ready
                 and node.occupancy is not None
+                and platform_fresh
+                and node.platform_pass
             )
             health = RobotHealth(
                 safety_state=SafetyState.READY if ready else SafetyState.HOLD,
@@ -878,13 +1001,20 @@ def main() -> int:
                     if local_fresh and node.slam_pass and alignment_stable
                     else LocalizationState.LOST
                 ),
-                estop_engaged=False,
+                estop_engaged=node.platform_estop,
                 collision_avoidance_ready=bool(node.occupancy is not None and graph_ready),
-                motor_controller_ready=graph_ready,
+                motor_controller_ready=bool(
+                    graph_ready and platform_fresh and node.platform_pass
+                ),
                 detail=(
                     f"{node.slam_detail}; alignment_shift={alignment_shift:.3f}m; "
                     f"alignment_yaw={math.degrees(alignment_yaw):.2f}deg; {graph_detail}; "
-                    "Go2 handheld remote retains final local priority"
+                    f"{node.platform_detail}; "
+                    + (
+                        "Go2 handheld remote retains final local priority"
+                        if args.robot_id == "robot-0"
+                        else "WATER local status/watchdog retains final authority"
+                    )
                 ),
             )
             if live:
@@ -1127,7 +1257,10 @@ def main() -> int:
                             NavigationStatusV2.REJECTED,
                             "UNSAFE",
                             pose,
-                            detail="live Go2 output is disabled; validation preview only",
+                            detail=(
+                                "live TinyNav output is disabled; "
+                                "validation preview only"
+                            ),
                         )
                     else:
                         same_leg = (

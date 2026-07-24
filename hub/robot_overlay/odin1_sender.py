@@ -380,6 +380,10 @@ class OdinFrame:
     T_odom_camera: np.ndarray
     covariance_6x6: list[float]
     diagnostics: dict[str, float | int | None]
+    # Kept as the original ROS message so the robot-local TinyNav adapter can
+    # republish the already-world-frame cloud without a lossy point rebuild.
+    # The Hub sender itself remains read-only and does not use this field.
+    cloud_message: Any
 
 
 class OdinRos2Source:
@@ -402,7 +406,9 @@ class OdinRos2Source:
         self._clouds: deque[tuple[int, int, Any]] = deque(maxlen=6)
         self._odometry: deque[tuple[int, int, Any]] = deque(maxlen=30)
         self._last_cloud_stamp = -1
-        self.node = Node("focus_odin1_source")
+        self.node = Node(
+            getattr(args, "source_node_name", "focus_odin1_source")
+        )
         qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=5,
@@ -528,6 +534,7 @@ class OdinRos2Source:
             T_odom_camera=T_odom_camera,
             covariance_6x6=list(odom_message.pose.covariance),
             diagnostics=diagnostics,
+            cloud_message=cloud_message,
         )
 
     def close(self) -> None:

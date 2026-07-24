@@ -11,6 +11,11 @@
 #   goal      = chair
 #   scene     = scene01-chair
 #   first run = scene01-chair-run01
+#
+# 当前 Yunji 命令路径：
+#   Odin 在线深度/点云 -> TinyNav 在线地图/A*/局部规划/控制
+#   -> /focus_guarded_cmd_vel -> WATER /api/joy_control
+# 不需要加载 WATER 旧地图，也不调用 accessible_point_query/make_plan/api/move。
 
 
 # ======================================================================

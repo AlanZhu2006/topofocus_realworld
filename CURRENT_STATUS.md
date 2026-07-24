@@ -1,6 +1,6 @@
 # Current project status
 
-Snapshot time: **2026-07-24 05:17 CST**
+Snapshot time: **2026-07-24 (Yunji TinyNav migration in progress)**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -10,8 +10,8 @@ append-only evidence records; they do not supersede this page.
 The real two-robot chain has reached:
 
 `RGB-D/pose -> central maps -> semantic/VLM decision -> atomic v2 targets ->
-TinyNav/WATER local planning -> robot feedback -> lease renewal -> fail-closed
-HOLD`
+robot-local TinyNav planning -> guarded platform output -> robot feedback ->
+lease renewal -> fail-closed HOLD`
 
 No official scene has completed successfully yet. The engineering attempts
 described below must not be included in SR or SPL.
@@ -40,6 +40,14 @@ writes could look fresh by mtime. The current read-only relay now delivers all
 three `example.png`-style overview topics. Mapper/pipeline corrections take
 effect only in a future fresh map session; the historical v12 map was not
 rewritten or cleaned.
+
+The Yunji deployment path has now been replaced locally: Odin supplies
+calibrated depth, camera odometry and a session-local world cloud; online
+TinyNav owns occupancy, A*, local planning and control; WATER only executes a
+lease-gated, watchdog-bounded `/api/joy_control` velocity. This removes the
+formal experiment's dependency on a WATER saved map,
+`accessible_point_query`, `make_plan` and `/api/move`. Unit/static tests pass;
+robot-side no-motion startup and physical motion are not yet observed.
 
 ## Last observed physical identity
 
@@ -113,9 +121,13 @@ new strict session by assertion. The next onsite run must use
   and final stop/reject authority.
 - WSJ routes a v2 semantic/point target into online BuildMap A*, TinyNav
   control and a guarded Go2 bridge.
-- Yunji routes a v2 target into WATER `/api/move`, cancel and feedback. Its
-  observed firmware lacks the newer accessible-point API, so the receiver uses
-  bounded legacy receding-horizon goals.
+- Yunji routes a v2 target into the same online TinyNav A*/local
+  planner/controller architecture. A separate guarded bridge converts only
+  fresh `/focus_guarded_cmd_vel` to WATER `/api/joy_control`; stale input,
+  unhealthy WATER status, disconnect and process exit all reduce to zero.
+- The old direct WATER `/api/move` receiver is retained only as
+  historical/rollback evidence and is no longer referenced by the active
+  launcher.
 - Hub never emits motor velocity commands.
 
 ### Evaluation

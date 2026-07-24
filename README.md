@@ -8,7 +8,7 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 
 权威状态见 [CURRENT_STATUS.md](CURRENT_STATUS.md)。摘要如下：
 
-- 双机真实链路已经到达“观测、在线地图、VLM、高层 v2 目标、TinyNav/WATER、本地反馈、租约续期和故障 HOLD”，但还没有一次可计入 SR/SPL 的正式场景成功。
+- 双机真实链路已经到达“观测、在线地图、VLM、高层 v2 目标、机器人本地规划、本地反馈、租约续期和故障 HOLD”，但还没有一次可计入 SR/SPL 的正式场景成功。
 - WSJ 当前为 D435i + 修复后的 TinyNav perception/IMU + 在线
   BuildMap；Yunji 当前为 Odin1 `O1-P070100205`，不是旧的 RealSense
   路径。
@@ -23,6 +23,12 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 - retry3 后的 WSJ 有效速度下限和 odometry/occupancy 独立回调修复已
   通过本机测试并以相同哈希同步到两台机器人磁盘，但尚未重启加载和
   真机验证。
+- Yunji 正式链路已改为与 WSJ 相同的在线 TinyNav 架构：Odin 提供
+  校正深度、位姿和世界点云，TinyNav 负责在线 occupancy、A*、局部规划
+  与控制；WATER 只执行经过租约门控的 `/api/joy_control` 速度。该实现
+  已通过本机单元/静态测试，尚未完成机器人端无运动启动和真机运动验证；
+  正式链路不再依赖 WATER 旧地图、`accessible_point_query`、
+  `make_plan` 或 `/api/move`。
 - Hub 默认及当前均为 `GOAL=false`。Hub 只发布版本化、可过期的高层
   目标；机器人端保留最终停止和拒绝权限。
 - 语义图使用真实模型推理和像素 mask，但 chair/plant 等投影仍是
@@ -61,8 +67,8 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 
 - **WSJ**：Unitree Go2，使用 D435i、TinyNav perception、在线
   BuildMap、TinyNav 局部规划与受保护的 Go2 速度桥；
-- **Yunji**：轮式移动平台，使用 Odin1 RGB/SLAM cloud/odometry 与
-  WATER 高层导航接口；
+- **Yunji**：轮式移动平台，使用 Odin1 RGB/SLAM cloud/odometry、
+  在线 TinyNav 规划控制与受保护的 WATER 速度桥；
 - **GPU Hub**：集中构建/融合双机语义地图，运行 YOLO 与
   Perception/Judgment/Decision VLM，并只向机器人发布可过期的高层目标。
 
