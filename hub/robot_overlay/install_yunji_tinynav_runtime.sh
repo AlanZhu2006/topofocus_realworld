@@ -62,8 +62,11 @@ fi
 "$VENV_ROOT/bin/python" -m pip install \
   --disable-pip-version-check \
   --no-input \
+  "numpy==1.26.1" \
+  "scipy==1.15.3" \
   "numba==0.61.2" \
-  "codetiming==1.4.0"
+  "codetiming==1.4.0" \
+  "fufpy==0.1.1"
 
 # ROS Python packages live under the Humble prefix rather than the normal
 # distro site-packages directory. Source that prefix before validating the
@@ -75,7 +78,7 @@ source /opt/ros/humble/setup.bash
 [[ "$had_nounset" == 1 ]] && set -u
 PYTHONPATH="$SOURCE_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
   "$VENV_ROOT/bin/python" -c \
-    "import cv_bridge, message_filters, numba, scipy; import tinynav"
+    "import cv_bridge, message_filters, numba, scipy; from tinynav.core import planning_node; from tinynav.platforms import cmd_vel_control"
 
 python3 - "$PROVENANCE" "$REPOSITORY_URL" "$PINNED_COMMIT" "$SOURCE_ROOT" <<'PY'
 import hashlib
