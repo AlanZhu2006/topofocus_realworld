@@ -111,9 +111,7 @@ for required in \
   "$FOCUS_ADMIN_TOKEN_FILE" \
   "$FOCUS_ROBOT_CONFIG" \
   "$FOCUS_DEBUG_ROBOT_CONFIG" \
-  "$FOCUS_LIVE_ROBOT_CONFIG" \
-  "$WSJ_MAP" \
-  "$YUNJI_MAP"; do
+  "$FOCUS_LIVE_ROBOT_CONFIG"; do
   [[ -e "$required" ]] || {
     echo "Missing session-bound input: $required" >&2
     exit 1
@@ -282,6 +280,7 @@ map_window_matches() {
 
 ensure_maps() {
   local rows session start deadline
+  local -a map_resume_args=()
   if map_window_matches \
       wsj robot-0 "$WSJ_MAP" "$FOCUS_WSJ_TRANSFORM" \
       "$FOCUS_WSJ_START_AFTER" \
@@ -312,6 +311,12 @@ ensure_maps() {
     }
     sleep 1
   done
+  if [[ -e "$WSJ_MAP" && -e "$YUNJI_MAP" ]]; then
+    map_resume_args=(--resume-existing)
+  elif [[ -e "$WSJ_MAP" || -e "$YUNJI_MAP" ]]; then
+    echo "Refusing a partial session map pair; both maps must exist or both be absent." >&2
+    return 1
+  fi
   bash "$HUB_DIR/scripts/start_fresh_dual_maps.sh" \
     --session-tag "$FOCUS_SESSION_ID" \
     --calibration-id "$FOCUS_CALIBRATION_ID" \
@@ -323,7 +328,7 @@ ensure_maps() {
     --semantic-backend "$FOCUS_SEMANTIC_BACKEND" \
     --code-commit "$FOCUS_SESSION_CODE_COMMIT" \
     --hub-url "$HUB_URL" \
-    --resume-existing
+    "${map_resume_args[@]}"
   map_window_matches \
     wsj robot-0 "$WSJ_MAP" "$FOCUS_WSJ_TRANSFORM" \
     "$FOCUS_WSJ_START_AFTER"

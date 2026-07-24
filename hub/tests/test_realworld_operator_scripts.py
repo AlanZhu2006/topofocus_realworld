@@ -26,6 +26,8 @@ def test_oneclick_is_session_bound_and_has_no_forensic_bypass():
     assert "--allow-blocked-shadow-input" not in source
     assert "map_out_wsj_20260724" not in source
     assert "shared-board-odin1-20260723-v3" not in source
+    assert '"${map_resume_args[@]}"' in source
+    assert "both maps must exist or both be absent" in source
 
 
 def test_live_arming_happens_after_shadow_and_has_exit_disarm():
