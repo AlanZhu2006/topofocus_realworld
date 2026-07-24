@@ -84,7 +84,7 @@ def test_data_plane_verifier_waits_for_resolved_endpoint_identity():
     assert verifier.endpoint_names(endpoints) == ["/cmd_vel_control_node"]
 
 
-def test_data_plane_verifier_rejects_stale_or_mismatched_geometry():
+def test_data_plane_verifier_uses_source_clock_for_map_freshness():
     verifier = load_overlay("verify_tinynav_data_plane.py")
     header = SimpleNamespace(
         frame_id="camera",
@@ -102,7 +102,17 @@ def test_data_plane_verifier_rejects_stale_or_mismatched_geometry():
         image, camera_info, expected_frame="camera"
     )
     assert geometry["width"] == 640
-    assert verifier.message_age_s(image, now_ns=12_000_000_000) == pytest.approx(
+    fresh_image = SimpleNamespace(
+        header=SimpleNamespace(
+            frame_id="camera",
+            # A boot-relative clock is intentional: this must never be
+            # compared with Unix wall time.
+            stamp=SimpleNamespace(sec=12, nanosec=0),
+        )
+    )
+    assert verifier.message_lag_s(
+        image, reference_message=fresh_image
+    ) == pytest.approx(
         2.0
     )
 
@@ -110,6 +120,21 @@ def test_data_plane_verifier_rejects_stale_or_mismatched_geometry():
     with pytest.raises(ValueError, match="dimensions differ"):
         verifier.validate_geometry_contract(
             image, camera_info, expected_frame="camera"
+        )
+
+
+def test_data_plane_verifier_rejects_mixed_source_clock_epochs():
+    verifier = load_overlay("verify_tinynav_data_plane.py")
+    occupancy = SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(sec=100, nanosec=0))
+    )
+    restarted_depth = SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(sec=2, nanosec=0))
+    )
+
+    with pytest.raises(ValueError, match="ahead of the fresh image"):
+        verifier.message_lag_s(
+            occupancy, reference_message=restarted_depth
         )
 
 

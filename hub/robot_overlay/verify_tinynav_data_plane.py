@@ -90,14 +90,26 @@ def message_stamp_ns(message: Any) -> int:
     return int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
 
 
-def message_age_s(message: Any, *, now_ns: int) -> float:
+def message_lag_s(message: Any, *, reference_message: Any) -> float:
+    """Return source-time lag relative to a fresh message from the same robot.
+
+    Odin1 ROS messages use a device/boot-relative clock rather than Unix wall
+    time. Comparing those stamps with ``time.time_ns()`` makes every current
+    Yunji map look decades old. The occupancy grid and required fresh image
+    are both derived from the same robot sensor stream, so their source-stamp
+    delta is the clock-domain-safe freshness contract.
+    """
     stamp_ns = message_stamp_ns(message)
+    reference_ns = message_stamp_ns(reference_message)
     if stamp_ns <= 0:
         raise ValueError("message timestamp is zero")
-    age_s = (now_ns - stamp_ns) * 1e-9
+    if reference_ns <= 0:
+        raise ValueError("reference message timestamp is zero")
+    age_s = (reference_ns - stamp_ns) * 1e-9
     if age_s < -1.0:
         raise ValueError(
-            f"message timestamp is {abs(age_s):.3f}s in the future"
+            "occupancy timestamp is "
+            f"{abs(age_s):.3f}s ahead of the fresh image timestamp"
         )
     return max(0.0, age_s)
 
@@ -312,6 +324,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         required_messages.update(("geometry_image", "camera_info"))
     observed_graph: dict[str, dict[str, list[str]]] = {}
     stale_occupancy_age_s: float | None = None
+    occupancy_clock_error: str | None = None
     try:
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.2)
@@ -328,10 +341,26 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     expected_frame=args.camera_frame,
                 )
             stale_occupancy_age_s = None
+            occupancy_clock_error = None
             if args.max_occupancy_age_s > 0:
-                stale_occupancy_age_s = message_age_s(
-                    latest["occupancy"], now_ns=time.time_ns()
+                fresh_reference = max(
+                    (
+                        latest[f"image_{index}"]
+                        for index in range(len(args.fresh_image_topic))
+                    ),
+                    key=message_stamp_ns,
                 )
+                try:
+                    stale_occupancy_age_s = message_lag_s(
+                        latest["occupancy"],
+                        reference_message=fresh_reference,
+                    )
+                except ValueError as error:
+                    # A restarted device clock can briefly put the retained
+                    # occupancy sample in a different epoch. Keep waiting for
+                    # the new mapper sample, then fail closed at the deadline.
+                    occupancy_clock_error = str(error)
+                    continue
                 if stale_occupancy_age_s > args.max_occupancy_age_s:
                     continue
             if all(
@@ -360,6 +389,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 "occupancy remained stale: "
                 f"age={stale_occupancy_age_s:.3f}s, "
                 f"limit={args.max_occupancy_age_s:.3f}s"
+            )
+        if occupancy_clock_error is not None:
+            raise TimeoutError(
+                "occupancy/source clock did not converge: "
+                f"{occupancy_clock_error}"
             )
 
         odom = latest["odom"]
@@ -436,10 +470,19 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             latest["occupancy"], frame_id=args.frame_id
         )
         if args.max_occupancy_age_s > 0:
-            occupancy["age_s"] = message_age_s(
-                latest["occupancy"], now_ns=time.time_ns()
+            fresh_reference = max(
+                (
+                    latest[f"image_{index}"]
+                    for index in range(len(args.fresh_image_topic))
+                ),
+                key=message_stamp_ns,
+            )
+            occupancy["age_s"] = message_lag_s(
+                latest["occupancy"],
+                reference_message=fresh_reference,
             )
             occupancy["maximum_age_s"] = args.max_occupancy_age_s
+            occupancy["age_reference"] = "fresh_image_source_timestamp"
         report: dict[str, object] = {
             "schema_version": "focus-tinynav-data-plane-verification-v1",
             "robot_id": args.robot_id,
@@ -519,6 +562,10 @@ def main() -> int:
         )
     if args.max_occupancy_age_s < 0:
         parser.error("--max-occupancy-age-s must not be negative")
+    if args.max_occupancy_age_s > 0 and not args.fresh_image_topic:
+        parser.error(
+            "--max-occupancy-age-s requires at least one --fresh-image-topic"
+        )
     try:
         report = run(args)
     except Exception as exc:  # noqa: BLE001 - startup must fail closed
