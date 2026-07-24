@@ -14,6 +14,20 @@ HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus/tinynav-runtime}"
 mode="debug"
 confirmation=""
+startup_complete="false"
+
+fail_closed_on_error() {
+  local rc=$?
+  if [[ "$rc" -ne 0 && "$mode" == live \
+        && "$startup_complete" != true ]]; then
+    sudo -n systemctl stop \
+      focus-yunji-v2-live-v3.service \
+      focus-yunji-water-bridge-live-v1.service \
+      >/dev/null 2>&1 || true
+  fi
+  return "$rc"
+}
+trap fail_closed_on_error EXIT
 
 usage() {
   echo "Usage: $0 --mode debug|live [--operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR]"
@@ -56,6 +70,7 @@ for required in \
   "$SCRIPT_DIR/run_yunji_tinynav_component.sh" \
   "$SCRIPT_DIR/run_yunji_mapping_observation.sh" \
   "$SCRIPT_DIR/odin1_tinynav_adapter.py" \
+  "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   "$SCRIPT_DIR/water_cmd_vel_bridge.py" \
   "$SCRIPT_DIR/v2_wsj_receiver.py" \
   "$ENV_FILE" \
@@ -154,6 +169,8 @@ start_unit focus-yunji-tinynav-planner-v1.service \
 start_unit focus-yunji-tinynav-router-v1.service \
   /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" router \
     --frame-id world \
+    --robot-id robot-1 \
+    --base-camera-frame odin1_camera_optical_frame \
     --occupancy-topic /semantic_mapping/occupancy_bev \
     --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
     --clearance-m 0.34 \
@@ -235,6 +252,16 @@ until [[ -s "$alignment" ]]; do
   sleep 1
 done
 
+bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" verify \
+  --robot-id robot-1 \
+  --mode "$mode" \
+  --frame-id world \
+  --camera-frame odin1_camera_optical_frame \
+  --platform-status-topic /focus/water/cmd_bridge_status \
+  --timeout-s 35
+
+startup_complete="true"
+trap - EXIT
 echo "Yunji online TinyNav stack ready: mode=$mode"
 echo "  alignment: $alignment"
 echo "  online map: $map_output"

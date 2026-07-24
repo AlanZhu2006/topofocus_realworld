@@ -31,6 +31,7 @@
 #
 # 成功标志：
 #   DEBUG_FULLSTACK_READY
+#   两台机器人各输出 focus-tinynav-data-plane-verification-v1 / passed=true
 #   hub/runtime/sessions/current.json 已生成
 #
 cd /home/asus/Research/focus_realworld_workspace
@@ -151,3 +152,34 @@ hub/.venv/bin/python hub/tools/export_semantic_overview.py \
   --robot "yunji:$FOCUS_YUNJI_MAP" \
   --fuse \
   --output-dir "hub/runtime/analysis/semantic_overview_$(date +%Y%m%d_%H%M%S)"
+
+
+# ======================================================================
+# 7. 每次 live 结束后记录 SR/SPL（将证据路径和最短路替换为实测值）
+# ======================================================================
+#
+# 先找到刚完成的 episode_report.json：
+#
+cd /home/asus/Research/focus_realworld_workspace
+find hub/runtime -path '*/episode/episode_report.json' -printf '%T@ %p\n' \
+  | sort -nr | head -n 5
+#
+# 然后运行下面一条；同一 scene 的 trial-index 依次为 1..5。
+# ARRIVED 本身不等于成功，所有 yes 都必须有对应的终点目标证据。
+#
+hub/.venv/bin/python hub/tools/record_realworld_trial.py \
+  --episode-report hub/runtime/oneclick_SESSION_live_SCENE_TIME/episode/episode_report.json \
+  --results hub/runtime/triple_ai_demo_results.json \
+  --experiment-id triple-ai-lab-01 \
+  --trial-index 1 \
+  --termination completed \
+  --robot-0-shortest-m 3.2 \
+  --robot-0-shortest-evidence hub/runtime/surveys/scene01-wsj.json \
+  --robot-0-reached-goal-region yes \
+  --robot-0-target-verified yes \
+  --robot-0-terminal-evidence hub/runtime/terminal/scene01-run01-wsj.jpg \
+  --robot-1-shortest-m 2.8 \
+  --robot-1-shortest-evidence hub/runtime/surveys/scene01-yunji.json \
+  --robot-1-reached-goal-region yes \
+  --robot-1-target-verified yes \
+  --robot-1-terminal-evidence hub/runtime/terminal/scene01-run01-yunji.jpg

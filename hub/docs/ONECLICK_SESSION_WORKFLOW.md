@@ -126,6 +126,21 @@ an old picture visible. A completely fresh SegFormer map pair is allowed up
 to 90 seconds to produce that first content-verified overview; subsequent
 launches reuse the matching relay and normally pass immediately.
 
+Each robot launcher must also pass
+`focus-tinynav-data-plane-verification-v1` before returning ready. The
+verifier receives new odometry, occupancy and router-status messages,
+validates frames and nonempty known/free cells, and proves the exclusive
+command topology:
+
+```text
+TinyNav controller -> v2 receiver -> guarded topic -> chassis bridge
+```
+
+WSJ debug must have no chassis subscriber. Yunji debug keeps the WATER bridge
+in dry-run mode and must report an inactive command plus confirmed zero
+velocity. A process, alignment file or listening port alone is not startup
+success.
+
 Debug has no stale-map or blocked-map bypass. It freezes one stable generation
 of each map, requires command-capable observations with strict mapping health
 received in the new Hub epoch, checks age and cross-robot skew, then runs the
@@ -156,6 +171,11 @@ old Hub process, collects new observations, freezes the exact map/source pair
 and finishes the VLM/HOLD round before starting either motion-capable
 receiver. The episode publishes an atomic pair of expiring v2 targets and
 renews leases only while feedback is fresh.
+
+After arming, the launcher waits until both Hub runtime-readiness records
+report `ready_for_goal=true` from fresh robot-receiver heartbeats. The episode
+target is not published while either local map, planner, guarded bridge or
+platform health is still starting.
 
 Every exit path restores `GOAL=false`, latches WSJ navigation pause, sends a
 guarded zero, removes the Go2 bridge, cancels/stops the Yunji live receiver and
@@ -203,9 +223,11 @@ If that proof is unavailable, run the board-calibration command with a new
 session ID. Never edit an old session JSON to make a new transform epoch look
 compatible.
 
-## What remains physically unverified
+## Verification status
 
-The scripts, schemas and tests are locally verified. The new persistent
-workflow has not yet completed a physical debug run or a valid physical
-episode. Historical July 23/24 runs used the predecessor launcher and remain
-excluded from SR/SPL.
+On 2026-07-24, both robot-local debug launchers and the data-plane verifier
+passed against the physical devices. This proves live sensor/map/control
+graph continuity with chassis output disabled; it is not an SR/SPL trial. A
+complete session-bound VLM debug and one supervised physical motion check must
+still finish on the final committed code before that commit is declared
+experiment-ready.

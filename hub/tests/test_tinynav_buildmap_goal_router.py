@@ -386,6 +386,21 @@ def test_router_has_no_robot_sdk_or_velocity_output():
     assert "/cmd_vel" not in source
 
 
+def test_router_parameterizes_robot_and_camera_identity():
+    source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'parser.add_argument(\n        "--robot-id"' in source
+    assert 'parser.add_argument(\n        "--base-camera-frame"' in source
+    assert "expected_robot_id=args.robot_id" in source
+    assert "expected_camera_frame=args.base_camera_frame" in source
+    assert (
+        "message.child_frame_id = base_camera_calibration.camera_frame"
+        in source
+    )
+
+
 def test_router_keeps_sensor_callbacks_responsive_during_replanning():
     source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
         encoding="utf-8"

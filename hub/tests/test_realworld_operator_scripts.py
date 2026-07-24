@@ -39,6 +39,11 @@ def test_live_arming_happens_after_shadow_and_has_exit_disarm():
     assert "trap cleanup_on_exit EXIT INT TERM" in source
     assert "restart_hub \"$FOCUS_DEBUG_ROBOT_CONFIG\" false" in source
     assert "OPERATOR_PRESENT_AND_ROBOTS_CLEAR" in source
+    assert source.index("\narm_live_robots\n") < source.index(
+        "\nwait_for_live_readiness\n"
+    )
+    assert 'payload.get("ready_for_goal") is not True' in source
+    assert 'payload.get("health_source") != "heartbeat"' in source
 
 
 def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():

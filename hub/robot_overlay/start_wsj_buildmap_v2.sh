@@ -17,6 +17,24 @@ PATCHED_COMMIT="${TINYNAV_PERCEPTION_PATCHED_COMMIT:-29f26bc058886ff450f02cdc0d6
 PATCHED_PERCEPTION_SHA256="${TINYNAV_PERCEPTION_PATCHED_SHA256:-3a695d5210d60ea1f721549ca7458ba89e7bf32db5178cd1c312c633aef1c3b3}"
 mode="debug"
 confirmation=""
+startup_complete="false"
+
+fail_closed_on_error() {
+  local rc=$?
+  if [[ "$rc" -ne 0 && "$mode" == live \
+        && "$startup_complete" != true ]]; then
+    set +u
+    source "$SETUP_FILE" >/dev/null 2>&1 || true
+    set -u
+    timeout 5 ros2 topic pub --once \
+      /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' \
+      >/dev/null 2>&1 || true
+    tmux kill-window -t "$SESSION:go2-bridge" >/dev/null 2>&1 || true
+    tmux kill-window -t "$SESSION:v2-receiver" >/dev/null 2>&1 || true
+  fi
+  return "$rc"
+}
+trap fail_closed_on_error EXIT
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +76,7 @@ for required in \
   "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   "$SCRIPT_DIR/start_go2_buildmap.sh" \
   "$SCRIPT_DIR/start_tinynav_buildmap_online_nav.sh" \
+  "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   "$SCRIPT_DIR/v2_wsj_receiver.py" \
   "$CALIBRATION_FILE" \
   "$BASE_CAMERA_CALIBRATION_FILE" \
@@ -140,6 +159,13 @@ if tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx v2-receiver; t
      && pgrep -af 'v2_wsj_receiver\.py' >/dev/null 2>&1 \
      && ! pgrep -af 'v2_wsj_receiver\.py.*--enable-live-go2-motion' \
         >/dev/null 2>&1; then
+    source "$SETUP_FILE"
+    "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
+      --robot-id robot-0 \
+      --mode debug \
+      --frame-id world \
+      --camera-frame camera \
+      --timeout-s 35
     echo "WSJ v2 BuildMap stack is already ready: mode=debug"
     echo "Safety: no Go2 bridge; physical motion is impossible through this stack."
     exit 0
@@ -214,6 +240,16 @@ if [[ "$mode" == live ]]; then
   echo "WSJ Go2 bridge command log: $bridge_log"
 fi
 
+source "$SETUP_FILE"
+"$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
+  --robot-id robot-0 \
+  --mode "$mode" \
+  --frame-id world \
+  --camera-frame camera \
+  --timeout-s 35
+
+startup_complete="true"
+trap - EXIT
 echo "WSJ v2 BuildMap stack ready: mode=$mode alignment=$alignment"
 if [[ "$mode" == debug ]]; then
   echo "Safety: no Go2 bridge; physical motion is impossible through this stack."

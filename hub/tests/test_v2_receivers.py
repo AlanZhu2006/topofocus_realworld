@@ -318,6 +318,28 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert "/api/joy_control" in bridge
     assert "/api/accessible_point_query" not in launcher + bridge
     assert '"/api/move"' not in launcher + bridge
+    assert "verify_tinynav_data_plane.py" in launcher
+
+
+def test_robot_launchers_require_live_data_plane_verification():
+    wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text(
+        encoding="utf-8"
+    )
+    yunji = (OVERLAY / "start_yunji_v2.sh").read_text(encoding="utf-8")
+    verifier = (OVERLAY / "verify_tinynav_data_plane.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "verify_tinynav_data_plane.py" in wsj
+    assert "verify_tinynav_data_plane.py" in yunji
+    assert "robot_commands_issued" in verifier
+    assert "focus-tinynav-data-plane-verification-v1" in verifier
+    assert "get_publishers_info_by_topic" in verifier
+    assert "get_subscriptions_info_by_topic" in verifier
+    assert "fail_closed_on_error" in wsj
+    assert "fail_closed_on_error" in yunji
+    assert "focus-yunji-water-bridge-live-v1.service" in yunji
+    assert 'tmux kill-window -t "$SESSION:go2-bridge"' in wsj
 
 
 def test_yunji_direct_water_map_receiver_is_retained_as_legacy_only():

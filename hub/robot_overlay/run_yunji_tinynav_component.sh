@@ -53,6 +53,9 @@ case "$component" in
   receiver)
     exec "$PYTHON_BIN" -u "$SCRIPT_DIR/v2_wsj_receiver.py" "$@"
     ;;
+  verify)
+    exec "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" "$@"
+    ;;
   *)
     echo "Unknown Yunji TinyNav component: $component" >&2
     exit 2

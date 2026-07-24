@@ -707,7 +707,7 @@ def run_ros(
             message = Odometry()
             message.header.stamp = self.get_clock().now().to_msg()
             message.header.frame_id = args.frame_id
-            message.child_frame_id = "camera"
+            message.child_frame_id = base_camera_calibration.camera_frame
             message.pose.pose.position.x = x_m
             message.pose.pose.position.y = y_m
             message.pose.pose.position.z = float(
@@ -909,10 +909,21 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frame-id", default="world")
     parser.add_argument(
+        "--robot-id",
+        choices=("robot-0", "robot-1"),
+        default="robot-0",
+        help="robot identity required by the measured base-camera artifact",
+    )
+    parser.add_argument(
+        "--base-camera-frame",
+        default="camera",
+        help="camera child frame required by the measured base-camera artifact",
+    )
+    parser.add_argument(
         "--base-camera-calibration-file",
         type=Path,
         required=True,
-        help="measured base_link_T_camera artifact for robot-0",
+        help="measured base_link_T_camera artifact for the selected robot",
     )
     parser.add_argument("--cmd-pois-topic", default="/mapping/cmd_pois")
     parser.add_argument(
@@ -981,8 +992,8 @@ def main() -> int:
         parser.error("distances and timeouts must be positive")
     base_camera_calibration = load_base_camera_calibration(
         args.base_camera_calibration_file,
-        expected_robot_id="robot-0",
-        expected_camera_frame="camera",
+        expected_robot_id=args.robot_id,
+        expected_camera_frame=args.base_camera_frame,
     )
     return run_ros(args, base_camera_calibration)
 

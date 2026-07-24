@@ -697,6 +697,41 @@ if [[ "$mode" == debug ]]; then
 fi
 
 arm_live_robots
+
+wait_for_live_readiness() {
+  local deadline admin_token
+  admin_token="$(<"$FOCUS_ADMIN_TOKEN_FILE")"
+  deadline=$((SECONDS + 60))
+  until FOCUS_HUB_URL="$HUB_URL" \
+      FOCUS_ADMIN_TOKEN="$admin_token" \
+      "$PYTHON_BIN" - <<'PY'
+import json
+import os
+import urllib.request
+
+for robot_id in ("robot-0", "robot-1"):
+    request = urllib.request.Request(
+        os.environ["FOCUS_HUB_URL"]
+        + f"/v2/admin/robots/{robot_id}/runtime-readiness",
+        headers={"X-Admin-Token": os.environ["FOCUS_ADMIN_TOKEN"]},
+    )
+    with urllib.request.urlopen(request, timeout=3) as response:
+        payload = json.load(response)
+    if payload.get("ready_for_goal") is not True:
+        raise SystemExit(1)
+    if payload.get("health_source") != "heartbeat":
+        raise SystemExit(1)
+PY
+  do
+    (( SECONDS < deadline )) || {
+      echo "Timed out waiting for both live robot heartbeats." >&2
+      return 1
+    }
+    sleep 1
+  done
+}
+wait_for_live_readiness
+
 episode_dir="$run_dir/episode"
 "$PYTHON_BIN" -u "$HUB_DIR/tools/run_v2_supervised_episode.py" \
   --manifest "$shadow_dir/shadow_manifest.json" \

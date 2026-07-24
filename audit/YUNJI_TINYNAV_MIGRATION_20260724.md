@@ -2,8 +2,8 @@
 
 Date: 2026-07-24 CST
 
-Status: **implemented and locally tested; robot-side debug and physical motion
-unverified**
+Status: **implemented; physical robot-side no-motion data plane observed;
+physical motion not yet verified**
 
 ## Approved authority split
 
@@ -82,6 +82,8 @@ component. The complete orientation/translation remains in the versioned
   WATER-health gate, stale-input zero, reconnect handling and shutdown zeros.
 - `run_yunji_tinynav_component.sh`: common ROS/runtime environment.
 - `start_yunji_v2.sh`: idempotent debug/live systemd orchestration.
+- `verify_tinynav_data_plane.py`: startup proof for fresh odometry/map/router
+  messages, frame identity, exclusive command topology and zero WATER output.
 
 The existing v2 receiver was generalized to canonical `robot-0`/`robot-1`,
 external Odin odometry health and optional local platform bridge health. WSJ's
@@ -99,13 +101,25 @@ Observed locally:
   health rejection and newline-terminated API encoding;
 - receiver and operator-launcher regression tests.
 
+Observed on Yunji at 2026-07-24 17:36 CST:
+
+- pinned runtime commit
+  `5705bb61dafb407594970ab2bc85c63fc71e0a24` installed with its recorded
+  source hashes;
+- Odin-derived `/slam/odometry` and `/focus/odin1/cloud_world` at about
+  3.3 Hz with `world -> odin1_camera_optical_frame`;
+- a fresh 5 cm occupancy grid containing 2,162 free and 216 occupied cells
+  immediately after the integrated launcher restart;
+- the exclusive controller -> receiver -> guarded WATER bridge graph;
+- real WATER status with 93% battery, no E-stop, error code `00000000`,
+  inactive command and confirmed zero velocity;
+- integrated `start_yunji_v2.sh --mode debug` return code 0 after the
+  data-plane proof.
+
 Not yet observed:
 
-- pinned runtime installation on Yunji;
-- live Odin ROS topics through the new adapter;
-- occupancy growth and TinyNav trajectory on Yunji;
-- zero-only debug bridge status against the real WATER service;
 - any physical motion through this chain.
 
 Therefore this change does not create an SR/SPL sample and must first pass the
-no-motion `realworld_oneclick.sh --mode debug` gate.
+session-bound `realworld_oneclick.sh --mode debug` gate on the final commit,
+then one supervised short live command.
