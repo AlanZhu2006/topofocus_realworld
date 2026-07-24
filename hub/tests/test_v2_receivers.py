@@ -339,6 +339,30 @@ def test_wsj_live_bridge_uses_observed_effective_command_floors() -> None:
     assert "--start-footprint-override-m 0.35" in launcher
 
 
+def test_wsj_launcher_reloads_persistent_goal_router_before_receiver() -> None:
+    launcher = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text(
+        encoding="utf-8"
+    )
+
+    reload_index = launcher.index(
+        'tmux respawn-pane -k -t "$SESSION:goal-router"'
+    )
+    receiver_index = launcher.index(
+        'tmux new-window -d -t "$SESSION" -n v2-receiver'
+    )
+    bridge_index = launcher.index(
+        'tmux new-window -d -t "$SESSION" -n go2-bridge'
+    )
+    assert reload_index < receiver_index < bridge_index
+    assert "WSJ goal-router reloaded from the current deployment" in launcher
+    assert '--start-snap-radius-m \\"$START_SNAP_RADIUS_M\\"' in launcher
+    assert (
+        '--start-footprint-override-m \\"$START_FOOTPRINT_OVERRIDE_M\\"'
+        in launcher
+    )
+    assert '--input-timeout-s \\"$ODOMETRY_INPUT_TIMEOUT_S\\"' in launcher
+
+
 def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     launcher = (OVERLAY / "start_yunji_v2.sh").read_text(encoding="utf-8")
     component = (OVERLAY / "run_yunji_tinynav_component.sh").read_text(

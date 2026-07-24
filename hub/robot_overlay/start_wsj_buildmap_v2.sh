@@ -15,6 +15,13 @@ HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 PATCHED_ROOT="${TINYNAV_PERCEPTION_PATCHED_ROOT:-/home/nvidia/focus_sender/tinynav_imu_fix_worktree_20260721}"
 PATCHED_COMMIT="${TINYNAV_PERCEPTION_PATCHED_COMMIT:-29f26bc058886ff450f02cdc0d6e9977e1c57010}"
 PATCHED_PERCEPTION_SHA256="${TINYNAV_PERCEPTION_PATCHED_SHA256:-3a695d5210d60ea1f721549ca7458ba89e7bf32db5178cd1c312c633aef1c3b3}"
+# Keep these values identical to start_tinynav_buildmap_online_nav.sh.  The
+# mapper/planner can remain alive across supervised episodes, but the overlay
+# goal router must be reloaded so it cannot retain pre-deployment Python code.
+MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
+ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
+START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
+START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 mode="debug"
 confirmation=""
 startup_complete="false"
@@ -211,6 +218,39 @@ if [[ "$mode" == live ]] \
   echo "Go2 interface ${UNITREE_NET_IF:-eth0} has no IPv4 address." >&2
   exit 1
 fi
+
+# A BuildMap session intentionally survives between experiments.  Its Python
+# goal-router process therefore may predate a newly deployed overlay even when
+# the files on disk are byte-identical.  Reload only that non-actuating process
+# before creating a receiver or bridge.  The replacement starts with no goal
+# and publishes HOLD; the persistent mapper and TinyNav planner are untouched.
+old_goal_router_pid="$(
+  tmux display-message -p -t "$SESSION:goal-router" '#{pane_pid}'
+)"
+tmux respawn-pane -k -t "$SESSION:goal-router" \
+  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id world --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\"'"
+new_goal_router_pid="$(
+  tmux display-message -p -t "$SESSION:goal-router" '#{pane_pid}'
+)"
+[[ -n "$new_goal_router_pid" \
+   && "$new_goal_router_pid" != "$old_goal_router_pid" ]] || {
+  echo "WSJ goal-router did not reload into a new process." >&2
+  exit 1
+}
+deadline=$((SECONDS + 15))
+until ros2 node list 2>/dev/null \
+  | grep -qx /focus_tinynav_buildmap_goal_router; do
+  if [[ "$(tmux display-message -p -t "$SESSION:goal-router" '#{pane_dead}')" == 1 ]]; then
+    tmux capture-pane -pt "$SESSION:goal-router" -S -100 >&2 || true
+    exit 1
+  fi
+  (( SECONDS < deadline )) || {
+    echo "Timed out waiting for the reloaded WSJ goal-router." >&2
+    exit 1
+  }
+  sleep 1
+done
+echo "WSJ goal-router reloaded from the current deployment: $new_goal_router_pid"
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 alignment="/home/nvidia/.local/state/topofocus/wsj-v2-buildmap-${mode}-${stamp}.json"
