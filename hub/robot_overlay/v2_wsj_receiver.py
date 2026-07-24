@@ -198,6 +198,33 @@ def external_odometry_covariance_gate(
     return True, "external_odometry_covariance_tracking"
 
 
+def local_tracking_freshness(
+    *,
+    now_ns: int,
+    odom_received_ns: int,
+    slam_received_ns: int,
+    odom_timeout_s: float,
+    slam_timeout_s: float,
+) -> tuple[bool, float, float]:
+    """Check control odometry and slower SLAM diagnostics independently."""
+
+    if odom_timeout_s <= 0.0 or slam_timeout_s <= 0.0:
+        raise ValueError("local tracking timeouts must be positive")
+
+    def age_s(received_ns: int) -> float:
+        if received_ns <= 0:
+            return math.inf
+        return max(0.0, (now_ns - received_ns) / 1e9)
+
+    odom_age_s = age_s(odom_received_ns)
+    slam_age_s = age_s(slam_received_ns)
+    return (
+        odom_age_s <= odom_timeout_s and slam_age_s <= slam_timeout_s,
+        odom_age_s,
+        slam_age_s,
+    )
+
+
 class SlamHealthDebouncer:
     """Tolerate one diagnostic interval blip, never a persistent/hard fault."""
 
@@ -425,6 +452,15 @@ def main() -> int:
     parser.add_argument("--poll-s", type=float, default=0.5)
     parser.add_argument("--local-data-timeout-s", type=float, default=2.0)
     parser.add_argument(
+        "--slam-data-timeout-s",
+        type=float,
+        default=2.0,
+        help=(
+            "freshness deadline for the lower-rate SLAM diagnostic stream; "
+            "control odometry keeps --local-data-timeout-s"
+        ),
+    )
+    parser.add_argument(
         "--slam-max-transient-failures",
         type=int,
         default=1,
@@ -468,6 +504,10 @@ def main() -> int:
     )
     parser.add_argument("--operator-confirmation", default="")
     args = parser.parse_args()
+    if args.local_data_timeout_s <= 0.0:
+        parser.error("--local-data-timeout-s must be positive")
+    if args.slam_data_timeout_s <= 0.0:
+        parser.error("--slam-data-timeout-s must be positive")
     if args.robot_id not in LIVE_CONFIRMATIONS:
         parser.error("robot ID must be canonical robot-0 or robot-1")
     if args.enable_live_go2_motion and args.robot_id != "robot-0":
@@ -1038,11 +1078,12 @@ def main() -> int:
                 alignment_shift <= args.max_alignment_shift_m
                 and math.degrees(alignment_yaw) <= args.max_alignment_yaw_deg
             )
-            local_fresh = (
-                now_ns - node.odom_received_ns
-                <= int(args.local_data_timeout_s * 1e9)
-                and now_ns - node.slam_received_ns
-                <= int(args.local_data_timeout_s * 1e9)
+            local_fresh, odom_age_s, slam_age_s = local_tracking_freshness(
+                now_ns=now_ns,
+                odom_received_ns=node.odom_received_ns,
+                slam_received_ns=node.slam_received_ns,
+                odom_timeout_s=args.local_data_timeout_s,
+                slam_timeout_s=args.slam_data_timeout_s,
             )
             platform_fresh = (
                 not args.platform_health_topic
@@ -1075,7 +1116,11 @@ def main() -> int:
                     graph_ready and platform_fresh and node.platform_pass
                 ),
                 detail=(
-                    f"{node.slam_detail}; alignment_shift={alignment_shift:.3f}m; "
+                    f"{node.slam_detail}; odom_age={odom_age_s:.3f}s/"
+                    f"{args.local_data_timeout_s:.3f}s; "
+                    f"slam_age={slam_age_s:.3f}s/"
+                    f"{args.slam_data_timeout_s:.3f}s; "
+                    f"alignment_shift={alignment_shift:.3f}m; "
                     f"alignment_yaw={math.degrees(alignment_yaw):.2f}deg; {graph_detail}; "
                     f"{node.platform_detail}; "
                     + (
@@ -1098,6 +1143,20 @@ def main() -> int:
                     continue
             if not ready and active_decision is not None:
                 node.revoke()
+                emit(
+                    "health_not_ready_local_hold",
+                    decision_id=active_decision.decision_id,
+                    detail=health.detail,
+                    checks={
+                        "local_fresh": local_fresh,
+                        "slam_pass": node.slam_pass,
+                        "alignment_stable": alignment_stable,
+                        "graph_ready": graph_ready,
+                        "occupancy_present": node.occupancy is not None,
+                        "platform_fresh": platform_fresh,
+                        "platform_pass": node.platform_pass,
+                    },
+                )
                 post(
                     active_decision,
                     NavigationStatusV2.REJECTED,

@@ -228,6 +228,36 @@ def test_wsj_slam_gate_tolerates_only_one_transient_interval_blip():
     )
 
 
+def test_wsj_tracking_freshness_keeps_odom_deadline_stricter_than_slam():
+    wsj = load_overlay("v2_wsj_receiver.py")
+
+    fresh, odom_age_s, slam_age_s = wsj.local_tracking_freshness(
+        now_ns=10_000_000_000,
+        odom_received_ns=8_500_000_000,
+        slam_received_ns=7_100_000_000,
+        odom_timeout_s=2.0,
+        slam_timeout_s=3.0,
+    )
+    assert fresh is True
+    assert odom_age_s == pytest.approx(1.5)
+    assert slam_age_s == pytest.approx(2.9)
+
+    assert wsj.local_tracking_freshness(
+        now_ns=10_000_000_000,
+        odom_received_ns=7_900_000_000,
+        slam_received_ns=9_900_000_000,
+        odom_timeout_s=2.0,
+        slam_timeout_s=3.0,
+    )[0] is False
+    assert wsj.local_tracking_freshness(
+        now_ns=10_000_000_000,
+        odom_received_ns=9_900_000_000,
+        slam_received_ns=6_900_000_000,
+        odom_timeout_s=2.0,
+        slam_timeout_s=3.0,
+    )[0] is False
+
+
 def test_external_odin_odometry_health_uses_covariance_fail_closed():
     receiver = load_overlay("v2_wsj_receiver.py")
     covariance = [0.0] * 36
@@ -417,6 +447,9 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--qos-reliability best_effort" in wsj
     assert "--qos-durability volatile" in wsj
     assert "--qos-depth 1" in wsj
+    assert 'FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0' in wsj
+    assert '--local-data-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"' in wsj
+    assert '--slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"' in wsj
     continuous_stream_loop = wsj[
         wsj.index("for topic in \\\n  /camera/camera/color/image_raw")
         : wsj.index('bash "$SCRIPT_DIR/start_wsj_command_observation.sh"')

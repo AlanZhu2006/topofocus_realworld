@@ -20,6 +20,11 @@ PATCHED_PERCEPTION_SHA256="${TINYNAV_PERCEPTION_PATCHED_SHA256:-3a695d5210d60ea1
 # goal router must be reloaded so it cannot retain pre-deployment Python code.
 MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
+# /slam/data is optimizer diagnostics rather than the controller's odometry
+# input.  Its observed interval can exceed 2 s under live perception load, so
+# keep odometry fail-closed at 2 s while giving only this diagnostic one
+# additional second.
+SLAM_DATA_TIMEOUT_S="${FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0}"
 START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 mode="debug"
@@ -284,6 +289,8 @@ receiver=(
   --tinynav-map-frame world
   --local-map-frame wsj/world
   --occupancy-topic /semantic_mapping/occupancy_bev
+  --local-data-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"
+  --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"
   --start-snap-radius-m 0.75
   --start-footprint-override-m 0.35
   --alignment-output "$alignment"
