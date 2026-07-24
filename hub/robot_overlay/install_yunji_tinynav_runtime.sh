@@ -66,7 +66,8 @@ fi
   "scipy==1.15.3" \
   "numba==0.61.2" \
   "codetiming==1.4.0" \
-  "fufpy==0.1.1"
+  "fufpy==0.1.1" \
+  "async-lru==2.3.0"
 
 # ROS Python packages live under the Humble prefix rather than the normal
 # distro site-packages directory. Source that prefix before validating the
