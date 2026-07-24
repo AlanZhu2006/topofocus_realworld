@@ -1139,7 +1139,16 @@ def main() -> int:
         default="camera_infra1_optical_frame",
     )
     parser.add_argument("--registration-tf-timeout-s", type=float, default=1.0)
-    parser.add_argument("--registration-min-coverage", type=float, default=0.45)
+    parser.add_argument(
+        "--registration-min-coverage",
+        type=float,
+        default=0.38,
+        help=(
+            "minimum fraction of valid depth samples that project inside the "
+            "color imager; the observed WSJ 848x480 color/640x480 TinyNav "
+            "depth profile is stable at 0.412--0.418"
+        ),
+    )
     parser.add_argument("--goal-category", default="chair")
     parser.add_argument("--metrics-out", default="focus_ros_sender_metrics.json")
     parser.add_argument("--heartbeat-hz", type=float, default=2.0,

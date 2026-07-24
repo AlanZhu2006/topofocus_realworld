@@ -18,6 +18,11 @@ HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 PREVIEW_URL="${FOCUS_FOXGLOVE_PREVIEW_URL:-http://127.0.0.1:18766}"
 PREVIEW_WINDOW="${FOCUS_WSJ_PREVIEW_WINDOW:-foxglove-preview}"
 COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"
+# Observed with the deployed D435 profile on 2026-07-25: calibrated valid-depth
+# overlap is stable at 0.412--0.418 because the color imager has a narrower FOV
+# than infra1. 0.38 keeps a measured margin while still rejecting a grossly
+# wrong intrinsic/extrinsic profile.
+REGISTRATION_MIN_COVERAGE="${FOCUS_WSJ_REGISTRATION_MIN_COVERAGE:-0.38}"
 
 usage() {
   cat <<'EOF'
@@ -164,7 +169,7 @@ command=(
   --rgb-info-topic /camera/camera/color/camera_info
   --rgb-optical-frame camera_color_optical_frame
   --depth-optical-frame camera_infra1_optical_frame
-  --registration-min-coverage 0.45
+  --registration-min-coverage "$REGISTRATION_MIN_COVERAGE"
   --capture-time-source header
   --rate-hz 2.0
   --max-frames 0

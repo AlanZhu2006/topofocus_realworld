@@ -114,6 +114,11 @@ def test_wsj_formal_observation_replaces_non_color_calibration_preview():
     assert 'grep -Fv -- "--rgb-topic $COLOR_PREVIEW_TOPIC"' in launcher
     assert "An untracked non-color WSJ preview is still running" in launcher
     assert "--register-rgb-to-depth" in launcher
+    assert (
+        'FOCUS_WSJ_REGISTRATION_MIN_COVERAGE:-0.38'
+        in launcher
+    )
+    assert '--registration-min-coverage "$REGISTRATION_MIN_COVERAGE"' in launcher
 
 
 def test_calibration_robot_entries_contain_no_live_motion_flag():
