@@ -104,6 +104,64 @@ def recoverable_router_hold(
     )
 
 
+class GoalProgressWatchdog:
+    """Bound how long one fixed local goal may make no metric progress."""
+
+    def __init__(
+        self,
+        *,
+        timeout_s: float,
+        minimum_improvement_m: float,
+    ) -> None:
+        if not math.isfinite(timeout_s) or timeout_s <= 0.0:
+            raise ValueError("timeout_s must be finite and positive")
+        if (
+            not math.isfinite(minimum_improvement_m)
+            or minimum_improvement_m <= 0.0
+        ):
+            raise ValueError(
+                "minimum_improvement_m must be finite and positive"
+            )
+        self.timeout_s = timeout_s
+        self.minimum_improvement_m = minimum_improvement_m
+        self.reset()
+
+    def reset(self) -> None:
+        self.leg_id: str | None = None
+        self.best_remaining_m = math.inf
+        self.last_progress_monotonic = 0.0
+
+    def observe(
+        self,
+        *,
+        leg_id: str,
+        remaining_m: float,
+        now_monotonic: float,
+    ) -> tuple[bool, float]:
+        if not leg_id:
+            raise ValueError("leg_id is required")
+        if not math.isfinite(remaining_m) or remaining_m < 0.0:
+            raise ValueError("remaining_m must be finite and non-negative")
+        if not math.isfinite(now_monotonic):
+            raise ValueError("now_monotonic must be finite")
+        if self.leg_id != leg_id:
+            self.leg_id = leg_id
+            self.best_remaining_m = remaining_m
+            self.last_progress_monotonic = now_monotonic
+            return False, 0.0
+        if (
+            remaining_m
+            <= self.best_remaining_m - self.minimum_improvement_m
+        ):
+            self.best_remaining_m = remaining_m
+            self.last_progress_monotonic = now_monotonic
+            return False, 0.0
+        stalled_s = max(
+            0.0, now_monotonic - self.last_progress_monotonic
+        )
+        return stalled_s >= self.timeout_s, stalled_s
+
+
 def bounded_protocol_detail(
     value: str, *, max_length: int = ROBOT_HEALTH_DETAIL_MAX_LENGTH
 ) -> str:
@@ -506,6 +564,21 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--no-progress-timeout-s",
+        type=float,
+        default=20.0,
+        help=(
+            "reject and zero an active fixed goal that does not reduce its "
+            "metric remaining distance for this many seconds"
+        ),
+    )
+    parser.add_argument(
+        "--minimum-goal-progress-m",
+        type=float,
+        default=0.05,
+        help="minimum remaining-distance reduction that resets the watchdog",
+    )
+    parser.add_argument(
         "--slam-data-timeout-s",
         type=float,
         default=2.0,
@@ -572,6 +645,8 @@ def main() -> int:
         args.poll_s,
         args.local_data_timeout_s,
         args.router_recovery_grace_s,
+        args.no_progress_timeout_s,
+        args.minimum_goal_progress_m,
         args.slam_transient_grace_s,
         args.max_goal_distance_m,
         args.max_alignment_shift_m,
@@ -1081,6 +1156,10 @@ def main() -> int:
     router_recovery_leg_id: str | None = None
     router_recovery_started_ns = 0
     router_recovery_reason = ""
+    progress_watchdog = GoalProgressWatchdog(
+        timeout_s=args.no_progress_timeout_s,
+        minimum_improvement_m=args.minimum_goal_progress_m,
+    )
 
     def current_pose() -> tuple[float, float, float]:
         if node.world_T_camera is None:
@@ -1289,6 +1368,10 @@ def main() -> int:
                 router_recovery_leg_id = None
                 router_recovery_started_ns = 0
                 router_recovery_reason = ""
+                # Recovery deliberately closes the physical gate.  Give the
+                # resumed local planner one complete progress window instead
+                # of charging map-recovery time against motion progress.
+                progress_watchdog.reset()
             if (
                 args.online_buildmap_world
                 and active_decision is not None
@@ -1300,7 +1383,6 @@ def main() -> int:
                     == active_decision.decision_id
                     or (
                         node.router_decision_id is None
-                        and node.router_affected_decision_id is None
                         and now_ns - goal_issued_ns > 1_000_000_000
                     )
                 )
@@ -1565,6 +1647,7 @@ def main() -> int:
                         )
                         if active_decision is not None and not same_leg:
                             node.revoke()
+                            progress_watchdog.reset()
                             router_recovery_leg_id = None
                             router_recovery_started_ns = 0
                             router_recovery_reason = ""
@@ -1602,6 +1685,20 @@ def main() -> int:
                         )
                         goal_published_this_cycle = True
                         goal_issued_ns = time.time_ns()
+                        if not same_leg:
+                            remaining_m = max(
+                                0.0,
+                                math.hypot(
+                                    pose[0] - result.local_goal.x,
+                                    pose[1] - result.local_goal.y,
+                                )
+                                - (result.local_goal.arrival_radius_m or 0.0),
+                            )
+                            progress_watchdog.observe(
+                                leg_id=decision.leg_id,
+                                remaining_m=remaining_m,
+                                now_monotonic=time.monotonic(),
+                            )
                         if not same_leg:
                             emit(
                                 "tinynav_poi_published",
@@ -1702,34 +1799,81 @@ def main() -> int:
                     # Do not manufacture NAVIGATING feedback while the local
                     # velocity gate is closed for bounded recovery.
                     pass
-                elif not goal_published_this_cycle and (
-                    time.monotonic() - last_feedback_monotonic >= 0.5
-                ):
-                    planner_active = (
-                        node.trajectory_received_ns >= goal_issued_ns
-                        or node.raw_cmd_received_ns >= goal_issued_ns
+                elif not goal_published_this_cycle:
+                    remaining_m = max(
+                        0.0,
+                        math.hypot(
+                            pose[0] - active_goal.x,
+                            pose[1] - active_goal.y,
+                        )
+                        - (active_goal.arrival_radius_m or 0.0),
                     )
-                    post(
-                        active_decision,
-                        (
-                            NavigationStatusV2.NAVIGATING
-                            if planner_active
-                            else NavigationStatusV2.ACCEPTED
-                        ),
-                        (
-                            "LOCAL_PLANNER_ACTIVE"
-                            if planner_active
-                            else "LOCAL_GOAL_ACCEPTED"
-                        ),
-                        pose,
-                        goal=active_goal,
-                        detail=(
-                            "TinyNav trajectory/cmd_vel observed"
-                            if planner_active
-                            else "waiting for first TinyNav trajectory"
-                        ),
+                    stalled, stalled_s = progress_watchdog.observe(
+                        leg_id=active_decision.leg_id,
+                        remaining_m=remaining_m,
+                        now_monotonic=time.monotonic(),
                     )
-                    last_feedback_monotonic = time.monotonic()
+                    if stalled:
+                        stalled_decision = active_decision
+                        node.revoke()
+                        post(
+                            stalled_decision,
+                            NavigationStatusV2.REJECTED,
+                            "LOCAL_PLANNER_NO_PROGRESS",
+                            pose,
+                            zero=True,
+                            goal=active_goal,
+                            detail=(
+                                "fixed local goal remaining distance did not "
+                                f"improve by {args.minimum_goal_progress_m:.3f}m "
+                                f"for {stalled_s:.3f}s; "
+                                f"remaining_m={remaining_m:.3f}"
+                            ),
+                            terminal=True,
+                        )
+                        emit(
+                            "local_planner_no_progress",
+                            decision_id=stalled_decision.decision_id,
+                            leg_id=stalled_decision.leg_id,
+                            stalled_s=round(stalled_s, 3),
+                            remaining_m=round(remaining_m, 3),
+                        )
+                        active_decision = None
+                        active_goal = None
+                        progress_watchdog.reset()
+                        router_recovery_leg_id = None
+                        router_recovery_started_ns = 0
+                        router_recovery_reason = ""
+                    elif (
+                        time.monotonic() - last_feedback_monotonic >= 0.5
+                    ):
+                        planner_active = (
+                            node.trajectory_received_ns >= goal_issued_ns
+                            or node.raw_cmd_received_ns >= goal_issued_ns
+                        )
+                        post(
+                            active_decision,
+                            (
+                                NavigationStatusV2.NAVIGATING
+                                if planner_active
+                                else NavigationStatusV2.ACCEPTED
+                            ),
+                            (
+                                "LOCAL_PLANNER_ACTIVE"
+                                if planner_active
+                                else "LOCAL_GOAL_ACCEPTED"
+                            ),
+                            pose,
+                            goal=active_goal,
+                            detail=(
+                                "TinyNav trajectory/cmd_vel observed"
+                                if planner_active
+                                else "waiting for first TinyNav trajectory"
+                            ),
+                        )
+                        last_feedback_monotonic = time.monotonic()
+            else:
+                progress_watchdog.reset()
             time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
     except KeyboardInterrupt:
         node.revoke()

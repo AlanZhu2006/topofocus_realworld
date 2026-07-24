@@ -21,6 +21,8 @@ PATCHED_PERCEPTION_SHA256="${TINYNAV_PERCEPTION_PATCHED_SHA256:-3a695d5210d60ea1
 MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
 MAP_TIMEOUT_S="${FOCUS_WSJ_MAP_TIMEOUT_S:-12.0}"
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
+NO_PROGRESS_TIMEOUT_S="${FOCUS_WSJ_NO_PROGRESS_TIMEOUT_S:-20.0}"
+MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry
 # input.  Its observed interval can exceed 2 s under live perception load, so
 # keep odometry fail-closed at 2 s while giving only this diagnostic one
@@ -295,6 +297,8 @@ receiver=(
   --occupancy-topic /semantic_mapping/occupancy_bev
   --local-data-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"
   --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"
+  --no-progress-timeout-s "$NO_PROGRESS_TIMEOUT_S"
+  --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"
   --start-snap-radius-m 0.75
   --start-footprint-override-m 0.35
   --alignment-output "$alignment"

@@ -224,6 +224,45 @@ def test_semantic_region_requires_local_reachability_and_preserves_hash(
     assert accepted.local_goal.x < -0.1
 
 
+def test_semantic_goal_is_stable_across_same_leg_lease_renewal(
+    observation_factory,
+):
+    adapter = make_adapter()
+    health = observation_factory(mapping_only=False, health_ready=True).health
+    decision = make_target_decision(target=semantic_target())
+    first = adapter.evaluate(
+        decision,
+        now_ns=10_000_000_001,
+        health=health,
+        current_position_robot_map=(-1.0, 0.0, 0.0),
+        is_local_goal_reachable=lambda _x, _y: True,
+    )
+    assert first.action == V2AdapterAction.GOAL
+
+    renewal = decision.model_copy(update={
+        "decision_id": "decision-robot-0-goal-lease-1",
+        "lease_sequence": 1,
+        "issued_at_ns": 11_000_000_000,
+        "expires_at_ns": 19_000_000_000,
+    })
+    renewed = adapter.evaluate(
+        renewal,
+        now_ns=11_000_000_001,
+        health=health,
+        # Without per-leg freezing, nearest-candidate selection would move
+        # from the left to the right side of the semantic component.
+        current_position_robot_map=(1.0, 0.0, 0.0),
+        is_local_goal_reachable=lambda _x, _y: True,
+    )
+
+    assert renewed.action == V2AdapterAction.GOAL
+    assert renewed.local_goal == first.local_goal
+    assert (
+        json.loads(renewed.command_preview)["0"]["position"]
+        == json.loads(first.command_preview)["0"]["position"]
+    )
+
+
 def test_semantic_component_count_mismatch_fails_closed(observation_factory):
     adapter = make_adapter()
     health = observation_factory(mapping_only=False, health_ready=True).health

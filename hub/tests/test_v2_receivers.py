@@ -344,6 +344,45 @@ def test_wsj_recovers_only_transient_router_input_lag_with_ready_gate():
     )
 
 
+def test_goal_progress_watchdog_survives_leases_and_bounds_stall():
+    receiver = load_overlay("v2_wsj_receiver.py")
+    watchdog = receiver.GoalProgressWatchdog(
+        timeout_s=20.0,
+        minimum_improvement_m=0.05,
+    )
+
+    assert watchdog.observe(
+        leg_id="leg-1",
+        remaining_m=1.0,
+        now_monotonic=10.0,
+    ) == (False, 0.0)
+    assert watchdog.observe(
+        leg_id="leg-1",
+        remaining_m=0.97,
+        now_monotonic=25.0,
+    ) == pytest.approx((False, 15.0))
+    # A real 5 cm reduction resets the same-leg timer; short lease renewals
+    # must not reset it merely by changing decision IDs.
+    assert watchdog.observe(
+        leg_id="leg-1",
+        remaining_m=0.94,
+        now_monotonic=26.0,
+    ) == (False, 0.0)
+    stalled, stalled_s = watchdog.observe(
+        leg_id="leg-1",
+        remaining_m=0.93,
+        now_monotonic=46.0,
+    )
+    assert stalled is True
+    assert stalled_s == pytest.approx(20.0)
+    # A genuinely new navigation leg starts a fresh bounded window.
+    assert watchdog.observe(
+        leg_id="leg-2",
+        remaining_m=2.0,
+        now_monotonic=47.0,
+    ) == (False, 0.0)
+
+
 def test_external_odin_odometry_health_uses_covariance_fail_closed():
     receiver = load_overlay("v2_wsj_receiver.py")
     covariance = [0.0] * 36
@@ -532,6 +571,18 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert "--reuse-verified-debug-core" in launcher
     assert "without interrupting /slam/depth" in launcher
     assert 'systemctl is-active --quiet "$unit"' in launcher
+    reuse_branch = launcher[
+        launcher.index('if [[ "$reuse_verified_debug_core" == true ]]')
+        : launcher.index(
+            "else",
+            launcher.index('if [[ "$reuse_verified_debug_core" == true ]]'),
+        )
+    ]
+    assert (
+        "systemctl restart focus-yunji-tinynav-router-v1.service"
+        in reuse_branch
+    )
+    assert "Yunji goal router reloaded from the current deployment" in reuse_branch
     assert '--setenv="OPENBLAS_NUM_THREADS=1"' in launcher
     assert '--setenv="OMP_NUM_THREADS=1"' in launcher
     assert '--setenv="MKL_NUM_THREADS=1"' in launcher

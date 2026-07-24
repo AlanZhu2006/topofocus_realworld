@@ -93,6 +93,9 @@ class V2GoalAdapter:
         self._highest_map_version = -1
         self._highest_execution_epoch = -1
         self._latest_lease_by_leg: dict[str, tuple[int, str]] = {}
+        self._resolved_goal_by_leg: dict[
+            str, tuple[str, LocalHighLevelGoal]
+        ] = {}
         self._stop_latched = False
 
     @property
@@ -165,7 +168,22 @@ class V2GoalAdapter:
         if decision.target is None:
             return self._hold("UNSAFE", "GOAL has no target")
 
-        if isinstance(decision.target, FrontierPointTargetV2):
+        target_fingerprint = hashlib.sha256(
+            json.dumps(
+                decision.target.model_dump(mode="json"),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        cached_goal = self._resolved_goal_by_leg.get(decision.leg_id)
+        if cached_goal is not None:
+            cached_fingerprint, local_goal = cached_goal
+            if cached_fingerprint != target_fingerprint:
+                return self._hold(
+                    "UNSAFE",
+                    "high-level target changed within one navigation leg",
+                )
+        elif isinstance(decision.target, FrontierPointTargetV2):
             local_goal = self._frontier_goal(decision.target)
         elif isinstance(decision.target, SemanticRegionTargetV2):
             try:
@@ -193,6 +211,17 @@ class V2GoalAdapter:
                 "DISTANCE_LIMIT",
                 f"goal is {distance:.2f}m away, above "
                 f"{self.config.max_goal_distance_m:.2f}m limit",
+            )
+        if cached_goal is None:
+            # A lease renews authority for one already selected local
+            # navigation leg; it must not retarget the robot.  In particular,
+            # semantic approach selection depends on the current pose and live
+            # free-space component, so recomputing it on every short lease can
+            # move the POI and make the local router reject an otherwise valid
+            # renewal.  Freeze the first fully validated local reduction.
+            self._resolved_goal_by_leg[decision.leg_id] = (
+                target_fingerprint,
+                local_goal,
             )
         command_preview = self._command_preview(decision, local_goal)
         return V2AdapterResult(

@@ -590,10 +590,17 @@ def run_ros(
             reason: str,
             *,
             discard_goal: bool,
+            affected_decision_id_override: str | None = None,
             **fields: object,
         ) -> None:
             affected_decision_id = (
-                self.goal.decision_id if self.goal is not None else None
+                affected_decision_id_override
+                if affected_decision_id_override is not None
+                else (
+                    self.goal.decision_id
+                    if self.goal is not None
+                    else None
+                )
             )
             if self.target_active:
                 reset = Odometry()
@@ -623,7 +630,10 @@ def run_ros(
             if self.goal is not None and self.goal.leg_id == goal.leg_id:
                 if not is_seamless_lease_renewal(self.goal, goal):
                     self.clear_target(
-                        "INVALID_LEASE_RENEWAL", discard_goal=True
+                        "INVALID_LEASE_RENEWAL",
+                        discard_goal=True,
+                        affected_decision_id_override=goal.decision_id,
+                        previous_decision_id=self.goal.decision_id,
                     )
                     return
                 self.goal = goal

@@ -30,6 +30,8 @@ START_FOOTPRINT_OVERRIDE_M="${FOCUS_YUNJI_START_FOOTPRINT_OVERRIDE_M:-0.34}"
 # WATER bridge independently zeros a stale guarded command after 0.30 s.
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_YUNJI_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
 MAP_TIMEOUT_S="${FOCUS_YUNJI_MAP_TIMEOUT_S:-12.0}"
+NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
+MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # Odin's full 800 px, radius-1 projection performs nine indexed depth
 # reductions per cloud.  After a cold Odin boot this was observed to pin one
 # CPU core for minutes before the first /slam/depth sample, while the same
@@ -198,14 +200,35 @@ if [[ "$reuse_verified_debug_core" == true ]]; then
   # realworld_oneclick.sh permits this only immediately after the same
   # invocation started and data-plane-verified the debug stack from the
   # byte-identical release.  Keep Odin -> /slam/depth and the online map alive;
-  # mode switching needs to replace only the receiver and WATER bridge.
+  # mode switching replaces the receiver and WATER bridge.  Reload the
+  # non-actuating goal router as well so a newly deployed overlay cannot leave
+  # an old Python process resident across a fast live reuse.
   for unit in "${CORE_UNITS[@]}"; do
     systemctl is-active --quiet "$unit" || {
       echo "Verified Yunji debug core is not active: $unit" >&2
       exit 1
     }
   done
+  old_router_pid="$(
+    systemctl show --property MainPID --value \
+      focus-yunji-tinynav-router-v1.service
+  )"
+  sudo -n systemctl restart focus-yunji-tinynav-router-v1.service
+  systemctl is-active --quiet focus-yunji-tinynav-router-v1.service || {
+    echo "Yunji goal router did not return active after reload." >&2
+    exit 1
+  }
+  new_router_pid="$(
+    systemctl show --property MainPID --value \
+      focus-yunji-tinynav-router-v1.service
+  )"
+  [[ "$new_router_pid" =~ ^[1-9][0-9]*$ \
+      && "$new_router_pid" != "$old_router_pid" ]] || {
+    echo "Yunji goal router did not reload into a new process." >&2
+    exit 1
+  }
   echo "Reusing the verified Yunji perception/planning core without interrupting /slam/depth."
+  echo "Yunji goal router reloaded from the current deployment: $new_router_pid"
 else
   start_unit focus-yunji-tinynav-adapter-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" adapter \
@@ -284,6 +307,8 @@ receiver_args=(
   --reachability-clearance-m "$REACHABILITY_CLEARANCE_M"
   --start-snap-radius-m "$START_SNAP_RADIUS_M"
   --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"
+  --no-progress-timeout-s "$NO_PROGRESS_TIMEOUT_S"
+  --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"
   --alignment-output "$alignment"
   --log "$log"
 )
