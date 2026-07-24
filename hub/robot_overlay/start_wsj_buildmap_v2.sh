@@ -136,7 +136,17 @@ verify_patched_perception
 
 fresh_topic_once() {
   local topic="$1"
-  timeout -k 2 10 ros2 topic echo --once "$topic" \
+  # The RealSense RGB publisher is 848x480@30 Hz.  The ros2 CLI's default
+  # reliable/deep subscription can overflow while deserializing full images
+  # and then time out even though the publisher is healthy.  Subscribe like a
+  # sensor consumer, keep only the newest sample and deserialize/print only
+  # the small header used as freshness evidence.
+  timeout -k 2 15 ros2 topic echo --once \
+    --field header \
+    --qos-reliability best_effort \
+    --qos-durability volatile \
+    --qos-depth 1 \
+    "$topic" \
     >/dev/null 2>&1
 }
 

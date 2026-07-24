@@ -411,6 +411,10 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--fresh-image-topic /slam/keyframe_depth" not in wsj
     assert "WSJ calibrated sensor epoch is stale" in wsj
     assert "Refusing to restart camera/perception after calibration" in wsj
+    assert "--field header" in wsj
+    assert "--qos-reliability best_effort" in wsj
+    assert "--qos-durability volatile" in wsj
+    assert "--qos-depth 1" in wsj
     assert "fail_closed_on_error" in wsj
     assert "fail_closed_on_error" in yunji
     assert "focus-yunji-water-bridge-live-v1.service" in yunji
@@ -429,6 +433,10 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     assert "/slam/keyframe_odom" in launcher
     assert "stable TinyNav processed depth" in launcher
     assert "WSJ_CALIBRATION_SENSOR_EPOCH_READY" in launcher
+    assert "--field header" in launcher
+    assert "--qos-reliability best_effort" in launcher
+    assert "--qos-durability volatile" in launcher
+    assert "--qos-depth 1" in launcher
     assert launcher.index("WSJ_CALIBRATION_SENSOR_EPOCH_READY") < launcher.index(
         "sender=("
     )

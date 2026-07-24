@@ -109,7 +109,15 @@ fi
 
 fresh_topic_once() {
   local topic="$1"
-  timeout -k 2 8 ros2 topic echo --once "$topic" \
+  # Avoid false camera recovery when the ros2 CLI cannot drain full
+  # 848x480@30 Hz RGB messages quickly enough.  A one-sample best-effort
+  # subscription to the header proves that a current sensor message arrived.
+  timeout -k 2 15 ros2 topic echo --once \
+    --field header \
+    --qos-reliability best_effort \
+    --qos-durability volatile \
+    --qos-depth 1 \
+    "$topic" \
     >/dev/null 2>&1
 }
 
