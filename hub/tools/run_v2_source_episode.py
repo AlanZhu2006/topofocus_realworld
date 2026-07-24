@@ -25,6 +25,7 @@ import argparse
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -61,6 +62,7 @@ from focus_hub.source_episode import (  # noqa: E402
 )
 from focus_hub.transport_v2 import DecisionBatchV2  # noqa: E402
 from focus_hub.v2_episode_control import next_coordination_batch  # noqa: E402
+from focus_hub.v2_route_conflict import apply_route_conflict_guard  # noqa: E402
 from focus_hub.v2_scene_batch import build_batch_from_shadow_manifest  # noqa: E402
 from freeze_realworld_inputs import freeze, stable_copy_map  # noqa: E402
 from manage_realworld_session import resolve_session_argument  # noqa: E402
@@ -729,6 +731,55 @@ def prepare_output(path: Path) -> Path:
     return resolved
 
 
+def frozen_shared_robot_positions(
+    accepted: dict[str, object],
+) -> tuple[
+    dict[str, tuple[float, float]],
+    dict[str, dict[str, object]],
+    dict[str, str],
+]:
+    """Read source-derived base poses from the already frozen map snapshots."""
+
+    positions: dict[str, tuple[float, float]] = {}
+    provenance: dict[str, dict[str, object]] = {}
+    errors: dict[str, str] = {}
+    rows = accepted.get("robots")
+    if not isinstance(rows, list):
+        return positions, provenance, {"accepted_inputs": "robots is malformed"}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        robot_id = str(row.get("robot_id", ""))
+        try:
+            status_path = Path(str(row["map_dir"])) / "live_status.json"
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            if status.get("frame_id") != "shared_world":
+                raise ValueError("live status is not in shared_world")
+            xy = status.get("last_robot_xy_m")
+            if (
+                not isinstance(xy, list)
+                or len(xy) != 2
+                or isinstance(xy[0], bool)
+                or isinstance(xy[1], bool)
+                or not isinstance(xy[0], (int, float))
+                or not isinstance(xy[1], (int, float))
+            ):
+                raise ValueError("last_robot_xy_m is missing or malformed")
+            point = (float(xy[0]), float(xy[1]))
+            if not all(math.isfinite(value) for value in point):
+                raise ValueError("last_robot_xy_m is not finite")
+            positions[robot_id] = point
+            provenance[robot_id] = artifact_record(
+                status_path,
+                classification=(
+                    "source_derived_frozen_shared_frame_robot_pose"
+                ),
+            )
+        except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            errors[robot_id or "unknown"] = str(exc)[:300]
+    return positions, provenance, errors
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--session-file", default="current")
@@ -760,6 +811,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--terminal-evidence-timeout-s", type=float, default=10.0)
     parser.add_argument("--max-input-age-s", type=float, default=60.0)
     parser.add_argument("--max-sync-skew-s", type=float, default=5.0)
+    parser.add_argument(
+        "--route-conflict-min-separation-m",
+        type=float,
+        default=0.9,
+        help=(
+            "serialize concurrent physical goals when conservative shared-frame "
+            "route corridors come closer than this distance"
+        ),
+    )
     parser.add_argument(
         "--max-rounds",
         type=int,
@@ -805,6 +865,10 @@ def main() -> int:
         raise ValueError("max rounds exceeds the immutable source episode")
     if args.robot_0_min_sequence < 0 or args.robot_1_min_sequence < 0:
         raise ValueError("minimum source sequences must be non-negative")
+    if not 0.5 <= args.route_conflict_min_separation_m <= 5.0:
+        raise ValueError(
+            "--route-conflict-min-separation-m must be between 0.5 and 5.0"
+        )
 
     output = prepare_output(args.output)
     session_path = resolve_session_argument(args.session_file)
@@ -866,6 +930,16 @@ def main() -> int:
             "robot_retains_stop_and_rejection_authority": True,
             "lease_s": args.lease_s,
             "operator_confirmation": LIVE_CONFIRMATION,
+            "route_conflict_guard": {
+                "minimum_separation_m": (
+                    args.route_conflict_min_separation_m
+                ),
+                "policy": (
+                    "preserve source-derived VLM allocations; serialize "
+                    "physical execution when straight shared-frame route "
+                    "corridors overlap or a shared pose is unavailable"
+                ),
+            },
         },
         "provenance": [
             artifact_record(
@@ -1235,8 +1309,42 @@ def main() -> int:
                 round_dir / "controller_preflight.json", built.report
             )
             atomic_write_json(
-                round_dir / "initial_batch.json",
+                round_dir / "vlm_candidate_batch.json",
                 built.batch.model_dump(mode="json"),
+            )
+            shared_positions, pose_provenance, pose_errors = (
+                frozen_shared_robot_positions(accepted)
+            )
+            guarded_batch, route_guard = apply_route_conflict_guard(
+                built.batch,
+                shared_start_xy=shared_positions,
+                minimum_separation_m=args.route_conflict_min_separation_m,
+                priority_index=requested_round,
+            )
+            route_guard["pose_provenance"] = pose_provenance
+            route_guard["pose_errors"] = pose_errors
+            atomic_write_json(
+                round_dir / "route_conflict_guard.json", route_guard
+            )
+            atomic_write_json(
+                round_dir / "initial_batch.json",
+                guarded_batch.model_dump(mode="json"),
+            )
+            emit(
+                "route_conflict_guard_evaluated",
+                status=route_guard["status"],
+                minimum_predicted_separation_m=route_guard[
+                    "minimum_predicted_separation_m"
+                ],
+                minimum_required_separation_m=route_guard[
+                    "minimum_required_separation_m"
+                ],
+                original_active_robot_ids=route_guard[
+                    "original_active_robot_ids"
+                ],
+                effective_active_robot_ids=route_guard[
+                    "effective_active_robot_ids"
+                ],
             )
             if built.report.get("preflight_ready") is not True:
                 raise RuntimeError(
@@ -1244,13 +1352,16 @@ def main() -> int:
                     + json.dumps(built.report.get("blockers"), sort_keys=True)
                 )
             active = set(
-                built.batch.decisions[0].coordination.active_robot_ids
+                guarded_batch.decisions[0].coordination.active_robot_ids
             )
             if not active:
-                publish(built.batch, f"round_{requested_round}_no_allocation_hold")
+                publish(
+                    guarded_batch,
+                    f"round_{requested_round}_no_allocation_hold",
+                )
                 final_states = wait_for_hold_ack(
                     client,
-                    built.batch,
+                    guarded_batch,
                     timeout_s=args.hold_ack_timeout_s,
                     poll_s=args.poll_s,
                 )
@@ -1258,7 +1369,7 @@ def main() -> int:
                 break
             readiness = readiness_for(active)
             atomic_write_json(round_dir / "runtime_readiness.json", readiness)
-            publish(built.batch, f"round_{requested_round}_goal")
+            publish(guarded_batch, f"round_{requested_round}_goal")
             round_result = monitor_round(
                 target_found=target_found,
                 step_quota=step_quota,
@@ -1283,6 +1394,18 @@ def main() -> int:
                 "controller_preflight": artifact_record(
                     round_dir / "controller_preflight.json",
                     classification="source_derived_v2_batch_preflight",
+                ),
+                "vlm_candidate_batch": artifact_record(
+                    round_dir / "vlm_candidate_batch.json",
+                    classification=(
+                        "source_derived_unmodified_vlm_candidate_batch"
+                    ),
+                ),
+                "route_conflict_guard": artifact_record(
+                    round_dir / "route_conflict_guard.json",
+                    classification=(
+                        "source_derived_realworld_execution_guard"
+                    ),
                 ),
                 "feedback_counts": round_result.feedback_counts,
                 "execution_status": round_result.status,

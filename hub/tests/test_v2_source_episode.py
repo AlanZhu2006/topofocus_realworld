@@ -304,3 +304,39 @@ def test_terminal_evidence_seals_verified_post_arrival_bytes(
             assert preserved.stat().st_size == record["size_bytes"]
             assert module.sha256_file(preserved) == record["sha256"]
         assert len(manifest["robots"][robot_id]["map_artifacts"]) == 4
+
+
+def test_frozen_shared_robot_positions_preserve_status_provenance(tmp_path):
+    module = load_module()
+    rows = []
+    expected = {
+        "robot-0": (0.3362092841198523, -0.19971329635089863),
+        "robot-1": (-0.9426940506797459, -0.1337700123489402),
+    }
+    for robot_id, point in expected.items():
+        map_dir = tmp_path / robot_id
+        map_dir.mkdir()
+        (map_dir / "live_status.json").write_text(
+            json.dumps(
+                {
+                    "frame_id": "shared_world",
+                    "last_robot_xy_m": list(point),
+                }
+            ),
+            encoding="utf-8",
+        )
+        rows.append({"robot_id": robot_id, "map_dir": str(map_dir)})
+
+    positions, provenance, errors = module.frozen_shared_robot_positions(
+        {"robots": rows}
+    )
+
+    assert positions == expected
+    assert errors == {}
+    assert set(provenance) == set(expected)
+    for record in provenance.values():
+        assert record["classification"] == (
+            "source_derived_frozen_shared_frame_robot_pose"
+        )
+        assert record["size_bytes"] > 0
+        assert len(record["sha256"]) == 64

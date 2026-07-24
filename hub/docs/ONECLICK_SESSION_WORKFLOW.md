@@ -178,6 +178,16 @@ the bounded source-derived episode loop. It freezes an exact synchronized
 map/source pair, advances the persistent `0,24,49,...,499` VLM state, rechecks
 both runtime-readiness records and publishes one atomic pair of 8-second
 expiring v2 high-level targets. Leases renew only while feedback is fresh.
+Before publication, the real-world route guard reads the two frozen
+`shared_world` base poses and compares the straight start-to-target segments.
+If their predicted separation is below 0.9 m, or either shared pose is
+unavailable, it reduces physical authority to one deterministic active robot
+and holds the other. The unmodified two-robot VLM candidate is preserved as
+`vlm_candidate_batch.json`; the applied decision and guard provenance are
+preserved as `initial_batch.json` and `route_conflict_guard.json`. This is a
+conservative execution adapter, not a change to source VLM selection and not
+a certification of robot-local obstacle detours.
+
 At each source round boundary both robots must first acknowledge local
 `HOLDING` with zero velocity; only then can the next synchronized input pair be
 frozen and the next VLM round run. Frontier arrival therefore causes a replan,
