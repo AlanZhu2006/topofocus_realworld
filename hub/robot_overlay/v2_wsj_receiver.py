@@ -85,13 +85,18 @@ TRANSIENT_SLAM_FAILURES = frozenset(
 EXTERNAL_ODOMETRY_MAX_POS_VAR_M2 = 0.01
 EXTERNAL_ODOMETRY_MAX_YAW_VAR_RAD2 = 0.01
 ROBOT_HEALTH_DETAIL_MAX_LENGTH = 512
-RECOVERABLE_ROUTER_HOLD_REASONS = frozenset({"ODOMETRY_STALE"})
+RECOVERABLE_ROUTER_HOLD_REASONS = frozenset(
+    {
+        "ODOMETRY_STALE",
+        "OCCUPANCY_STALE_AFTER_MOTION",
+    }
+)
 
 
 def recoverable_router_hold(
     reason: str, *, receiver_runtime_ready: bool
 ) -> bool:
-    """Allow only a receiver-disproved router odometry false-stale to retry."""
+    """Retry only transient router input lag while the receiver stays READY."""
 
     return (
         receiver_runtime_ready
@@ -493,10 +498,11 @@ def main() -> int:
     parser.add_argument(
         "--router-recovery-grace-s",
         type=float,
-        default=1.5,
+        default=12.0,
         help=(
-            "zero-velocity recovery window for a goal-router odometry "
-            "false-stale while this receiver independently remains READY"
+            "zero-velocity recovery window for transient goal-router "
+            "odometry/occupancy lag while this receiver independently "
+            "remains READY"
         ),
     )
     parser.add_argument(

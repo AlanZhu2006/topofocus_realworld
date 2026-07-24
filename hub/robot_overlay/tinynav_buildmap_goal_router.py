@@ -962,7 +962,7 @@ def main() -> int:
         ),
     )
     parser.add_argument("--input-timeout-s", type=float, default=1.0)
-    parser.add_argument("--map-timeout-s", type=float, default=6.0)
+    parser.add_argument("--map-timeout-s", type=float, default=12.0)
     parser.add_argument(
         "--max-cached-map-motion-m",
         type=float,

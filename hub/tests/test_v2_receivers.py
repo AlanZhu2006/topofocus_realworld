@@ -324,14 +324,20 @@ def test_wsj_tracking_freshness_keeps_odom_deadline_stricter_than_slam():
     )[0] is False
 
 
-def test_wsj_recovers_only_router_false_stale_with_independent_ready_gate():
+def test_wsj_recovers_only_transient_router_input_lag_with_ready_gate():
     wsj = load_overlay("v2_wsj_receiver.py")
 
     assert wsj.recoverable_router_hold(
         "ODOMETRY_STALE", receiver_runtime_ready=True
     )
+    assert wsj.recoverable_router_hold(
+        "OCCUPANCY_STALE_AFTER_MOTION", receiver_runtime_ready=True
+    )
     assert not wsj.recoverable_router_hold(
         "ODOMETRY_STALE", receiver_runtime_ready=False
+    )
+    assert not wsj.recoverable_router_hold(
+        "OCCUPANCY_STALE_AFTER_MOTION", receiver_runtime_ready=False
     )
     assert not wsj.recoverable_router_hold(
         "NO_KNOWN_FREE_PATH", receiver_runtime_ready=True
@@ -564,6 +570,8 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--qos-durability volatile" in wsj
     assert "--qos-depth 1" in wsj
     assert 'FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0' in wsj
+    assert 'FOCUS_WSJ_MAP_TIMEOUT_S:-12.0' in wsj
+    assert '--map-timeout-s \\"$MAP_TIMEOUT_S\\"' in wsj
     assert '--local-data-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"' in wsj
     assert '--slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"' in wsj
     continuous_stream_loop = wsj[
@@ -576,6 +584,8 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "fail_closed_on_error" in wsj
     assert "fail_closed_on_error" in yunji
     assert "focus-yunji-water-bridge-live-v1.service" in yunji
+    assert 'FOCUS_YUNJI_MAP_TIMEOUT_S:-12.0' in yunji
+    assert '--map-timeout-s "$MAP_TIMEOUT_S"' in yunji
     assert 'tmux kill-window -t "$SESSION:go2-bridge"' in wsj
 
 

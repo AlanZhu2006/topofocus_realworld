@@ -29,6 +29,7 @@ START_FOOTPRINT_OVERRIDE_M="${FOCUS_YUNJI_START_FOOTPRINT_OVERRIDE_M:-0.34}"
 # freshness bound.  This does not extend physical velocity authority: the
 # WATER bridge independently zeros a stale guarded command after 0.30 s.
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_YUNJI_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
+MAP_TIMEOUT_S="${FOCUS_YUNJI_MAP_TIMEOUT_S:-12.0}"
 # Odin's full 800 px, radius-1 projection performs nine indexed depth
 # reductions per cloud.  After a cold Odin boot this was observed to pin one
 # CPU core for minutes before the first /slam/depth sample, while the same
@@ -239,6 +240,7 @@ else
       --start-snap-radius-m "$START_SNAP_RADIUS_M" \
       --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
       --input-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S" \
+      --map-timeout-s "$MAP_TIMEOUT_S" \
       --max-cached-map-motion-m 0.25
 
   start_unit focus-yunji-tinynav-controller-v1.service \

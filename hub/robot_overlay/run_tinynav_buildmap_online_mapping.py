@@ -75,6 +75,14 @@ def main() -> int:
         "output.directory": str(output),
         "input.directory": "",
         "input.allow_frame_id_override": False,
+        # Observed during supervised Go2 motion on 2026-07-25: the
+        # low-rate synchronized keyframes legitimately differed by
+        # 22.24--23.24 degrees while the local controller commanded a turn.
+        # The source 20-degree discontinuity threshold therefore suppressed
+        # every fresh grid until the router stopped the robot.  Keep genuine
+        # larger relocalization discontinuities fail-closed while admitting
+        # the measured physical motion.
+        "keyframe.pose_jump_rotation_deg": 35.0,
         "use_sim_time": False,
     }
     description = LaunchDescription(
