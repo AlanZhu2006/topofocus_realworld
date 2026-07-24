@@ -58,6 +58,9 @@ No topic was published.
   `infra1`, TinyNav keyframe depth, TinyNav intrinsics, and TinyNav camera pose
   in the same optical geometry. The formal RGB-D semantic mapping launchers
   are unchanged.
+- The formal debug/live observation entry point verifies that its preview
+  process subscribes to `/camera/camera/color/image_raw`; a leftover grayscale
+  calibration preview is stopped and replaced before formal observation.
 - Live board selection and final calibration reject complete but undersized
   grids below `7.0 px` with `BOARD_TOO_SMALL`.
 - The wrapper reports that condition immediately, asks the operator to move

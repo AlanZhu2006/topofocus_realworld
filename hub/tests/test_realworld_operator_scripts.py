@@ -102,6 +102,20 @@ def test_wsj_calibration_uses_one_native_infrared_geometry_frame():
     assert "no RGB-to-depth mosaic can create a second board" in launcher
 
 
+def test_wsj_formal_observation_replaces_non_color_calibration_preview():
+    launcher = (
+        OVERLAY / "start_wsj_command_observation.sh"
+    ).read_text()
+
+    assert (
+        'COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"'
+        in launcher
+    )
+    assert 'grep -Fv -- "--rgb-topic $COLOR_PREVIEW_TOPIC"' in launcher
+    assert "An untracked non-color WSJ preview is still running" in launcher
+    assert "--register-rgb-to-depth" in launcher
+
+
 def test_calibration_robot_entries_contain_no_live_motion_flag():
     sources = "\n".join(
         (OVERLAY / name).read_text()

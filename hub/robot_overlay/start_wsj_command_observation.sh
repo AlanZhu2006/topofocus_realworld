@@ -17,6 +17,7 @@ TRANSFORM_VERSION="${FOCUS_WSJ_TRANSFORM_VERSION:-wsj-tinynav-depth-20260723-pow
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 PREVIEW_URL="${FOCUS_FOXGLOVE_PREVIEW_URL:-http://127.0.0.1:18766}"
 PREVIEW_WINDOW="${FOCUS_WSJ_PREVIEW_WINDOW:-foxglove-preview}"
+COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"
 
 usage() {
   cat <<'EOF'
@@ -74,19 +75,38 @@ tmux has-session -t "$SESSION" 2>/dev/null || {
 }
 
 ensure_camera_preview() {
-  local preview_log deadline
-  if pgrep -af 'wsj_camera_preview\.py' >/dev/null 2>&1; then
+  local preview_log deadline preview_processes
+  preview_processes="$(
+    pgrep -af '[w]sj_camera_preview\.py' 2>/dev/null || true
+  )"
+  if [[ -n "$preview_processes" ]] \
+     && ! grep -Fv -- "--rgb-topic $COLOR_PREVIEW_TOPIC" \
+       <<<"$preview_processes" >/dev/null; then
     return 0
   fi
   if tmux list-windows -t "$SESSION" -F '#{window_name}' \
       | grep -qx "$PREVIEW_WINDOW"; then
     tmux kill-window -t "$SESSION:$PREVIEW_WINDOW" >/dev/null 2>&1 || true
+    sleep 1
+  fi
+  preview_processes="$(
+    pgrep -af '[w]sj_camera_preview\.py' 2>/dev/null || true
+  )"
+  if [[ -n "$preview_processes" ]]; then
+    if ! grep -Fv -- "--rgb-topic $COLOR_PREVIEW_TOPIC" \
+      <<<"$preview_processes" >/dev/null; then
+      return 0
+    fi
+    echo "An untracked non-color WSJ preview is still running:" >&2
+    printf '%s\n' "$preview_processes" >&2
+    return 1
   fi
   preview_log="/home/nvidia/.local/state/topofocus/wsj-camera-preview-$(date -u +%Y%m%dT%H%M%SZ).log"
   tmux new-window -d -t "$SESSION" -n "$PREVIEW_WINDOW" \
-    "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; exec \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/wsj_camera_preview.py\" --relay-url \"$PREVIEW_URL\" --name wsj --rgb-topic /camera/camera/color/image_raw --max-rate-hz 5 2>&1 | tee \"$preview_log\"'"
+    "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; exec \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/wsj_camera_preview.py\" --relay-url \"$PREVIEW_URL\" --name wsj --rgb-topic \"$COLOR_PREVIEW_TOPIC\" --max-rate-hz 5 2>&1 | tee \"$preview_log\"'"
   deadline=$((SECONDS + 20))
-  until pgrep -af 'wsj_camera_preview\.py' >/dev/null 2>&1; do
+  until pgrep -af '[w]sj_camera_preview\.py' \
+      | grep -F -- "--rgb-topic $COLOR_PREVIEW_TOPIC" >/dev/null; do
     if [[ "$(tmux display-message -p -t "$SESSION:$PREVIEW_WINDOW" '#{pane_dead}')" == 1 ]]; then
       tmux capture-pane -pt "$SESSION:$PREVIEW_WINDOW" -S -80 >&2 || true
       return 1
