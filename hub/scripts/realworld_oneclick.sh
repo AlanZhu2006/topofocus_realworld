@@ -12,6 +12,7 @@ goal_category="chair"
 scene_id=""
 episode_id=""
 confirmation=""
+full_preflight="false"
 session_env_file=""
 live_cleanup_required="false"
 cleanup_started="false"
@@ -24,18 +25,23 @@ Usage:
 
   bash hub/scripts/realworld_oneclick.sh --session-file current --mode live \
     --scene-id SCENE --episode-id EPISODE --goal-category chair \
-    --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
+    --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR \
+    [--full-preflight]
 
 debug restarts a clean Hub epoch, verifies exact session/map/Foxglove
 identities, runs both robot receivers read-only, freezes fresh synchronized
 inputs, runs the real VLM, and records a no-motion gate for this Git commit.
 
-live is unlocked only by that same-session debug record. It clears any old
-Hub decision epoch, arms both local paths with no GOAL present, proves fresh
-receiver heartbeats, then runs the source 0/24/49/... decision loop. Every
-round is separated by an acknowledged robot-local HOLD; semantic ARRIVED
-automatically ends the episode and seals terminal RGB-D/map evidence. The exit
-trap always returns both robots and Hub to fail-closed debug mode.
+live is unlocked only by that same-session debug record. By default it proves
+that each tracking process is the same process that passed debug and reuses
+the warm TinyNav/map/Foxglove core. --full-preflight forces the slower
+read-only stack recovery without weakening the tracking-epoch proof. Live
+clears any old Hub decision epoch, arms both local paths with no GOAL present,
+proves fresh receiver heartbeats, then runs the source 0/24/49/... decision
+loop. Every round is separated by an acknowledged robot-local HOLD; semantic
+ARRIVED automatically ends the episode and seals terminal RGB-D/map evidence.
+The exit trap removes both chassis command paths and leaves only the warm
+read-only observation/map core.
 EOF
 }
 
@@ -47,6 +53,7 @@ while [[ $# -gt 0 ]]; do
     --scene-id) scene_id="$2"; shift 2 ;;
     --episode-id) episode_id="$2"; shift 2 ;;
     --operator-confirmation) confirmation="$2"; shift 2 ;;
+    --full-preflight) full_preflight="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -120,21 +127,40 @@ for required in \
   }
 done
 for target in "$WSJ_TMUX_TARGET" "$YUNJI_TMUX_TARGET"; do
-  tmux display-message -p -t "$target" '#{pane_current_command}' \
-    >/dev/null 2>&1 || {
+  pane_state="$(
+    tmux display-message -p -t "$target" \
+      '#{pane_dead}:#{pane_current_command}' 2>/dev/null || true
+  )"
+  [[ "$pane_state" == 0:ssh ]] || {
       echo "Existing SSH/tmux target is unavailable: $target" >&2
       exit 1
-    }
+  }
 done
 
 remote_run() {
-  local target="$1" command="$2" token line deadline output rc
-  token="FOCUS_$(date +%s%N)_${RANDOM}"
+  local target="$1" command="$2" token
+  remote_begin "$target" "$command" token
+  remote_finish "$target" "$token"
+}
+
+remote_begin() {
+  local target="$1" command="$2" result_name="$3" run_token line
+  [[ "$result_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
+    echo "Invalid remote token variable: $result_name" >&2
+    return 2
+  }
+  run_token="FOCUS_$(date +%s%N)_${RANDOM}"
   printf -v line \
     'bash -lc %q; rc=$?; echo; echo __%s_RC=$rc' \
-    "$command" "$token"
+    "$command" "$run_token"
   tmux send-keys -t "$target" "$line" Enter
-  deadline=$((SECONDS + 180))
+  printf -v "$result_name" '%s' "$run_token"
+}
+
+remote_finish() {
+  local target="$1" token="$2" timeout_s="${3:-180}"
+  local deadline output rc
+  deadline=$((SECONDS + timeout_s))
   while (( SECONDS < deadline )); do
     output="$(tmux capture-pane -pJt "$target" -S -260 2>/dev/null || true)"
     rc="$(
@@ -152,6 +178,19 @@ remote_run() {
   done
   echo "Remote command timed out on $target" >&2
   return 124
+}
+
+remote_pair() {
+  local wsj_command="$1" yunji_command="$2"
+  local wsj_token yunji_token wsj_rc=0 yunji_rc=0
+  remote_begin "$WSJ_TMUX_TARGET" "$wsj_command" wsj_token
+  remote_begin "$YUNJI_TMUX_TARGET" "$yunji_command" yunji_token
+  remote_finish "$WSJ_TMUX_TARGET" "$wsj_token" || wsj_rc=$?
+  remote_finish "$YUNJI_TMUX_TARGET" "$yunji_token" || yunji_rc=$?
+  if [[ "$wsj_rc" != 0 || "$yunji_rc" != 0 ]]; then
+    echo "Parallel robot operation failed: WSJ=$wsj_rc Yunji=$yunji_rc" >&2
+    return 1
+  fi
 }
 
 remote_queue() {
@@ -517,17 +556,41 @@ ensure_foxglove() {
 }
 
 start_read_only_robots() {
-  remote_run "$WSJ_TMUX_TARGET" \
-    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:hub-sender >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode debug"
-  remote_run "$YUNJI_TMUX_TARGET" \
+  remote_pair \
+    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:hub-sender >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode debug" \
     "for unit in focus-yunji-calibration-observation-v1.service focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service focus-yunji-command-observation-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode debug"
+}
+
+verify_tracking_epoch_continuity() {
+  local stamp wsj_probe yunji_probe
+  [[ "$FOCUS_DEBUG_PASSED_AT_NS" =~ ^[1-9][0-9]*$ ]] || {
+    echo "The session has no strict debug timestamp to anchor fast reuse." >&2
+    return 1
+  }
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  wsj_probe="/home/nvidia/.local/state/topofocus/tracking-epoch-${FOCUS_SESSION_ID}-${stamp}.json"
+  yunji_probe="/home/nyu/.local/state/topofocus/tracking-epoch-${FOCUS_SESSION_ID}-${stamp}.json"
+  remote_pair \
+    "python3 '$WSJ_ROOT/hub/robot_overlay/probe_tracking_epoch.py' --robot-id robot-0 --debug-passed-at-ns '$FOCUS_DEBUG_PASSED_AT_NS' --output '$wsj_probe'" \
+    "python3 '$YUNJI_ROOT/hub/robot_overlay/probe_tracking_epoch.py' --robot-id robot-1 --debug-passed-at-ns '$FOCUS_DEBUG_PASSED_AT_NS' --output '$yunji_probe'"
+  echo "TRACKING_EPOCH_CONTINUITY_PASSED: both odometry owners predate strict debug."
+  echo "  WSJ evidence:   $wsj_probe"
+  echo "  Yunji evidence: $yunji_probe"
+}
+
+prepare_warm_live_reuse() {
+  # Remove any stale command path first, then prove only the persistent
+  # perception/planning cores needed for a fast mode switch remain alive.
+  # This operation cannot move either robot.
+  remote_pair \
+    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; for window in maploc online-map planning goal-router control; do tmux list-windows -t tinynav_semantic_nav_auto -F '#{window_name}' | grep -qx \"\$window\" || exit 1; done" \
+    "for unit in focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service focus-yunji-v2-debug-v3.service focus-yunji-v2-live-v3.service focus-yunji-water-bridge-debug-v1.service focus-yunji-water-bridge-live-v1.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; for unit in focus-yunji-odin1-driver.service focus-yunji-tinynav-adapter-v1.service focus-yunji-tinynav-occupancy-v1.service focus-yunji-tinynav-planner-v1.service focus-yunji-tinynav-router-v1.service focus-yunji-tinynav-controller-v1.service; do systemctl is-active --quiet \"\$unit\" || exit 1; done"
 }
 
 arm_live_robots() {
   live_cleanup_required="true"
-  remote_run "$WSJ_TMUX_TARGET" \
-    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_WSJ_CLEAR"
-  remote_run "$YUNJI_TMUX_TARGET" \
+  remote_pair \
+    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_WSJ_CLEAR" \
     "for unit in focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR --reuse-verified-debug-core"
 }
 
@@ -571,12 +634,11 @@ disarm_live_stack() {
   echo "Fail-closed cleanup: disabling Hub GOAL and both robot command paths."
   restart_hub "$FOCUS_DEBUG_ROBOT_CONFIG" false \
     || echo "WARNING: Hub debug restart failed." >&2
-  remote_run "$WSJ_TMUX_TARGET" \
-    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode debug" \
-    || echo "WARNING: WSJ guarded stop ran but debug receiver restart failed." >&2
-  remote_run "$YUNJI_TMUX_TARGET" \
-    "for unit in focus-yunji-v2-live-v2.service focus-yunji-v2-debug-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode debug" \
-    || echo "WARNING: Yunji debug receiver restart failed." >&2
+  remote_pair \
+    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true" \
+    "for unit in focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service focus-yunji-v2-debug-v3.service focus-yunji-v2-live-v3.service focus-yunji-water-bridge-debug-v1.service focus-yunji-water-bridge-live-v1.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done" \
+    || echo "WARNING: one robot command path did not confirm its guarded stop." >&2
+  echo "WARM_READONLY_CORE_PRESERVED: observation, maps and Foxglove keep running."
 }
 
 cleanup_on_exit() {
@@ -589,25 +651,21 @@ cleanup_on_exit() {
 }
 trap cleanup_on_exit EXIT INT TERM
 
-echo "Session $FOCUS_SESSION_ID: restarting a clean fail-closed Hub epoch."
+echo "Session $FOCUS_SESSION_ID: validating the exact committed deployment."
 echo "Verifying that both robot release roots match this Git checkout."
 verify_remote_release "$WSJ_TMUX_TARGET" "$WSJ_ROOT"
 verify_remote_release "$YUNJI_TMUX_TARGET" "$YUNJI_ROOT"
-restart_hub "$FOCUS_DEBUG_ROBOT_CONFIG" false
-ensure_maps
-ensure_glm
-start_read_only_robots
-ensure_foxglove
 
-final_hub_epoch_ns="$(date +%s%N)"
-if [[ "$mode" == live ]]; then
-  # The fresh Hub process has no v2 decisions. Receivers are initially still
-  # read-only; they are armed only after this clean observation/history epoch
-  # has been established. With no GOAL present, each robot remains locally in
-  # HOLD while its command-capable heartbeat is proved.
-  live_cleanup_required="true"
-  restart_hub "$FOCUS_LIVE_ROBOT_CONFIG" true
-  final_hub_epoch_ns="$(date +%s%N)"
+# Once a session has passed strict debug, the live path must prove that the
+# processes owning both odometry origins still predate that debug. A chassis
+# power cycle does not change either process and therefore needs no board.
+# A compute/SLAM/Odin restart fails here before GOAL can be enabled.
+if [[ "$FOCUS_DEBUG_PASSED_AT_NS" != 0 ]]; then
+  verify_tracking_epoch_continuity || {
+    echo "TRACKING_EPOCH_CHANGED: do not reuse this calibration directly." >&2
+    echo "If the robot was stationary, create a validated stationary re-anchor; otherwise run board calibration." >&2
+    exit 1
+  }
 fi
 
 wait_for_hub_epoch() {
@@ -652,16 +710,45 @@ PY
   echo "Timed out waiting for both robots in the clean Hub epoch." >&2
   return 1
 }
-wait_for_hub_epoch
+
+fast_live_reuse="false"
+if [[ "$mode" == live && "$full_preflight" != true ]]; then
+  if prepare_warm_live_reuse; then
+    fast_live_reuse="true"
+    echo "FAST_LIVE_REUSE_READY: tracking, TinyNav cores and command-path stop are proven."
+  else
+    echo "Warm core is incomplete; falling back to full read-only recovery."
+  fi
+fi
+
+if [[ "$fast_live_reuse" == true ]]; then
+  ensure_maps
+  ensure_glm
+  ensure_foxglove
+else
+  echo "FULL_DEBUG_RUNTIME_RECOVERY: starting a clean fail-closed Hub epoch."
+  restart_hub "$FOCUS_DEBUG_ROBOT_CONFIG" false
+  ensure_maps
+  ensure_glm
+  start_read_only_robots
+  ensure_foxglove
+fi
 
 if [[ "$mode" == live ]]; then
-  # Robot startup and data-plane verification can take longer than the strict
-  # 60-second frozen-input lifetime. Complete that slow work before the
-  # continuous runner selects its first synchronized RGB-D/map pair. The
-  # runner repeats readiness checks before every atomic source round.
+  # Start a clean GOAL-capable Hub with no decision state, then arm both
+  # robot-local paths in parallel. No target exists while the launchers run,
+  # so both receivers remain in NO_GOAL/HOLD until their verified heartbeats
+  # and fresh observations have entered this exact Hub epoch.
+  live_cleanup_required="true"
+  restart_hub "$FOCUS_LIVE_ROBOT_CONFIG" true
+  final_hub_epoch_ns="$(date +%s%N)"
   arm_live_robots
+  wait_for_hub_epoch
   wait_for_live_readiness
   echo "LIVE_RECEIVERS_READY_NO_GOAL: starting continuous source episode."
+else
+  final_hub_epoch_ns="$(date +%s%N)"
+  wait_for_hub_epoch
 fi
 
 stamp="$(date +%Y%m%d_%H%M%S_%N)"

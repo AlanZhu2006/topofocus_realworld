@@ -1,7 +1,7 @@
 # Current project status
 
-Snapshot time: **2026-07-25, after the first concurrent dual-robot live
-motion and the operator-reported collision**
+Snapshot time: **2026-07-25, after fresh session `20260725-lab12` passed
+strict debug and the operator accepted its new Foxglove maps**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -37,44 +37,40 @@ the original two-agent VLM candidate while serializing physical authority when
 the buffered shared-frame start-to-target segments come within `0.9 m`.
 Replay of the observed starts and targets reports a minimum predicted
 separation of `0.0 m` and reduces authority to one robot. This fix is committed
-and locally tested, but has not yet been deployed into a new calibrated
-physical session or verified in motion.
+and locally tested. It is included in the newer calibrated/debugged
+`20260725-lab12` deployment, but has not yet been verified in motion.
 
 No official scene has completed successfully. Current SR and SPL therefore
 remain **not available**, rather than zero-valued experimental estimates.
 
 ## Latest validated physical session
 
-The most recent session that passed strict no-motion debug before the
-collision was:
+The latest session that passed strict no-motion debug is:
 
 | Item | Observed value |
 | --- | --- |
-| Session | `20260725-lab05-yunjireboot4` |
-| Session Git commit | `cdcd7e70560f8bd782d83b5176bda6f5fca36780` |
-| Calibration ID | `shared-board-odin1-20260725-lab05-yunjireboot1-v1` |
-| Calibration kind | validated stationary reanchor of moved-board calibration |
-| WSJ transform | `wsj-tinynav-depth-20260725-lab05-raw-v1` |
-| Yunji transform | `yunji-odin1-stationary-reanchor-20260725-lab05-yunjireboot1-v1` |
-| WSJ map boundary | sequence `24082` |
-| Yunji map boundary | sequence `222279` |
-| Debug manifest | strict no-motion debug passed on the same commit |
-| Live episode | `scene01-chair-run01-fastfix` |
+| Session | `20260725-lab12` |
+| Session Git commit | `9c5f922659b11ec3958e5ab36a4043470d10a0bb` |
+| Calibration ID | `shared-board-odin1-20260725-lab12-v1` |
+| Calibration kind | independent moved-board holdout |
+| Calibration SHA-256 | `088bf0f1ad779745053feead66e791fa884baab3bf57a13925decbffe280d1a3` |
+| WSJ transform | `wsj-tinynav-depth-20260725-lab12-raw-v1` |
+| Yunji transform | `yunji-odin1-board-20260725-lab12-v1` |
+| WSJ map boundary | sequence `24627` |
+| Yunji map boundary | sequence `227341` |
+| Debug manifest SHA-256 | `c18b2291fc16c86b7549772eeed7b28918c94eac531027191295488921925d3b` |
+| Live episode | not yet run for this session |
 | Hub API | `http://127.0.0.1:8188` |
 | GLM endpoint | `http://127.0.0.1:31511/v1` |
 | Foxglove | `ws://10.208.2.249:8765` |
 
-That session must **not** be reused for another live run:
-
-- repository HEAD now includes the route-conflict fix at
-  `b79879bfc96805aa7e7b63cf3a8ebbfe59679730`;
-- Yunji's Odin host and tracking driver restarted after the incident;
-- the Go2 chassis was subsequently powered down and is crouched;
-- the next standing pose and tracking epoch therefore need a new shared-frame
-  calibration and fresh session binding.
-
-The old session remains immutable runtime evidence. It is not edited or
-migrated to claim compatibility with the new commit.
+The operator confirmed that both new per-robot maps and their Foxglove
+presentation looked normal. The later Go2 charging event powered only the
+chassis down; WSJ Jetson/perception SLAM and the sensor stream remained alive. That
+event therefore does not change the shared transform. A new Git commit still
+requires a new session/debug binding, but it can reuse this physical
+calibration when the tracking processes and robot placement remain unchanged;
+it does not require another board fit.
 
 ## Observed physical episode
 
@@ -168,6 +164,11 @@ produces one GOAL plus one HOLD before allowing movement.
 - Leases renew only while command feedback remains fresh.
 - Cleanup restores Hub `GOAL=false`, local HOLD/zero behavior and removes live
   bridge authority.
+- Repeated live startup now distinguishes chassis power from tracking reset by
+  proving that the live WSJ perception/SLAM and Yunji Odin processes predate strict
+  debug. Matching warm TinyNav/map/Foxglove cores are reused; both robot
+  launchers run concurrently. Cleanup removes both chassis command paths but
+  deliberately keeps the read-only observation/map core warm.
 - The route-conflict guard is an additional real-world execution adapter, not
   a replacement for robot-local collision avoidance.
 
@@ -183,10 +184,11 @@ produces one GOAL plus one HOLD before allowing movement.
 
 ## Today's implementation delta
 
-Relative to the previous remote `origin/main`
-`89ca34bd9d621bc9a2b46e1988a8490eb9e220e0`, the runtime series through
-`b79879b` contains 19 commits across 31 files, with 4,091 insertions and 317
-deletions. All are authored as `AlanZhu2006 <yz11502@nyu.edu>`.
+The runtime series through session `20260725-lab12` is authored as
+`AlanZhu2006 <yz11502@nyu.edu>`. The current acceleration change adds a
+read-only Linux tracking-epoch probe, parallel robot lifecycle operations,
+warm fail-closed cleanup and documented power-cycle classification. Exact
+commit and diff statistics are taken from Git after this change is committed.
 
 The work groups into:
 
@@ -200,7 +202,8 @@ The work groups into:
 6. native WSJ calibration geometry, restored RGB preview and stationary
    tracking reanchor;
 7. Yunji startup compute-starvation prevention;
-8. post-incident dual-route serialization.
+8. post-incident dual-route serialization;
+9. same-session tracking continuity and warm repeated-trial orchestration.
 
 No file under immutable `source/` or `dependencies/` was changed by this
 series.
@@ -209,15 +212,16 @@ series.
 
 At closeout:
 
-- the operator confirmed both robots stopped after the collision;
+- the operator confirmed the fresh `20260725-lab12` maps looked correct;
 - Hub health reports `goal_output_enabled=false` for both robots;
 - no previous operator motion confirmation remains valid;
-- the Go2 chassis is powered down/crouched;
-- Yunji/Odin restarted, its driver is active, and both existing SSH/tmux
-  tunnels were restored;
-- old session `20260725-lab05-yunjireboot4` is retained only as evidence;
-- no live command should be run until a new standing calibration/session
-  succeeds.
+- the Go2 chassis is charging and cannot currently run a physical episode;
+- the WSJ compute/sensor tracking process stayed alive across that
+  chassis-only event, so the board calibration itself remains reusable;
+- old collision session `20260725-lab05-yunjireboot4` remains immutable
+  evidence;
+- no live command may run until the Go2 is again powered, standing, clear and
+  a fresh onsite operator confirmation is supplied.
 
 ## Next valid workflow
 

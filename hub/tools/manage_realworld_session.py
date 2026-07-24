@@ -273,6 +273,11 @@ def shell_assignments(path: Path, session: RealworldSession, mode: str) -> str:
         "FOCUS_SESSION_ID": session.session_id,
         "FOCUS_SESSION_CODE_COMMIT": session.code.git_commit,
         "FOCUS_SESSION_CONTRACT_SHA256": session_contract_sha256(session),
+        "FOCUS_DEBUG_PASSED_AT_NS": str(
+            session.debug_validation.passed_at_ns
+            if session.debug_validation is not None
+            else 0
+        ),
         "FOCUS_CALIBRATION_ID": session.calibration.calibration_id,
         "FOCUS_WSJ_TRANSFORM": robots["robot-0"].transform_version,
         "FOCUS_YUNJI_TRANSFORM": robots["robot-1"].transform_version,

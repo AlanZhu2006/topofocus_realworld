@@ -1,14 +1,17 @@
 # Persistent one-click physical workflow
 
-This is the canonical operator path for a new physical placement. It replaces
-the dated, hard-coded July 24 launcher. The workflow has three explicit
-states:
+This is the canonical operator path for a new physical placement and for
+repeated trials in one placement. It replaces the dated, hard-coded July 24
+launcher. The workflow has three explicit states:
 
 `board calibration -> strict no-motion debug -> one bounded multi-round live episode`
 
 The first two states are non-motion. The live state still requires one fresh,
 onsite confirmation because the Hub only publishes expiring high-level
 targets; TinyNav/WATER and the robots retain final stop/reject authority.
+After the first strict debug, repeated live episodes normally reuse the same
+tracking, TinyNav, map and Foxglove processes instead of replaying the first
+two states.
 
 For normal onsite use, the repository-root `command.txt` stores copy-ready
 versions of the unwrapped commands below. It is a command reference, not
@@ -97,9 +100,11 @@ project implementations. The wrapper adds automatic pair selection,
 independent-movement proof, atomic persistence and session binding; it does
 not introduce a different calibration model.
 
-## 2. Repeat no-motion debug without recalibration
+## 2. Optional full no-motion debug without recalibration
 
-Use this after a Hub-computer restart, code review or visualization check:
+Use this after a code change, when diagnosing the data plane, or when a new
+strict debug artifact is intentionally required. A chassis-only power cycle
+does not require this command:
 
 ```bash
 bash hub/scripts/realworld_oneclick.sh \
@@ -109,7 +114,9 @@ bash hub/scripts/realworld_oneclick.sh \
   --goal-category chair
 ```
 
-The command always starts a clean Hub decision epoch. It reuses a map daemon
+The command first proves that any already-debugged session still has the same
+WSJ perception/SLAM and Yunji Odin tracking processes that predated its strict debug
+timestamp. It then starts a clean Hub decision epoch. It reuses a map daemon
 only when its tmux command contains the session's exact Git commit,
 calibration, transform and sequence boundary; otherwise it rebuilds that same
 session from its immutable spool boundary. Missing or blocked map snapshots do
@@ -166,12 +173,27 @@ bash hub/scripts/realworld_oneclick.sh \
   --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 ```
 
-Live startup still begins with both robot receivers read-only. It clears the
-old Hub process and first establishes a new observation/history epoch with no
-v2 decision present. It then starts both motion-capable receivers while the
-robots remain locally in `NO_GOAL/HOLD`, and waits until both Hub
-runtime-readiness records report `ready_for_goal=true` from fresh
-robot-receiver heartbeats.
+Before enabling Hub GOAL, live records a read-only tracking-epoch probe on
+each robot. The WSJ probe binds the still-running `perception` tmux process; the
+Yunji probe binds `focus-yunji-odin1-driver.service`. Both process start times
+must be no later than the session's strict debug timestamp. This distinguishes
+a chassis-only power cycle, which is reusable, from a SLAM/Odin restart, which
+is not directly reusable.
+
+When those probes pass and both TinyNav cores are warm, the default path:
+
+1. sends/retains a guarded stop and removes any stale receiver/bridge;
+2. reuses exact session maps, GLM and Foxglove when their identities match;
+3. starts a clean Hub decision epoch with no v2 decision;
+4. arms WSJ and Yunji concurrently while both remain `NO_GOAL/HOLD`;
+5. waits for fresh observations and `ready_for_goal=true` heartbeats.
+
+It does not rerun the complete no-motion VLM debug, reinstall Yunji TinyNav,
+rebuild matching maps, or restart a matching Foxglove relay. If the warm
+non-tracking core is incomplete, it automatically prints
+`FULL_DEBUG_RUNTIME_RECOVERY` and uses the slower read-only recovery. The
+optional `--full-preflight` flag forces that recovery path. Neither path can
+bypass a changed tracking epoch.
 
 Only after that potentially slow startup has completed does the launcher enter
 the bounded source-derived episode loop. It freezes an exact synchronized
@@ -209,9 +231,12 @@ official SR: the model that generated the target cannot independently verify
 itself.
 
 Every exit path restores `GOAL=false`, latches WSJ navigation pause, sends a
-guarded zero, removes the Go2 bridge, cancels/stops the Yunji live receiver and
-returns both receivers to debug. One confirmation is consumed by one command;
-it is never persisted in the session.
+guarded zero, removes the Go2 bridge and cancels/stops all Yunji receiver and
+WATER bridge units. It deliberately leaves only camera observation, TinyNav
+perception/planning cores, central maps and Foxglove running. This state has no
+chassis command path and lets the next trial reuse the expensive read-only
+core. One confirmation is consumed by one command; it is never persisted in
+the session.
 
 ## 4. Record SR/SPL evidence immediately after a run
 
@@ -255,12 +280,24 @@ file. Until all four scenes × five trials exist, the metrics status remains
 
 ## Power-cycle rule
 
-A power cycle does not move a sensor mount, but it can reset a robot-local
-odometry origin. A session transform is therefore reusable only when the
-sensor mount, robot pose and relevant tracking origin are proven unchanged.
-If that proof is unavailable, run the board-calibration command with a new
-session ID. Never edit an old session JSON to make a new transform epoch look
-compatible.
+Use this decision table:
+
+| Event | Required action |
+| --- | --- |
+| Go2 or WATER chassis power only; Jetson/Odin tracking stayed alive | Directly run the next live command; no board and no repeated debug |
+| Hub process, local Foxglove or SSH tunnel restarted; robot tracking stayed alive | Directly run live; local components are recovered as needed |
+| WSJ perception/SLAM or Yunji Odin driver restarted while the robot was certainly stationary | Create a validated stationary tracking re-anchor, then a new session |
+| Robot base moved relative to the room, camera mount moved, or stationary continuity is uncertain | Run a new two-position board calibration |
+
+`probe_tracking_epoch.py` records its source paths, process start identity,
+artifact size/SHA-256 and the fact that no robot interface was used. A failed
+probe stops before Hub GOAL is enabled and prints `TRACKING_EPOCH_CHANGED`.
+Never edit an old session JSON to make a new transform epoch look compatible.
+
+The fast path is structurally bounded by two parallel robot launchers rather
+than two sequential full debug/live cycles. Its actual onsite duration remains
+an observed quantity to measure in the next physical run; the implementation
+does not claim a timing result before that measurement.
 
 ## Verification status
 
@@ -277,8 +314,10 @@ excluded from SR/SPL and documented in
 
 The route-conflict guard described above was added afterward at commit
 `b79879b`. The observed candidate replays to `0.0 m` predicted separation and
-one active robot, and the complete local Hub regression suite passes. Because
-the Odin tracking host subsequently restarted and the Go2 changed posture,
-the old session cannot validate the new commit. A new standing calibration
-and strict no-motion debug are required before the guard's first physical
-verification.
+one active robot. Later session `20260725-lab12` passed a fresh two-position
+board calibration and strict no-motion debug; the operator confirmed that its
+new Foxglove maps looked correct. The Go2 chassis-only charging event after
+that check did not restart WSJ perception/SLAM, so it does not by itself invalidate
+that physical calibration. The fast-reuse orchestration described above is
+locally regression-tested but still needs its first measured physical timing
+run after deployment.

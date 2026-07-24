@@ -53,7 +53,7 @@ def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():
 def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():
     source = (SCRIPTS / "realworld_oneclick.sh").read_text()
 
-    assert source.count("timeout 5 ros2 topic pub --once") == 6
+    assert source.count("timeout 5 ros2 topic pub --once") == 8
     assert "tmux rename-session" in source
     assert "run_glm_offline.sh" in source
     assert "GLM endpoint is live but not owned by a verified GLM tmux." in source
@@ -198,9 +198,25 @@ def test_oneclick_reuses_verified_yunji_core_for_live_mode():
 
     assert "--reuse-verified-debug-core" in source
     assert "remote_queue" in source
+    assert "remote_pair" in source
     assert "completion barrier" in source
     assert source.index("start_read_only_robots") < source.index("arm_live_robots")
     assert source.rindex("start_read_only_robots") < source.rindex("ensure_foxglove")
+
+
+def test_live_fast_path_proves_tracking_epoch_and_preserves_warm_core():
+    source = (SCRIPTS / "realworld_oneclick.sh").read_text()
+
+    assert "probe_tracking_epoch.py" in source
+    assert "FOCUS_DEBUG_PASSED_AT_NS" in source
+    assert "TRACKING_EPOCH_CONTINUITY_PASSED" in source
+    assert "FAST_LIVE_REUSE_READY" in source
+    assert "FULL_DEBUG_RUNTIME_RECOVERY" in source
+    assert "--full-preflight" in source
+    assert "WARM_READONLY_CORE_PRESERVED" in source
+    assert source.index("arm_live_robots") < source.index(
+        "wait_for_live_readiness"
+    )
 
 
 def test_hub_launcher_does_not_embed_admin_token_value():

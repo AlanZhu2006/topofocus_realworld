@@ -43,9 +43,15 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
   第一轮物理发布、反馈和租约续期已被观察；自动多轮终止和终点封存仍待
   无碰撞真机验证。自动证据仍需独立目标标注和 surveyed
   goal-region/shortest-path 才能计入 SR/SPL。
-- 事故 session 绑定旧提交，且 Odin 已重启、Go2 已下电趴下，因此不能
-  直接复用。下一次必须让 Go2 站立固定后运行新的单次标定；该命令会部署
-  当前提交、创建 fresh map/Foxglove 并自动完成严格 debug。
+- 新 session `20260725-lab12` 已完成双位置圆点板标定、fresh 双机地图和
+  严格无运动 debug；操作者已确认最新 Foxglove 地图正常。随后只是 Go2
+  底盘充电下电，WSJ Jetson/perception SLAM 仍持续运行，因此该事件本身不要求重新
+  标定。
+- 一键流程已加入 tracking-epoch 判定和热复用：底盘单独上下电可直接进入
+  下一次 live；WSJ perception/SLAM 或 Yunji Odin 真正重启才会在发布目标前
+  拒绝旧标定。同一 session 的后续实验并行切换双机接收器，结束时只移除
+  底盘命令链，保留相机、TinyNav、地图和 Foxglove。该加速路径已通过本机
+  回归测试，下一次上机需记录实际启动耗时。
 
 ## 实机直接入口
 
@@ -53,7 +59,9 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 命令，包括：
 
 - 新摆位的一键标定、fresh map、Foxglove 和严格无运动 debug；
-- 复用 `current` session 的 debug；
+- 只在诊断时强制重跑 `current` session 的 debug；
+- 默认复用已验证 tracking/TinyNav/map/Foxglove 的快速 live，以及可选
+  `--full-preflight` 恢复命令；
 - `scene01-chair` 从 run01 到 run05 的五条独立 live 命令；
 - 复制到其他 scene/goal 时必须修改的字段。
 
@@ -106,11 +114,13 @@ Dashboard 同期显示短轨迹汇合、WSJ 相机近距离遮挡和模型投影
 
 ![WSJ、Yunji 与共享圆点标定板](media/image/calibration.jpg)
 
-两台相机同时观测同一块 7 × 10 对称圆点板。每个新物理摆位采集一组拟合
-观测和一组独立移动后的留出观测，用于求解并验证 gravity-preserving
-共享坐标变换。一键脚本先拉起双机 Foxglove preview：完整看到标定板后按
-第一次 Enter 计算初始拟合，只移动标定板后按第二次 Enter 完成 holdout、
-部署和无运动 debug；机器人在标定阶段没有运动命令路径。
+两台相机同时观测同一块 7 × 10 对称圆点板。只有新物理摆位、传感器安装
+变化或无法证明静止连续性时，才采集一组拟合观测和一组独立移动后的留出
+观测，用于求解并验证 gravity-preserving 共享坐标变换。一键脚本先拉起
+双机 Foxglove preview：完整看到标定板后按第一次 Enter 计算初始拟合，
+只移动标定板后按第二次 Enter 完成 holdout、部署和无运动 debug；机器人
+在标定阶段没有运动命令路径。单独给底盘下电不会改变相机外参；运行脚本
+会用 tracking 进程 epoch 判断是否可以直接复用。
 
 ### 语义 2D 地图展示目标
 
