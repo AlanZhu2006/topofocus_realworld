@@ -29,6 +29,14 @@ START_FOOTPRINT_OVERRIDE_M="${FOCUS_YUNJI_START_FOOTPRINT_OVERRIDE_M:-0.34}"
 # freshness bound.  This does not extend physical velocity authority: the
 # WATER bridge independently zeros a stale guarded command after 0.30 s.
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_YUNJI_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
+# Odin's full 800 px, radius-1 projection performs nine indexed depth
+# reductions per cloud.  After a cold Odin boot this was observed to pin one
+# CPU core for minutes before the first /slam/depth sample, while the same
+# calibrated stream at 400 px with no splat published steadily at about
+# 10 Hz.  This depth is used only by TinyNav's robot-local planner; the Hub
+# observation sender keeps the full 800 px RGB-D stream for VLM/semantics.
+LOCAL_DEPTH_WIDTH="${FOCUS_YUNJI_LOCAL_DEPTH_WIDTH:-400}"
+LOCAL_DEPTH_SPLAT_RADIUS="${FOCUS_YUNJI_LOCAL_DEPTH_SPLAT_RADIUS:-0}"
 mode="debug"
 confirmation=""
 reuse_verified_debug_core="false"
@@ -200,7 +208,9 @@ if [[ "$reuse_verified_debug_core" == true ]]; then
 else
   start_unit focus-yunji-tinynav-adapter-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" adapter \
-      --calibration-file "$FACTORY_CALIBRATION"
+      --calibration-file "$FACTORY_CALIBRATION" \
+      --output-width "$LOCAL_DEPTH_WIDTH" \
+      --splat-radius "$LOCAL_DEPTH_SPLAT_RADIUS"
 
   start_unit focus-yunji-tinynav-occupancy-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" occupancy \
