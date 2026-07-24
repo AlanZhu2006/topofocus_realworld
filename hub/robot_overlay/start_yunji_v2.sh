@@ -12,6 +12,15 @@ TRANSFORM_VERSION="${FOCUS_YUNJI_TRANSFORM_VERSION:-}"
 CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus/tinynav-runtime}"
+# The measured base footprint and requested clearance are both about 0.34 m.
+# A self-occupied online-map start therefore needs roughly their sum before a
+# genuinely clearance-safe seed can exist.  The old 0.35 m snap bound produced
+# an observed zero-cell reachable component.  0.75 m covers the two measured
+# radii plus one 0.05 m map cell; unknown/occupied cells outside the measured
+# footprint remain impassable.
+REACHABILITY_CLEARANCE_M="${FOCUS_YUNJI_REACHABILITY_CLEARANCE_M:-0.34}"
+START_SNAP_RADIUS_M="${FOCUS_YUNJI_START_SNAP_RADIUS_M:-0.75}"
+START_FOOTPRINT_OVERRIDE_M="${FOCUS_YUNJI_START_FOOTPRINT_OVERRIDE_M:-0.34}"
 mode="debug"
 confirmation=""
 startup_complete="false"
@@ -173,8 +182,9 @@ start_unit focus-yunji-tinynav-router-v1.service \
     --base-camera-frame odin1_camera_optical_frame \
     --occupancy-topic /semantic_mapping/occupancy_bev \
     --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
-    --clearance-m 0.34 \
-    --start-footprint-override-m 0.34 \
+    --clearance-m "$REACHABILITY_CLEARANCE_M" \
+    --start-snap-radius-m "$START_SNAP_RADIUS_M" \
+    --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
     --max-cached-map-motion-m 0.25
 
 start_unit focus-yunji-tinynav-controller-v1.service \
@@ -214,8 +224,9 @@ receiver_args=(
   --occupancy-topic /semantic_mapping/occupancy_bev
   --external-odometry-health
   --platform-health-topic /focus/water/cmd_bridge_status
-  --reachability-clearance-m 0.34
-  --start-footprint-override-m 0.34
+  --reachability-clearance-m "$REACHABILITY_CLEARANCE_M"
+  --start-snap-radius-m "$START_SNAP_RADIUS_M"
+  --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"
   --alignment-output "$alignment"
   --log "$log"
 )

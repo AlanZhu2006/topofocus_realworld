@@ -267,6 +267,8 @@ def test_wsj_launcher_bridges_one_source_keyframe_plus_one_grid_cell():
 
     assert 'FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25' in source
     assert '--max-cached-map-motion-m \\"$MAX_CACHED_MAP_MOTION_M\\"' in source
+    assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-2.0' in source
+    assert '--input-timeout-s \\"$ODOMETRY_INPUT_TIMEOUT_S\\"' in source
 
 
 def test_a_star_can_use_bounded_known_free_start_seed():

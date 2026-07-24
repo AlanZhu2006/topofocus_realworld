@@ -19,6 +19,11 @@ BASE_CAMERA_CALIBRATION_FILE="${FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE:-/home/nv
 # uses 0.05 m cells.  Let the latched grid bridge exactly one source keyframe
 # interval plus one cell; a larger displacement still fails closed.
 MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
+# Observed on WSJ after the 2026-07-24 power cycle: /slam/odometry averages
+# about 4 Hz but can have a 1.256 s inter-message gap.  Keep the router
+# fail-closed while allowing that measured transient rather than rejecting the
+# first supervised goal at the old 1.0 s default.
+ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
 
 usage() {
   echo "Usage: $0 [--session NAME] [--output DIR] [--frame-id FRAME]"
@@ -117,7 +122,7 @@ tmux new-window -d -t "$SESSION" -n planning \
 started_windows+=("planning")
 
 tmux new-window -d -t "$SESSION" -n goal-router \
-  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id \"$FRAME_ID\" --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\"'"
+  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id \"$FRAME_ID\" --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\"'"
 started_windows+=("goal-router")
 
 tmux new-window -d -t "$SESSION" -n control \
