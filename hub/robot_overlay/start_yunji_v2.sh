@@ -15,11 +15,12 @@ TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus
 # The measured base footprint and requested clearance are both about 0.34 m.
 # A self-occupied online-map start therefore needs roughly their sum before a
 # genuinely clearance-safe seed can exist.  The old 0.35 m snap bound produced
-# an observed zero-cell reachable component.  0.75 m covers the two measured
-# radii plus one 0.05 m map cell; unknown/occupied cells outside the measured
-# footprint remain impassable.
+# an observed zero-cell reachable component.  A live-grid sweep found the
+# first full-clearance seed at about 0.816 m, so the 1.0 m bound admits that
+# measured seed while unknown/occupied cells outside the measured footprint
+# remain impassable.
 REACHABILITY_CLEARANCE_M="${FOCUS_YUNJI_REACHABILITY_CLEARANCE_M:-0.34}"
-START_SNAP_RADIUS_M="${FOCUS_YUNJI_START_SNAP_RADIUS_M:-0.75}"
+START_SNAP_RADIUS_M="${FOCUS_YUNJI_START_SNAP_RADIUS_M:-1.0}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_YUNJI_START_FOOTPRINT_OVERRIDE_M:-0.34}"
 mode="debug"
 confirmation=""
