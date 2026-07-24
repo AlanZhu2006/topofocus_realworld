@@ -24,6 +24,7 @@ START_SNAP_RADIUS_M="${FOCUS_YUNJI_START_SNAP_RADIUS_M:-1.0}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_YUNJI_START_FOOTPRINT_OVERRIDE_M:-0.34}"
 mode="debug"
 confirmation=""
+reuse_verified_debug_core="false"
 startup_complete="false"
 
 fail_closed_on_error() {
@@ -40,13 +41,17 @@ fail_closed_on_error() {
 trap fail_closed_on_error EXIT
 
 usage() {
-  echo "Usage: $0 --mode debug|live [--operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR]"
+  echo "Usage: $0 --mode debug|live [--operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR] [--reuse-verified-debug-core]"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) mode="$2"; shift 2 ;;
     --operator-confirmation) confirmation="$2"; shift 2 ;;
+    --reuse-verified-debug-core)
+      reuse_verified_debug_core="true"
+      shift
+      ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -57,6 +62,10 @@ done
 }
 if [[ "$mode" == live && "$confirmation" != OPERATOR_PRESENT_AND_YUNJI_CLEAR ]]; then
   echo "Live Yunji mode requires OPERATOR_PRESENT_AND_YUNJI_CLEAR." >&2
+  exit 2
+fi
+if [[ "$reuse_verified_debug_core" == true && "$mode" != live ]]; then
+  echo "--reuse-verified-debug-core is valid only for live mode." >&2
   exit 2
 fi
 [[ "$TRANSFORM_VERSION" =~ ^[A-Za-z0-9_.-]+$ ]] || {
@@ -101,8 +110,10 @@ if pgrep -af 'keyboard.*teleop|yunji_wasd_teleop' >/dev/null 2>&1; then
   exit 1
 fi
 
-FOCUS_YUNJI_TINYNAV_RUNTIME="$TINYNAV_RUNTIME" \
-  bash "$SCRIPT_DIR/install_yunji_tinynav_runtime.sh"
+if [[ "$reuse_verified_debug_core" != true ]]; then
+  FOCUS_YUNJI_TINYNAV_RUNTIME="$TINYNAV_RUNTIME" \
+    bash "$SCRIPT_DIR/install_yunji_tinynav_runtime.sh"
+fi
 
 stop_unit() {
   local unit="$1"
@@ -156,40 +167,61 @@ if ! systemctl is-active --quiet "$SENDER_UNIT"; then
       --metrics-out "$metrics"
 fi
 
-start_unit focus-yunji-tinynav-adapter-v1.service \
-  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" adapter \
-    --calibration-file "$FACTORY_CALIBRATION"
+CORE_UNITS=(
+  focus-yunji-tinynav-adapter-v1.service
+  focus-yunji-tinynav-occupancy-v1.service
+  focus-yunji-tinynav-planner-v1.service
+  focus-yunji-tinynav-router-v1.service
+  focus-yunji-tinynav-controller-v1.service
+)
+if [[ "$reuse_verified_debug_core" == true ]]; then
+  # realworld_oneclick.sh permits this only immediately after the same
+  # invocation started and data-plane-verified the debug stack from the
+  # byte-identical release.  Keep Odin -> /slam/depth and the online map alive;
+  # mode switching needs to replace only the receiver and WATER bridge.
+  for unit in "${CORE_UNITS[@]}"; do
+    systemctl is-active --quiet "$unit" || {
+      echo "Verified Yunji debug core is not active: $unit" >&2
+      exit 1
+    }
+  done
+  echo "Reusing the verified Yunji perception/planning core without interrupting /slam/depth."
+else
+  start_unit focus-yunji-tinynav-adapter-v1.service \
+    /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" adapter \
+      --calibration-file "$FACTORY_CALIBRATION"
 
-start_unit focus-yunji-tinynav-occupancy-v1.service \
-  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" occupancy \
-    --ros-args \
-    -p topics.pointcloud_input:=/focus/odin1/cloud_world \
-    -p topics.camera_pose:=/focus/odin1/camera_pose_world \
-    -p frames.target_frame:=world \
-    -p output.directory:="$map_output" \
-    -p output.save_on_shutdown:=true \
-    -p bev.publish_rate_hz:=2.0
+  start_unit focus-yunji-tinynav-occupancy-v1.service \
+    /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" occupancy \
+      --ros-args \
+      -p topics.pointcloud_input:=/focus/odin1/cloud_world \
+      -p topics.camera_pose:=/focus/odin1/camera_pose_world \
+      -p frames.target_frame:=world \
+      -p output.directory:="$map_output" \
+      -p output.save_on_shutdown:=true \
+      -p bev.publish_rate_hz:=2.0
 
-start_unit focus-yunji-tinynav-planner-v1.service \
-  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" planner \
-    --body-radius-m 0.283 \
-    --camera-forward-m 0.23 \
-    --safety-margin-m 0.05
+  start_unit focus-yunji-tinynav-planner-v1.service \
+    /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" planner \
+      --body-radius-m 0.283 \
+      --camera-forward-m 0.23 \
+      --safety-margin-m 0.05
 
-start_unit focus-yunji-tinynav-router-v1.service \
-  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" router \
-    --frame-id world \
-    --robot-id robot-1 \
-    --base-camera-frame odin1_camera_optical_frame \
-    --occupancy-topic /semantic_mapping/occupancy_bev \
-    --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
-    --clearance-m "$REACHABILITY_CLEARANCE_M" \
-    --start-snap-radius-m "$START_SNAP_RADIUS_M" \
-    --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
-    --max-cached-map-motion-m 0.25
+  start_unit focus-yunji-tinynav-router-v1.service \
+    /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" router \
+      --frame-id world \
+      --robot-id robot-1 \
+      --base-camera-frame odin1_camera_optical_frame \
+      --occupancy-topic /semantic_mapping/occupancy_bev \
+      --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
+      --clearance-m "$REACHABILITY_CLEARANCE_M" \
+      --start-snap-radius-m "$START_SNAP_RADIUS_M" \
+      --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
+      --max-cached-map-motion-m 0.25
 
-start_unit focus-yunji-tinynav-controller-v1.service \
-  /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" controller
+  start_unit focus-yunji-tinynav-controller-v1.service \
+    /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" controller
+fi
 
 bridge_args=(
   /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" bridge
