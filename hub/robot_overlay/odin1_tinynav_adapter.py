@@ -131,10 +131,11 @@ def main() -> int:
     calibration = load_odin_calibration(
         str(args.calibration_file), args.expected_serial
     )
-    if calibration.odometry_frame != "odom":
-        raise SystemExit(
-            "Odin factory artifact no longer declares the observed odom frame"
-        )
+    # The artifact's logical session frame is ``yunji_odin1_odom`` while its
+    # runtime contract and the deployed ROS driver label raw messages ``odom``.
+    # OdinRos2Source validates the actual cloud/odometry headers on every
+    # synchronized tuple, so do not conflate that wire label with the
+    # versioned logical frame name stored in the factory artifact.
     projector = OdinProjector(
         calibration,
         output_width=args.output_width,
