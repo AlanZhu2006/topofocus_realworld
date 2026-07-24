@@ -41,3 +41,25 @@ def test_unapproved_frame_is_rejected() -> None:
 def test_geometry_or_encoding_change_is_rejected() -> None:
     assert "dimensions" in valid(width=640)
     assert "encoding" in valid(encoding="rgb8")
+
+
+def test_explicit_usb2_fallback_profile_is_accepted() -> None:
+    assert valid(
+        width=640,
+        alternate_dimensions=((640, 480),),
+    ) is None
+    assert "dimensions" in valid(
+        width=320,
+        alternate_dimensions=((640, 480),),
+    )
+
+
+def test_image_size_parser_rejects_malformed_or_nonpositive_values() -> None:
+    assert MODULE.parse_dimensions("640x480") == (640, 480)
+    for raw in ("640", "axb", "0x480", "640x-1"):
+        try:
+            MODULE.parse_dimensions(raw)
+        except Exception:
+            pass
+        else:
+            raise AssertionError(f"expected {raw!r} to be rejected")

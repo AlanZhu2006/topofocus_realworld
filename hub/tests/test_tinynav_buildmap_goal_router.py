@@ -264,6 +264,9 @@ def test_wsj_launcher_bridges_one_source_keyframe_plus_one_grid_cell():
     source = (
         OVERLAY / "start_tinynav_buildmap_online_nav.sh"
     ).read_text(encoding="utf-8")
+    online_mapping = (
+        OVERLAY / "run_tinynav_buildmap_online_mapping.py"
+    ).read_text(encoding="utf-8")
 
     assert 'FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25' in source
     assert '--max-cached-map-motion-m \\"$MAX_CACHED_MAP_MOTION_M\\"' in source
@@ -276,6 +279,8 @@ def test_wsj_launcher_bridges_one_source_keyframe_plus_one_grid_cell():
         '--start-footprint-override-m '
         '\\"$START_FOOTPRINT_OVERRIDE_M\\"'
     ) in source
+    assert '"--alternate-size",' in online_mapping
+    assert '"640x480",' in online_mapping
 
 
 def test_a_star_can_use_bounded_known_free_start_seed():

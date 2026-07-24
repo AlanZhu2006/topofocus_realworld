@@ -217,6 +217,9 @@ if tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx v2-receiver; t
       --camera-frame camera \
       --fresh-image-topic /camera/camera/color/image_raw \
       --fresh-image-topic /slam/depth \
+      --geometry-image-topic /slam/depth \
+      --camera-info-topic /slam/camera_info \
+      --max-occupancy-age-s 12 \
       --timeout-s 35
     echo "WSJ v2 BuildMap stack is already ready: mode=debug"
     echo "Safety: no Go2 bridge; physical motion is impossible through this stack."
@@ -337,6 +340,9 @@ source "$SETUP_FILE"
   --camera-frame camera \
   --fresh-image-topic /camera/camera/color/image_raw \
   --fresh-image-topic /slam/depth \
+  --geometry-image-topic /slam/depth \
+  --camera-info-topic /slam/camera_info \
+  --max-occupancy-age-s 12 \
   --timeout-s 35
 
 startup_complete="true"

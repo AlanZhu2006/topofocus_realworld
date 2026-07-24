@@ -96,6 +96,12 @@ def main() -> int:
                     "848",
                     "--height",
                     "480",
+                    # The observed D435 reconnect fallback on a USB 2.1 link is
+                    # 640x480@15.  Both profiles preserve the same left-infrared
+                    # optical frame; the downstream synchronized CameraInfo
+                    # check still rejects a stale-intrinsics transition.
+                    "--alternate-size",
+                    "640x480",
                     "--encoding",
                     "mono8",
                 ],

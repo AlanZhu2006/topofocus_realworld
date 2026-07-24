@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from typing import Any
@@ -84,6 +85,75 @@ def validate_router_status(message: Any) -> dict[str, object]:
     return {"state": state, "reason": reason}
 
 
+def message_stamp_ns(message: Any) -> int:
+    stamp = message.header.stamp
+    return int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
+
+
+def message_age_s(message: Any, *, now_ns: int) -> float:
+    stamp_ns = message_stamp_ns(message)
+    if stamp_ns <= 0:
+        raise ValueError("message timestamp is zero")
+    age_s = (now_ns - stamp_ns) * 1e-9
+    if age_s < -1.0:
+        raise ValueError(
+            f"message timestamp is {abs(age_s):.3f}s in the future"
+        )
+    return max(0.0, age_s)
+
+
+def validate_geometry_contract(
+    image: Any,
+    camera_info: Any,
+    *,
+    expected_frame: str,
+) -> dict[str, object]:
+    dimensions = (int(image.width), int(image.height))
+    info_dimensions = (int(camera_info.width), int(camera_info.height))
+    if dimensions[0] <= 0 or dimensions[1] <= 0:
+        raise ValueError(f"geometry image dimensions are invalid: {dimensions}")
+    if info_dimensions != dimensions:
+        raise ValueError(
+            "geometry image/CameraInfo dimensions differ: "
+            f"image={dimensions[0]}x{dimensions[1]}, "
+            f"camera_info={info_dimensions[0]}x{info_dimensions[1]}"
+        )
+    frames = {
+        "image": str(image.header.frame_id),
+        "camera_info": str(camera_info.header.frame_id),
+    }
+    invalid_frames = {
+        name: frame for name, frame in frames.items() if frame != expected_frame
+    }
+    if invalid_frames:
+        raise ValueError(
+            f"geometry frame mismatch; expected {expected_frame!r}, "
+            f"got {invalid_frames}"
+        )
+    intrinsics = tuple(float(value) for value in camera_info.k)
+    if len(intrinsics) != 9 or not all(math.isfinite(value) for value in intrinsics):
+        raise ValueError("CameraInfo intrinsics are malformed")
+    fx = intrinsics[0]
+    fy = intrinsics[4]
+    cx = intrinsics[2]
+    cy = intrinsics[5]
+    if fx <= 0 or fy <= 0:
+        raise ValueError("CameraInfo focal lengths must be positive")
+    if not (-0.5 <= cx <= dimensions[0] - 0.5):
+        raise ValueError(f"CameraInfo cx is outside the image: {cx}")
+    if not (-0.5 <= cy <= dimensions[1] - 0.5):
+        raise ValueError(f"CameraInfo cy is outside the image: {cy}")
+    return {
+        "frame_id": expected_frame,
+        "width": dimensions[0],
+        "height": dimensions[1],
+        "fx": fx,
+        "fy": fy,
+        "cx": cx,
+        "cy": cy,
+    }
+
+
 def validate_water_status(
     message: Any, *, expected_live: bool
 ) -> dict[str, object]:
@@ -130,7 +200,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         QoSProfile,
         ReliabilityPolicy,
     )
-    from sensor_msgs.msg import Image
+    from sensor_msgs.msg import CameraInfo, Image
     from std_msgs.msg import String
 
     rclpy.init()
@@ -189,6 +259,27 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 volatile_qos,
             )
         )
+    if args.geometry_image_topic:
+        subscriptions.extend(
+            [
+                node.create_subscription(
+                    Image,
+                    args.geometry_image_topic,
+                    lambda message: latest.__setitem__(
+                        "geometry_image", message
+                    ),
+                    volatile_qos,
+                ),
+                node.create_subscription(
+                    CameraInfo,
+                    args.camera_info_topic,
+                    lambda message: latest.__setitem__(
+                        "camera_info", message
+                    ),
+                    volatile_qos,
+                ),
+            ]
+        )
 
     topics = {
         "raw": args.raw_cmd_topic,
@@ -217,13 +308,32 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     required_messages.update(
         f"image_{index}" for index in range(len(args.fresh_image_topic))
     )
+    if args.geometry_image_topic:
+        required_messages.update(("geometry_image", "camera_info"))
     observed_graph: dict[str, dict[str, list[str]]] = {}
+    stale_occupancy_age_s: float | None = None
     try:
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.2)
             observed_graph = graph()
             if not required_messages.issubset(latest):
                 continue
+            if args.geometry_image_topic:
+                # A profile reconnect can leave TinyNav publishing new-sized
+                # images with cached old CameraInfo. Fail immediately instead
+                # of waiting for a stale map to time out.
+                validate_geometry_contract(
+                    latest["geometry_image"],
+                    latest["camera_info"],
+                    expected_frame=args.camera_frame,
+                )
+            stale_occupancy_age_s = None
+            if args.max_occupancy_age_s > 0:
+                stale_occupancy_age_s = message_age_s(
+                    latest["occupancy"], now_ns=time.time_ns()
+                )
+                if stale_occupancy_age_s > args.max_occupancy_age_s:
+                    continue
             if all(
                 observed_graph[key]["publishers"]
                 for key in ("raw", "guarded", "target", "poi")
@@ -241,6 +351,15 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             raise TimeoutError(
                 "timed out waiting for fresh ROS messages: "
                 + ", ".join(missing)
+            )
+        if (
+            stale_occupancy_age_s is not None
+            and stale_occupancy_age_s > args.max_occupancy_age_s
+        ):
+            raise TimeoutError(
+                "occupancy remained stale: "
+                f"age={stale_occupancy_age_s:.3f}s, "
+                f"limit={args.max_occupancy_age_s:.3f}s"
             )
 
         odom = latest["odom"]
@@ -313,6 +432,14 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             contains="focus_tinynav_buildmap_goal_router",
         )
 
+        occupancy = validate_occupancy(
+            latest["occupancy"], frame_id=args.frame_id
+        )
+        if args.max_occupancy_age_s > 0:
+            occupancy["age_s"] = message_age_s(
+                latest["occupancy"], now_ns=time.time_ns()
+            )
+            occupancy["maximum_age_s"] = args.max_occupancy_age_s
         report: dict[str, object] = {
             "schema_version": "focus-tinynav-data-plane-verification-v1",
             "robot_id": args.robot_id,
@@ -323,9 +450,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 "frame_id": str(odom.header.frame_id),
                 "child_frame_id": str(odom.child_frame_id),
             },
-            "occupancy": validate_occupancy(
-                latest["occupancy"], frame_id=args.frame_id
-            ),
+            "occupancy": occupancy,
             "router": validate_router_status(latest["router"]),
             "fresh_image_topics": list(args.fresh_image_topic),
             "command_graph": observed_graph,
@@ -333,6 +458,12 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         if args.platform_status_topic:
             report["platform"] = validate_water_status(
                 latest["platform"], expected_live=args.mode == "live"
+            )
+        if args.geometry_image_topic:
+            report["geometry"] = validate_geometry_contract(
+                latest["geometry_image"],
+                latest["camera_info"],
+                expected_frame=args.camera_frame,
             )
         return report
     finally:
@@ -362,6 +493,18 @@ def main() -> int:
         default=[],
         help="image topic that must deliver a new volatile sample",
     )
+    parser.add_argument(
+        "--geometry-image-topic",
+        default="",
+        help="image whose dimensions/frame must match --camera-info-topic",
+    )
+    parser.add_argument("--camera-info-topic", default="")
+    parser.add_argument(
+        "--max-occupancy-age-s",
+        type=float,
+        default=0.0,
+        help="maximum source timestamp age; zero disables this check",
+    )
     parser.add_argument("--raw-cmd-topic", default="/cmd_vel")
     parser.add_argument("--guarded-cmd-topic", default="/focus_guarded_cmd_vel")
     parser.add_argument("--target-topic", default="/control/target_pose")
@@ -370,6 +513,12 @@ def main() -> int:
     args = parser.parse_args()
     if args.timeout_s <= 0:
         parser.error("--timeout-s must be positive")
+    if bool(args.geometry_image_topic) != bool(args.camera_info_topic):
+        parser.error(
+            "--geometry-image-topic and --camera-info-topic must be used together"
+        )
+    if args.max_occupancy_age_s < 0:
+        parser.error("--max-occupancy-age-s must not be negative")
     try:
         report = run(args)
     except Exception as exc:  # noqa: BLE001 - startup must fail closed

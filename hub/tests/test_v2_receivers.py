@@ -84,6 +84,35 @@ def test_data_plane_verifier_waits_for_resolved_endpoint_identity():
     assert verifier.endpoint_names(endpoints) == ["/cmd_vel_control_node"]
 
 
+def test_data_plane_verifier_rejects_stale_or_mismatched_geometry():
+    verifier = load_overlay("verify_tinynav_data_plane.py")
+    header = SimpleNamespace(
+        frame_id="camera",
+        stamp=SimpleNamespace(sec=10, nanosec=0),
+    )
+    image = SimpleNamespace(width=640, height=480, header=header)
+    camera_info = SimpleNamespace(
+        width=640,
+        height=480,
+        header=header,
+        k=[400.0, 0.0, 319.5, 0.0, 400.0, 239.5, 0.0, 0.0, 1.0],
+    )
+
+    geometry = verifier.validate_geometry_contract(
+        image, camera_info, expected_frame="camera"
+    )
+    assert geometry["width"] == 640
+    assert verifier.message_age_s(image, now_ns=12_000_000_000) == pytest.approx(
+        2.0
+    )
+
+    camera_info.width = 848
+    with pytest.raises(ValueError, match="dimensions differ"):
+        verifier.validate_geometry_contract(
+            image, camera_info, expected_frame="camera"
+        )
+
+
 def test_receiver_pose_conversions_preserve_planar_yaw():
     wsj = load_overlay("v2_wsj_receiver.py")
     yunji = load_overlay("v2_yunji_receiver.py")
@@ -470,6 +499,12 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--fresh-image-topic" in wsj
     assert "--fresh-image-topic" in yunji
     assert "--fresh-image-topic /slam/depth" in wsj
+    assert "--geometry-image-topic /slam/depth" in wsj
+    assert "--camera-info-topic /slam/camera_info" in wsj
+    assert "--max-occupancy-age-s 12" in wsj
+    assert "--geometry-image-topic /slam/depth" in yunji
+    assert "--camera-info-topic /slam/camera_info" in yunji
+    assert "--max-occupancy-age-s 12" in yunji
     assert "--fresh-image-topic /slam/keyframe_depth" not in wsj
     assert "WSJ calibrated sensor epoch is stale" in wsj
     assert "Refusing to restart camera/perception after calibration" in wsj
