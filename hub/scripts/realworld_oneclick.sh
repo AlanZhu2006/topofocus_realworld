@@ -493,7 +493,12 @@ ensure_foxglove() {
   done
   tmux new-session -d -s "$FOXGLOVE_SESSION" -n relay \
     "bash -lc 'cd \"$HUB_DIR\"; exec .venv/bin/python -u tools/foxglove_relay.py --robot robot-0:wsj:\"$WSJ_MAP\" --robot robot-1:yunji:\"$YUNJI_MAP\" --host 0.0.0.0 --port $FOCUS_FOXGLOVE_PORT --preview-port $FOCUS_PREVIEW_PORT --fuse'"
-  deadline=$((SECONDS + 20))
+  # A fresh pair of SegFormer-backed maps normally needs roughly 20-40
+  # seconds to pass startup stability, infer its first semantic frame and
+  # publish the first fused overview.  Readiness remains content-based; this
+  # longer bound only prevents a healthy first launch from losing a race by a
+  # few seconds.
+  deadline=$((SECONDS + 90))
   until foxglove_matches; do
     (( SECONDS < deadline )) || {
       tmux capture-pane -pt "$FOXGLOVE_SESSION:relay" -S -120 >&2 || true

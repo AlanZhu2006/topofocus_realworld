@@ -114,7 +114,9 @@ ports, semantic-overview contract or loaded relay/renderer source hash differ.
 It waits until both per-robot semantic overviews and the fused overview are
 actually generated; a listening port is not considered ready. If an unmanaged
 process owns a required port, it fails with a clear error instead of leaving
-an old picture visible.
+an old picture visible. A completely fresh SegFormer map pair is allowed up
+to 90 seconds to produce that first content-verified overview; subsequent
+launches reuse the matching relay and normally pass immediately.
 
 Debug has no stale-map or blocked-map bypass. It freezes one stable generation
 of each map, requires command-capable observations with strict mapping health

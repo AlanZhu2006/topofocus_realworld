@@ -48,6 +48,7 @@ def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():
     assert "tmux rename-session" in source
     assert "run_glm_offline.sh" in source
     assert "GLM endpoint is live but not owned by a verified GLM tmux." in source
+    assert "deadline=$((SECONDS + 90))" in source
 
 
 def test_remote_completion_marker_always_starts_on_a_new_line():
