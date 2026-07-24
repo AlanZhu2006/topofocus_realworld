@@ -84,6 +84,33 @@ TRANSIENT_SLAM_FAILURES = frozenset(
 )
 EXTERNAL_ODOMETRY_MAX_POS_VAR_M2 = 0.01
 EXTERNAL_ODOMETRY_MAX_YAW_VAR_RAD2 = 0.01
+ROBOT_HEALTH_DETAIL_MAX_LENGTH = 512
+
+
+def bounded_protocol_detail(
+    value: str, *, max_length: int = ROBOT_HEALTH_DETAIL_MAX_LENGTH
+) -> str:
+    """Bound diagnostic text without dropping either end of its provenance.
+
+    ``RobotHealth.detail`` is descriptive only; all safety decisions are also
+    carried by structured fields.  Runtime graph and platform diagnostics can
+    nevertheless exceed the transport model's 512-character limit.  Preserve
+    the leading localization evidence and trailing platform-authority evidence,
+    with a digest of the complete source string between them.
+    """
+
+    if max_length <= 0:
+        raise ValueError("max_length must be positive")
+    if len(value) <= max_length:
+        return value
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+    marker = f"; truncated_sha256={digest}; "
+    if len(marker) >= max_length:
+        return marker[:max_length]
+    remaining = max_length - len(marker)
+    head_length = (remaining + 1) // 2
+    tail_length = remaining - head_length
+    return value[:head_length] + marker + value[-tail_length:]
 
 
 def quaternion_pose_matrix(pose: Any) -> tuple[float, ...]:
@@ -873,7 +900,9 @@ def main() -> int:
                     else True
                 ),
             }
-            return all(checks.values()), json.dumps(checks, sort_keys=True)
+            return all(checks.values()), json.dumps(
+                checks, sort_keys=True, separators=(",", ":")
+            )
 
     rclpy.init()
     node = WsjReceiverNode()
@@ -1115,7 +1144,7 @@ def main() -> int:
                 motor_controller_ready=bool(
                     graph_ready and platform_fresh and node.platform_pass
                 ),
-                detail=(
+                detail=bounded_protocol_detail(
                     f"{node.slam_detail}; odom_age={odom_age_s:.3f}s/"
                     f"{args.local_data_timeout_s:.3f}s; "
                     f"slam_age={slam_age_s:.3f}s/"

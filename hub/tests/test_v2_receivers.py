@@ -280,6 +280,32 @@ def test_external_odin_odometry_health_uses_covariance_fail_closed():
     )
 
 
+def test_receiver_bounds_health_detail_without_losing_authority_evidence():
+    receiver = load_overlay("v2_wsj_receiver.py")
+    source = (
+        "external_odometry_covariance_tracking; "
+        + "graph_evidence=" * 80
+        + "; WATER local status/watchdog retains final authority"
+    )
+
+    bounded = receiver.bounded_protocol_detail(source)
+
+    assert len(bounded) == 512
+    assert bounded.startswith("external_odometry_covariance_tracking")
+    assert "truncated_sha256=" in bounded
+    assert bounded.endswith(
+        "WATER local status/watchdog retains final authority"
+    )
+    receiver.RobotHealth(
+        safety_state=receiver.SafetyState.READY,
+        localization_state=receiver.LocalizationState.TRACKING,
+        estop_engaged=False,
+        collision_avoidance_ready=True,
+        motor_controller_ready=True,
+        detail=bounded,
+    )
+
+
 def test_receiver_help_exposes_separate_explicit_live_gates():
     cases = {
         "v2_wsj_receiver.py": (
