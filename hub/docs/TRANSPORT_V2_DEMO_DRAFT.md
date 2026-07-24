@@ -273,6 +273,14 @@ the mask. The Hub
 must not preselect a collision-free approach or command velocity. Failure to
 find a locally reachable approach is `REJECTED_UNREACHABLE`.
 
+Because the chosen point is already inside the radius-10-cell source arrival
+neighborhood, a point-goal adapter must not apply that 0.50 m dilation a
+second time. The deployed TinyNav adapter uses the source FMM planner's final
+three-cell stop tolerance (0.15 m at 0.05 m/cell) around the selected
+collision-free approach point. Frontier points still use the original
+radius-10-cell, 0.50 m neighborhood because they have not already been
+expanded into candidate cells.
+
 ## Lease, ordering and loss behavior
 
 A GOAL or HOLD lease lasts no more than 10 seconds. Normal Hub operation

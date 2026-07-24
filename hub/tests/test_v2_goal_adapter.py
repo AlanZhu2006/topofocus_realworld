@@ -220,7 +220,10 @@ def test_semantic_region_requires_local_reachability_and_preserves_hash(
     assert accepted.action == V2AdapterAction.GOAL
     assert accepted.local_goal.target_kind == "SEMANTIC_REGION"
     assert accepted.local_goal.source_region_sha256 == decision.target.region.payload_sha256
-    assert accepted.local_goal.arrival_radius_m == pytest.approx(0.5)
+    # The chosen point is already inside the source radius-10-cell semantic
+    # arrival region.  Only the source FMM's final three-cell stop tolerance
+    # applies to that point; the 0.50 m region dilation must not be added twice.
+    assert accepted.local_goal.arrival_radius_m == pytest.approx(0.15)
     assert accepted.local_goal.x < -0.1
 
 

@@ -355,11 +355,13 @@ def test_goal_progress_watchdog_survives_leases_and_bounds_stall():
         leg_id="leg-1",
         remaining_m=1.0,
         now_monotonic=10.0,
+        position_xy=(0.0, 0.0),
     ) == (False, 0.0)
     assert watchdog.observe(
         leg_id="leg-1",
         remaining_m=0.97,
         now_monotonic=25.0,
+        position_xy=(0.01, 0.0),
     ) == pytest.approx((False, 15.0))
     # A real 5 cm reduction resets the same-leg timer; short lease renewals
     # must not reset it merely by changing decision IDs.
@@ -367,11 +369,13 @@ def test_goal_progress_watchdog_survives_leases_and_bounds_stall():
         leg_id="leg-1",
         remaining_m=0.94,
         now_monotonic=26.0,
+        position_xy=(0.02, 0.0),
     ) == (False, 0.0)
     stalled, stalled_s = watchdog.observe(
         leg_id="leg-1",
         remaining_m=0.93,
         now_monotonic=46.0,
+        position_xy=(0.03, 0.0),
     )
     assert stalled is True
     assert stalled_s == pytest.approx(20.0)
@@ -380,7 +384,40 @@ def test_goal_progress_watchdog_survives_leases_and_bounds_stall():
         leg_id="leg-2",
         remaining_m=2.0,
         now_monotonic=47.0,
+        position_xy=(1.0, 1.0),
     ) == (False, 0.0)
+
+
+def test_goal_progress_watchdog_accepts_bounded_detour_motion():
+    receiver = load_overlay("v2_wsj_receiver.py")
+    watchdog = receiver.GoalProgressWatchdog(
+        timeout_s=20.0,
+        minimum_improvement_m=0.05,
+    )
+
+    assert watchdog.observe(
+        leg_id="leg-detour",
+        remaining_m=1.0,
+        now_monotonic=10.0,
+        position_xy=(0.0, 0.0),
+    ) == (False, 0.0)
+    # A locally planned detour can move sideways before straight-line goal
+    # distance falls.  Physical displacement is progress, while the source
+    # 24/25-tick round still provides the outer execution bound.
+    assert watchdog.observe(
+        leg_id="leg-detour",
+        remaining_m=1.01,
+        now_monotonic=29.0,
+        position_xy=(0.0, 0.06),
+    ) == (False, 0.0)
+    stalled, stalled_s = watchdog.observe(
+        leg_id="leg-detour",
+        remaining_m=1.0,
+        now_monotonic=49.0,
+        position_xy=(0.0, 0.07),
+    )
+    assert stalled is True
+    assert stalled_s == pytest.approx(20.0)
 
 
 def test_external_odin_odometry_health_uses_covariance_fail_closed():

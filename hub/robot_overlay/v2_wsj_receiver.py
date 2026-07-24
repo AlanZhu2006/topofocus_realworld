@@ -130,6 +130,7 @@ class GoalProgressWatchdog:
         self.leg_id: str | None = None
         self.best_remaining_m = math.inf
         self.last_progress_monotonic = 0.0
+        self.motion_anchor_xy: tuple[float, float] | None = None
 
     def observe(
         self,
@@ -137,6 +138,7 @@ class GoalProgressWatchdog:
         leg_id: str,
         remaining_m: float,
         now_monotonic: float,
+        position_xy: tuple[float, float] | None = None,
     ) -> tuple[bool, float]:
         if not leg_id:
             raise ValueError("leg_id is required")
@@ -144,16 +146,38 @@ class GoalProgressWatchdog:
             raise ValueError("remaining_m must be finite and non-negative")
         if not math.isfinite(now_monotonic):
             raise ValueError("now_monotonic must be finite")
+        if position_xy is not None and (
+            len(position_xy) != 2
+            or not all(math.isfinite(value) for value in position_xy)
+        ):
+            raise ValueError("position_xy must contain two finite values")
         if self.leg_id != leg_id:
             self.leg_id = leg_id
             self.best_remaining_m = remaining_m
             self.last_progress_monotonic = now_monotonic
+            self.motion_anchor_xy = position_xy
             return False, 0.0
-        if (
+        metric_progress = (
             remaining_m
             <= self.best_remaining_m - self.minimum_improvement_m
-        ):
-            self.best_remaining_m = remaining_m
+        )
+        motion_progress = False
+        if position_xy is not None:
+            if self.motion_anchor_xy is None:
+                self.motion_anchor_xy = position_xy
+            else:
+                motion_progress = (
+                    math.hypot(
+                        position_xy[0] - self.motion_anchor_xy[0],
+                        position_xy[1] - self.motion_anchor_xy[1],
+                    )
+                    >= self.minimum_improvement_m
+                )
+        if metric_progress or motion_progress:
+            if metric_progress:
+                self.best_remaining_m = remaining_m
+            if position_xy is not None:
+                self.motion_anchor_xy = position_xy
             self.last_progress_monotonic = now_monotonic
             return False, 0.0
         stalled_s = max(
@@ -1698,6 +1722,7 @@ def main() -> int:
                                 leg_id=decision.leg_id,
                                 remaining_m=remaining_m,
                                 now_monotonic=time.monotonic(),
+                                position_xy=(pose[0], pose[1]),
                             )
                         if not same_leg:
                             emit(
@@ -1812,6 +1837,7 @@ def main() -> int:
                         leg_id=active_decision.leg_id,
                         remaining_m=remaining_m,
                         now_monotonic=time.monotonic(),
+                        position_xy=(pose[0], pose[1]),
                     )
                     if stalled:
                         stalled_decision = active_decision
@@ -1837,6 +1863,21 @@ def main() -> int:
                             leg_id=stalled_decision.leg_id,
                             stalled_s=round(stalled_s, 3),
                             remaining_m=round(remaining_m, 3),
+                            goal_distance_m=round(
+                                math.hypot(
+                                    pose[0] - active_goal.x,
+                                    pose[1] - active_goal.y,
+                                ),
+                                3,
+                            ),
+                            arrival_radius_m=round(
+                                active_goal.arrival_radius_m or 0.0,
+                                3,
+                            ),
+                            local_pose_xy=[
+                                round(pose[0], 3),
+                                round(pose[1], 3),
+                            ],
                         )
                         active_decision = None
                         active_goal = None

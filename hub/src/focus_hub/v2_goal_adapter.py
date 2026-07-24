@@ -24,6 +24,9 @@ from .transport_v2 import (
     SemanticRegionTargetV2,
 )
 
+SOURCE_FMM_SEMANTIC_STOP_CELLS = 3.0
+MINIMUM_POINT_GOAL_ARRIVAL_RADIUS_M = 0.10
+
 
 class V2AdapterAction(str, Enum):
     GOAL = "GOAL"
@@ -335,7 +338,17 @@ class V2GoalAdapter:
             yaw_rad=wrap_to_pi(yaw),
             target_kind=target.kind,
             source_region_sha256=target.region.payload_sha256,
-            arrival_radius_m=radius * target.region.resolution_m,
+            # ``candidates`` is already the source FMM planner's
+            # radius-10-cell dilation of the semantic component.  Reusing
+            # that 0.50 m dilation as a point-goal arrival radius would
+            # dilate the source goal a second time.  The source FMM stop
+            # check is approximately three 5 cm cells from its multi-goal
+            # set, so preserve that final controller tolerance here.
+            arrival_radius_m=max(
+                MINIMUM_POINT_GOAL_ARRIVAL_RADIUS_M,
+                SOURCE_FMM_SEMANTIC_STOP_CELLS
+                * target.region.resolution_m,
+            ),
         )
 
     def _command_preview(
