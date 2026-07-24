@@ -64,10 +64,17 @@ fi
   --no-input \
   "numba==0.61.2" \
   "codetiming==1.4.0"
-"$VENV_ROOT/bin/python" -c \
-  "import cv_bridge, message_filters, numba, scipy; import tinynav" \
-  2>/dev/null \
-  || PYTHONPATH="$SOURCE_ROOT" "$VENV_ROOT/bin/python" -c \
+
+# ROS Python packages live under the Humble prefix rather than the normal
+# distro site-packages directory. Source that prefix before validating the
+# system-site-packages venv, exactly as the component runner does.
+had_nounset=0
+case $- in *u*) had_nounset=1; set +u ;; esac
+unset COLCON_CURRENT_PREFIX AMENT_CURRENT_PREFIX
+source /opt/ros/humble/setup.bash
+[[ "$had_nounset" == 1 ]] && set -u
+PYTHONPATH="$SOURCE_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+  "$VENV_ROOT/bin/python" -c \
     "import cv_bridge, message_filters, numba, scipy; import tinynav"
 
 python3 - "$PROVENANCE" "$REPOSITORY_URL" "$PINNED_COMMIT" "$SOURCE_ROOT" <<'PY'
