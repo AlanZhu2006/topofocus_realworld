@@ -164,9 +164,9 @@ remote_run() {
   tmux send-keys -t "$target" "$line" Enter
   deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
-    output="$(tmux capture-pane -pt "$target" -S -260 2>/dev/null || true)"
+    output="$(tmux capture-pane -pJt "$target" -S -260 2>/dev/null || true)"
     rc="$(
-      sed -n "s/^__${token}_RC=\\([0-9][0-9]*\\)$/\\1/p" \
+      sed -n "s/^__${token}_RC=\\([0-9][0-9]*\\)[[:space:]]*$/\\1/p" \
         <<<"$output" | tail -n 1
     )"
     if [[ -n "$rc" ]]; then
@@ -183,7 +183,8 @@ remote_run() {
 }
 
 verify_remote_release() {
-  local target="$1" root="$2" manifest encoded quoted_root
+  local target="$1" root="$2" manifest encoded quoted_root suffix
+  local remote_encoded remote_manifest chunk
   manifest="$(
     cd "$WORKSPACE"
     git ls-files -z hub/src/focus_hub hub/robot_overlay \
@@ -193,8 +194,23 @@ verify_remote_release() {
   [[ -n "$manifest" ]] || return 1
   encoded="$(printf '%s\n' "$manifest" | base64 -w0)"
   printf -v quoted_root '%q' "$root"
+  suffix="$(date +%s%N)_${RANDOM}"
+  remote_encoded="/tmp/focus-release-${suffix}.b64"
+  remote_manifest="/tmp/focus-release-${suffix}.sha256"
+  remote_run "$target" "umask 077; : > '$remote_encoded'"
+  while IFS= read -r chunk || [[ -n "$chunk" ]]; do
+    remote_run "$target" \
+      "printf '%s' '$chunk' >> '$remote_encoded'" || {
+        remote_run "$target" \
+          "test ! -e '$remote_encoded' || unlink '$remote_encoded'" || true
+        return 1
+      }
+  # Keep each tmux/PTY line well below the observed remote canonical-input
+  # limit. Larger chunks can be accepted by tmux but silently truncated by
+  # the interactive SSH terminal.
+  done < <(printf '%s' "$encoded" | fold -w 1000)
   remote_run "$target" \
-    "printf '%s' '$encoded' | base64 -d | (cd $quoted_root && sha256sum -c - >/dev/null)"
+    "set +e; base64 -d '$remote_encoded' > '$remote_manifest'; rc=\$?; if [ \"\$rc\" -eq 0 ]; then (cd $quoted_root && sha256sum --quiet -c '$remote_manifest'); rc=\$?; fi; unlink '$remote_encoded'; unlink '$remote_manifest'; exit \"\$rc\""
 }
 
 stop_managed_hub() {
@@ -206,7 +222,7 @@ stop_managed_hub() {
        && "$start" == *"$HUB_PORT"* ]] \
       || continue
     tmux kill-session -t "$session" >/dev/null 2>&1 || true
-  done < <(tmux list-panes -a -F '#{session_name}\t#{pane_start_command}' 2>/dev/null || true)
+  done < <(tmux list-panes -a -F $'#{session_name}\t#{pane_start_command}' 2>/dev/null || true)
   deadline=$((SECONDS + 15))
   while ss -tln 2>/dev/null | grep -q ":$HUB_PORT "; do
     (( SECONDS < deadline )) || {
@@ -233,7 +249,7 @@ ensure_calibration_relay() {
   while IFS=$'\t' read -r session start; do
     [[ "$start" == *"tools/foxglove_relay.py"* ]] || continue
     tmux kill-session -t "$session" >/dev/null 2>&1 || true
-  done < <(tmux list-panes -a -F '#{session_name}\t#{pane_start_command}' 2>/dev/null || true)
+  done < <(tmux list-panes -a -F $'#{session_name}\t#{pane_start_command}' 2>/dev/null || true)
   deadline=$((SECONDS + 15))
   while ss -tln 2>/dev/null | grep -Eq ':(8765|8766) '; do
     (( SECONDS < deadline )) || {
@@ -305,7 +321,7 @@ deploy_calibration() {
     "install -d -m 700 '$remote_dir'; printf '%s' '$encoded' | base64 -d > '${remote_path}.tmp'; chmod 600 '${remote_path}.tmp'; test \"\$(sha256sum '${remote_path}.tmp' | awk '{print \$1}')\" = '$expected'; mv '${remote_path}.tmp' '$remote_path'"
 }
 
-calibration_cleanup_required="true"
+calibration_cleanup_required="false"
 cleanup_calibration_failure() {
   local rc=$?
   trap - EXIT INT TERM
@@ -314,7 +330,7 @@ cleanup_calibration_failure() {
     tmux kill-session -t "foxglove_calibration_${session_id}" \
       >/dev/null 2>&1 || true
     remote_run "$WSJ_TMUX_TARGET" \
-      "tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; source /home/nvidia/twork/tinynav_setup.bash; ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true" \
+      "tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true" \
       || true
     remote_run "$YUNJI_TMUX_TARGET" \
       "sudo -n systemctl stop focus-yunji-calibration-observation-v1.service >/dev/null 2>&1 || true" \
@@ -327,6 +343,7 @@ trap cleanup_calibration_failure EXIT INT TERM
 echo "Verifying byte-identical robot release roots before calibration."
 verify_remote_release "$WSJ_TMUX_TARGET" "$WSJ_ROOT"
 verify_remote_release "$YUNJI_TMUX_TARGET" "$YUNJI_ROOT"
+calibration_cleanup_required="true"
 echo "Starting fail-closed raw calibration observation."
 start_hub_config "$raw_config"
 ensure_calibration_relay

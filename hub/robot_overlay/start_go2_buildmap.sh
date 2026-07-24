@@ -54,7 +54,7 @@ if [[ "$repair_online_stack" == "true" ]]; then
     exit 1
   fi
   source "$SETUP_FILE"
-  ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' \
+  timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' \
     >/dev/null 2>&1 || true
 else
   if pgrep -af \

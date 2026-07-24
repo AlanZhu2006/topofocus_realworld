@@ -39,6 +39,15 @@ def test_live_arming_happens_after_shadow_and_has_exit_disarm():
     assert "OPERATOR_PRESENT_AND_ROBOTS_CLEAR" in source
 
 
+def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():
+    source = (SCRIPTS / "realworld_oneclick.sh").read_text()
+
+    assert source.count("timeout 5 ros2 topic pub --once") == 6
+    assert "tmux rename-session" in source
+    assert "run_glm_offline.sh" in source
+    assert "GLM endpoint is live but not owned by a verified GLM tmux." in source
+
+
 def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
     source = (SCRIPTS / "calibrate_realworld_session.sh").read_text()
 

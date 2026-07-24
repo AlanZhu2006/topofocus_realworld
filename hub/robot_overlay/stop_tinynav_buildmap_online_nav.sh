@@ -27,10 +27,10 @@ tmux has-session -t "$SESSION" 2>/dev/null || {
 source "$SETUP_FILE"
 
 # The latched pause and guarded zero are stop commands, not navigation goals.
-ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' \
+timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' \
   >/dev/null 2>&1 || true
 if ros2 topic list 2>/dev/null | grep -qx /focus_guarded_cmd_vel; then
-  ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' \
+  timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' \
     >/dev/null 2>&1 || true
 fi
 

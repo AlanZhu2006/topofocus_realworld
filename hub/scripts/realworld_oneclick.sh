@@ -134,9 +134,9 @@ remote_run() {
   tmux send-keys -t "$target" "$line" Enter
   deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
-    output="$(tmux capture-pane -pt "$target" -S -260 2>/dev/null || true)"
+    output="$(tmux capture-pane -pJt "$target" -S -260 2>/dev/null || true)"
     rc="$(
-      sed -n "s/^__${token}_RC=\\([0-9][0-9]*\\)$/\\1/p" \
+      sed -n "s/^__${token}_RC=\\([0-9][0-9]*\\)[[:space:]]*$/\\1/p" \
         <<<"$output" | tail -n 1
     )"
     if [[ -n "$rc" ]]; then
@@ -153,7 +153,8 @@ remote_run() {
 }
 
 verify_remote_release() {
-  local target="$1" root="$2" manifest encoded quoted_root
+  local target="$1" root="$2" manifest encoded quoted_root suffix
+  local remote_encoded remote_manifest chunk
   manifest="$(
     cd "$WORKSPACE"
     git ls-files -z hub/src/focus_hub hub/robot_overlay \
@@ -166,8 +167,23 @@ verify_remote_release() {
   }
   encoded="$(printf '%s\n' "$manifest" | base64 -w0)"
   printf -v quoted_root '%q' "$root"
+  suffix="$(date +%s%N)_${RANDOM}"
+  remote_encoded="/tmp/focus-release-${suffix}.b64"
+  remote_manifest="/tmp/focus-release-${suffix}.sha256"
+  remote_run "$target" "umask 077; : > '$remote_encoded'"
+  while IFS= read -r chunk || [[ -n "$chunk" ]]; do
+    remote_run "$target" \
+      "printf '%s' '$chunk' >> '$remote_encoded'" || {
+        remote_run "$target" \
+          "test ! -e '$remote_encoded' || unlink '$remote_encoded'" || true
+        return 1
+      }
+  # Keep each tmux/PTY line well below the observed remote canonical-input
+  # limit. Larger chunks can be accepted by tmux but silently truncated by
+  # the interactive SSH terminal.
+  done < <(printf '%s' "$encoded" | fold -w 1000)
   remote_run "$target" \
-    "printf '%s' '$encoded' | base64 -d | (cd $quoted_root && sha256sum -c - >/dev/null)"
+    "set +e; base64 -d '$remote_encoded' > '$remote_manifest'; rc=\$?; if [ \"\$rc\" -eq 0 ]; then (cd $quoted_root && sha256sum --quiet -c '$remote_manifest'); rc=\$?; fi; unlink '$remote_encoded'; unlink '$remote_manifest'; exit \"\$rc\""
 }
 
 printf -v WSJ_ENV \
@@ -193,7 +209,7 @@ printf -v YUNJI_LAUNCHER '%q' \
 stop_managed_hub() {
   local rows session start deadline
   rows="$(
-    tmux list-panes -a -F '#{session_name}\t#{pane_start_command}' \
+    tmux list-panes -a -F $'#{session_name}\t#{pane_start_command}' \
       2>/dev/null || true
   )"
   while IFS=$'\t' read -r session start; do
@@ -276,7 +292,7 @@ ensure_maps() {
   # immutable sequence boundary once. Later runs can reuse that proven daemon.
   tmux kill-session -t "$MAP_SESSION" >/dev/null 2>&1 || true
   rows="$(
-    tmux list-panes -a -F '#{session_name}\t#{pane_start_command}' \
+    tmux list-panes -a -F $'#{session_name}\t#{pane_start_command}' \
       2>/dev/null || true
   )"
   while IFS=$'\t' read -r session start; do
@@ -315,7 +331,7 @@ ensure_maps() {
 }
 
 ensure_glm() {
-  local desired_port start deadline
+  local desired_port start deadline rows session candidate_start
   desired_port="$(
     GLM_URL_VALUE="$GLM_URL" "$PYTHON_BIN" -c '
 from urllib.parse import urlparse
@@ -328,12 +344,29 @@ print(urlparse(os.environ["GLM_URL_VALUE"]).port)
       tmux display-message -p -t "$FOCUS_GLM_SESSION" \
         '#{pane_start_command}' 2>/dev/null || true
     )"
-    [[ "$start" == *"run_glm_offline.sh"* && "$start" == *"$desired_port"* ]] \
-      || {
-        echo "GLM endpoint is live but not owned by the session tmux." >&2
+    if [[ "$start" == *"run_glm_offline.sh"* \
+          && "$start" == *"$desired_port"* ]]; then
+      return 0
+    fi
+    # A healthy stateless GLM may still be owned by the previous experiment's
+    # tmux session. Adopt only a pane whose launch command proves both the
+    # repository launcher and exact port; never trust the endpoint alone.
+    rows="$(
+      tmux list-panes -a \
+        -F $'#{session_name}\t#{pane_start_command}' 2>/dev/null || true
+    )"
+    while IFS=$'\t' read -r session candidate_start; do
+      [[ "$candidate_start" == *"run_glm_offline.sh"* \
+         && "$candidate_start" == *"$desired_port"* ]] || continue
+      if tmux has-session -t "$FOCUS_GLM_SESSION" 2>/dev/null; then
+        echo "GLM endpoint is live but the session tmux is already occupied." >&2
         return 1
-      }
-    return 0
+      fi
+      tmux rename-session -t "$session" "$FOCUS_GLM_SESSION"
+      return 0
+    done <<<"$rows"
+    echo "GLM endpoint is live but not owned by a verified GLM tmux." >&2
+    return 1
   fi
   tmux kill-session -t "$FOCUS_GLM_SESSION" >/dev/null 2>&1 || true
   if ss -tln 2>/dev/null | grep -q ":$desired_port "; then
@@ -431,7 +464,7 @@ ensure_foxglove() {
   local rows session start deadline
   foxglove_matches && return 0
   rows="$(
-    tmux list-panes -a -F '#{session_name}\t#{pane_start_command}' \
+    tmux list-panes -a -F $'#{session_name}\t#{pane_start_command}' \
       2>/dev/null || true
   )"
   while IFS=$'\t' read -r session start; do
@@ -465,7 +498,7 @@ ensure_foxglove() {
 
 start_read_only_robots() {
   remote_run "$WSJ_TMUX_TARGET" \
-    "source /home/nvidia/twork/tinynav_setup.bash; ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:hub-sender >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode debug"
+    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:hub-sender >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode debug"
   remote_run "$YUNJI_TMUX_TARGET" \
     "for unit in focus-yunji-calibration-observation-v1.service focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service focus-yunji-command-observation-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode debug"
 }
@@ -473,7 +506,7 @@ start_read_only_robots() {
 arm_live_robots() {
   live_cleanup_required="true"
   remote_run "$WSJ_TMUX_TARGET" \
-    "source /home/nvidia/twork/tinynav_setup.bash; ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_WSJ_CLEAR"
+    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_WSJ_CLEAR"
   remote_run "$YUNJI_TMUX_TARGET" \
     "for unit in focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR"
 }
@@ -486,7 +519,7 @@ disarm_live_stack() {
   restart_hub "$FOCUS_DEBUG_ROBOT_CONFIG" false \
     || echo "WARNING: Hub debug restart failed." >&2
   remote_run "$WSJ_TMUX_TARGET" \
-    "source /home/nvidia/twork/tinynav_setup.bash; ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode debug" \
+    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode debug" \
     || echo "WARNING: WSJ guarded stop ran but debug receiver restart failed." >&2
   remote_run "$YUNJI_TMUX_TARGET" \
     "for unit in focus-yunji-v2-live-v2.service focus-yunji-v2-debug-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode debug" \
