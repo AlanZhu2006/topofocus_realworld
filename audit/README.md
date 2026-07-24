@@ -27,6 +27,9 @@ current. For the authoritative project state, read
 
 ## Current calibration and sensors
 
+- [`WSJ_CALIBRATION_SENSOR_EPOCH_RECOVERY_20260724.md`](WSJ_CALIBRATION_SENSOR_EPOCH_RECOVERY_20260724.md):
+  observed RGB-live/depth-stale calibration failure, coordinated pre-board
+  recovery, and the post-calibration tracking-epoch guard.
 - [`SHARED_FRAME_ODIN1_20260723.md`](SHARED_FRAME_ODIN1_20260723.md): current
   WSJ/Odin board calibration session and holdout.
 - [`YUNJI_REBOOT_CALIBRATION_REVALIDATION_20260723.md`](YUNJI_REBOOT_CALIBRATION_REVALIDATION_20260723.md):

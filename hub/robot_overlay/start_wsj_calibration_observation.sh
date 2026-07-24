@@ -21,8 +21,9 @@ Usage: start_wsj_calibration_observation.sh \
   [--session NAME] [--env FILE]
 
 This command latches navigation pause, removes receiver/planner/bridge windows,
-and starts only D435i/TinyNav perception plus a mapping-only Hub sender and
-camera preview. It never starts a GOAL receiver or Go2 bridge.
+recovers the D435i/TinyNav sensor epoch before any board frame is captured,
+then starts only a mapping-only Hub sender and camera preview. It never starts
+a GOAL receiver or Go2 bridge.
 EOF
 }
 
@@ -92,10 +93,6 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
         echo "Existing session lacks $required_window; stop it and retry." >&2
         exit 1
       }
-    [[ "$(tmux display-message -p -t "$SESSION:$required_window" '#{pane_dead}')" == 0 ]] || {
-      echo "Existing $SESSION:$required_window is dead; stop it and retry." >&2
-      exit 1
-    }
   done
 else
   bash "$SCRIPT_DIR/start_go2_observation.sh" \
@@ -109,6 +106,63 @@ if pgrep -af \
   echo "A WSJ planner/receiver/bridge remains after fail-closed cleanup." >&2
   exit 1
 fi
+
+fresh_topic_once() {
+  local topic="$1"
+  timeout -k 2 8 ros2 topic echo --once "$topic" \
+    >/dev/null 2>&1
+}
+
+wait_for_fresh_topic() {
+  local topic="$1" description="$2" deadline
+  deadline=$((SECONDS + 75))
+  until fresh_topic_once "$topic"; do
+    (( SECONDS < deadline )) || {
+      echo "Timed out waiting for fresh $description ($topic)." >&2
+      return 1
+    }
+    sleep 1
+  done
+}
+
+# Camera and perception have separate process lifetimes.  If RealSense is
+# respawned while perception keeps its old IMU watermark, RGB remains live but
+# every stereo pair can be rejected forever.  Recovery is safe only here,
+# before the board defines the new tracking epoch.
+camera_restarted=false
+perception_restarted=false
+if [[ "$(tmux display-message -p -t "$SESSION:camera" '#{pane_dead}')" != 0 ]] \
+   || ! fresh_topic_once /camera/camera/color/image_raw; then
+  tmux respawn-pane -k -t "$SESSION:camera"
+  camera_restarted=true
+  wait_for_fresh_topic \
+    /camera/camera/color/image_raw "WSJ RGB after camera recovery"
+fi
+
+if [[ "$(tmux display-message -p -t "$SESSION:perception" '#{pane_dead}')" != 0 ]] \
+   || [[ "$camera_restarted" == true ]] \
+   || ! fresh_topic_once /slam/depth \
+   || ! fresh_topic_once /slam/keyframe_depth \
+   || ! fresh_topic_once /slam/keyframe_odom; then
+  tmux respawn-pane -k -t "$SESSION:perception"
+  perception_restarted=true
+fi
+
+wait_for_fresh_topic /slam/depth "TinyNav processed depth"
+wait_for_fresh_topic /slam/keyframe_depth "TinyNav keyframe depth"
+wait_for_fresh_topic /slam/keyframe_odom "TinyNav keyframe odometry"
+wait_for_fresh_topic /slam/camera_info "TinyNav camera intrinsics"
+wait_for_fresh_topic \
+  /camera/camera/color/camera_info "RealSense RGB camera intrinsics"
+
+# Require a second processed frame after a short soak.  One retained/startup
+# frame is not proof that the IMU watermark continues to advance.
+sleep 5
+wait_for_fresh_topic /slam/depth "stable TinyNav processed depth"
+wait_for_fresh_topic /slam/keyframe_odom "stable TinyNav keyframe odometry"
+echo "WSJ_CALIBRATION_SENSOR_EPOCH_READY:" \
+  "camera_restarted=$camera_restarted" \
+  "perception_restarted=$perception_restarted"
 
 for legacy_session in focus_wsj_camera_preview_20260723 focus_wsj_mapping; do
   if tmux has-session -t "$legacy_session" 2>/dev/null; then

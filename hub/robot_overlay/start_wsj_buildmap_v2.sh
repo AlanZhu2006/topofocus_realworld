@@ -127,34 +127,28 @@ verify_patched_perception() {
 
 verify_patched_perception
 
-wsj_rgb_is_fresh() {
-  (
-    set +o pipefail
-    timeout 6 ros2 topic hz /camera/camera/color/image_raw \
-      2>/dev/null | grep -qm1 '^average rate:'
-  )
+fresh_topic_once() {
+  local topic="$1"
+  timeout -k 2 10 ros2 topic echo --once "$topic" \
+    >/dev/null 2>&1
 }
 
 set +u
 source "$SETUP_FILE"
 set -u
-if ! wsj_rgb_is_fresh; then
-  tmux display-message -p -t "$SESSION:camera" '#{pane_dead}' \
-    >/dev/null 2>&1 || {
-      echo "WSJ RGB stream is stale and the managed camera pane is absent." >&2
-      exit 1
-    }
-  tmux respawn-pane -k -t "$SESSION:camera"
-  deadline=$((SECONDS + 30))
-  until wsj_rgb_is_fresh; do
-    (( SECONDS < deadline )) || {
-      echo "WSJ RealSense remained stale after camera-pane recovery." >&2
-      exit 1
-    }
-    sleep 1
-  done
-  echo "WSJ RealSense stream recovered by respawning the camera pane."
-fi
+for topic in \
+  /camera/camera/color/image_raw \
+  /slam/depth \
+  /slam/keyframe_depth \
+  /slam/keyframe_odom; do
+  fresh_topic_once "$topic" || {
+    echo "WSJ calibrated sensor epoch is stale at $topic." >&2
+    echo "Refusing to restart camera/perception after calibration because that" \
+      "would change the tracking origin; run a new board-calibration session." \
+      >&2
+    exit 1
+  }
+done
 
 bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   --session "$SESSION" \

@@ -374,13 +374,30 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--fresh-image-topic" in wsj
     assert "--fresh-image-topic" in yunji
     assert "--fresh-image-topic /slam/depth" in wsj
-    assert "/slam/keyframe_depth" not in wsj
-    assert "tmux respawn-pane -k" in wsj
-    assert "WSJ RealSense remained stale" in wsj
+    assert "--fresh-image-topic /slam/keyframe_depth" not in wsj
+    assert "WSJ calibrated sensor epoch is stale" in wsj
+    assert "Refusing to restart camera/perception after calibration" in wsj
     assert "fail_closed_on_error" in wsj
     assert "fail_closed_on_error" in yunji
     assert "focus-yunji-water-bridge-live-v1.service" in yunji
     assert 'tmux kill-window -t "$SESSION:go2-bridge"' in wsj
+
+
+def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
+    launcher = (
+        OVERLAY / "start_wsj_calibration_observation.sh"
+    ).read_text(encoding="utf-8")
+
+    assert 'tmux respawn-pane -k -t "$SESSION:camera"' in launcher
+    assert 'tmux respawn-pane -k -t "$SESSION:perception"' in launcher
+    assert "/slam/depth" in launcher
+    assert "/slam/keyframe_depth" in launcher
+    assert "/slam/keyframe_odom" in launcher
+    assert "stable TinyNav processed depth" in launcher
+    assert "WSJ_CALIBRATION_SENSOR_EPOCH_READY" in launcher
+    assert launcher.index("WSJ_CALIBRATION_SENSOR_EPOCH_READY") < launcher.index(
+        "sender=("
+    )
 
 
 def test_yunji_direct_water_map_receiver_is_retained_as_legacy_only():
