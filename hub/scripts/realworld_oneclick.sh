@@ -31,9 +31,10 @@ identities, runs both robot receivers read-only, freezes fresh synchronized
 inputs, runs the real VLM, and records a no-motion gate for this Git commit.
 
 live is unlocked only by that same-session debug record. It clears any old
-Hub decision epoch, prepares a fresh shadow decision with the robots still
-read-only, then arms the local TinyNav/WATER paths for one supervised episode.
-The exit trap always returns both robots and Hub to fail-closed debug mode.
+Hub decision epoch, arms both local paths with no GOAL present, proves fresh
+receiver heartbeats, then freezes the final inputs and immediately runs the
+VLM plus one supervised episode. The exit trap always returns both robots and
+Hub to fail-closed debug mode.
 EOF
 }
 
@@ -523,6 +524,39 @@ arm_live_robots() {
     "for unit in focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR"
 }
 
+wait_for_live_readiness() {
+  local deadline admin_token
+  admin_token="$(<"$FOCUS_ADMIN_TOKEN_FILE")"
+  deadline=$((SECONDS + 60))
+  until FOCUS_HUB_URL="$HUB_URL" \
+      FOCUS_ADMIN_TOKEN="$admin_token" \
+      "$PYTHON_BIN" - <<'PY'
+import json
+import os
+import urllib.request
+
+for robot_id in ("robot-0", "robot-1"):
+    request = urllib.request.Request(
+        os.environ["FOCUS_HUB_URL"]
+        + f"/v2/admin/robots/{robot_id}/runtime-readiness",
+        headers={"X-Admin-Token": os.environ["FOCUS_ADMIN_TOKEN"]},
+    )
+    with urllib.request.urlopen(request, timeout=3) as response:
+        payload = json.load(response)
+    if payload.get("ready_for_goal") is not True:
+        raise SystemExit(1)
+    if payload.get("health_source") != "heartbeat":
+        raise SystemExit(1)
+PY
+  do
+    (( SECONDS < deadline )) || {
+      echo "Timed out waiting for both live robot heartbeats." >&2
+      return 1
+    }
+    sleep 1
+  done
+}
+
 disarm_live_stack() {
   [[ "$live_cleanup_required" == "true" ]] || return 0
   [[ "$cleanup_started" == "false" ]] || return 0
@@ -560,9 +594,10 @@ start_read_only_robots
 
 final_hub_epoch_ns="$(date +%s%N)"
 if [[ "$mode" == live ]]; then
-  # The Hub is armed only while both robot receivers are still read-only. A
-  # fresh process has no old v2 decisions. The accepted observation/history
-  # epoch is established below before either motion receiver is started.
+  # The fresh Hub process has no v2 decisions. Receivers are initially still
+  # read-only; they are armed only after this clean observation/history epoch
+  # has been established. With no GOAL present, each robot remains locally in
+  # HOLD while its command-capable heartbeat is proved.
   live_cleanup_required="true"
   restart_hub "$FOCUS_LIVE_ROBOT_CONFIG" true
   final_hub_epoch_ns="$(date +%s%N)"
@@ -611,6 +646,16 @@ PY
   return 1
 }
 wait_for_hub_epoch
+
+if [[ "$mode" == live ]]; then
+  # Robot startup and data-plane verification can take longer than the strict
+  # 60-second frozen-input lifetime. Complete that slow work before selecting
+  # the final synchronized RGB-D/map inputs. run_v2_supervised_episode performs
+  # another readiness check immediately before the first atomic GOAL batch.
+  arm_live_robots
+  wait_for_live_readiness
+  echo "LIVE_RECEIVERS_READY_NO_GOAL: freezing final synchronized inputs."
+fi
 
 stamp="$(date +%Y%m%d_%H%M%S_%N)"
 run_dir="$HUB_DIR/runtime/oneclick_${FOCUS_SESSION_ID}_${mode}_${scene_id}_${stamp}"
@@ -695,42 +740,6 @@ if [[ "$mode" == debug ]]; then
   echo "Safety: Hub GOAL=false; both receivers read-only; no Go2 bridge/WATER move."
   exit 0
 fi
-
-arm_live_robots
-
-wait_for_live_readiness() {
-  local deadline admin_token
-  admin_token="$(<"$FOCUS_ADMIN_TOKEN_FILE")"
-  deadline=$((SECONDS + 60))
-  until FOCUS_HUB_URL="$HUB_URL" \
-      FOCUS_ADMIN_TOKEN="$admin_token" \
-      "$PYTHON_BIN" - <<'PY'
-import json
-import os
-import urllib.request
-
-for robot_id in ("robot-0", "robot-1"):
-    request = urllib.request.Request(
-        os.environ["FOCUS_HUB_URL"]
-        + f"/v2/admin/robots/{robot_id}/runtime-readiness",
-        headers={"X-Admin-Token": os.environ["FOCUS_ADMIN_TOKEN"]},
-    )
-    with urllib.request.urlopen(request, timeout=3) as response:
-        payload = json.load(response)
-    if payload.get("ready_for_goal") is not True:
-        raise SystemExit(1)
-    if payload.get("health_source") != "heartbeat":
-        raise SystemExit(1)
-PY
-  do
-    (( SECONDS < deadline )) || {
-      echo "Timed out waiting for both live robot heartbeats." >&2
-      return 1
-    }
-    sleep 1
-  done
-}
-wait_for_live_readiness
 
 episode_dir="$run_dir/episode"
 "$PYTHON_BIN" -u "$HUB_DIR/tools/run_v2_supervised_episode.py" \

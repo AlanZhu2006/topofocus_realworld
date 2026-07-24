@@ -1,6 +1,6 @@
 # Current project status
 
-Snapshot time: **2026-07-24 (Yunji TinyNav migration in progress)**
+Snapshot time: **2026-07-24 (session `20260725-lab04` live rerun pending)**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -25,12 +25,14 @@ The router then reported `ODOMETRY_STALE` and the complete stack returned both
 robots to HOLD.
 
 Since that attempt, the dated launcher has been replaced by a persistent
-physical-session workflow. Its schemas, launch chain and regression tests pass
-locally. The implementation commit has also been byte-verified in both robot
-release roots without restarting robot-side processes, but the new workflow
-has not yet completed a physical debug or live run. There is intentionally no
-`hub/runtime/sessions/current.json` until a new onsite board calibration
-succeeds.
+physical-session workflow. Session `20260725-lab04` passed independent moved-
+board calibration and strict physical no-motion debug on commit
+`89ca34bd9d621bc9a2b46e1988a8490eb9e220e0`. Its first live invocation
+completed the real VLM but was rejected before GOAL because the slow receiver
+startup aged the oldest frozen input to 89.689 seconds, beyond the 60-second
+limit. Only HOLD was published and neither robot received a motion command.
+The launcher ordering has been corrected and locally regression-tested; that
+correction still requires a physical rerun on committed, session-bound code.
 
 A subsequent semantic/Foxglove re-audit closed four local issues before that
 next run: the production relay could remain on older loaded source, stationary
@@ -149,6 +151,7 @@ new strict session by assertion. The next onsite run must use
 | `official-run01-retry1` | Both local planners navigated and the operator observed motion; lease 14 hit the observation/heartbeat race and triggered dual HOLD. | Excluded |
 | `official-run01-retry2` | The actual v2 registry still had the same race; Yunji held after immediate arrival and WSJ had a short translation segment before fail-closed cleanup. | Excluded |
 | `official-run01-retry3` | v2 health race did not recur. Yunji immediately arrived; WSJ sent 151 rotation-only commands, operator saw no motion, then local `ODOMETRY_STALE` rejected the leg. | Excluded |
+| `scene01-chair-run01` (`20260725-lab04`) | VLM selected distinct frontiers, but preflight rejected the 89.689-second-old frozen input after slow receiver startup. Only HOLD was published; no motion command was sent. | Excluded |
 
 The detailed evidence, hashes and exact command observations are in
 [`audit/V2_ROBOT_RECEIVERS_20260723.md`](audit/V2_ROBOT_RECEIVERS_20260723.md).
@@ -187,12 +190,15 @@ both remote code trees, start a clean Hub epoch, reject stale/torn inputs and
 replace a mismatched managed Foxglove relay. Each map directory separately
 binds its code/sequence/transform/calibration/backend contract; a missing or
 blocked map can be reconstructed from that exact boundary before strict input
-freezing. Live validates a HOLD-only VLM result before either motion-capable
-receiver is armed. Cleanup always restores mapping-only Hub policy and
-robot-side stop/reject authority.
+freezing. Live establishes a clean decision epoch, arms both receivers with no
+GOAL present, verifies fresh command-capable heartbeats, and only then freezes
+the final synchronized inputs and runs the VLM. This keeps slow receiver
+startup outside the 60-second frozen-input lifetime. Cleanup always restores
+mapping-only Hub policy and robot-side stop/reject authority.
 
-The implementation and complete Hub regression suite are locally observed.
-Physical execution of this new sequence is still unverified. See
+The corrected ordering and complete Hub regression suite are locally
+observed. Physical execution of the corrected sequence is still unverified.
+See
 [`hub/docs/ONECLICK_SESSION_WORKFLOW.md`](hub/docs/ONECLICK_SESSION_WORKFLOW.md)
 and
 [`audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md).

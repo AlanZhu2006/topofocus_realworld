@@ -30,18 +30,23 @@ def test_oneclick_is_session_bound_and_has_no_forensic_bypass():
     assert "both maps must exist or both be absent" in source
 
 
-def test_live_arming_happens_after_shadow_and_has_exit_disarm():
+def test_live_arming_precedes_final_input_freeze_and_has_exit_disarm():
     source = (SCRIPTS / "realworld_oneclick.sh").read_text()
 
-    assert source.index('"${shadow_args[@]}"') < source.rindex(
-        "\narm_live_robots\n"
-    )
     assert "trap cleanup_on_exit EXIT INT TERM" in source
     assert "restart_hub \"$FOCUS_DEBUG_ROBOT_CONFIG\" false" in source
     assert "OPERATOR_PRESENT_AND_ROBOTS_CLEAR" in source
-    assert source.index("\narm_live_robots\n") < source.index(
-        "\nwait_for_live_readiness\n"
+    arm = source.index("\n  arm_live_robots\n")
+    ready = source.index("\n  wait_for_live_readiness\n")
+    freeze = source.index(
+        '"$HUB_DIR/tools/freeze_realworld_inputs.py"'
     )
+    shadow = source.index('"${shadow_args[@]}"')
+    episode = source.index(
+        '"$HUB_DIR/tools/run_v2_supervised_episode.py"'
+    )
+    assert arm < ready < freeze < shadow < episode
+    assert "LIVE_RECEIVERS_READY_NO_GOAL" in source
     assert 'payload.get("ready_for_goal") is not True' in source
     assert 'payload.get("health_source") != "heartbeat"' in source
 

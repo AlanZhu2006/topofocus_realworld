@@ -167,14 +167,19 @@ bash hub/scripts/realworld_oneclick.sh \
 ```
 
 Live startup still begins with both robot receivers read-only. It clears the
-old Hub process, collects new observations, freezes the exact map/source pair
-and finishes the VLM/HOLD round before starting either motion-capable
-receiver. The episode publishes an atomic pair of expiring v2 targets and
-renews leases only while feedback is fresh.
+old Hub process and first establishes a new observation/history epoch with no
+v2 decision present. It then starts both motion-capable receivers while the
+robots remain locally in `NO_GOAL/HOLD`, and waits until both Hub
+runtime-readiness records report `ready_for_goal=true` from fresh
+robot-receiver heartbeats.
 
-After arming, the launcher waits until both Hub runtime-readiness records
-report `ready_for_goal=true` from fresh robot-receiver heartbeats. The episode
-target is not published while either local map, planner, guarded bridge or
+Only after that potentially slow startup has completed does the launcher
+freeze the exact synchronized map/source pair and run the final VLM/HOLD
+round. This ordering keeps receiver startup outside the strict 60-second
+frozen-input lifetime. Immediately before publication, the episode controller
+rechecks both runtime-readiness records and then publishes an atomic pair of
+8-second expiring v2 targets. It renews leases only while feedback is fresh.
+No target is published while either local map, planner, guarded bridge or
 platform health is still starting.
 
 Every exit path restores `GOAL=false`, latches WSJ navigation pause, sends a
@@ -225,9 +230,14 @@ compatible.
 
 ## Verification status
 
-On 2026-07-24, both robot-local debug launchers and the data-plane verifier
-passed against the physical devices. This proves live sensor/map/control
-graph continuity with chassis output disabled; it is not an SR/SPL trial. A
-complete session-bound VLM debug and one supervised physical motion check must
-still finish on the final committed code before that commit is declared
-experiment-ready.
+On 2026-07-24, session `20260725-lab04` passed board holdout calibration and
+the strict physical no-motion debug. Its first live invocation observed fresh
+dual-robot inputs and completed the real VLM in 16.089 seconds, but robot
+receiver startup then aged the oldest frozen input to 89.689 seconds. The
+60-second preflight correctly rejected publication with `INPUT_STALE`; only
+HOLD decisions were observed and no robot command was sent.
+
+The launcher ordering was subsequently corrected so receiver startup and
+heartbeat verification precede the final input freeze. Shell syntax and the
+complete local Hub regression suite pass. A physical rerun of the corrected
+ordering remains unverified and the rejected attempt is not an SR/SPL trial.
