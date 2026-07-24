@@ -1,321 +1,252 @@
 # Current project status
 
-Snapshot time: **2026-07-24 (session `20260725-lab04` live rerun pending)**
+Snapshot time: **2026-07-25, after the first concurrent dual-robot live
+motion and the operator-reported collision**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
 
 ## Executive outcome
 
-The real two-robot chain has reached:
+The real two-robot chain has now physically exercised:
 
-`RGB-D/pose -> central maps -> semantic/VLM decision -> atomic v2 targets ->
-robot-local TinyNav planning -> guarded platform output -> robot feedback ->
-lease renewal -> fail-closed HOLD`
+```text
+RGB-D/pose
+  -> online TinyNav maps
+  -> central semantic/fused maps
+  -> source-derived Perception/Judgment/Decision VLM
+  -> atomic expiring v2 high-level targets
+  -> robot-local TinyNav planning/control
+  -> guarded Go2/WATER output
+  -> robot feedback and lease renewal
+  -> fail-closed HOLD
+```
 
-No official scene has completed successfully yet. The engineering attempts
-described below must not be included in SR or SPL.
+Both robots moved during episode `scene01-chair-run01-fastfix`. This is the
+first observed concurrent physical execution of the current end-to-end
+architecture, but it is **not a success**: their assigned frontiers were
+different while the corresponding start-to-target routes crossed. The robots
+made physical contact, the operator stopped the run, and the episode is
+excluded from SR/SPL.
 
-The last experiment (`official-run01-retry3`) proved that the actual v2 Hub
-health-authority fix was active: nine high-level batches were accepted without
-the earlier health-source 409. Yunji immediately classified itself inside its
-selected arrival region. WSJ received only rotation commands at
-`vx=0.000, wz=-0.200 rad/s`; the onsite operator observed no physical motion.
-The router then reported `ODOMETRY_STALE` and the complete stack returned both
-robots to HOLD.
+The pre-incident controller allowed both robots to be active because source
+coordination removes Agent 0's selected frontier before Agent 1 chooses; that
+prevents duplicate frontier allocation but does not reserve collision-free
+multi-robot routes. A post-incident real-world execution guard now preserves
+the original two-agent VLM candidate while serializing physical authority when
+the buffered shared-frame start-to-target segments come within `0.9 m`.
+Replay of the observed starts and targets reports a minimum predicted
+separation of `0.0 m` and reduces authority to one robot. This fix is committed
+and locally tested, but has not yet been deployed into a new calibrated
+physical session or verified in motion.
 
-Since that attempt, the dated launcher has been replaced by a persistent
-physical-session workflow. Session `20260725-lab04` passed independent moved-
-board calibration and strict physical no-motion debug on commit
-`89ca34bd9d621bc9a2b46e1988a8490eb9e220e0`. Its first live invocation
-completed the real VLM but was rejected before GOAL because the slow receiver
-startup aged the oldest frozen input to 89.689 seconds, beyond the 60-second
-limit. Only HOLD was published and neither robot received a motion command.
-The launcher ordering has been corrected and locally regression-tested; that
-correction still requires a physical rerun on committed, session-bound code.
+No official scene has completed successfully. Current SR and SPL therefore
+remain **not available**, rather than zero-valued experimental estimates.
 
-A subsequent semantic/Foxglove re-audit closed four local issues before that
-next run: the production relay could remain on older loaded source, stationary
-interval frames could satisfy the nominal two-view semantic gate, visualization
-used camera pose instead of calibrated base pose, and recurring identical map
-writes could look fresh by mtime. The current read-only relay now delivers all
-three `example.png`-style overview topics. Mapper/pipeline corrections take
-effect only in a future fresh map session; the historical v12 map was not
-rewritten or cleaned.
+## Latest validated physical session
 
-The Yunji deployment path has now been replaced locally: Odin supplies
-calibrated depth, camera odometry and a session-local world cloud; online
-TinyNav owns occupancy, A*, local planning and control; WATER only executes a
-lease-gated, watchdog-bounded `/api/joy_control` velocity. This removes the
-formal experiment's dependency on a WATER saved map,
-`accessible_point_query`, `make_plan` and `/api/move`. Unit/static tests pass;
-robot-side no-motion startup and physical motion are not yet observed.
+The most recent session that passed strict no-motion debug before the
+collision was:
 
-The one-click live controller has also been extended locally from one frozen
-decision to a bounded, persistent source-derived episode. It now preserves one
-directional-history state across the `0,24,49,...,499` decision clock, freezes
-new synchronized RGB-D/maps between rounds, atomically publishes renewed
-high-level targets, and distinguishes frontier arrival (replan) from semantic
-region arrival (episode-terminal candidate). A semantic `ARRIVED` first puts
-both robots in acknowledged local HOLD and then seals hash-verified terminal
-RGB, aligned depth, observation metadata and map snapshots. This implementation
-passes local tests but has not been deployed or physically run; it
-does not turn model inference into independent target truth.
-
-## Last observed physical identity
-
-These identifiers describe the last July 24 predecessor session. They remain
-useful evidence, but are **not** promoted to a reusable persistent session:
-
-| Item | Last observed value |
+| Item | Observed value |
 | --- | --- |
+| Session | `20260725-lab05-yunjireboot4` |
+| Session Git commit | `cdcd7e70560f8bd782d83b5176bda6f5fca36780` |
+| Calibration ID | `shared-board-odin1-20260725-lab05-yunjireboot1-v1` |
+| Calibration kind | validated stationary reanchor of moved-board calibration |
+| WSJ transform | `wsj-tinynav-depth-20260725-lab05-raw-v1` |
+| Yunji transform | `yunji-odin1-stationary-reanchor-20260725-lab05-yunjireboot1-v1` |
+| WSJ map boundary | sequence `24082` |
+| Yunji map boundary | sequence `222279` |
+| Debug manifest | strict no-motion debug passed on the same commit |
+| Live episode | `scene01-chair-run01-fastfix` |
 | Hub API | `http://127.0.0.1:8188` |
 | GLM endpoint | `http://127.0.0.1:31511/v1` |
 | Foxglove | `ws://10.208.2.249:8765` |
-| Shared calibration ID | `shared-board-odin1-20260723-v3` |
-| WSJ transform | `wsj-tinynav-depth-20260723-powercycle-v3` |
-| Yunji transform | `yunji-odin1-board-20260723-powercycle-v6` |
-| WSJ map | `hub/runtime/map_out_wsj_20260724_rebuild_v12_router025` |
-| Yunji map | `hub/runtime/map_out_yunji_20260724_rebuild_v12_router025` |
-| Map tmux session | `shared_maps_20260724_rebuild_v12_router025` |
-| Foxglove tmux session | `foxglove_relay_20260724_rebuild_v12_router025` |
-| WSJ deployment root | `/home/nvidia/topofocus_buildmap_v2_20260723` |
-| Yunji deployment root | `/home/nyu/topofocus_buildmap_v2_20260723` |
 
-Power cycling alone does not invalidate calibration. Reuse is allowed only
-after a no-motion pose-delta check confirms that the robot, sensor mount and
-starting placement did not move. The legacy v3 artifact predates the new
-quantitative `board_moved_independently` holdout field, so it cannot seed the
-new strict session by assertion. The next onsite run must use
-`calibrate_realworld_session.sh` once and create a new session ID.
+That session must **not** be reused for another live run:
 
-## What is implemented and verified
+- repository HEAD now includes the route-conflict fix at
+  `b79879bfc96805aa7e7b63cf3a8ebbfe59679730`;
+- Yunji's Odin host and tracking driver restarted after the incident;
+- the Go2 chassis was subsequently powered down and is crouched;
+- the next standing pose and tracking epoch therefore need a new shared-frame
+  calibration and fresh session binding.
 
-### Observation, maps and visualization
+The old session remains immutable runtime evidence. It is not edited or
+migrated to claim compatibility with the new commit.
 
-- WSJ uses the D435i/TinyNav observation path with the deployed IMU scheduling
-  repair, registered RGB to TinyNav depth, measured body-camera calibration
-  and independent command-health heartbeat.
-- Yunji uses Odin1 `O1-P070100205`, not the retired RealSense lane. The adapter
-  consumes native RGB, SLAM cloud and odometry and preserves the factory
-  calibration.
-- Both last observed maps use gravity/ground gates, free-space ray fill, reversible
-  obstacle evidence, pose-jump blocking and online status artifacts.
-- Foxglove publishes camera, occupancy, pose, trajectory, frontiers, semantic
-  pixel regions, labels and a fused shared-frame overview. Its health contract
-  binds the exact loaded renderer hash and separately reports both robot
-  overview readiness and fused readiness.
-- The 2-D overview paints exact semantic components, avoids annotation
-  collisions and prefers calibrated `base_link` pose/heading/trajectory.
-  Historical snapshots explicitly use a camera-pose fallback.
-- Real-camera `multi_view` no longer counts an interval-only stationary
-  refresh as independent semantic confirmation. Map status separately records
-  true input age and last integrated-map capture time.
-- Real YOLO inference is enabled by default for the live semantic target path.
-  Its map projection remains model inference, not ground truth.
+## Observed physical episode
 
-### VLM behavior
+Episode `scene01-chair-run01-fastfix` used session
+`20260725-lab05-yunjireboot4` and goal category `chair`.
 
-- The source-derived Perception, Judgment/FN and Decision stages are ported.
+Observed/source-derived facts:
+
+- the source-derived VLM assigned WSJ frontier `D` at
+  `(-1.2897, 4.9773)` and Yunji frontier `B` at
+  `(2.1103, 4.5773)` in `shared_world`;
+- both decisions listed `robot-0` and `robot-1` as active;
+- WSJ accumulated approximately `1.4340 m` and Yunji approximately
+  `1.5976 m` of robot-reported path length;
+- the uploaded third-view video directly shows the platforms converge and
+  make physical contact;
+- the paired Dashboard recording shows the two short trajectories converging,
+  followed by close-range occlusion of the WSJ camera;
+- the operator reported the collision and confirmed
+  `ROBOTS_STOPPED_AFTER_COLLISION`;
+- the Hub changed both decisions to HOLD after feedback disappeared;
+- Yunji/Odin host connectivity also disappeared near the incident, but timing
+  alone does not prove that the collision caused the network loss.
+
+The controller-generated outcome was `controller_error_TimeoutError`, while
+the operator incident record is the authoritative physical termination:
+`collision`. The run has no semantic arrival, no independently verified target
+evidence, no completed terminal bundle and no metric eligibility.
+
+Detailed hashes, video provenance and the distinction between observation and
+inference are recorded in
+[`audit/DUAL_ROBOT_COLLISION_20260725.md`](audit/DUAL_ROBOT_COLLISION_20260725.md).
+
+## Corrective execution guard
+
+Commit `b79879bfc96805aa7e7b63cf3a8ebbfe59679730` adds:
+
+- frozen `shared_world` base-pose extraction from the accepted map snapshots;
+- pairwise buffered straight-segment separation checks before any GOAL batch;
+- deterministic single-robot execution when routes conflict;
+- one-robot execution when only one valid shared pose exists;
+- dual HOLD when neither shared pose is available;
+- preservation of the unmodified VLM output as
+  `vlm_candidate_batch.json`;
+- preservation of the applied decision as `initial_batch.json`;
+- an explicit `route_conflict_guard.json` provenance report.
+
+The guard changes physical concurrency authority only. It does not change the
+source VLM's Perception, Judgment/FN, Decision, directional memory or
+sequential frontier allocation.
+
+Its current limitation is explicit: straight start-to-target segment
+separation is conservative and does not certify robot-local planner detours.
+The next physical run must first verify that the observed crossing case
+produces one GOAL plus one HOLD before allowing movement.
+
+## Subsystem status
+
+### Sensors, mapping and Foxglove
+
+- **WSJ:** D435i, repaired TinyNav perception/IMU path, online BuildMap,
+  TinyNav local planner/controller and guarded Go2 bridge.
+- **Yunji:** Odin1 `O1-P070100205` RGB/depth/cloud/odometry, online TinyNav
+  occupancy/A*/local planner/controller and guarded WATER
+  `/api/joy_control` bridge.
+- The formal Yunji path does not use a WATER saved map,
+  `accessible_point_query`, `make_plan` or `/api/move`.
+- Foxglove publishes both cameras plus WSJ, Yunji and fused semantic overview
+  images with occupancy, frontiers, base poses, headings, trajectories,
+  pixel masks and labels.
+- The collision Dashboard contains a projected `chair` region. It is real
+  model inference and map projection, not independent semantic ground truth.
+
+### Source-derived VLM behavior
+
+- Perception VLM, Judgment/FN, Decision VLM and the executable source gate are
+  preserved.
 - Directional history is shared across agents.
-- Agent 0 selects first and its frontier is removed before Agent 1 selects.
-- A detected target semantic component can override a frontier target.
-- The continuous shadow runner preserves the executable HPC decision schedule.
-- The persistent physical one-click runner now composes that state into a
-  bounded multi-round live episode. Every round boundary is an acknowledged
-  dual-robot HOLD followed by a newly frozen synchronized input pair; the
-  implementation remains physically unverified.
+- Agent 0 chooses first and its frontier is removed before Agent 1 chooses.
+- Positive target-semantic evidence can replace a frontier with the largest
+  connected target component.
+- The physical runner preserves the source decision schedule
+  `0,24,49,...,499`, with acknowledged HOLD between rounds.
+- Frontier arrival means replan; only a semantic-region arrival creates an
+  automatic terminal candidate.
 
 ### Transport and robot authority
 
-- Transport v2 atomically publishes one decision per configured robot.
-- Targets are versioned, expiring high-level frontier or semantic regions.
-- Each robot owns its local planner, collision handling, velocity controller
-  and final stop/reject authority.
-- WSJ routes a v2 semantic/point target into online BuildMap A*, TinyNav
-  control and a guarded Go2 bridge.
-- Yunji routes a v2 target into the same online TinyNav A*/local
-  planner/controller architecture. A separate guarded bridge converts only
-  fresh `/focus_guarded_cmd_vel` to WATER `/api/joy_control`; stale input,
-  unhealthy WATER status, disconnect and process exit all reduce to zero.
-- The old direct WATER `/api/move` receiver is retained only as
-  historical/rollback evidence and is no longer referenced by the active
-  launcher.
-- Hub never emits motor velocity commands.
+- The Hub publishes only versioned, expiring high-level targets.
+- Each robot owns local planning, velocity control and final stop/rejection.
+- Leases renew only while command feedback remains fresh.
+- Cleanup restores Hub `GOAL=false`, local HOLD/zero behavior and removes live
+  bridge authority.
+- The route-conflict guard is an additional real-world execution adapter, not
+  a replacement for robot-local collision avoidance.
 
 ### Evaluation
 
-- The four-scene, five-run-per-scene protocol is documented.
-- Episode reports preserve decisions, feedback, path length and failure
-  reasons.
-- Standard SPL and the source-compatible SPL variant are implemented.
-- Navigation reports now preserve each robot's local start/stop pose, path and
-  planner STOP evidence. `record_realworld_trial.py` binds independent
-  terminal evidence and surveyed shortest paths to each 4 × 5 trial.
-- Semantic-region `ARRIVED` automatically preserves a terminal evidence bundle
-  before cleanup. Its status remains an unverified success candidate until a
-  human/independent annotation and surveyed goal-region/shortest-path records
-  are attached.
-- No valid official trial exists yet, so current SR/SPL are **not available**.
+- Four scenes × five trials are documented.
+- Standard SPL and source-compatible SPL are implemented.
+- Episode reports preserve robot-local start/stop poses and accumulated path.
+- Official success still requires surveyed shortest paths, goal-region
+  membership and independent terminal target evidence.
+- Collision, operator stop, controller error, incomplete terminal evidence
+  and debug/shadow runs are excluded.
 
-## Physical attempt record
+## Today's implementation delta
 
-| Episode | Observed outcome | Official metric status |
-| --- | --- | --- |
-| `official-run01` | Blocked before GOAL by contradictory WSJ IMU thresholds; thresholds were aligned and deployed. | Excluded |
-| `official-run01-retry1` | Both local planners navigated and the operator observed motion; lease 14 hit the observation/heartbeat race and triggered dual HOLD. | Excluded |
-| `official-run01-retry2` | The actual v2 registry still had the same race; Yunji held after immediate arrival and WSJ had a short translation segment before fail-closed cleanup. | Excluded |
-| `official-run01-retry3` | v2 health race did not recur. Yunji immediately arrived; WSJ sent 151 rotation-only commands, operator saw no motion, then local `ODOMETRY_STALE` rejected the leg. | Excluded |
-| `scene01-chair-run01` (`20260725-lab04`) | VLM selected distinct frontiers, but preflight rejected the 89.689-second-old frozen input after slow receiver startup. Only HOLD was published; no motion command was sent. | Excluded |
+Relative to the previous remote `origin/main`
+`89ca34bd9d621bc9a2b46e1988a8490eb9e220e0`, the runtime series through
+`b79879b` contains 19 commits across 31 files, with 4,091 insertions and 317
+deletions. All are authored as `AlanZhu2006 <yz11502@nyu.edu>`.
 
-The detailed evidence, hashes and exact command observations are in
-[`audit/V2_ROBOT_RECEIVERS_20260723.md`](audit/V2_ROBOT_RECEIVERS_20260723.md).
+The work groups into:
 
-## Closed root causes
+1. live input ordering, measured local start projection and cropped-map start
+   admission;
+2. persistent WSJ goal-router loading and Yunji depth preservation;
+3. WSJ stationary startup, ROS graph discovery, camera/SLAM freshness and
+   BuildMap readiness;
+4. measured Odin odometry tolerance and bounded robot health diagnostics;
+5. source-derived multi-round live episodes with terminal evidence handling;
+6. native WSJ calibration geometry, restored RGB preview and stationary
+   tracking reanchor;
+7. Yunji startup compute-starvation prevention;
+8. post-incident dual-route serialization.
 
-- RealSense/TinyNav IMU callback starvation and invalid-interval recovery.
-- Sender/receiver IMU threshold mismatch.
-- RGB-D observation health temporarily replacing command-receiver health.
-- The same health-source bug existing independently in v1 and v2 registries.
-- Missing exact Go2 bridge command evidence.
-- Frozen/blank Foxglove panels, ray-fill interpretation and map-session
-  contamination across pose discontinuities.
-- Cross-view YOLO depth selection using an unrelated foreground surface.
-- Stationary interval keyframes falsely satisfying two-view semantic
-  confirmation.
-- Old loaded Foxglove source and open-port-only readiness checks.
-- Rewritten snapshot mtime falsely appearing to be fresh map content.
-- Yunji D405-era assumptions after the Odin1 hardware replacement.
-
-## Persistent operator workflow
-
-The new authoritative sequence is:
-
-```text
-one board-calibration command
-  -> persisted, hash-bound session
-  -> strict no-motion debug
-  -> one freshly authorized live episode
-  -> immediate SR/SPL evidence recording
-```
-
-It removes all operator-supplied map, calibration and tmux identifiers from
-normal startup. Debug/live resolve one immutable session contract, checksum
-both remote code trees, start a clean Hub epoch, reject stale/torn inputs and
-replace a mismatched managed Foxglove relay. Each map directory separately
-binds its code/sequence/transform/calibration/backend contract; a missing or
-blocked map can be reconstructed from that exact boundary before strict input
-freezing. Live establishes a clean decision epoch, arms both receivers with no
-GOAL present, verifies fresh command-capable heartbeats, and only then enters
-the bounded freeze/VLM/high-level-target loop. Slow receiver startup remains
-outside the first 60-second frozen-input lifetime; every later round freezes a
-new pair only after both robots acknowledge HOLD. Cleanup always restores
-mapping-only Hub policy and robot-side stop/reject authority.
-
-The corrected ordering and complete Hub regression suite are locally
-observed. Physical execution of the corrected sequence is still unverified.
-See
-[`hub/docs/ONECLICK_SESSION_WORKFLOW.md`](hub/docs/ONECLICK_SESSION_WORKFLOW.md)
-and
-[`audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md).
-
-The episode controller also preserves a robot's observed `ARRIVED` event
-across the subsequent coordination HOLD, preventing its start/stop/path seed
-from being overwritten before trial recording.
-
-## Latest robot code availability
-
-After retry3, two WSJ changes were locally tested and synchronized to both
-versioned robot deployment roots:
-
-- nonzero Go2 command floors are now `0.15 m/s` linear and `0.30 rad/s`
-  angular, while hard maxima remain `0.20 m/s` and `0.50 rad/s`;
-- odometry and occupancy conversion use independent callback groups and a
-  three-thread router executor; the one-second stale-odometry fail-closed
-  threshold remains unchanged.
-
-Those changes are included in the newer persistent-session implementation
-commit
-`90dd8fe43dad16515017fe4fd9bd017e02277bf6`. A code-only archive from that
-exact Git object was synchronized to:
-
-- WSJ `/home/nvidia/topofocus_buildmap_v2_20260723`;
-- Yunji `/home/nyu/topofocus_buildmap_v2_20260723`.
-
-The latest archive contained 326 entries, was 2,133,790 bytes and had
-SHA-256
-`4298f048591ca8b6a7cfa9d9aa3fe3ba34058965329f32bfba827af72f2a097f`.
-Both robots matched that archive before extraction and then independently
-matched all 175 tracked files under `hub/src/focus_hub` and
-`hub/robot_overlay`. Both parsed the archive's 196 Python files and passed
-`bash -n` for all 39 shell files using Python 3.10.12.
-
-Robot-side processes were deliberately not restarted: the observed final
-state was WSJ receiver 0 / Go2 bridge 0 and Yunji receiver 0 / live service
-inactive / debug service inactive. The files will first be loaded by the next
-controlled stack start and remain physically unverified.
-
-The older retry3 archive contained 392 entries, was 2,371,165 bytes and had
-SHA-256
-`e1b9001fb188a3890037f5e33927d25afa44473fb50a6b8c40b61a6e123b1b72`.
-It remains historical evidence. See
-[`audit/DUAL_ROBOT_CODE_SYNC_20260723.md`](audit/DUAL_ROBOT_CODE_SYNC_20260723.md).
-
-The newer transfer and independently observed checks are recorded in
-[`audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](audit/REPOSITORY_AND_ONECLICK_AUDIT_20260724.md).
-Archive availability must not be described as process loading or physical
-verification.
+No file under immutable `source/` or `dependencies/` was changed by this
+series.
 
 ## Current safety state
 
-At the last physical check:
+At closeout:
 
-- local Hub was recreated from the current checkout on `127.0.0.1:8188`
-  with the debug robot configuration after the code-only transfer;
-- `goal_output_enabled=false` for both robots;
-- the read-only production Foxglove relay was reloaded from current source and
-  protocol subscriptions decoded non-empty WSJ, Yunji and fused overview PNGs;
-- the fresh relay intentionally retained no camera JPEG; camera panels require
-  the next real preview push and no stale frame was synthesized;
-- the predecessor v12 map daemons were gracefully stopped after their final
-  snapshots were frozen, preventing a future robot reconnect from mixing a new
-  placement into the old calibration; the static Foxglove views remain ready;
-- WSJ live receiver count was zero and Go2 bridge count was zero;
-- Yunji live receiver count was zero and its live/debug services were
-  inactive;
-- temporary transfer files and the loopback HTTP tmux session were removed;
-- all previously supplied operator confirmations were consumed.
+- the operator confirmed both robots stopped after the collision;
+- Hub health reports `goal_output_enabled=false` for both robots;
+- no previous operator motion confirmation remains valid;
+- the Go2 chassis is powered down/crouched;
+- Yunji/Odin restarted, its driver is active, and both existing SSH/tmux
+  tunnels were restored;
+- old session `20260725-lab05-yunjireboot4` is retained only as evidence;
+- no live command should be run until a new standing calibration/session
+  succeeds.
 
-Never reuse an earlier confirmation after cleanup, restart or a failed
-attempt.
+## Next valid workflow
 
-## Remaining gates
+1. Power and stand the Go2 in its intended operating posture; keep both robots
+   fixed and place the complete 7 × 10 board in both camera views.
+2. Run the new-session calibration block in [`command.txt`](command.txt).
+   It deploys the committed code, creates fresh maps/Foxglove and performs
+   strict no-motion debug.
+3. Confirm `DEBUG_FULLSTACK_READY`, both data-plane verification reports and
+   the new route-guard code/session identity.
+4. In a bounded live preflight, inspect `route_conflict_guard.json`. A crossing
+   allocation must expose only one active robot.
+5. Obtain one new onsite motion confirmation and run one supervised episode.
+6. Record independent terminal evidence and surveyed shortest paths only if
+   the episode reaches a valid terminal candidate.
 
-1. Onsite, run the one-command board calibration with a new session ID. It
-   also creates fresh maps and runs strict no-motion debug.
-2. Re-import `hub/foxglove/dual_robot_dashboard.json` once, then confirm
-   `DEBUG_FULLSTACK_READY`, fresh WSJ/Yunji health, all three semantic
-   overviews, calibrated base poses and a target outside both arrival radii.
-3. Obtain one fresh operator-present confirmation and complete one bounded
-   multi-round live episode; verify the new automatic round boundary and
-   semantic-arrival terminal bundle on hardware.
-4. Independently annotate the preserved terminal RGB and record surveyed
-   shortest paths plus goal-region judgments immediately; only a complete
-   record is metric-eligible.
-5. Then collect four scenes × five official trials.
+The calibration command already includes the required debug. A second manual
+debug run is optional unless the host, code, tracking epoch or visualization
+state changes afterward.
 
-## Git and reproducibility state
+## Git and provenance
 
-The robot-synchronized persistent-session implementation is commit
-`90dd8fe43dad16515017fe4fd9bd017e02277bf6`. The two robot release roots
-contain its exact critical runtime bytes. Repository `main` now also contains
-the synchronization record and a root `command.txt` containing copy-ready,
-unwrapped calibration/debug/live commands; GitHub PR #1 is merged. Those
-later command-reference/documentation changes do not alter the remotely
-checked `hub/src/focus_hub` or `hub/robot_overlay` trees.
-
-Runtime maps, camera frames, model files, credentials, tokens and robot-local
-calibration state remain intentionally outside Git. Their paths and hashes are
-recorded in manifests and dated audits. The 2026-07-24 semantic/visualization
-root-cause evidence and offline/live image hashes are in
-[`audit/SEMANTIC_OVERVIEW_REAUDIT_20260724.md`](audit/SEMANTIC_OVERVIEW_REAUDIT_20260724.md).
+- Repository: `git@github.com:AlanZhu2006/topofocus_realworld.git`
+- Default branch: `main`
+- Route-conflict implementation: `b79879bfc96805aa7e7b63cf3a8ebbfe59679730`
+- Runtime maps, observations, tokens, calibration state and full episode
+  directories stay outside Git.
+- Original high-resolution user videos stay under ignored `media/video/`.
+- Size-bounded H.264 derivatives, posters, hashes and classifications are
+  committed under `media/demo/`.
+- Physical/runtime facts are labelled observed; algorithm outputs are labelled
+  source-derived; causal claims without evidence remain unverified.

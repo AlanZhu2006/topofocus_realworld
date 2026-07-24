@@ -15,6 +15,69 @@ change their metric status.
 
 ## Published failed demos
 
+### Bound dual-robot collision — 2026-07-25
+
+These two user-provided recordings are explicitly bound to:
+
+- session: `20260725-lab05-yunjireboot4`;
+- session Git commit:
+  `cdcd7e70560f8bd782d83b5176bda6f5fca36780`;
+- scene: `scene01-chair`;
+- episode: `scene01-chair-run01-fastfix`;
+- operator termination: `collision`;
+- metric status: **excluded**, `official_sr_spl_eligible=false`.
+
+The landscape third-view video directly shows WSJ Go2 and Yunji travel from
+separated positions toward the same central corridor and make physical
+contact. The Dashboard recording shows the paired live camera/map view, short
+trajectories converging, close-range WSJ-camera occlusion and a projected
+`chair` region. The semantic region is model inference, not independent
+target truth.
+
+#### Third-view collision record
+
+- Published video:
+  `dual_robot_collision_third_view_20260725.mp4`
+- Poster:
+  `dual_robot_collision_third_view_20260725_poster.jpg`
+- Original user-provided master:
+  `media/video/experiment_1_collision.mp4`, 1,640,232 bytes, HEVC/AAC,
+  1280 × 720, nominal 30 fps, 12.366667 seconds, SHA-256
+  `1b883c310b176ed75587b5672d09a0ab14a604e214663f0c760835f1eb5ec659`;
+  retained locally and ignored.
+- Published derivative: 2,481,165 bytes, H.264, `yuv420p`, 1280 × 720,
+  30 fps, no audio, 12.367 seconds, SHA-256
+  `8b62b5e763e529c8d2bf12caf5066d57187226de3117dc0fb3e7d7d0df3d395e`.
+- Poster: 199,630 bytes, 1280 × 720, SHA-256
+  `cbb216abddf11e2089ba60afba38eac09d2b838654b8289af7f79ed72cf9417f`.
+
+#### Dashboard collision record
+
+- Published video:
+  `dual_robot_collision_dashboard_20260725.mp4`
+- Poster:
+  `dual_robot_collision_dashboard_20260725_poster.jpg`
+- Original user-provided master:
+  `media/video/experiment_1_collision_dashboard.mov`, 19,138,555 bytes,
+  H.264, 3420 × 1544, nominal 60 fps, 16.341667 seconds, SHA-256
+  `a429b838566efbd4769b1f613ba2530d1c0c972cc1cc685b72f278aac5ecffc9`;
+  retained locally and ignored.
+- Published derivative: 284,926 bytes, H.264, `yuv420p`, 1280 × 578,
+  30 fps, no audio, 16.334 seconds, SHA-256
+  `fd8d5709fc1bf1d9568d9cf594cc37b578942ebc7b077f78307346b68780ea8f`.
+- Poster: 75,948 bytes, 1280 × 578, SHA-256
+  `cd93b77637204f85690921ea791aa0a1b4fc4fcbe95d9d52f7ea559924d80ae7`.
+
+Both public derivatives were produced with the locally observed `ffmpeg`
+4.4.2 using `libx264`, `yuv420p`, fast-start MP4 and no audio. The third-view
+master was normalized to 30 fps at CRF 24; the Dashboard master was scaled to
+1280 pixels wide, normalized to 30 fps and encoded at CRF 26. Posters were
+sampled at 10 and 12 seconds respectively. Source masters were not modified.
+
+The corresponding runtime hashes, event sequence, geometry replay,
+network-causality boundary and corrective route guard are in
+[`../../audit/DUAL_ROBOT_COLLISION_20260725.md`](../../audit/DUAL_ROBOT_COLLISION_20260725.md).
+
 ### Third-view two-robot engineering clips
 
 Both clips were observed as user-provided files in the workspace on

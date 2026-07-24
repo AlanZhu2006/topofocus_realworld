@@ -1,16 +1,16 @@
 # V2 dual-robot physical quick start
 
-> **Current deployment note (2026-07-24):** the normal operator path is now
+> **Current deployment note (2026-07-25):** the normal operator path is now
 > [`ONECLICK_SESSION_WORKFLOW.md`](ONECLICK_SESSION_WORKFLOW.md). Steps 1–6
 > below explain the internal contract and remain useful for a new machine, but
-> should not be manually substituted for the persistent launcher. The last
-> predecessor calibration was `shared-board-odin1-20260723-v3`, with WSJ transform
-> `wsj-tinynav-depth-20260723-powercycle-v3` and Yunji transform
-> `yunji-odin1-board-20260723-powercycle-v6`. The live attempts reached both
-> local planner paths but produced no official success. It is not a strict
-> persistent `current` session because it predates the quantitative moved-board
-> field. Use [CURRENT_STATUS.md](../../CURRENT_STATUS.md) for the gate; do not
-> substitute historical placeholders below into a new session.
+> should not be manually substituted for the persistent launcher. Session
+> `20260725-lab05-yunjireboot4` passed strict debug and reached concurrent
+> physical motion, but its distinct-frontier routes crossed and the platforms
+> collided. It is excluded from SR/SPL. The post-incident route guard is
+> locally verified at `b79879b`; because code/tracking/posture changed, a fresh
+> standing calibration is required before physical verification. Use
+> [CURRENT_STATUS.md](../../CURRENT_STATUS.md) for the gate; do not substitute
+> historical placeholders below into a new session.
 
 This is the shortest path from the working v2 synthetic chain to one
 operator-supervised real episode. It deliberately postpones Foxglove styling,
@@ -21,6 +21,7 @@ map aesthetics, detector tuning and large-scale evaluation.
 ```text
 GLM/VLM + source-derived allocation (Hub)
   -> atomic pair of expiring shared_world high-level targets
+  -> real-world shared-route conflict guard (GOAL/HOLD authority only)
      -> robot-0 receiver -> TinyNav POI -> TinyNav planner/controller
         -> raw /cmd_vel -> local lease gate -> guarded /cmd_vel -> Go2 bridge
      -> robot-1 receiver -> TinyNav POI -> TinyNav planner/controller
@@ -28,11 +29,13 @@ GLM/VLM + source-derived allocation (Hub)
            -> WATER /api/joy_control velocity bridge
 ```
 
-The Hub never sends wheel velocity. Both GOAL leases may be active at the same
-time. Renewal extends a robot's local permission without resending its target.
-One arrival changes that robot to HOLD while the other robot keeps its existing
-leg. Expiry or loss closes only that robot's local output; an explicit
-scene-level HOLD closes both.
+The Hub never sends wheel velocity. Both GOAL leases may be active only when
+the frozen shared-frame straight-route corridors remain at least `0.9 m`
+apart. A conflict reduces physical authority to one robot while preserving the
+unmodified source-derived VLM candidate as evidence. Renewal extends a robot's
+local permission without resending its target. One arrival changes that robot
+to HOLD while the other robot keeps its existing leg. Expiry or loss closes
+only that robot's local output; an explicit scene-level HOLD closes both.
 
 ## What is implemented versus still physical
 
@@ -49,21 +52,26 @@ Implemented and locally tested:
 - live receiver health heartbeats and command-capable sender metadata that
   remain disabled unless a measured `base_T_camera` artifact is loaded;
 - default receiver behavior is read-only. Live output requires a robot-specific
-  flag and exact operator-presence phrase.
+  flag and exact operator-presence phrase;
+- a pre-publication route-conflict guard that serializes intersecting or
+  insufficiently separated shared-frame target segments and fails closed when
+  shared poses are unavailable.
 
-Completed for the predecessor deployment:
+Completed on physical session `20260725-lab05-yunjireboot4`:
 
 1. a two-camera board fit and independently moved-board holdout;
 2. measured `base_link -> camera` artifacts for both robots;
 3. command-capable observations, receiver heartbeats and local planner-chain
    startup;
-4. fail-closed supervised attempts through TinyNav and WATER.
+4. both guarded local motion paths, Hub feedback and lease renewal;
+5. operator stop and dual HOLD cleanup after an observed collision.
 
-The persistent-session implementation is locally tested. Still required is
-one new board calibration through the canonical wrapper, its strict no-motion
-full-stack result, a target outside both arrival radii, and one bounded episode
-with terminal verification. The tracked 2026-07-22 board artifact remains a
-historical format example, not a reusable transform.
+The route-conflict fix was added after that session and is locally tested.
+Still required is one new standing board calibration through the canonical
+wrapper, its strict no-motion full-stack result, confirmation that a crossing
+candidate becomes one GOAL plus one HOLD, and one bounded episode with terminal
+verification. The incident session and the tracked 2026-07-22 board artifact
+remain historical evidence, not reusable transforms.
 
 ## 1. Record the two body-camera mount transforms
 
@@ -211,8 +219,9 @@ receivers remain healthy with no GOAL active:
 2. restart the Hub, let both command-capable senders upload new observations,
    and let both receivers repost READY health;
 3. start the bounded source-derived controller, which freezes a fresh pair,
-   runs one VLM round, publishes only the resulting high-level goals and
-   repeats after an acknowledged dual-robot HOLD:
+   runs one VLM round, preserves the original candidate, applies the
+   shared-route conflict guard, publishes only the resulting high-level
+   GOAL/HOLD pair and repeats after an acknowledged dual-robot HOLD:
 
 ```bash
 hub/.venv/bin/python hub/tools/run_v2_source_episode.py \
@@ -239,7 +248,7 @@ software API manual v1.8.7. The bridge is capped further at 0.15 m/s and
 0.40 rad/s. The TinyNav source is pinned to
 `AlanZhu2006/go2_tinynav@5705bb61dafb407594970ab2bc85c63fc71e0a24`;
 the installer records paths, sizes and SHA-256 values. The adapter, bridge and
-new Yunji chain are locally tested but physical motion remains unverified.
-Runtime alignment, trajectory and terminal evidence must retain their absolute
-source path, size, SHA-256 and observed/source-derived/unverified
-classification.
+new Yunji chain have been observed in physical motion. The post-incident
+route-conflict guard remains physically unverified. Runtime alignment,
+trajectory and terminal evidence must retain their absolute source path, size,
+SHA-256 and observed/source-derived/unverified classification.

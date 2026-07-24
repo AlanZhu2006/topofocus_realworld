@@ -19,10 +19,14 @@
 - Foxglove 位姿、轨迹、像素语义、标签与前沿合成 2-D overview；
 - 版本化、可过期 `GOAL/HOLD/STOP` 与机器人端 fail-closed GoalGuard；
 - v2 原子双机目标、独立续租/到达反馈、WSJ TinyNav 在线
-  BuildMap + guarded `cmd_vel` 接收器以及 Yunji WATER 高层目标接收器；
+  BuildMap + guarded `cmd_vel` 接收器以及 Yunji Odin/TinyNav 在线地图与
+  guarded WATER 速度桥；
   正式入口已组合为有明确 HOLD 边界的源码节拍多轮 episode，并在语义
-  `ARRIVED` 后自动封存终点 RGB-D/地图；该新增循环尚未真机验证，且
-  尚无可计入 SR/SPL 的成功场景；
+  `ARRIVED` 后自动封存终点 RGB-D/地图；第一轮双机物理目标、运动、反馈
+  和续租已被观察，但交叉路线导致碰撞，尚无可计入 SR/SPL 的成功场景；
+- 发布前的共享坐标路线冲突门控：保留源码式双机 VLM candidate，直线
+  corridor 小于 `0.9 m` 或共享位姿缺失时降低为单机执行/双机 HOLD；
+  本机 replay 与测试已通过，仍待新 session 真机验证；
 - WSJ ROS 2 sender、云迹 ROS1/RealSense 回滚 sender、Odin1 ROS 2 适配器和 Go2 可复现部署层。
 
 默认配置始终 `allow_goal=false`。当前只完成了部分 HIL 工程验证，尚未
@@ -54,9 +58,10 @@ bash hub/scripts/realworld_oneclick.sh --mode live \
 
 标定命令自动保存 Git/标定/transform/map 边界、机器人部署根目录和 tmux
 身份；debug/live 不再要求人工替换旧 v12 常量。完整说明见
-[持久会话一键流程](docs/ONECLICK_SESSION_WORKFLOW.md)。该流程已通过本机
-测试，尚未在两台真机上完整执行；旧 July v3 会话不会被自动提升为
-`current`。
+[持久会话一键流程](docs/ONECLICK_SESSION_WORKFLOW.md)。该流程已经在
+两台真机上执行到并发运动；2026-07-25 的碰撞记录和后续串行保护见
+[碰撞审计](../audit/DUAL_ROBOT_COLLISION_20260725.md)。事故 session 绑定
+旧 Git/跟踪 epoch，下一次必须重新标定，不能直接复用为 `current` live。
 
 ## 轻量开发环境
 

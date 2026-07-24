@@ -44,12 +44,14 @@ T_shared_world_base_link =
 
 ## Establishing the shared frame
 
-The last predecessor two-robot session had an observed gravity-preserving
-board fit and holdout under calibration ID
-`shared-board-odin1-20260723-v3`; exact historical transforms/maps are in
-[CURRENT_STATUS.md](../../CURRENT_STATUS.md). It predates the new
-quantitative moved-board field and is therefore not promoted to persistent
-`current`.
+The latest physically exercised session
+`20260725-lab05-yunjireboot4` used calibration ID
+`shared-board-odin1-20260725-lab05-yunjireboot1-v1`. It passed strict debug
+and was used for the excluded collision run documented in
+[`../../audit/DUAL_ROBOT_COLLISION_20260725.md`](../../audit/DUAL_ROBOT_COLLISION_20260725.md).
+It is retained as immutable evidence, not a reusable `current` session:
+repository code changed, Odin restarted its tracking epoch and the Go2 changed
+posture afterward.
 
 For a new placement, the canonical
 [`ONECLICK_SESSION_WORKFLOW.md`](ONECLICK_SESSION_WORKFLOW.md) captures a fit

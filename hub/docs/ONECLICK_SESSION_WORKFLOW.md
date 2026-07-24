@@ -188,6 +188,12 @@ preserved as `initial_batch.json` and `route_conflict_guard.json`. This is a
 conservative execution adapter, not a change to source VLM selection and not
 a certification of robot-local obstacle detours.
 
+This guard was added after the 2026-07-25 physical run assigned distinct
+frontiers whose shared-frame routes nevertheless intersected. The observed
+collision, exact pre-fix batch, video/runtime hashes and `0.0 m` geometry
+replay are recorded in
+[`../../audit/DUAL_ROBOT_COLLISION_20260725.md`](../../audit/DUAL_ROBOT_COLLISION_20260725.md).
+
 At each source round boundary both robots must first acknowledge local
 `HOLDING` with zero velocity; only then can the next synchronized input pair be
 frozen and the next VLM round run. Frontier arrival therefore causes a replan,
@@ -217,8 +223,9 @@ start/stop poses, accumulated path length and planner STOP evidence.
 Append a trial and emit an incomplete-or-complete metrics report with:
 
 ```bash
+RUN_DIR=hub/runtime/oneclick_SESSION_live_SCENE_TIME
 hub/.venv/bin/python hub/tools/record_realworld_trial.py \
-  --episode-report hub/runtime/oneclick_<session>_live_<scene>_<time>/episode_report.json \
+  --episode-report "$RUN_DIR/episode_report.json" \
   --results hub/runtime/triple_ai_demo_results.json \
   --experiment-id triple-ai-lab-01 \
   --trial-index 1 \
@@ -227,7 +234,7 @@ hub/.venv/bin/python hub/tools/record_realworld_trial.py \
   --robot-0-shortest-evidence hub/runtime/surveys/scene01-wsj.json \
   --robot-0-reached-goal-region yes \
   --robot-0-target-verified yes \
-  --robot-0-terminal-evidence hub/runtime/terminal/scene01-run01-wsj.jpg \
+  --robot-0-terminal-evidence "$RUN_DIR/robot-0/rgb.jpg" \
   --robot-1-shortest-m 2.8 \
   --robot-1-shortest-evidence hub/runtime/surveys/scene01-yunji.json \
   --robot-1-reached-goal-region no \
@@ -236,7 +243,7 @@ hub/.venv/bin/python hub/tools/record_realworld_trial.py \
 
 For a semantic-arrival candidate, the controller's automatic terminal images
 are under
-`hub/runtime/oneclick_<session>_live_<scene>_<time>/terminal/<robot>/`.
+`hub/runtime/oneclick_<session>_live_<scene>_<time>/<robot>/`.
 An independent operator/annotator must inspect the applicable RGB before
 supplying `--robot-*-target-verified yes`; do not infer that flag from the
 controller's own semantic selection.
@@ -257,14 +264,21 @@ compatible.
 
 ## Verification status
 
-On 2026-07-24, session `20260725-lab04` passed board holdout calibration and
-the strict physical no-motion debug. Its first live invocation observed fresh
-dual-robot inputs and completed the real VLM in 16.089 seconds, but robot
-receiver startup then aged the oldest frozen input to 89.689 seconds. The
-60-second preflight correctly rejected publication with `INPUT_STALE`; only
-HOLD decisions were observed and no robot command was sent.
+On 2026-07-25, session `20260725-lab05-yunjireboot4` passed strict physical
+no-motion debug on commit `cdcd7e7`. Episode
+`scene01-chair-run01-fastfix` then exercised fresh synchronized input, real
+VLM selection, two v2 high-level targets, both robot-local planning/control
+paths, physical motion, feedback and three lease renewals.
 
-The launcher ordering was subsequently corrected so receiver startup and
-heartbeat verification precede the final input freeze. Shell syntax and the
-complete local Hub regression suite pass. A physical rerun of the corrected
-ordering remains unverified and the rejected attempt is not an SR/SPL trial.
+The selected frontiers were distinct, but their shared-frame routes crossed
+and the platforms made physical contact. The operator stopped the run. It is
+excluded from SR/SPL and documented in
+[`../../audit/DUAL_ROBOT_COLLISION_20260725.md`](../../audit/DUAL_ROBOT_COLLISION_20260725.md).
+
+The route-conflict guard described above was added afterward at commit
+`b79879b`. The observed candidate replays to `0.0 m` predicted separation and
+one active robot, and the complete local Hub regression suite passes. Because
+the Odin tracking host subsequently restarted and the Go2 changed posture,
+the old session cannot validate the new commit. A new standing calibration
+and strict no-motion debug are required before the guard's first physical
+verification.

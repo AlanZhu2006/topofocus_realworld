@@ -36,7 +36,7 @@ python main.py --task_config envs/habitat/configs/tasks/multi_objectnav_hm3d.yam
 | G2 | GLM server answers a controlled offline request locally | **passed** (`audit/G2_LOCAL_GLM_REQUEST.md`) |
 | G3 | one robot replay reaches semantic-map update from recorded RGB-D/pose | **passed** (`audit/G3_LOCAL_REPLAY_MAPPING.md`) |
 | G4 | two robot replays fuse into one declared coordinate frame and receive distinct decisions | **algorithmic evidence passed** with fresh WSJ/Odin board calibration, fusion and distinct real-GLM allocations; physical scene success remains separate and open |
-| G5 | robot-side safety controller rejects stale/unsafe commands in a hardware-in-the-loop test | **partially observed**: real IMU/health and odometry failures caused local rejection, velocity-zero feedback, bridge release and dual HOLD; deliberate estop/network/HIL matrix is still open |
+| G5 | robot-side safety controller rejects stale/unsafe commands in a hardware-in-the-loop test | **partially observed**: real IMU/health and odometry failures caused local rejection, velocity-zero feedback, bridge release and dual HOLD; a 2026-07-25 concurrent route collision exposed the missing inter-robot route gate, whose serialization fix is locally tested but not yet physically rerun |
 
 Do not claim a successful live scene from algorithmic G4 or partial G5. The
 canonical current state and excluded engineering attempts are in
@@ -55,8 +55,9 @@ bash hub/scripts/calibrate_realworld_session.sh \
   --goal-category chair
 ```
 
-The existing July v3 calibration predates the quantitative moved-board field,
-so do not hand-author a current session around it. Let this command capture a
+Do not hand-author a current session around an old calibration. The latest
+physical session is also non-reusable because its Git commit, Odin tracking
+epoch and Go2 posture changed after the collision. Let this command capture a
 fit pair and an independently moved holdout pair.
 
 Repeat the no-motion full-stack gate without recalibrating:
@@ -87,7 +88,9 @@ bash hub/scripts/realworld_oneclick.sh \
 
 The confirmation is single-use. Cleanup, failure, restart or power loss
 consumes it. The script must restore debug receivers and `GOAL=false` on every
-exit path.
+exit path. Before publication, the current runner preserves the unmodified VLM
+candidate and applies the shared-frame `0.9 m` route-conflict guard; a conflict
+must reduce the effective batch to one GOAL plus one HOLD.
 
 The calibration wrapper checks both remote code trees, starts only
 mapping/calibration observation, selects synchronized board pairs, proves the
@@ -95,6 +98,8 @@ holdout moved, deploys one checksummed calibration, creates fresh maps and
 writes the ignored `current.json` pointer. Debug/live consume that exact
 manifest. Full commands, failure behavior and SR/SPL evidence capture are in
 [`hub/docs/ONECLICK_SESSION_WORKFLOW.md`](hub/docs/ONECLICK_SESSION_WORKFLOW.md).
+The observed collision and corrective guard are documented in
+[`audit/DUAL_ROBOT_COLLISION_20260725.md`](audit/DUAL_ROBOT_COLLISION_20260725.md).
 
 ## Reproducible commands (all local, loopback, dry-run)
 

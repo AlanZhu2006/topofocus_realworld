@@ -7,6 +7,11 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`DUAL_ROBOT_COLLISION_20260725.md`](DUAL_ROBOT_COLLISION_20260725.md):
+  first observed concurrent end-to-end physical motion, operator-confirmed
+  collision, paired third-view/Dashboard provenance, runtime hashes, route
+  intersection replay, network-causality boundary and the locally verified
+  post-incident serialization guard.
 - [`YUNJI_TINYNAV_MIGRATION_20260724.md`](YUNJI_TINYNAV_MIGRATION_20260724.md):
   Yunji's migration from WATER saved-map navigation to online TinyNav with a
   guarded WATER velocity-only bridge, including pinned-source provenance and

@@ -45,27 +45,32 @@ The current deployment is centralized but no longer in-process:
 ```text
 WSJ D435i/TinyNav ── authenticated RGB-D/pose/health ─┐
                                                        ├─> Hub spool
-Yunji Odin1/WATER ─ authenticated RGB-D/pose/health ──┘
+Yunji Odin1/TinyNav ─ authenticated RGB-D/pose/health ┘
                                                             │
                     per-robot online map + shared-frame fusion
                                                             │
                YOLO/Perception VLM -> Judgment/FN -> Decision
                                                             │
-                   atomic expiring v2 high-level target pair
+                  unmodified atomic v2 candidate pair
+                                                            │
+             shared-route conflict guard (authority adapter)
                               │                    │
                     WSJ v2 receiver       Yunji v2 receiver
                               │                    │
-                  online BuildMap A*       WATER /api/move
+                  online BuildMap A*     online TinyNav A*
                               │                    │
-                 TinyNav controller        WATER controller
+                 TinyNav controller      TinyNav controller
                               │                    │
-                guarded Go2 bridge       local stop/cancel
+                guarded Go2 bridge      guarded WATER velocity bridge
                               └──── navigation feedback ─────┘
 ```
 
-The Hub owns coordination and the frozen decision provenance. It does not own
-motor velocity or collision avoidance. Each receiver continuously recomputes
-health, transform, map and lease gates and may reject or stop independently.
+The Hub owns coordination, frozen decision provenance and a conservative
+shared-frame route-conflict check. It does not own motor velocity or complete
+local collision avoidance. Each receiver continuously recomputes health,
+transform, map and lease gates and may reject or stop independently. The
+route guard preserves the source-derived candidate but serializes physical
+authority when straight start-to-target corridors approach within `0.9 m`.
 
 The physical launcher resolves one persistent session manifest rather than
 dated shell constants. A session hash-binds Git, calibration and transforms,
@@ -83,12 +88,18 @@ cannot fall back to a newer camera observation.
 
 ## Current source-fidelity boundary
 
-The non-motion scene runner implements the executable HPC decision schedule,
-shared directional history and sequential frontier removal. The current
-physical one-click runner freezes one VLM decision round, then renews the same
-robot-local navigation leg. It does not yet re-enter the VLM after a physical
-frontier arrival. That multi-round physical loop remains an explicit gate, not
-an implied capability.
+The scene runner implements the executable HPC decision schedule, shared
+directional history and sequential frontier removal. The current physical
+one-click runner persists that state across `0,24,49,...,499`, renews a
+robot-local leg while feedback remains fresh, moves both robots to
+acknowledged HOLD at a round boundary, then freezes new inputs and re-enters
+the VLM. A semantic-region arrival seals a terminal evidence candidate.
+
+The first physical round, both local motion paths, feedback and lease renewal
+were observed on 2026-07-25, but the distinct targets produced intersecting
+routes and a collision. The post-incident route guard is locally verified but
+not yet physically rerun. See
+[`audit/DUAL_ROBOT_COLLISION_20260725.md`](audit/DUAL_ROBOT_COLLISION_20260725.md).
 
 Real-world success is independent operator/scene evidence. Habitat
 `success`/geodesic distance is unavailable, so no physical run may reuse the

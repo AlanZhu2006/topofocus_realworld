@@ -4,29 +4,29 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 
 目标仓库：`git@github.com:AlanZhu2006/topofocus_realworld.git`
 
-## 当前结论（2026-07-24）
+## 当前结论（2026-07-25）
 
 权威状态见 [CURRENT_STATUS.md](CURRENT_STATUS.md)。摘要如下：
 
-- 双机真实链路已经到达“观测、在线地图、VLM、高层 v2 目标、机器人本地规划、本地反馈、租约续期和故障 HOLD”，但还没有一次可计入 SR/SPL 的正式场景成功。
+- 双机真实链路已经实际跑到“观测、在线地图、VLM、高层 v2 目标、
+  两台机器人本地规划与运动、本地反馈、租约续期和故障 HOLD”，但仍没有
+  一次可计入 SR/SPL 的正式场景成功。
 - WSJ 当前为 D435i + 修复后的 TinyNav perception/IMU + 在线
   BuildMap；Yunji 当前为 Odin1 `O1-P070100205`，不是旧的 RealSense
   路径。
-- 最后一次 predecessor 共享标定是
-  `shared-board-odin1-20260723-v3`；它保留为历史证据，但不会被自动提升为
-  新 `current`。断电本身不等于机械位姿变化；下一次现场仍需先用新的
-  一键入口完成定量移动板留出并生成 persistent session。
-- `official-run01-retry3` 连续接受了九个 v2 batch，证明实际 v2
-  heartbeat-authority 修复生效；Yunji 原地判定到达，WSJ 只收到
-  `vx=0.000, wz=-0.200`，现场未见运动，随后本地
-  `ODOMETRY_STALE` fail-closed。该尝试不计入指标。
-- retry3 后的 WSJ 有效速度下限和 odometry/occupancy 独立回调修复已
-  通过本机测试并以相同哈希同步到两台机器人磁盘，但尚未重启加载和
-  真机验证。
+- session `20260725-lab05-yunjireboot4` 在提交 `cdcd7e7` 上通过严格
+  无运动 debug；随后 `scene01-chair-run01-fastfix` 给两台机器人发布了
+  不同前沿并观察到两台都运动，但两条路线交叉，最终发生物理碰撞。操作者
+  已确认停止，该 run 明确排除出 SR/SPL。
+- 碰撞根因不是“两个机器人拿到同一个前沿”，而是源码式顺序分配只保证
+  前沿不同，没有保证两条物理路线分离。提交 `b79879b` 新增
+  `0.9 m` 保守路线冲突门控：保留原始双机 VLM candidate，但冲突时只放行
+  一台，另一台 HOLD。事故几何 replay 和本机完整测试已通过，尚未重新真机
+  验证。
 - Yunji 正式链路已改为与 WSJ 相同的在线 TinyNav 架构：Odin 提供
   校正深度、位姿和世界点云，TinyNav 负责在线 occupancy、A*、局部规划
   与控制；WATER 只执行经过租约门控的 `/api/joy_control` 速度。该实现
-  已通过本机单元/静态测试，尚未完成机器人端无运动启动和真机运动验证；
+  已完成机器人端无运动启动和真机运动观察；
   正式链路不再依赖 WATER 旧地图、`accessible_point_query`、
   `make_plan` 或 `/api/move`。
 - Hub 默认及当前均为 `GOAL=false`。Hub 只发布版本化、可过期的高层
@@ -40,13 +40,12 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
   当前没有有效正式样本，因此 SR/SPL 暂无数值。
 - 正式 `live` 已在本机接成源码节拍的多轮循环：前沿到达继续重规划，
   语义区域 `ARRIVED` 才会双机 HOLD 并自动封存终点 RGB-D/地图证据。
-  该链路通过离线测试但尚未真机验证；自动证据仍需独立目标标注和
-  surveyed goal-region/shortest-path 才能计入 SR/SPL。
-- 新的一键链路会持久化 Git、标定、transform、地图序号边界和远端部署
-  身份；正常调试/实验不再手工替换 v12 路径。实现提交
-  `90dd8fe43dad16515017fe4fd9bd017e02277bf6` 已通过本机回归测试，并以
-  相同归档和 175 条逐文件哈希同步到两台机器人磁盘，但机器人进程没有
-  重启加载；还需要一次新的真机标定来生成 `current` 会话。
+  第一轮物理发布、反馈和租约续期已被观察；自动多轮终止和终点封存仍待
+  无碰撞真机验证。自动证据仍需独立目标标注和 surveyed
+  goal-region/shortest-path 才能计入 SR/SPL。
+- 事故 session 绑定旧提交，且 Odin 已重启、Go2 已下电趴下，因此不能
+  直接复用。下一次必须让 Go2 站立固定后运行新的单次标定；该命令会部署
+  当前提交、创建 fresh map/Foxglove 并自动完成严格 debug。
 
 ## 实机直接入口
 
@@ -88,6 +87,21 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 片段保留并排除在 SR/SPL 之外；完整文件哈希和转码来源见
 [`media/demo/README.md`](media/demo/README.md)。
 
+### 已绑定的双机碰撞记录
+
+| 第三视角 | 同期 Foxglove Dashboard |
+| --- | --- |
+| [![双机路线交叉碰撞第三视角](media/demo/dual_robot_collision_third_view_20260725_poster.jpg)](media/demo/dual_robot_collision_third_view_20260725.mp4) | [![双机路线交叉碰撞 Dashboard](media/demo/dual_robot_collision_dashboard_20260725_poster.jpg)](media/demo/dual_robot_collision_dashboard_20260725.mp4) |
+| [播放 12.4 秒 MP4](media/demo/dual_robot_collision_third_view_20260725.mp4) | [播放 16.3 秒 MP4](media/demo/dual_robot_collision_dashboard_20260725.mp4) |
+
+这两个片段由用户明确绑定到 session
+`20260725-lab05-yunjireboot4`、episode
+`scene01-chair-run01-fastfix`。第三视角直接显示双机汇合并接触；
+Dashboard 同期显示短轨迹汇合、WSJ 相机近距离遮挡和模型投影的
+`chair` 区域。该 run 的终止类型是 `collision`，不计入 SR/SPL。运行时
+文件、视频主文件/衍生文件哈希、网络因果边界和修复见
+[双机碰撞审计](audit/DUAL_ROBOT_COLLISION_20260725.md)。
+
 ### 双机共享坐标系标定
 
 ![WSJ、Yunji 与共享圆点标定板](media/image/calibration.jpg)
@@ -112,9 +126,9 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 详细根因、哈希和验证边界见
 [语义 2D/Foxglove 复核](audit/SEMANTIC_OVERVIEW_REAUDIT_20260724.md)。
 
-后续会把已经运行过的失败 demo 视频一并上传到
+已经运行过的失败 demo 会持续收录到
 [`media/demo/`](media/demo/README.md)，并注明对应 episode、观察到的失败
-原因和是否计入指标。失败 demo 会作为可复现排障材料保留，不计入 SR/SPL
+原因和是否计入指标。失败 demo 作为可复现排障材料保留，不计入 SR/SPL
 成功样本。
 
 首个公开片段记录了早期 Foxglove 双机 dashboard 中相机画面正常、但 2D
@@ -188,6 +202,7 @@ bash hub/robot_overlay/start_go2_observation.sh \
 
 - [当前权威状态、已验证边界和下一步](CURRENT_STATUS.md)
 - [历史审计索引](audit/README.md)
+- [2026-07-25 双机碰撞、视频证据与路线冲突修复](audit/DUAL_ROBOT_COLLISION_20260725.md)
 - [从零复现本机与新 Go2](docs/REPRODUCE.md)
 - [WSJ 已观察基线与遗留问题](docs/WSJ_BASELINE_20260721.md)
 - [Git 分支、发布与快照更新规则](docs/GIT_WORKFLOW.md)
