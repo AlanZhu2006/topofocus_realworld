@@ -59,7 +59,9 @@ done
 for required in \
   "$ENV_FILE" "$SETUP_FILE" "$PYTHON_BIN" "$TOKEN_FILE" \
   "$SCRIPT_DIR/focus_ros_sender.py" "$SCRIPT_DIR/wsj_camera_preview.py" \
-  "$SCRIPT_DIR/start_go2_observation.sh"; do
+  "$SCRIPT_DIR/start_go2_observation.sh" \
+  "$SCRIPT_DIR/verify_ros_geometry_profile.py" \
+  "$SCRIPT_DIR/verify_tinynav_data_plane.py"; do
   [[ -r "$required" ]] || {
     echo "Missing calibration-observation input: $required" >&2
     exit 1
@@ -153,7 +155,12 @@ if [[ "$(tmux display-message -p -t "$SESSION:perception" '#{pane_dead}')" != 0 
    || [[ "$camera_restarted" == true ]] \
    || ! fresh_topic_once /slam/depth \
    || ! fresh_topic_once /slam/keyframe_depth \
-   || ! fresh_topic_once /slam/keyframe_odom; then
+   || ! fresh_topic_once /slam/keyframe_odom \
+   || ! "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_ros_geometry_profile.py" \
+      --image-topic /slam/depth \
+      --camera-info-topic /slam/camera_info \
+      --expected-frame camera \
+      --timeout-s 10; then
   tmux respawn-pane -k -t "$SESSION:perception"
   perception_restarted=true
 fi
@@ -164,6 +171,11 @@ wait_for_fresh_topic /slam/keyframe_odom "TinyNav keyframe odometry"
 wait_for_fresh_topic /slam/camera_info "TinyNav camera intrinsics"
 wait_for_fresh_topic \
   /camera/camera/infra1/image_rect_raw "RealSense rectified infra1 image"
+"$PYTHON_BIN" -u "$SCRIPT_DIR/verify_ros_geometry_profile.py" \
+  --image-topic /slam/depth \
+  --camera-info-topic /slam/camera_info \
+  --expected-frame camera \
+  --timeout-s 15
 
 # Require a second processed frame after a short soak.  One retained/startup
 # frame is not proof that the IMU watermark continues to advance.

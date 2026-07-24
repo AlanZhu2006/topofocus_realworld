@@ -113,6 +113,18 @@ def test_data_plane_verifier_rejects_stale_or_mismatched_geometry():
         )
 
 
+def test_calibration_geometry_verifier_is_read_only_and_reuses_contract():
+    verifier = (OVERLAY / "verify_ros_geometry_profile.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "validate_geometry_contract" in verifier
+    assert "create_subscription" in verifier
+    assert "create_publisher" not in verifier
+    assert "robot_commands_issued" in verifier
+    assert "focus-ros-geometry-profile-v1" in verifier
+
+
 def test_receiver_pose_conversions_preserve_planar_yaw():
     wsj = load_overlay("v2_wsj_receiver.py")
     yunji = load_overlay("v2_yunji_receiver.py")
@@ -538,6 +550,9 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     assert "/slam/depth" in launcher
     assert "/slam/keyframe_depth" in launcher
     assert "/slam/keyframe_odom" in launcher
+    assert launcher.count("verify_ros_geometry_profile.py") >= 3
+    assert "--image-topic /slam/depth" in launcher
+    assert "--camera-info-topic /slam/camera_info" in launcher
     assert "stable TinyNav processed depth" in launcher
     assert "WSJ_CALIBRATION_SENSOR_EPOCH_READY" in launcher
     assert "--field header" in launcher
