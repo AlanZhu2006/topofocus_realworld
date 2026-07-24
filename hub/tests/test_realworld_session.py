@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 
 import numpy as np
 import pytest
@@ -18,10 +19,44 @@ from focus_hub.realworld_session import (
     calibration_validation_kind,
     expected_map_session_contract,
     expected_robot_config,
+    git_identity,
     session_contract_sha256,
     validate_debug_manifest,
     validate_session,
 )
+
+
+def test_git_identity_ignores_nonruntime_docs_but_rejects_runtime_changes(
+    tmp_path: Path,
+):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "test"], cwd=tmp_path, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+    )
+    (tmp_path / "hub").mkdir()
+    (tmp_path / "source").mkdir()
+    (tmp_path / "dependencies").mkdir()
+    (tmp_path / "hub/runtime.py").write_text("VALUE = 1\n")
+    (tmp_path / "source/upstream.py").write_text("VALUE = 1\n")
+    (tmp_path / "dependencies/vendor.py").write_text("VALUE = 1\n")
+    (tmp_path / "command.txt").write_text("original\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "fixture"], cwd=tmp_path, check=True
+    )
+
+    (tmp_path / "command.txt").write_text("operator notes\n")
+    identity = git_identity(tmp_path)
+    assert identity.working_tree_clean is True
+
+    (tmp_path / "hub/runtime.py").write_text("VALUE = 2\n")
+    with pytest.raises(ValueError, match="clean runtime code"):
+        git_identity(tmp_path)
 
 
 def calibration_payload() -> dict:

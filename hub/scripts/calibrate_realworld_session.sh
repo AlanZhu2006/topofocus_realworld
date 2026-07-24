@@ -85,6 +85,22 @@ for required in \
 done
 "$PYTHON_BIN" "$HUB_DIR/tools/manage_realworld_session.py" \
   resolve --session-file current --mode status >/dev/null 2>&1 || true
+repository_status="$(
+  git -C "$WORKSPACE" status --porcelain --untracked-files=normal
+)"
+runtime_status="$(
+  git -C "$WORKSPACE" status --porcelain --untracked-files=normal \
+    -- hub source dependencies
+)"
+if [[ -n "$runtime_status" ]]; then
+  echo "Calibration requires clean runtime code under hub/, source/, and dependencies/:" >&2
+  printf '%s\n' "$runtime_status" >&2
+  exit 1
+fi
+if [[ -n "$repository_status" ]]; then
+  echo "WARNING: non-runtime repository changes will be recorded but will not block calibration:"
+  printf '%s\n' "$repository_status"
+fi
 "$PYTHON_BIN" - "$WORKSPACE" <<'PY'
 import subprocess
 from pathlib import Path
@@ -92,12 +108,22 @@ import sys
 
 root = Path(sys.argv[1])
 dirty = subprocess.check_output(
-    ["git", "status", "--porcelain", "--untracked-files=normal"],
+    [
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=normal",
+        "--",
+        "hub",
+        "source",
+        "dependencies",
+    ],
     cwd=root, text=True,
 ).strip()
 if dirty:
     raise SystemExit(
-        "Calibration requires a clean Git worktree; commit and verify first."
+        "Calibration requires clean runtime code; commit and verify "
+        "hub/, source/, and dependencies/ first."
     )
 PY
 for target in "$WSJ_TMUX_TARGET" "$YUNJI_TMUX_TARGET"; do
@@ -114,6 +140,52 @@ work_dir="$HUB_DIR/runtime/calibration_sessions/$session_id"
   exit 1
 }
 mkdir -p "$work_dir"
+
+"$PYTHON_BIN" - "$WORKSPACE" "$work_dir/repository_state.json" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+root = Path(sys.argv[1])
+output = Path(sys.argv[2])
+runtime_paths = ("hub", "source", "dependencies")
+
+def git(*args: str) -> str:
+    return subprocess.check_output(
+        ["git", *args], cwd=root, text=True
+    ).strip()
+
+full_status = git("status", "--porcelain", "--untracked-files=normal")
+runtime_status = git(
+    "status",
+    "--porcelain",
+    "--untracked-files=normal",
+    "--",
+    *runtime_paths,
+)
+if runtime_status:
+    raise SystemExit("runtime code changed during calibration preflight")
+payload = {
+    "schema_version": "focus-calibration-repository-state-v1",
+    "git_commit": git("rev-parse", "HEAD"),
+    "runtime_paths": list(runtime_paths),
+    "runtime_worktree_clean": True,
+    "full_worktree_clean": not bool(full_status),
+    "nonruntime_status": full_status.splitlines(),
+    "nonruntime_status_sha256": hashlib.sha256(
+        full_status.encode("utf-8")
+    ).hexdigest(),
+    "classification": (
+        "observed local repository state before physical calibration"
+    ),
+}
+temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+os.replace(temporary, output)
+PY
 
 wsj_raw_transform="wsj-tinynav-depth-${session_id}-raw-v1"
 yunji_raw_transform="yunji-odin1-${session_id}-raw-v1"

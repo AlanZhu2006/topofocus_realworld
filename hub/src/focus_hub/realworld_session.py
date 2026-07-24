@@ -30,6 +30,7 @@ MAP_SESSION_CONTRACT_SCHEMA_VERSION = "focus-realworld-map-session-contract-v1"
 SESSION_ID_PATTERN = r"^[a-z0-9][a-z0-9_.-]{0,95}$"
 SAFE_RUNTIME_NAME_PATTERN = r"^[A-Za-z0-9_.:-]{1,128}$"
 GIT_COMMIT_PATTERN = r"^[0-9a-f]{40,64}$"
+RUNTIME_CODE_PATHS = ("hub", "source", "dependencies")
 
 
 class ArtifactIdentity(StrictModel):
@@ -252,14 +253,22 @@ def git_identity(workspace: Path) -> CodeIdentity:
         ["git", "rev-parse", "HEAD"], cwd=workspace, text=True
     ).strip()
     dirty = subprocess.check_output(
-        ["git", "status", "--porcelain", "--untracked-files=normal"],
+        [
+            "git",
+            "status",
+            "--porcelain",
+            "--untracked-files=normal",
+            "--",
+            *RUNTIME_CODE_PATHS,
+        ],
         cwd=workspace,
         text=True,
     ).strip()
     if dirty:
         raise ValueError(
-            "real-world sessions require a clean Git worktree; commit and "
-            "verify code before calibration/debug"
+            "real-world sessions require clean runtime code under "
+            f"{', '.join(RUNTIME_CODE_PATHS)}; commit and verify those paths "
+            "before calibration/debug"
         )
     return CodeIdentity(git_commit=commit, working_tree_clean=True)
 
