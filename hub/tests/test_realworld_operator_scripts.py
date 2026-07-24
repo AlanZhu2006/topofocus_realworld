@@ -192,6 +192,8 @@ def test_oneclick_reuses_verified_yunji_core_for_live_mode():
     source = (SCRIPTS / "realworld_oneclick.sh").read_text()
 
     assert "--reuse-verified-debug-core" in source
+    assert "remote_queue" in source
+    assert "completion barrier" in source
     assert source.index("start_read_only_robots") < source.index("arm_live_robots")
     assert source.rindex("start_read_only_robots") < source.rindex("ensure_foxglove")
 

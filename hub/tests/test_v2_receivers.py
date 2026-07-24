@@ -446,6 +446,10 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert "--reuse-verified-debug-core" in launcher
     assert "without interrupting /slam/depth" in launcher
     assert 'systemctl is-active --quiet "$unit"' in launcher
+    assert '--setenv="OPENBLAS_NUM_THREADS=1"' in launcher
+    assert '--setenv="OMP_NUM_THREADS=1"' in launcher
+    assert '--setenv="MKL_NUM_THREADS=1"' in launcher
+    assert '--setenv="NUMEXPR_NUM_THREADS=1"' in launcher
 
 
 def test_robot_launchers_require_live_data_plane_verification():

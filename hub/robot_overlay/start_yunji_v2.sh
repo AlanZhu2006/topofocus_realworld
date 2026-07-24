@@ -139,6 +139,10 @@ start_unit() {
     --uid=nyu --gid=nyu \
     --working-directory="$RELEASE_ROOT" \
     --setenv="FOCUS_YUNJI_TINYNAV_RUNTIME=$TINYNAV_RUNTIME" \
+    --setenv="OPENBLAS_NUM_THREADS=1" \
+    --setenv="OMP_NUM_THREADS=1" \
+    --setenv="MKL_NUM_THREADS=1" \
+    --setenv="NUMEXPR_NUM_THREADS=1" \
     "$@" >/dev/null
 }
 

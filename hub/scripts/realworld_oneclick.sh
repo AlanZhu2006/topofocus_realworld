@@ -154,6 +154,16 @@ remote_run() {
   return 124
 }
 
+remote_queue() {
+  local target="$1" command="$2" line
+  printf -v line 'bash -lc %q' "$command"
+  # Each queued line stays below the remote PTY canonical-input limit. The
+  # shell executes them in order; the following marked remote_run is the
+  # completion barrier and still performs the authoritative checksum check.
+  tmux send-keys -t "$target" -l "$line"
+  tmux send-keys -t "$target" Enter
+}
+
 verify_remote_release() {
   local target="$1" root="$2" manifest encoded quoted_root suffix
   local remote_encoded remote_manifest chunk
@@ -174,12 +184,8 @@ verify_remote_release() {
   remote_manifest="/tmp/focus-release-${suffix}.sha256"
   remote_run "$target" "umask 077; : > '$remote_encoded'"
   while IFS= read -r chunk || [[ -n "$chunk" ]]; do
-    remote_run "$target" \
-      "printf '%s' '$chunk' >> '$remote_encoded'" || {
-        remote_run "$target" \
-          "test ! -e '$remote_encoded' || unlink '$remote_encoded'" || true
-        return 1
-      }
+    remote_queue "$target" \
+      "printf '%s' '$chunk' >> '$remote_encoded'"
   # Keep each tmux/PTY line well below the observed remote canonical-input
   # limit. Larger chunks can be accepted by tmux but silently truncated by
   # the interactive SSH terminal.
