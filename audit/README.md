@@ -27,6 +27,9 @@ current. For the authoritative project state, read
 
 ## Current calibration and sensors
 
+- [`YUNJI_ODIN1_BOOT_RECOVERY_20260724.md`](YUNJI_ODIN1_BOOT_RECOVERY_20260724.md):
+  observed post-reboot disabled-driver failure, read-only recovery, and the
+  calibration-only automatic startup guard.
 - [`WSJ_CALIBRATION_SENSOR_EPOCH_RECOVERY_20260724.md`](WSJ_CALIBRATION_SENSOR_EPOCH_RECOVERY_20260724.md):
   observed RGB-live/depth-stale calibration failure, coordinated pre-board
   recovery, and the post-calibration tracking-epoch guard.

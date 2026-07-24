@@ -135,10 +135,22 @@ for target in "$WSJ_TMUX_TARGET" "$YUNJI_TMUX_TARGET"; do
 done
 
 work_dir="$HUB_DIR/runtime/calibration_sessions/$session_id"
-[[ ! -e "$work_dir" ]] || {
-  echo "Refusing to reuse calibration work directory: $work_dir" >&2
-  exit 1
-}
+if [[ -e "$work_dir" ]]; then
+  [[ -d "$work_dir" && ! -L "$work_dir" ]] || {
+    echo "Calibration work path is not a normal directory: $work_dir" >&2
+    exit 1
+  }
+  if [[ -e "$work_dir/shared_frame.json" ]]; then
+    echo "Refusing to replace a completed calibration directory: $work_dir" >&2
+    exit 1
+  fi
+  failed_root="$HUB_DIR/runtime/calibration_sessions/failed"
+  failed_stamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  failed_archive="$failed_root/${session_id}-${failed_stamp}"
+  mkdir -p "$failed_root"
+  mv -- "$work_dir" "$failed_archive"
+  echo "Archived incomplete calibration attempt: $failed_archive"
+fi
 mkdir -p "$work_dir"
 
 "$PYTHON_BIN" - "$WORKSPACE" "$work_dir/repository_state.json" <<'PY'

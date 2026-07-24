@@ -39,16 +39,15 @@ done
   exit 2
 }
 for required in \
-  "$ENV_FILE" "$SCRIPT_DIR/run_yunji_mapping_observation.sh"; do
+  "$ENV_FILE" \
+  "$SCRIPT_DIR/prepare_yunji_odin1_calibration_driver.sh" \
+  "$SCRIPT_DIR/run_yunji_mapping_observation.sh"; do
   [[ -r "$required" ]] || {
     echo "Missing calibration-observation input: $required" >&2
     exit 1
   }
 done
-systemctl is-active --quiet focus-yunji-odin1-driver.service || {
-  echo "Odin driver is not active." >&2
-  exit 1
-}
+bash "$SCRIPT_DIR/prepare_yunji_odin1_calibration_driver.sh"
 
 # Stopping a live receiver may issue only its fail-closed WATER cancel. No new
 # move target is created by this calibration path.

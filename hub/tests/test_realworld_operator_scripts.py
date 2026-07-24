@@ -99,6 +99,32 @@ def test_calibration_robot_entries_contain_no_live_motion_flag():
     assert "OPERATOR_PRESENT_AND_BOARD_ONLY" in sources
 
 
+def test_yunji_calibration_recovers_only_the_readonly_odin_driver():
+    launcher = (
+        OVERLAY / "start_yunji_calibration_observation.sh"
+    ).read_text()
+    recovery = (
+        OVERLAY / "prepare_yunji_odin1_calibration_driver.sh"
+    ).read_text()
+
+    assert "prepare_yunji_odin1_calibration_driver.sh" in launcher
+    assert "focus-yunji-odin1-driver.service" in recovery
+    assert "verify_odin1.sh" in recovery
+    assert "systemctl enable" in recovery
+    assert "systemctl start" in recovery
+    assert "/api/move" not in recovery
+    assert "/api/joy_control" not in recovery
+    assert "water_cmd_vel_bridge" not in recovery
+
+
+def test_incomplete_calibration_attempt_is_archived_for_retry():
+    source = (SCRIPTS / "calibrate_realworld_session.sh").read_text()
+
+    assert "Archived incomplete calibration attempt" in source
+    assert "calibration_sessions/failed" in source
+    assert "Refusing to replace a completed calibration directory" in source
+
+
 def test_robot_launchers_require_explicit_session_identity():
     wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
     yunji = (OVERLAY / "start_yunji_v2.sh").read_text()
