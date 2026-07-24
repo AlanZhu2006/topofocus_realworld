@@ -416,6 +416,7 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--qos-durability volatile" in wsj
     assert "--qos-depth 1" in wsj
     assert "topic_has_publisher" in wsj
+    assert "deadline=$((SECONDS + 15))" in wsj
     assert "for topic in /slam/keyframe_depth /slam/keyframe_odom" in wsj
     continuous_stream_loop = wsj[
         wsj.index("for topic in \\\n  /camera/camera/color/image_raw")

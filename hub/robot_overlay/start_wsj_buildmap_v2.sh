@@ -151,9 +151,13 @@ fresh_topic_once() {
 }
 
 topic_has_publisher() {
-  local topic="$1"
-  ros2 topic info "$topic" 2>/dev/null \
-    | grep -Eq '^Publisher count: [1-9][0-9]*$'
+  local topic="$1" deadline
+  deadline=$((SECONDS + 15))
+  until ros2 topic info "$topic" 2>/dev/null \
+      | grep -Eq '^Publisher count: [1-9][0-9]*[[:space:]]*$'; do
+    (( SECONDS < deadline )) || return 1
+    sleep 1
+  done
 }
 
 set +u
