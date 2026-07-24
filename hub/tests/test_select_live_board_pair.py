@@ -57,3 +57,29 @@ def test_choose_pair_rejects_unsynchronized_detections():
             [row("robot-1", 2, 2_000_000_000)],
             max_sync_skew_s=0.25,
         )
+
+
+def test_timestamp_pairing_handles_asymmetric_camera_rates():
+    module = load_module()
+    reference = [row("robot-0", 10, 100_000_000_000)]
+    other = [
+        row("robot-1", sequence, 90_000_000_000 + sequence * 100_000_000)
+        for sequence in range(1, 201)
+    ]
+
+    # The latest twelve 10 Hz frames span only 1.1 seconds and cannot match
+    # the newest slow reference keyframe. The metadata-first full window can.
+    assert not module.synchronized_candidate_pairs(
+        reference,
+        other[-12:],
+        max_sync_skew_s=0.25,
+    )
+    pairs = module.synchronized_candidate_pairs(
+        reference,
+        other,
+        max_sync_skew_s=0.25,
+    )
+    assert pairs
+    assert pairs[0][0] == pytest.approx(0.0)
+    assert pairs[0][1]["sequence"] == 10
+    assert pairs[0][2]["sequence"] == 100

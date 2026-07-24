@@ -60,6 +60,29 @@ under the final compute load; it is not a claim that raw IMU transport failed.
 
 No TinyNav source or dependency tree was modified.
 
+## Follow-up: asymmetric-rate holdout selection
+
+The next `20260725-lab02` run passed sensor recovery and its initial board fit,
+then timed out selecting the moved-board holdout. Both robots had continued to
+upload and both latest images visibly contained the full board. The failure
+was a second, independent local selection bug:
+
+- WSJ keyframes arrived at approximately 0.27 Hz;
+- Yunji observations arrived at approximately 10 Hz;
+- the selector examined the latest 12 frames from each robot, representing
+  roughly 44 seconds for WSJ but only 1.2 seconds for Yunji;
+- a valid Yunji frame could therefore be discarded before the matching slow
+  WSJ keyframe was tested.
+
+Replaying the immutable spool with a complete candidate window found a valid
+pair immediately: WSJ sequence `22677`, Yunji sequence `209000`, synchronization
+skew 0.201624 s, with the 10x7 board detected in both images.
+
+`select_live_board_pair.py` now loads inexpensive timestamp metadata over the
+freshness window, pairs observations by capture time first, and runs the board
+detector only on synchronized candidates. A regression test covers the
+0.27-Hz/10-Hz asymmetric-rate case.
+
 ## Verification and provenance
 
 - both edited shell launchers pass `bash -n`;
@@ -72,5 +95,5 @@ No TinyNav source or dependency tree was modified.
 |---|---:|---|---|
 | `hub/robot_overlay/start_wsj_calibration_observation.sh` | 9,303 B | `e5a4f8737ae65c8b4899d82c30e9aafa44921d9fa841485a47bc64659dfd47e3` | source-derived and locally tested |
 | `hub/robot_overlay/start_wsj_buildmap_v2.sh` | 10,585 B | `2f66c0a2d43eafffb99e08673d8e852b692514bf47225fae876537238e7c0aa1` | source-derived and locally tested |
+| `hub/tools/select_live_board_pair.py` | 16,862 B | `4ec419f861e3e67816224c73ddf0263c10e0dd68b4e7de23aa21c52d91da31a6` | source-derived, locally tested, and replay-validated |
 | `hub/runtime/calibration_sessions/20260725-lab01/shared_frame.json` | 5,832 B | `32134c4d205492bb18234cf4c112ea9b2229716c36e2e2e170efa698140b159b` | observed passed board artifact; incomplete session |
-
