@@ -324,6 +324,20 @@ def test_wsj_tracking_freshness_keeps_odom_deadline_stricter_than_slam():
     )[0] is False
 
 
+def test_wsj_recovers_only_router_false_stale_with_independent_ready_gate():
+    wsj = load_overlay("v2_wsj_receiver.py")
+
+    assert wsj.recoverable_router_hold(
+        "ODOMETRY_STALE", receiver_runtime_ready=True
+    )
+    assert not wsj.recoverable_router_hold(
+        "ODOMETRY_STALE", receiver_runtime_ready=False
+    )
+    assert not wsj.recoverable_router_hold(
+        "NO_KNOWN_FREE_PATH", receiver_runtime_ready=True
+    )
+
+
 def test_external_odin_odometry_health_uses_covariance_fail_closed():
     receiver = load_overlay("v2_wsj_receiver.py")
     covariance = [0.0] * 36

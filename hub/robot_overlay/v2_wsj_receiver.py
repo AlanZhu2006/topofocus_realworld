@@ -85,6 +85,18 @@ TRANSIENT_SLAM_FAILURES = frozenset(
 EXTERNAL_ODOMETRY_MAX_POS_VAR_M2 = 0.01
 EXTERNAL_ODOMETRY_MAX_YAW_VAR_RAD2 = 0.01
 ROBOT_HEALTH_DETAIL_MAX_LENGTH = 512
+RECOVERABLE_ROUTER_HOLD_REASONS = frozenset({"ODOMETRY_STALE"})
+
+
+def recoverable_router_hold(
+    reason: str, *, receiver_runtime_ready: bool
+) -> bool:
+    """Allow only a receiver-disproved router odometry false-stale to retry."""
+
+    return (
+        receiver_runtime_ready
+        and reason in RECOVERABLE_ROUTER_HOLD_REASONS
+    )
 
 
 def bounded_protocol_detail(
@@ -479,6 +491,15 @@ def main() -> int:
     parser.add_argument("--poll-s", type=float, default=0.5)
     parser.add_argument("--local-data-timeout-s", type=float, default=2.0)
     parser.add_argument(
+        "--router-recovery-grace-s",
+        type=float,
+        default=1.5,
+        help=(
+            "zero-velocity recovery window for a goal-router odometry "
+            "false-stale while this receiver independently remains READY"
+        ),
+    )
+    parser.add_argument(
         "--slam-data-timeout-s",
         type=float,
         default=2.0,
@@ -544,6 +565,7 @@ def main() -> int:
     if min(
         args.poll_s,
         args.local_data_timeout_s,
+        args.router_recovery_grace_s,
         args.slam_transient_grace_s,
         args.max_goal_distance_m,
         args.max_alignment_shift_m,
@@ -838,16 +860,32 @@ def main() -> int:
                     self.pause_publisher.publish(paused)
             return True
 
-        def publish_goal(self, payload: str, expires_at_ns: int) -> None:
+        def publish_goal(
+            self,
+            payload: str,
+            expires_at_ns: int,
+            *,
+            authorize_motion: bool = True,
+        ) -> None:
             if not live:
                 raise RuntimeError("live TinyNav output is disabled")
             self.nav_done = False
-            paused = Bool()
-            paused.data = False
-            self.pause_publisher.publish(paused)
+            if authorize_motion:
+                paused = Bool()
+                paused.data = False
+                self.pause_publisher.publish(paused)
             message = String()
             message.data = payload
             self.poi_publisher.publish(message)
+            if authorize_motion:
+                self.authorize(expires_at_ns)
+
+        def resume_existing_goal(self, expires_at_ns: int) -> None:
+            if not live:
+                raise RuntimeError("live TinyNav output is disabled")
+            paused = Bool()
+            paused.data = False
+            self.pause_publisher.publish(paused)
             self.authorize(expires_at_ns)
 
         def tracking_T_map(self) -> tuple[float, ...]:
@@ -1034,6 +1072,9 @@ def main() -> int:
     active_goal = None
     last_feedback_monotonic = 0.0
     goal_issued_ns = 0
+    router_recovery_leg_id: str | None = None
+    router_recovery_started_ns = 0
+    router_recovery_reason = ""
 
     def current_pose() -> tuple[float, float, float]:
         if node.world_T_camera is None:
@@ -1167,6 +1208,9 @@ def main() -> int:
                         node.revoke()
                         active_decision = None
                         active_goal = None
+                        router_recovery_leg_id = None
+                        router_recovery_started_ns = 0
+                        router_recovery_reason = ""
                     emit("heartbeat_failed_local_hold", error=str(exc)[:500])
                     time.sleep(args.poll_s)
                     continue
@@ -1197,6 +1241,9 @@ def main() -> int:
                 )
                 active_decision = None
                 active_goal = None
+                router_recovery_leg_id = None
+                router_recovery_started_ns = 0
+                router_recovery_reason = ""
             if not alignment_stable and active_decision is not None:
                 node.revoke()
                 post(
@@ -1209,6 +1256,33 @@ def main() -> int:
                 )
                 active_decision = None
                 active_goal = None
+                router_recovery_leg_id = None
+                router_recovery_started_ns = 0
+                router_recovery_reason = ""
+            if (
+                router_recovery_leg_id is not None
+                and active_decision is not None
+                and active_decision.leg_id == router_recovery_leg_id
+                and now_ns < active_decision.expires_at_ns
+                and node.router_status_received_ns >= goal_issued_ns
+                and node.router_state == "NAVIGATING"
+                and node.router_decision_id == active_decision.decision_id
+            ):
+                recovery_duration_s = (
+                    now_ns - router_recovery_started_ns
+                ) / 1e9
+                node.resume_existing_goal(active_decision.expires_at_ns)
+                emit(
+                    "online_router_recovered",
+                    state=node.router_state,
+                    reason=node.router_reason,
+                    previous_hold_reason=router_recovery_reason,
+                    recovery_duration_s=round(recovery_duration_s, 3),
+                    decision_id=active_decision.decision_id,
+                )
+                router_recovery_leg_id = None
+                router_recovery_started_ns = 0
+                router_recovery_reason = ""
             if (
                 args.online_buildmap_world
                 and active_decision is not None
@@ -1226,27 +1300,81 @@ def main() -> int:
                 )
             ):
                 held_decision = active_decision
-                node.revoke()
-                post(
-                    held_decision,
-                    NavigationStatusV2.REJECTED,
-                    "LOCAL_ROUTER_HOLD",
-                    pose,
-                    zero=True,
-                    detail=(
-                        f"online router state={node.router_state} "
-                        f"reason={node.router_reason}"
-                    ),
-                    terminal=True,
-                )
-                emit(
-                    "online_router_local_hold",
-                    state=node.router_state,
-                    reason=node.router_reason,
-                    decision_id=held_decision.decision_id,
-                )
-                active_decision = None
-                active_goal = None
+                if recoverable_router_hold(
+                    node.router_reason,
+                    receiver_runtime_ready=ready,
+                ):
+                    if router_recovery_leg_id != held_decision.leg_id:
+                        # Close only the physical velocity gate. Keep TinyNav
+                        # unpaused so its router can consume queued odometry;
+                        # enforce_gate continues publishing zero meanwhile.
+                        node.revoke(pause=False)
+                        router_recovery_leg_id = held_decision.leg_id
+                        router_recovery_started_ns = now_ns
+                        router_recovery_reason = node.router_reason
+                        emit(
+                            "online_router_recovery_wait",
+                            state=node.router_state,
+                            reason=node.router_reason,
+                            grace_s=args.router_recovery_grace_s,
+                            receiver_odom_age_s=round(odom_age_s, 3),
+                            decision_id=held_decision.decision_id,
+                        )
+                    recovery_age_s = (
+                        now_ns - router_recovery_started_ns
+                    ) / 1e9
+                    if recovery_age_s > args.router_recovery_grace_s:
+                        node.revoke()
+                        post(
+                            held_decision,
+                            NavigationStatusV2.REJECTED,
+                            "LOCAL_ROUTER_HOLD_TIMEOUT",
+                            pose,
+                            zero=True,
+                            detail=(
+                                f"online router state={node.router_state} "
+                                f"reason={node.router_reason}; "
+                                f"recovery_age_s={recovery_age_s:.3f}"
+                            ),
+                            terminal=True,
+                        )
+                        emit(
+                            "online_router_recovery_timeout",
+                            state=node.router_state,
+                            reason=node.router_reason,
+                            recovery_age_s=round(recovery_age_s, 3),
+                            decision_id=held_decision.decision_id,
+                        )
+                        active_decision = None
+                        active_goal = None
+                        router_recovery_leg_id = None
+                        router_recovery_started_ns = 0
+                        router_recovery_reason = ""
+                else:
+                    node.revoke()
+                    post(
+                        held_decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_ROUTER_HOLD",
+                        pose,
+                        zero=True,
+                        detail=(
+                            f"online router state={node.router_state} "
+                            f"reason={node.router_reason}"
+                        ),
+                        terminal=True,
+                    )
+                    emit(
+                        "online_router_local_hold",
+                        state=node.router_state,
+                        reason=node.router_reason,
+                        decision_id=held_decision.decision_id,
+                    )
+                    active_decision = None
+                    active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
 
             try:
                 decision = hub.latest_decision()
@@ -1255,6 +1383,9 @@ def main() -> int:
                     node.revoke()
                     active_decision = None
                     active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
                 emit("hub_poll_failed_local_hold", error=str(exc)[:500])
                 time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
                 continue
@@ -1272,6 +1403,9 @@ def main() -> int:
                     )
                     active_decision = None
                     active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
                 time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
                 continue
 
@@ -1425,6 +1559,9 @@ def main() -> int:
                         )
                         if active_decision is not None and not same_leg:
                             node.revoke()
+                            router_recovery_leg_id = None
+                            router_recovery_started_ns = 0
+                            router_recovery_reason = ""
                         accepted = post(
                             decision,
                             NavigationStatusV2.ACCEPTED,
@@ -1448,8 +1585,14 @@ def main() -> int:
                             )
                             time.sleep(args.poll_s)
                             continue
+                        recovery_pending_for_leg = (
+                            same_leg
+                            and router_recovery_leg_id == decision.leg_id
+                        )
                         node.publish_goal(
-                            result.command_preview, decision.expires_at_ns
+                            result.command_preview,
+                            decision.expires_at_ns,
+                            authorize_motion=not recovery_pending_for_leg,
                         )
                         goal_published_this_cycle = True
                         goal_issued_ns = time.time_ns()
@@ -1481,6 +1624,9 @@ def main() -> int:
                     )
                     active_decision = None
                     active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
                 elif decision.mode.value == "HOLD":
                     node.revoke()
                     post(
@@ -1494,6 +1640,9 @@ def main() -> int:
                     )
                     active_decision = None
                     active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
                 else:
                     node.revoke()
                     post(
@@ -1505,6 +1654,9 @@ def main() -> int:
                     )
                     active_decision = None
                     active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
 
             if active_decision is not None:
                 if time.time_ns() >= active_decision.expires_at_ns:
@@ -1520,6 +1672,9 @@ def main() -> int:
                     )
                     active_decision = None
                     active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
                 elif node.nav_done:
                     node.nav_done = False
                     node.revoke()
@@ -1534,6 +1689,13 @@ def main() -> int:
                     )
                     active_decision = None
                     active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
+                elif router_recovery_leg_id == active_decision.leg_id:
+                    # Do not manufacture NAVIGATING feedback while the local
+                    # velocity gate is closed for bounded recovery.
+                    pass
                 elif not goal_published_this_cycle and (
                     time.monotonic() - last_feedback_monotonic >= 0.5
                 ):
