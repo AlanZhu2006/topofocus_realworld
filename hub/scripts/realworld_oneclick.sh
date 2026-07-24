@@ -32,9 +32,10 @@ inputs, runs the real VLM, and records a no-motion gate for this Git commit.
 
 live is unlocked only by that same-session debug record. It clears any old
 Hub decision epoch, arms both local paths with no GOAL present, proves fresh
-receiver heartbeats, then freezes the final inputs and immediately runs the
-VLM plus one supervised episode. The exit trap always returns both robots and
-Hub to fail-closed debug mode.
+receiver heartbeats, then runs the source 0/24/49/... decision loop. Every
+round is separated by an acknowledged robot-local HOLD; semantic ARRIVED
+automatically ends the episode and seals terminal RGB-D/map evidence. The exit
+trap always returns both robots and Hub to fail-closed debug mode.
 EOF
 }
 
@@ -649,17 +650,45 @@ wait_for_hub_epoch
 
 if [[ "$mode" == live ]]; then
   # Robot startup and data-plane verification can take longer than the strict
-  # 60-second frozen-input lifetime. Complete that slow work before selecting
-  # the final synchronized RGB-D/map inputs. run_v2_supervised_episode performs
-  # another readiness check immediately before the first atomic GOAL batch.
+  # 60-second frozen-input lifetime. Complete that slow work before the
+  # continuous runner selects its first synchronized RGB-D/map pair. The
+  # runner repeats readiness checks before every atomic source round.
   arm_live_robots
   wait_for_live_readiness
-  echo "LIVE_RECEIVERS_READY_NO_GOAL: freezing final synchronized inputs."
+  echo "LIVE_RECEIVERS_READY_NO_GOAL: starting continuous source episode."
 fi
 
 stamp="$(date +%Y%m%d_%H%M%S_%N)"
 run_dir="$HUB_DIR/runtime/oneclick_${FOCUS_SESSION_ID}_${mode}_${scene_id}_${stamp}"
 mkdir "$run_dir"
+
+if [[ "$mode" == live ]]; then
+  if "$PYTHON_BIN" -u "$HUB_DIR/tools/run_v2_source_episode.py" \
+      --session-file "$FOCUS_SESSION_FILE" \
+      --output "$run_dir" \
+      --scene-id "$scene_id" \
+      --episode-id "$episode_id" \
+      --goal-category "$goal_category" \
+      --hub-url "$HUB_URL" \
+      --glm-url "$GLM_URL" \
+      --admin-token-file "$FOCUS_ADMIN_TOKEN_FILE" \
+      --registry-state "$HUB_DIR/runtime/state/registry_state.json" \
+      --robot-config "$FOCUS_LIVE_ROBOT_CONFIG" \
+      --robot-0-min-sequence "$wsj_epoch_sequence" \
+      --robot-1-min-sequence "$yunji_epoch_sequence" \
+      --enable-live-goal-publication \
+      --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR; then
+    echo "LIVE_SOURCE_EPISODE_FINISHED: $run_dir/episode_report.json"
+    echo "Terminal RGB-D/map evidence was sealed automatically."
+    echo "Official SR/SPL still needs the independent target/goal-region annotation."
+    exit 0
+  else
+    rc=$?
+    echo "LIVE_SOURCE_EPISODE_STOPPED: $run_dir/episode_report.json" >&2
+    exit "$rc"
+  fi
+fi
+
 accepted_dir="$run_dir/accepted"
 freeze_log="$run_dir/freeze_rejections.log"
 deadline=$((SECONDS + 300))
@@ -728,31 +757,12 @@ for category in "${trusted[@]}"; do
 done
 "${shadow_args[@]}"
 
-if [[ "$mode" == debug ]]; then
-  "$PYTHON_BIN" "$SESSION_MANAGER" mark-debug \
-    --session-file "$FOCUS_SESSION_FILE" \
-    --shadow-manifest "$shadow_dir/shadow_manifest.json" \
-    --debug-safety-confirmation DEBUG_STACK_NO_MOTION_VERIFIED
-  echo "DEBUG_FULLSTACK_READY"
-  echo "Session:  $FOCUS_SESSION_FILE"
-  echo "Foxglove: ws://$(hostname -I | awk '{print $1}'):$FOCUS_FOXGLOVE_PORT"
-  echo "Evidence: $shadow_dir/shadow_manifest.json"
-  echo "Safety: Hub GOAL=false; both receivers read-only; no Go2 bridge/WATER move."
-  exit 0
-fi
-
-episode_dir="$run_dir/episode"
-"$PYTHON_BIN" -u "$HUB_DIR/tools/run_v2_supervised_episode.py" \
-  --manifest "$shadow_dir/shadow_manifest.json" \
-  --registry-state "$HUB_DIR/runtime/state/registry_state.json" \
-  --robot-config "$FOCUS_LIVE_ROBOT_CONFIG" \
-  --scene-id "$scene_id" \
-  --episode-id "$episode_id" \
-  --output "$episode_dir" \
-  --hub-url "$HUB_URL" \
-  --admin-token-file "$FOCUS_ADMIN_TOKEN_FILE" \
-  --enable-live-goal-publication \
-  --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
-
-echo "LIVE_EPISODE_FINISHED: $episode_dir/episode_report.json"
-echo "SR/SPL remains pending until terminal target/goal-region evidence is added."
+"$PYTHON_BIN" "$SESSION_MANAGER" mark-debug \
+  --session-file "$FOCUS_SESSION_FILE" \
+  --shadow-manifest "$shadow_dir/shadow_manifest.json" \
+  --debug-safety-confirmation DEBUG_STACK_NO_MOTION_VERIFIED
+echo "DEBUG_FULLSTACK_READY"
+echo "Session:  $FOCUS_SESSION_FILE"
+echo "Foxglove: ws://$(hostname -I | awk '{print $1}'):$FOCUS_FOXGLOVE_PORT"
+echo "Evidence: $shadow_dir/shadow_manifest.json"
+echo "Safety: Hub GOAL=false; both receivers read-only; no Go2 bridge/WATER move."

@@ -210,22 +210,25 @@ receivers remain healthy with no GOAL active:
    in the deployment `robots.json`;
 2. restart the Hub, let both command-capable senders upload new observations,
    and let both receivers repost READY health;
-3. run one fresh real VLM shadow round to create the frozen manifest;
-4. run the supervised controller with a short clear scene and separated goals:
+3. start the bounded source-derived controller, which freezes a fresh pair,
+   runs one VLM round, publishes only the resulting high-level goals and
+   repeats after an acknowledged dual-robot HOLD:
 
 ```bash
-hub/.venv/bin/python hub/tools/run_v2_supervised_episode.py \
-  --manifest <FRESH_SHADOW_MANIFEST> \
+hub/.venv/bin/python hub/tools/run_v2_source_episode.py \
+  --session-file current \
   --scene-id <SCENE_ID> --episode-id <EPISODE_ID> \
   --output hub/runtime/<UNIQUE_EPISODE_OUTPUT> \
   --admin-token-file <ADMIN_TOKEN_FILE> \
+  --robot-config <LIVE_ROBOT_CONFIG> \
   --enable-live-goal-publication \
   --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 ```
 
 Stand beside the robots with their native local stop controls. After the run,
 restore both `allow_goal` values to false. `ARRIVED` is not official success;
-score SR/SPL only after the separate terminal image/region verification in
+the controller now preserves terminal RGB-D/map bytes automatically, but score
+SR/SPL only after the separate terminal image/region verification in
 [TRIPLE_AI_REALWORLD_DEMO.md](TRIPLE_AI_REALWORLD_DEMO.md).
 
 ## Provenance note

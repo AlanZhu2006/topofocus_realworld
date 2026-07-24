@@ -129,12 +129,14 @@ complete.
 
 ## What remains before physical collection
 
-The image preflight, metric accounting, v2 target/feedback transport and
-persistent-session operator flow are implemented. Before physical collection,
-run the one-command board calibration for a new session, require its strict
-no-motion debug result, and choose a target outside both arrival radii. One
-bounded operator-authorized episode must end with local STOP plus independent
-target/goal-region verification.
+The image preflight, metric accounting, v2 target/feedback transport,
+persistent source-derived multi-round loop and automatic terminal evidence
+capture are implemented. Before physical collection, run the one-command board
+calibration for a new session, require its strict no-motion debug result, and
+choose a target outside both arrival radii. The new loop still requires one
+physical validation: frontier arrival must replan, while semantic-region
+`ARRIVED` must HOLD both robots and produce the terminal evidence manifest.
+Official success then requires independent target/goal-region verification.
 
 Immediately convert the episode report into an auditable trial:
 

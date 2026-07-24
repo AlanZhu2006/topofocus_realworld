@@ -20,7 +20,9 @@
 - 版本化、可过期 `GOAL/HOLD/STOP` 与机器人端 fail-closed GoalGuard；
 - v2 原子双机目标、独立续租/到达反馈、WSJ TinyNav 在线
   BuildMap + guarded `cmd_vel` 接收器以及 Yunji WATER 高层目标接收器；
-  双机链路已受控试跑并能故障闭环到 HOLD，但尚无可计入 SR/SPL 的成功场景；
+  正式入口已组合为有明确 HOLD 边界的源码节拍多轮 episode，并在语义
+  `ARRIVED` 后自动封存终点 RGB-D/地图；该新增循环尚未真机验证，且
+  尚无可计入 SR/SPL 的成功场景；
 - WSJ ROS 2 sender、云迹 ROS1/RealSense 回滚 sender、Odin1 ROS 2 适配器和 Go2 可复现部署层。
 
 默认配置始终 `allow_goal=false`。当前只完成了部分 HIL 工程验证，尚未

@@ -4,7 +4,7 @@ This is the canonical operator path for a new physical placement. It replaces
 the dated, hard-coded July 24 launcher. The workflow has three explicit
 states:
 
-`board calibration -> strict no-motion debug -> one supervised live episode`
+`board calibration -> strict no-motion debug -> one bounded multi-round live episode`
 
 The first two states are non-motion. The live state still requires one fresh,
 onsite confirmation because the Hub only publishes expiring high-level
@@ -173,14 +173,24 @@ robots remain locally in `NO_GOAL/HOLD`, and waits until both Hub
 runtime-readiness records report `ready_for_goal=true` from fresh
 robot-receiver heartbeats.
 
-Only after that potentially slow startup has completed does the launcher
-freeze the exact synchronized map/source pair and run the final VLM/HOLD
-round. This ordering keeps receiver startup outside the strict 60-second
-frozen-input lifetime. Immediately before publication, the episode controller
-rechecks both runtime-readiness records and then publishes an atomic pair of
-8-second expiring v2 targets. It renews leases only while feedback is fresh.
-No target is published while either local map, planner, guarded bridge or
-platform health is still starting.
+Only after that potentially slow startup has completed does the launcher enter
+the bounded source-derived episode loop. It freezes an exact synchronized
+map/source pair, advances the persistent `0,24,49,...,499` VLM state, rechecks
+both runtime-readiness records and publishes one atomic pair of 8-second
+expiring v2 high-level targets. Leases renew only while feedback is fresh.
+At each source round boundary both robots must first acknowledge local
+`HOLDING` with zero velocity; only then can the next synchronized input pair be
+frozen and the next VLM round run. Frontier arrival therefore causes a replan,
+not episode success.
+
+When a `SEMANTIC_REGION` leg reports robot-local `ARRIVED`, the controller
+atomically moves both robots to HOLD, waits for a post-arrival observation and
+automatically preserves hash-verified terminal RGB, aligned depth, observation
+metadata and map snapshots under the run directory. If no post-arrival frame
+arrives before the bounded timeout, the manifest explicitly labels the latest
+verifiable-frame fallback. Either form is an automatic terminal candidate, not
+official SR: the model that generated the target cannot independently verify
+itself.
 
 Every exit path restores `GOAL=false`, latches WSJ navigation pause, sends a
 guarded zero, removes the Go2 bridge, cancels/stops the Yunji live receiver and
@@ -198,7 +208,7 @@ Append a trial and emit an incomplete-or-complete metrics report with:
 
 ```bash
 hub/.venv/bin/python hub/tools/record_realworld_trial.py \
-  --episode-report hub/runtime/oneclick_<session>_live_<scene>_<time>/episode/episode_report.json \
+  --episode-report hub/runtime/oneclick_<session>_live_<scene>_<time>/episode_report.json \
   --results hub/runtime/triple_ai_demo_results.json \
   --experiment-id triple-ai-lab-01 \
   --trial-index 1 \
@@ -213,6 +223,13 @@ hub/.venv/bin/python hub/tools/record_realworld_trial.py \
   --robot-1-reached-goal-region no \
   --robot-1-target-verified no
 ```
+
+For a semantic-arrival candidate, the controller's automatic terminal images
+are under
+`hub/runtime/oneclick_<session>_live_<scene>_<time>/terminal/<robot>/`.
+An independent operator/annotator must inspect the applicable RGB before
+supplying `--robot-*-target-verified yes`; do not infer that flag from the
+controller's own semantic selection.
 
 The command hashes every evidence file, rejects duplicate scene/trial
 identities and atomically updates both the result set and an adjacent metrics

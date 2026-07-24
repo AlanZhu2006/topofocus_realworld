@@ -51,6 +51,17 @@ formal experiment's dependency on a WATER saved map,
 `accessible_point_query`, `make_plan` and `/api/move`. Unit/static tests pass;
 robot-side no-motion startup and physical motion are not yet observed.
 
+The one-click live controller has also been extended locally from one frozen
+decision to a bounded, persistent source-derived episode. It now preserves one
+directional-history state across the `0,24,49,...,499` decision clock, freezes
+new synchronized RGB-D/maps between rounds, atomically publishes renewed
+high-level targets, and distinguishes frontier arrival (replan) from semantic
+region arrival (episode-terminal candidate). A semantic `ARRIVED` first puts
+both robots in acknowledged local HOLD and then seals hash-verified terminal
+RGB, aligned depth, observation metadata and map snapshots. This implementation
+passes local tests but has not been deployed or physically run; it
+does not turn model inference into independent target truth.
+
 ## Last observed physical identity
 
 These identifiers describe the last July 24 predecessor session. They remain
@@ -110,10 +121,10 @@ new strict session by assertion. The next onsite run must use
 - Agent 0 selects first and its frontier is removed before Agent 1 selects.
 - A detected target semantic component can override a frontier target.
 - The continuous shadow runner preserves the executable HPC decision schedule.
-- The persistent physical one-click runner uses one frozen VLM round followed by
-  supervised lease renewal. Multi-round physical exploration after reaching a
-  frontier is implemented only in the non-motion shadow runner and remains a
-  physical integration gate.
+- The persistent physical one-click runner now composes that state into a
+  bounded multi-round live episode. Every round boundary is an acknowledged
+  dual-robot HOLD followed by a newly frozen synchronized input pair; the
+  implementation remains physically unverified.
 
 ### Transport and robot authority
 
@@ -141,6 +152,10 @@ new strict session by assertion. The next onsite run must use
 - Navigation reports now preserve each robot's local start/stop pose, path and
   planner STOP evidence. `record_realworld_trial.py` binds independent
   terminal evidence and surveyed shortest paths to each 4 × 5 trial.
+- Semantic-region `ARRIVED` automatically preserves a terminal evidence bundle
+  before cleanup. Its status remains an unverified success candidate until a
+  human/independent annotation and surveyed goal-region/shortest-path records
+  are attached.
 - No valid official trial exists yet, so current SR/SPL are **not available**.
 
 ## Physical attempt record
@@ -191,9 +206,10 @@ replace a mismatched managed Foxglove relay. Each map directory separately
 binds its code/sequence/transform/calibration/backend contract; a missing or
 blocked map can be reconstructed from that exact boundary before strict input
 freezing. Live establishes a clean decision epoch, arms both receivers with no
-GOAL present, verifies fresh command-capable heartbeats, and only then freezes
-the final synchronized inputs and runs the VLM. This keeps slow receiver
-startup outside the 60-second frozen-input lifetime. Cleanup always restores
+GOAL present, verifies fresh command-capable heartbeats, and only then enters
+the bounded freeze/VLM/high-level-target loop. Slow receiver startup remains
+outside the first 60-second frozen-input lifetime; every later round freezes a
+new pair only after both robots acknowledge HOLD. Cleanup always restores
 mapping-only Hub policy and robot-side stop/reject authority.
 
 The corrected ordering and complete Hub regression suite are locally
@@ -281,12 +297,12 @@ attempt.
    `DEBUG_FULLSTACK_READY`, fresh WSJ/Yunji health, all three semantic
    overviews, calibrated base poses and a target outside both arrival radii.
 3. Obtain one fresh operator-present confirmation and complete one bounded
-   live episode.
-4. Record surveyed shortest paths, goal-region judgments and independent
-   terminal evidence immediately; only a complete record is metric-eligible.
+   multi-round live episode; verify the new automatic round boundary and
+   semantic-arrival terminal bundle on hardware.
+4. Independently annotate the preserved terminal RGB and record surveyed
+   shortest paths plus goal-region judgments immediately; only a complete
+   record is metric-eligible.
 5. Then collect four scenes × five official trials.
-6. Integrate physical multi-round VLM re-planning if a chosen scene cannot be
-   completed by the current one-frozen-decision leg.
 
 ## Git and reproducibility state
 
