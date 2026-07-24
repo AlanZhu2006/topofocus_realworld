@@ -30,11 +30,11 @@ moved meaningfully between them -- this script does not check that; the
 caller is responsible for capturing them together, the same operational
 requirement calibrate_shared_frame.py itself has for its two pose readings.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 
 import cv2
 import numpy as np
@@ -68,9 +68,37 @@ def canonicalize_grid_centers(centers: np.ndarray) -> tuple[np.ndarray, bool]:
     return points.reshape(-1, 1, 2), reversed_order
 
 
+def minimum_axis_median_spacing_px(
+    centers: np.ndarray,
+    *,
+    rows: int,
+    cols: int,
+) -> float:
+    """Return a conservative image-resolution score for a detected grid.
+
+    Planar PnP can report a very small reprojection error even when a distant
+    board occupies too few pixels for its normal to be repeatable.  The lower
+    of the horizontal and vertical median neighbour spacings captures that
+    failure mode without depending on the physical dot diameter.
+    """
+
+    if rows < 2 or cols < 2:
+        raise ValueError("circle-grid quality requires at least 2 rows and 2 columns")
+    points = np.asarray(centers, dtype=np.float64).reshape(rows, cols, 2)
+    horizontal = np.linalg.norm(points[:, 1:] - points[:, :-1], axis=2)
+    vertical = np.linalg.norm(points[1:] - points[:-1], axis=2)
+    return float(min(np.median(horizontal), np.median(vertical)))
+
+
 def find_board_pose(
-    image_path: str, rows: int, cols: int, spacing_m: float,
-    K: np.ndarray, dist: np.ndarray,
+    image_path: str,
+    rows: int,
+    cols: int,
+    spacing_m: float,
+    K: np.ndarray,
+    dist: np.ndarray,
+    *,
+    min_adjacent_spacing_px: float = 0.0,
 ) -> np.ndarray:
     """Returns T_camera_board (4x4) by detecting a symmetric circle grid and
     solving PnP. Tries both (cols, rows) and (rows, cols) as OpenCV's
@@ -101,7 +129,10 @@ def find_board_pose(
             "clustering",
         ),
     )
+    if min_adjacent_spacing_px < 0.0:
+        raise ValueError("min_adjacent_spacing_px must be non-negative")
     scaled_images: dict[float, np.ndarray] = {}
+    best_rejected_spacing_px: float | None = None
     for upscale, flags, detector_name in detector_attempts:
         upscaled = scaled_images.setdefault(
             upscale,
@@ -114,14 +145,25 @@ def find_board_pose(
             ),
         )
         for pattern_size in ((cols, rows), (rows, cols)):
-            found, centers = cv2.findCirclesGrid(
-                upscaled, pattern_size, flags=flags
-            )
+            found, centers = cv2.findCirclesGrid(upscaled, pattern_size, flags=flags)
             if not found:
                 continue
             centers = centers / upscale
             centers, reversed_order = canonicalize_grid_centers(centers)
             actual_cols, actual_rows = pattern_size
+            spacing_px = minimum_axis_median_spacing_px(
+                centers,
+                rows=actual_rows,
+                cols=actual_cols,
+            )
+            if spacing_px < min_adjacent_spacing_px:
+                best_rejected_spacing_px = max(
+                    spacing_px,
+                    best_rejected_spacing_px
+                    if best_rejected_spacing_px is not None
+                    else spacing_px,
+                )
+                continue
             object_points = build_object_points(actual_rows, actual_cols, spacing_m)
             ok, rvec, tvec = cv2.solvePnP(object_points, centers, K, dist)
             if not ok:
@@ -134,58 +176,120 @@ def find_board_pose(
                 f"{image_path}: detected {pattern_size[0]}x{pattern_size[1]} grid "
                 f"with {detector_name}/{upscale:g}x, board is "
                 f"{np.linalg.norm(tvec):.3f}m from the camera, "
-                f"ordering_reversed={str(reversed_order).lower()}"
+                f"ordering_reversed={str(reversed_order).lower()}, "
+                f"minimum_axis_median_spacing_px={spacing_px:.3f}"
             )
             return T
+    if best_rejected_spacing_px is not None:
+        raise SystemExit(
+            f"{image_path}: BOARD_TOO_SMALL: detected the complete grid, but "
+            f"minimum median adjacent-dot spacing was "
+            f"{best_rejected_spacing_px:.3f}px; require at least "
+            f"{min_adjacent_spacing_px:.3f}px. Move the board closer to both "
+            "cameras and retry."
+        )
     raise SystemExit(
         f"{image_path}: could not detect a {rows}x{cols} symmetric circle grid "
         f"(tried both axis orderings) -- is the full board visible and undistorted "
-        f"enough for detection?")
+        f"enough for detection?"
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference-image", required=True,
-                         help="RGB frame from the reference robot's camera (e.g. wsj)")
-    parser.add_argument("--other-image", required=True,
-                         help="RGB frame from the other robot's camera (e.g. yunji), "
-                              "captured at the same time as --reference-image")
+    parser.add_argument(
+        "--reference-image",
+        required=True,
+        help="RGB frame from the reference robot's camera (e.g. wsj)",
+    )
+    parser.add_argument(
+        "--other-image",
+        required=True,
+        help="RGB frame from the other robot's camera (e.g. yunji), "
+        "captured at the same time as --reference-image",
+    )
     parser.add_argument("--rows", type=int, required=True)
     parser.add_argument("--cols", type=int, required=True)
-    parser.add_argument("--spacing-m", type=float, required=True,
-                         help="distance between adjacent circle centers, in metres")
+    parser.add_argument(
+        "--spacing-m",
+        type=float,
+        required=True,
+        help="distance between adjacent circle centers, in metres",
+    )
     parser.add_argument("--reference-fx", type=float, required=True)
     parser.add_argument("--reference-fy", type=float, required=True)
     parser.add_argument("--reference-cx", type=float, required=True)
     parser.add_argument("--reference-cy", type=float, required=True)
-    parser.add_argument("--reference-dist", type=float, nargs="*", default=[0.0] * 5,
-                         help="reference camera's distortion coefficients (k1 k2 p1 p2 k3); "
-                              "default zero (already-rectified stream)")
+    parser.add_argument(
+        "--reference-dist",
+        type=float,
+        nargs="*",
+        default=[0.0] * 5,
+        help="reference camera's distortion coefficients (k1 k2 p1 p2 k3); "
+        "default zero (already-rectified stream)",
+    )
     parser.add_argument("--other-fx", type=float, required=True)
     parser.add_argument("--other-fy", type=float, required=True)
     parser.add_argument("--other-cx", type=float, required=True)
     parser.add_argument("--other-cy", type=float, required=True)
     parser.add_argument("--other-dist", type=float, nargs="*", default=[0.0] * 5)
+    parser.add_argument(
+        "--min-adjacent-spacing-px",
+        type=float,
+        default=0.0,
+        help=(
+            "reject a detected grid when the lower horizontal/vertical median "
+            "neighbour spacing is smaller than this many pixels"
+        ),
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
+    if args.min_adjacent_spacing_px < 0.0:
+        parser.error("--min-adjacent-spacing-px must be non-negative")
 
-    K_ref = np.array([[args.reference_fx, 0, args.reference_cx],
-                       [0, args.reference_fy, args.reference_cy], [0, 0, 1.0]])
-    K_other = np.array([[args.other_fx, 0, args.other_cx],
-                         [0, args.other_fy, args.other_cy], [0, 0, 1.0]])
+    K_ref = np.array(
+        [
+            [args.reference_fx, 0, args.reference_cx],
+            [0, args.reference_fy, args.reference_cy],
+            [0, 0, 1.0],
+        ]
+    )
+    K_other = np.array(
+        [
+            [args.other_fx, 0, args.other_cx],
+            [0, args.other_fy, args.other_cy],
+            [0, 0, 1.0],
+        ]
+    )
     dist_ref = np.array(args.reference_dist, dtype=np.float64)
     dist_other = np.array(args.other_dist, dtype=np.float64)
 
     T_ref_board = find_board_pose(
-        args.reference_image, args.rows, args.cols, args.spacing_m, K_ref, dist_ref)
+        args.reference_image,
+        args.rows,
+        args.cols,
+        args.spacing_m,
+        K_ref,
+        dist_ref,
+        min_adjacent_spacing_px=args.min_adjacent_spacing_px,
+    )
     T_other_board = find_board_pose(
-        args.other_image, args.rows, args.cols, args.spacing_m, K_other, dist_other)
+        args.other_image,
+        args.rows,
+        args.cols,
+        args.spacing_m,
+        K_other,
+        dist_other,
+        min_adjacent_spacing_px=args.min_adjacent_spacing_px,
+    )
 
     T_ref_other = T_ref_board @ np.linalg.inv(T_other_board)
 
     translation = T_ref_other[:3, 3]
-    print(f"\nT_reference_camera_other_camera: translation={np.round(translation, 4).tolist()} m, "
-          f"distance={np.linalg.norm(translation):.3f}m")
+    print(
+        f"\nT_reference_camera_other_camera: translation={np.round(translation, 4).tolist()} m, "
+        f"distance={np.linalg.norm(translation):.3f}m"
+    )
 
     with open(args.output, "w", encoding="utf-8") as handle:
         json.dump({"matrix": T_ref_other.reshape(-1).tolist()}, handle, indent=2)

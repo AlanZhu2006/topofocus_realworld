@@ -73,7 +73,8 @@ def test_old_realsense_shared_transform_is_rejected():
 
     with pytest.raises(ValueError, match="version mismatch"):
         sender.load_shared_transform(
-            str(old_path), expected_transform_version="yunji-odin1-local-odom-20260722-v1"
+            str(old_path),
+            expected_transform_version="yunji-odin1-local-odom-20260722-v1",
         )
 
 
@@ -300,10 +301,9 @@ def test_preview_defaults_are_loopback_only_and_reuse_robot_auth():
     example = (OVERLAY / "config" / "odin1.env.example").read_text()
 
     assert 'os.environ.get("FOCUS_ODIN1_CAMERA_PREVIEW_URL")' in sender_source
-    assert 'or token' in sender_source
+    assert "or token" in sender_source
     assert (
-        "FOCUS_ODIN1_CAMERA_PREVIEW_URL=http://127.0.0.1:18766/camera/yunji"
-        in example
+        "FOCUS_ODIN1_CAMERA_PREVIEW_URL=http://127.0.0.1:18766/camera/yunji" in example
     )
 
 
@@ -318,6 +318,7 @@ def test_gravity_board_calibrator_supports_direct_camera_pose():
 
     assert result.returncode == 0, result.stderr
     assert "--other-pose-is-camera" in result.stdout
+    assert "--min-board-spacing-px" in result.stdout
     assert "--min-holdout-board-translation-m" in result.stdout
     assert "--min-holdout-board-rotation-deg" in result.stdout
 
@@ -344,12 +345,8 @@ def test_gravity_board_calibrator_measures_holdout_rotation():
 
 def test_headless_launch_and_services_contain_no_motion_stack():
     launch = (OVERLAY / "odin1_driver_headless.launch.py").read_text()
-    driver_unit = (
-        OVERLAY / "systemd" / "focus-yunji-odin1-driver.service"
-    ).read_text()
-    sender_unit = (
-        OVERLAY / "systemd" / "focus-yunji-odin1-sender.service"
-    ).read_text()
+    driver_unit = (OVERLAY / "systemd" / "focus-yunji-odin1-driver.service").read_text()
+    sender_unit = (OVERLAY / "systemd" / "focus-yunji-odin1-sender.service").read_text()
     combined = "\n".join((launch, driver_unit, sender_unit)).lower()
 
     assert 'executable="host_sdk_sample"' in launch

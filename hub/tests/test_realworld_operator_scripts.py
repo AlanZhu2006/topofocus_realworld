@@ -35,13 +35,11 @@ def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():
     runner = (HUB / "tools/run_v2_source_episode.py").read_text()
 
     assert "trap cleanup_on_exit EXIT INT TERM" in source
-    assert "restart_hub \"$FOCUS_DEBUG_ROBOT_CONFIG\" false" in source
+    assert 'restart_hub "$FOCUS_DEBUG_ROBOT_CONFIG" false' in source
     assert "OPERATOR_PRESENT_AND_ROBOTS_CLEAR" in source
     arm = source.index("\n  arm_live_robots\n")
     ready = source.index("\n  wait_for_live_readiness\n")
-    episode = source.index(
-        '"$HUB_DIR/tools/run_v2_source_episode.py"'
-    )
+    episode = source.index('"$HUB_DIR/tools/run_v2_source_episode.py"')
     assert arm < ready < episode
     assert "freeze_next_round(" in runner
     assert "run_shadow_round(" in runner
@@ -91,6 +89,17 @@ def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
     )
     assert source.count("read -r -p") == 2
     assert 'row.get("camera_ready") is not True' in source
+    assert "--min-board-spacing-px" in source
+    assert "BOARD_TOO_SMALL" in source
+
+
+def test_wsj_calibration_uses_one_native_infrared_geometry_frame():
+    launcher = (OVERLAY / "start_wsj_calibration_observation.sh").read_text()
+
+    assert "--rgb-topic /camera/camera/infra1/image_rect_raw" in launcher
+    assert "--rgb-topic /camera/camera/color/image_raw" not in launcher
+    assert "--register-rgb-to-depth" not in launcher
+    assert "no RGB-to-depth mosaic can create a second board" in launcher
 
 
 def test_calibration_robot_entries_contain_no_live_motion_flag():
@@ -108,12 +117,8 @@ def test_calibration_robot_entries_contain_no_live_motion_flag():
 
 
 def test_yunji_calibration_recovers_only_the_readonly_odin_driver():
-    launcher = (
-        OVERLAY / "start_yunji_calibration_observation.sh"
-    ).read_text()
-    recovery = (
-        OVERLAY / "prepare_yunji_odin1_calibration_driver.sh"
-    ).read_text()
+    launcher = (OVERLAY / "start_yunji_calibration_observation.sh").read_text()
+    recovery = (OVERLAY / "prepare_yunji_odin1_calibration_driver.sh").read_text()
 
     assert "prepare_yunji_odin1_calibration_driver.sh" in launcher
     assert "focus-yunji-odin1-driver.service" in recovery
@@ -173,12 +178,8 @@ def test_oneclick_reuses_verified_yunji_core_for_live_mode():
     source = (SCRIPTS / "realworld_oneclick.sh").read_text()
 
     assert "--reuse-verified-debug-core" in source
-    assert source.index("start_read_only_robots") < source.index(
-        "arm_live_robots"
-    )
-    assert source.rindex("start_read_only_robots") < source.rindex(
-        "ensure_foxglove"
-    )
+    assert source.index("start_read_only_robots") < source.index("arm_live_robots")
+    assert source.rindex("start_read_only_robots") < source.rindex("ensure_foxglove")
 
 
 def test_hub_launcher_does_not_embed_admin_token_value():

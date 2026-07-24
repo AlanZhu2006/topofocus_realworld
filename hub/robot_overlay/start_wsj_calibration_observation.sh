@@ -22,8 +22,10 @@ Usage: start_wsj_calibration_observation.sh \
 
 This command latches navigation pause, removes receiver/planner/bridge windows,
 recovers the D435i/TinyNav sensor epoch before any board frame is captured,
-then starts only a mapping-only Hub sender and camera preview. It never starts
-a GOAL receiver or Go2 bridge.
+then starts only a mapping-only Hub sender and camera preview. Calibration uses
+the native rectified infra1 image, depth, intrinsics and pose in the same
+optical frame, so no RGB-to-depth mosaic can create a second board. It never
+starts a GOAL receiver or Go2 bridge.
 EOF
 }
 
@@ -140,11 +142,11 @@ wait_for_fresh_topic() {
 camera_restarted=false
 perception_restarted=false
 if [[ "$(tmux display-message -p -t "$SESSION:camera" '#{pane_dead}')" != 0 ]] \
-   || ! fresh_topic_once /camera/camera/color/image_raw; then
+   || ! fresh_topic_once /camera/camera/infra1/image_rect_raw; then
   tmux respawn-pane -k -t "$SESSION:camera"
   camera_restarted=true
   wait_for_fresh_topic \
-    /camera/camera/color/image_raw "WSJ RGB after camera recovery"
+    /camera/camera/infra1/image_rect_raw "WSJ infra1 after camera recovery"
 fi
 
 if [[ "$(tmux display-message -p -t "$SESSION:perception" '#{pane_dead}')" != 0 ]] \
@@ -161,7 +163,7 @@ wait_for_fresh_topic /slam/keyframe_depth "TinyNav keyframe depth"
 wait_for_fresh_topic /slam/keyframe_odom "TinyNav keyframe odometry"
 wait_for_fresh_topic /slam/camera_info "TinyNav camera intrinsics"
 wait_for_fresh_topic \
-  /camera/camera/color/camera_info "RealSense RGB camera intrinsics"
+  /camera/camera/infra1/image_rect_raw "RealSense rectified infra1 image"
 
 # Require a second processed frame after a short soak.  One retained/startup
 # frame is not proof that the IMU watermark continues to advance.
@@ -205,16 +207,11 @@ sender=(
   --base-url "$HUB_URL"
   --robot-id robot-0
   --transform-version "$TRANSFORM_VERSION"
-  --rgb-topic /camera/camera/color/image_raw
+  --rgb-topic /camera/camera/infra1/image_rect_raw
   --depth-topic /slam/keyframe_depth
   --info-topic /slam/camera_info
   --pose-topic /slam/keyframe_odom
   --camera-frame camera
-  --register-rgb-to-depth
-  --rgb-info-topic /camera/camera/color/camera_info
-  --rgb-optical-frame camera_color_optical_frame
-  --depth-optical-frame camera_infra1_optical_frame
-  --registration-min-coverage 0.45
   --capture-time-source header
   --rate-hz 2.0
   --max-frames 0
@@ -224,12 +221,15 @@ printf -v sender_text '%q ' "${sender[@]}"
 tmux new-window -d -t "$SESSION" -n calibration-sender \
   "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; set -o pipefail; $sender_text 2>&1 | tee \"$sender_log\"'"
 
-if ! pgrep -af 'wsj_camera_preview\.py' >/dev/null 2>&1; then
-  tmux kill-window -t "$SESSION:foxglove-preview" >/dev/null 2>&1 || true
-  preview_log="$state_dir/wsj-calibration-preview-$stamp.log"
-  tmux new-window -d -t "$SESSION" -n foxglove-preview \
-    "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; exec \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/wsj_camera_preview.py\" --relay-url \"$PREVIEW_URL\" --name wsj --rgb-topic /camera/camera/color/image_raw --max-rate-hz 5 2>&1 | tee \"$preview_log\"'"
+tmux kill-window -t "$SESSION:foxglove-preview" >/dev/null 2>&1 || true
+sleep 1
+if pgrep -af 'wsj_camera_preview\.py' >/dev/null 2>&1; then
+  echo "An untracked WSJ camera preview is still running." >&2
+  exit 1
 fi
+preview_log="$state_dir/wsj-calibration-preview-$stamp.log"
+tmux new-window -d -t "$SESSION" -n foxglove-preview \
+  "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; exec \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/wsj_camera_preview.py\" --relay-url \"$PREVIEW_URL\" --name wsj --rgb-topic /camera/camera/infra1/image_rect_raw --max-rate-hz 5 2>&1 | tee \"$preview_log\"'"
 
 deadline=$((SECONDS + 60))
 latest_sequence="$initial_sequence"

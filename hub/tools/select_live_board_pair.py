@@ -6,6 +6,7 @@ interactive calibration wrapper: record a sequence boundary, ask the operator
 to place or move the board, then select only observations newer than that
 boundary.  No robot, ROS, WATER, TinyNav or command interface is opened.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -84,6 +85,7 @@ def detect_candidates(
     cols: int,
     spacing_m: float,
     now_ns: int,
+    min_board_spacing_px: float = 0.0,
 ) -> list[dict[str, object]]:
     detections: list[dict[str, object]] = []
     for directory in candidate_directories(
@@ -118,9 +120,7 @@ def detect_candidates(
             ],
             dtype=np.float64,
         )
-        distortion = np.asarray(
-            intrinsics.distortion or [0.0] * 5, dtype=np.float64
-        )
+        distortion = np.asarray(intrinsics.distortion or [0.0] * 5, dtype=np.float64)
         detector_log = io.StringIO()
         try:
             with redirect_stdout(detector_log):
@@ -131,8 +131,10 @@ def detect_candidates(
                     spacing_m,
                     camera_matrix,
                     distortion,
+                    min_adjacent_spacing_px=min_board_spacing_px,
                 )
-        except SystemExit:
+        except SystemExit as exc:
+            print(str(exc), file=sys.stderr)
             continue
         grid_from_center = np.eye(4, dtype=np.float64)
         grid_from_center[:3, 3] = [
@@ -143,9 +145,7 @@ def detect_candidates(
         shared_from_camera = np.asarray(
             metadata.pose.shared_T_camera.matrix, dtype=np.float64
         ).reshape(4, 4)
-        shared_from_board = (
-            shared_from_camera @ camera_from_grid @ grid_from_center
-        )
+        shared_from_board = shared_from_camera @ camera_from_grid @ grid_from_center
         detections.append(
             {
                 "robot_id": robot_id,
@@ -218,29 +218,26 @@ def synchronized_candidate_pairs(
     other: list[dict[str, object]],
     *,
     max_sync_skew_s: float,
-) -> list[
-    tuple[float, dict[str, object], dict[str, object]]
-]:
+) -> list[tuple[float, dict[str, object], dict[str, object]]]:
     """Pair timestamps before running the comparatively expensive detector."""
 
-    pairs: list[
-        tuple[float, int, dict[str, object], dict[str, object]]
-    ] = []
+    pairs: list[tuple[float, int, dict[str, object], dict[str, object]]] = []
     for reference_row in reference:
         for other_row in other:
-            skew_s = abs(
-                int(reference_row["capture_time_ns"])
-                - int(other_row["capture_time_ns"])
-            ) / 1e9
+            skew_s = (
+                abs(
+                    int(reference_row["capture_time_ns"])
+                    - int(other_row["capture_time_ns"])
+                )
+                / 1e9
+            )
             if skew_s > max_sync_skew_s:
                 continue
             newest_common_ns = min(
                 int(reference_row["capture_time_ns"]),
                 int(other_row["capture_time_ns"]),
             )
-            pairs.append(
-                (skew_s, -newest_common_ns, reference_row, other_row)
-            )
+            pairs.append((skew_s, -newest_common_ns, reference_row, other_row))
     pairs.sort(key=lambda item: (item[0], item[1]))
     return [
         (skew_s, reference_row, other_row)
@@ -254,6 +251,7 @@ def detect_candidate_record(
     rows: int,
     cols: int,
     spacing_m: float,
+    min_board_spacing_px: float = 0.0,
 ) -> dict[str, object] | None:
     metadata = record["metadata_model"]
     if not isinstance(metadata, ObservationMetadata):
@@ -271,9 +269,7 @@ def detect_candidate_record(
         ],
         dtype=np.float64,
     )
-    distortion = np.asarray(
-        intrinsics.distortion or [0.0] * 5, dtype=np.float64
-    )
+    distortion = np.asarray(intrinsics.distortion or [0.0] * 5, dtype=np.float64)
     detector_log = io.StringIO()
     try:
         with redirect_stdout(detector_log):
@@ -284,8 +280,10 @@ def detect_candidate_record(
                 spacing_m,
                 camera_matrix,
                 distortion,
+                min_adjacent_spacing_px=min_board_spacing_px,
             )
-    except SystemExit:
+    except SystemExit as exc:
+        print(str(exc), file=sys.stderr)
         return None
     grid_from_center = np.eye(4, dtype=np.float64)
     grid_from_center[:3, 3] = [
@@ -296,9 +294,7 @@ def detect_candidate_record(
     shared_from_camera = np.asarray(
         metadata.pose.shared_T_camera.matrix, dtype=np.float64
     ).reshape(4, 4)
-    shared_from_board = (
-        shared_from_camera @ camera_from_grid @ grid_from_center
-    )
+    shared_from_board = shared_from_camera @ camera_from_grid @ grid_from_center
     return {
         "robot_id": metadata.robot_id,
         "sequence": metadata.sequence,
@@ -320,6 +316,7 @@ def detect_synchronized_pair(
     rows: int,
     cols: int,
     spacing_m: float,
+    min_board_spacing_px: float = 0.0,
 ) -> tuple[
     dict[str, object],
     dict[str, object],
@@ -347,6 +344,7 @@ def detect_synchronized_pair(
                 rows=rows,
                 cols=cols,
                 spacing_m=spacing_m,
+                min_board_spacing_px=min_board_spacing_px,
             )
         if other_sequence not in caches["other"]:
             caches["other"][other_sequence] = detect_candidate_record(
@@ -354,6 +352,7 @@ def detect_synchronized_pair(
                 rows=rows,
                 cols=cols,
                 spacing_m=spacing_m,
+                min_board_spacing_px=min_board_spacing_px,
             )
         reference_detection = caches["reference"][reference_sequence]
         other_detection = caches["other"][other_sequence]
@@ -365,12 +364,10 @@ def detect_synchronized_pair(
                 {
                     "synchronized_pairs": len(pairs),
                     "reference_images_detected": sum(
-                        value is not None
-                        for value in caches["reference"].values()
+                        value is not None for value in caches["reference"].values()
                     ),
                     "other_images_detected": sum(
-                        value is not None
-                        for value in caches["other"].values()
+                        value is not None for value in caches["other"].values()
                     ),
                 },
             )
@@ -386,23 +383,22 @@ def choose_pair(
     *,
     max_sync_skew_s: float,
 ) -> tuple[dict[str, object], dict[str, object], float]:
-    candidates: list[
-        tuple[float, int, dict[str, object], dict[str, object]]
-    ] = []
+    candidates: list[tuple[float, int, dict[str, object], dict[str, object]]] = []
     for reference_row in reference:
         for other_row in other:
-            skew_s = abs(
-                int(reference_row["capture_time_ns"])
-                - int(other_row["capture_time_ns"])
-            ) / 1e9
+            skew_s = (
+                abs(
+                    int(reference_row["capture_time_ns"])
+                    - int(other_row["capture_time_ns"])
+                )
+                / 1e9
+            )
             if skew_s <= max_sync_skew_s:
                 newest_common_ns = min(
                     int(reference_row["capture_time_ns"]),
                     int(other_row["capture_time_ns"]),
                 )
-                candidates.append(
-                    (skew_s, -newest_common_ns, reference_row, other_row)
-                )
+                candidates.append((skew_s, -newest_common_ns, reference_row, other_row))
     if not candidates:
         raise ValueError(
             "no synchronized pair with a detected board; keep the full board "
@@ -426,9 +422,7 @@ def atomic_write_json(path: Path, payload: object) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--spool", type=Path, default=WORKSPACE / "hub/runtime/spool"
-    )
+    parser.add_argument("--spool", type=Path, default=WORKSPACE / "hub/runtime/spool")
     parser.add_argument("--reference-robot", default="robot-0")
     parser.add_argument("--other-robot", default="robot-1")
     parser.add_argument("--reference-after-sequence", type=int, required=True)
@@ -438,6 +432,15 @@ def main() -> int:
     parser.add_argument("--rows", type=int, default=7)
     parser.add_argument("--cols", type=int, default=10)
     parser.add_argument("--spacing-m", type=float, default=0.04)
+    parser.add_argument(
+        "--min-board-spacing-px",
+        type=float,
+        default=7.0,
+        help=(
+            "reject a detected board whose lower horizontal/vertical median "
+            "adjacent-dot spacing is smaller than this value"
+        ),
+    )
     parser.add_argument("--max-sync-skew-s", type=float, default=0.25)
     parser.add_argument("--max-age-s", type=float, default=30.0)
     parser.add_argument("--max-candidates", type=int, default=500)
@@ -445,6 +448,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.max_sync_skew_s <= 0.0 or args.max_age_s <= 0.0:
         parser.error("time thresholds must be positive")
+    if args.min_board_spacing_px < 0.0:
+        parser.error("--min-board-spacing-px must be non-negative")
     if not 1 <= args.max_candidates <= 2000:
         parser.error("--max-candidates must be between 1 and 2000")
     now_ns = time.time_ns()
@@ -467,15 +472,14 @@ def main() -> int:
         now_ns=now_ns,
     )
     try:
-        reference_row, other_row, skew_s, diagnostics = (
-            detect_synchronized_pair(
-                reference,
-                other,
-                max_sync_skew_s=args.max_sync_skew_s,
-                rows=args.rows,
-                cols=args.cols,
-                spacing_m=args.spacing_m,
-            )
+        reference_row, other_row, skew_s, diagnostics = detect_synchronized_pair(
+            reference,
+            other,
+            max_sync_skew_s=args.max_sync_skew_s,
+            rows=args.rows,
+            cols=args.cols,
+            spacing_m=args.spacing_m,
+            min_board_spacing_px=args.min_board_spacing_px,
         )
     except ValueError as exc:
         parser.error(str(exc))

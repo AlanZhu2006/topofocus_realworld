@@ -125,3 +125,57 @@ def test_symmetric_grid_order_is_canonicalized_to_upper_left_endpoint():
     assert reversed_order is True
     np.testing.assert_array_equal(canonical[0], [[10.0, 10.0]])
     np.testing.assert_array_equal(canonical[-1], [[20.0, 30.0]])
+
+
+def test_circle_grid_resolution_score_uses_weaker_image_axis():
+    board = load_board_calibration_module()
+    centers = np.asarray(
+        [[[column * 9.0, row * 7.5]] for row in range(7) for column in range(10)],
+        dtype=np.float32,
+    )
+
+    score = board.minimum_axis_median_spacing_px(
+        centers,
+        rows=7,
+        cols=10,
+    )
+
+    assert score == pytest.approx(7.5)
+
+
+def test_board_pose_rejects_complete_but_too_small_grid(monkeypatch):
+    board = load_board_calibration_module()
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    centers = np.asarray(
+        [
+            [[20.0 + column * 5.0, 20.0 + row * 5.0]]
+            for row in range(7)
+            for column in range(10)
+        ],
+        dtype=np.float32,
+    )
+    monkeypatch.setattr(board.cv2, "imread", lambda _path: image)
+
+    def fake_find_circles_grid(upscaled, pattern_size, *, flags):
+        del flags
+        if pattern_size != (10, 7):
+            return False, None
+        scale = upscaled.shape[1] / image.shape[1]
+        return True, centers * scale
+
+    monkeypatch.setattr(
+        board.cv2,
+        "findCirclesGrid",
+        fake_find_circles_grid,
+    )
+
+    with pytest.raises(SystemExit, match="BOARD_TOO_SMALL"):
+        board.find_board_pose(
+            "synthetic.jpg",
+            7,
+            10,
+            0.04,
+            np.eye(3),
+            np.zeros(5),
+            min_adjacent_spacing_px=7.0,
+        )

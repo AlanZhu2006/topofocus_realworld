@@ -98,6 +98,7 @@ def board_pose(
     rows: int,
     cols: int,
     spacing_m: float,
+    min_board_spacing_px: float,
 ) -> np.ndarray:
     camera_from_grid_origin = find_board_pose(
         str(directory / "rgb.jpg"),
@@ -106,6 +107,7 @@ def board_pose(
         spacing_m,
         matrix,
         distortion,
+        min_adjacent_spacing_px=min_board_spacing_px,
     )
     grid_origin_from_center = np.eye(4, dtype=np.float64)
     grid_origin_from_center[:3, 3] = [
@@ -186,6 +188,15 @@ def main() -> int:
     parser.add_argument("--rows", type=int, default=7)
     parser.add_argument("--cols", type=int, default=10)
     parser.add_argument("--spacing-m", type=float, default=0.04)
+    parser.add_argument(
+        "--min-board-spacing-px",
+        type=float,
+        default=7.0,
+        help=(
+            "reject a detected board whose lower horizontal/vertical median "
+            "adjacent-dot spacing is smaller than this value"
+        ),
+    )
     parser.add_argument("--transform-version", required=True)
     parser.add_argument("--calibration-id", required=True)
     parser.add_argument("--max-sync-skew-s", type=float, default=0.25)
@@ -217,9 +228,7 @@ def main() -> int:
         args.holdout_other_sequence,
     )
     if (holdout_sequences[0] is None) != (holdout_sequences[1] is None):
-        parser.error(
-            "holdout requires both reference and other sequences"
-        )
+        parser.error("holdout requires both reference and other sequences")
     if (
         args.holdout_other_recorded_shared_transform is not None
         and holdout_sequences[0] is None
@@ -245,6 +254,8 @@ def main() -> int:
         or args.min_holdout_board_rotation_deg < 0.0
     ):
         parser.error("holdout board-movement thresholds must be non-negative")
+    if args.min_board_spacing_px < 0.0:
+        parser.error("--min-board-spacing-px must be non-negative")
 
     old_extrinsic = (
         np.eye(4)
@@ -270,10 +281,22 @@ def main() -> int:
             f"calibration sync skew {sync_skew_s:.3f}s exceeds {args.max_sync_skew_s:.3f}s"
         )
     ref_camera_board = board_pose(
-        ref_dir, ref_k, ref_dist, args.rows, args.cols, args.spacing_m
+        ref_dir,
+        ref_k,
+        ref_dist,
+        args.rows,
+        args.cols,
+        args.spacing_m,
+        args.min_board_spacing_px,
     )
     other_camera_board = board_pose(
-        other_dir, other_k, other_dist, args.rows, args.cols, args.spacing_m
+        other_dir,
+        other_k,
+        other_dist,
+        args.rows,
+        args.cols,
+        args.spacing_m,
+        args.min_board_spacing_px,
     )
     reference_board = ref_camera @ ref_camera_board
     local_board, corrected_camera_at_sync = other_local_board(
@@ -315,10 +338,22 @@ def main() -> int:
             abs(href_meta.capture_time_ns - hother_meta.capture_time_ns) / 1e9
         )
         href_camera_board = board_pose(
-            href_dir, href_k, href_dist, args.rows, args.cols, args.spacing_m
+            href_dir,
+            href_k,
+            href_dist,
+            args.rows,
+            args.cols,
+            args.spacing_m,
+            args.min_board_spacing_px,
         )
         hother_camera_board = board_pose(
-            hother_dir, hother_k, hother_dist, args.rows, args.cols, args.spacing_m
+            hother_dir,
+            hother_k,
+            hother_dist,
+            args.rows,
+            args.cols,
+            args.spacing_m,
+            args.min_board_spacing_px,
         )
         href_board = href_camera @ href_camera_board
         hother_board, _ = other_local_board(
@@ -392,6 +427,7 @@ def main() -> int:
             "landmark_origin": "grid_center",
             "orientation_canonicalization": "image_upper_left_diagonal_endpoint",
             "detector_policy": "opencv_find_circles_grid_default_then_clustering_4x_2x",
+            "min_board_spacing_px": args.min_board_spacing_px,
         },
         "calibration_frame": {
             "reference": observation_provenance(ref_dir, ref_meta),
@@ -410,12 +446,9 @@ def main() -> int:
             "max_sync_skew_s": args.max_sync_skew_s,
             "max_holdout_center_residual_m": args.max_holdout_center_residual_m,
             "max_holdout_normal_residual_deg": args.max_holdout_normal_residual_deg,
-            "min_holdout_board_translation_m": (
-                args.min_holdout_board_translation_m
-            ),
-            "min_holdout_board_rotation_deg": (
-                args.min_holdout_board_rotation_deg
-            ),
+            "min_board_spacing_px": args.min_board_spacing_px,
+            "min_holdout_board_translation_m": (args.min_holdout_board_translation_m),
+            "min_holdout_board_rotation_deg": (args.min_holdout_board_rotation_deg),
         },
         "input_provenance": {
             "old_other_extrinsic": (

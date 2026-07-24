@@ -18,6 +18,7 @@ session_id=""
 confirmation=""
 goal_category="chair"
 run_debug="true"
+MIN_BOARD_SPACING_PX="7.0"
 
 usage() {
   cat <<'EOF'
@@ -417,7 +418,7 @@ capture_pair() {
   local label="$1" output="$2" reference_after="$3" other_after="$4"
   local deadline log_file
   log_file="$work_dir/${label}_selection.log"
-  deadline=$((SECONDS + 150))
+  deadline=$((SECONDS + 60))
   while true; do
     if "$PYTHON_BIN" "$HUB_DIR/tools/select_live_board_pair.py" \
       --spool "$HUB_DIR/runtime/spool" \
@@ -425,9 +426,16 @@ capture_pair() {
       --other-after-sequence "$other_after" \
       --reference-transform-version "$wsj_raw_transform" \
       --other-transform-version "$yunji_raw_transform" \
+      --min-board-spacing-px "$MIN_BOARD_SPACING_PX" \
       --max-age-s 30 \
       --output "$output" >"$log_file" 2>&1; then
       return 0
+    fi
+    if grep -q "BOARD_TOO_SMALL" "$log_file"; then
+      echo "Board geometry is visible but too small for repeatable PnP:" >&2
+      grep "BOARD_TOO_SMALL" "$log_file" | tail -n 2 >&2
+      echo "Move the complete board closer to both cameras and start a new calibration session." >&2
+      return 1
     fi
     # Always make one final selection after crossing the deadline. A slow WSJ
     # keyframe can arrive during the last detector invocation or sleep.
@@ -482,7 +490,8 @@ remote_run "$YUNJI_TMUX_TARGET" \
 echo "Foxglove: ws://$(hostname -I | awk '{print $1}'):8765"
 wait_for_calibration_cameras
 echo "CALIBRATION_PREVIEW_READY: both WSJ and Yunji camera previews are live."
-read -r -p "Confirm the COMPLETE 7x10 board is visible in BOTH previews, then press Enter to compute the initial fit. "
+echo "WSJ intentionally uses the native grayscale infra1 calibration view (no RGB/depth mosaic)."
+read -r -p "Confirm the COMPLETE 7x10 board is clearly visible and reasonably large in BOTH previews, then press Enter to compute the initial fit. "
 fit_after_wsj="$(latest_sequence robot-0)"
 fit_after_yunji="$(latest_sequence robot-1)"
 capture_pair fit "$fit_pair" "$fit_after_wsj" "$fit_after_yunji"
@@ -507,6 +516,7 @@ PY
   --reference-sequence "$fit_wsj" \
   --other-sequence "$fit_yunji" \
   --other-pose-is-camera \
+  --min-board-spacing-px "$MIN_BOARD_SPACING_PX" \
   --transform-version "$yunji_final_transform" \
   --calibration-id "$calibration_id" \
   --output "$fit_only_calibration"
@@ -527,7 +537,7 @@ print(
 )
 PY
 
-read -r -p "Move ONLY the board by at least 10 cm or rotate it by at least 5 deg. When the COMPLETE board is again visible in BOTH previews, press Enter to validate and finish. "
+read -r -p "Move ONLY the board, preferably at least 30 cm sideways without tilting it. When the COMPLETE board is again clearly visible and large in BOTH previews, press Enter to validate and finish. "
 holdout_after_wsj="$(latest_sequence robot-0)"
 holdout_after_yunji="$(latest_sequence robot-1)"
 capture_pair holdout "$holdout_pair" "$holdout_after_wsj" "$holdout_after_yunji"
@@ -554,6 +564,7 @@ PY
   --holdout-reference-sequence "$holdout_wsj" \
   --holdout-other-sequence "$holdout_yunji" \
   --other-pose-is-camera \
+  --min-board-spacing-px "$MIN_BOARD_SPACING_PX" \
   --transform-version "$yunji_final_transform" \
   --calibration-id "$calibration_id" \
   --output "$calibration_file"
