@@ -418,7 +418,7 @@ capture_pair() {
   local deadline log_file
   log_file="$work_dir/${label}_selection.log"
   deadline=$((SECONDS + 150))
-  while (( SECONDS < deadline )); do
+  while true; do
     if "$PYTHON_BIN" "$HUB_DIR/tools/select_live_board_pair.py" \
       --spool "$HUB_DIR/runtime/spool" \
       --reference-after-sequence "$reference_after" \
@@ -429,6 +429,9 @@ capture_pair() {
       --output "$output" >"$log_file" 2>&1; then
       return 0
     fi
+    # Always make one final selection after crossing the deadline. A slow WSJ
+    # keyframe can arrive during the last detector invocation or sleep.
+    (( SECONDS >= deadline )) && break
     sleep 2
   done
   echo "Timed out finding a synchronized board pair; detector log:" >&2

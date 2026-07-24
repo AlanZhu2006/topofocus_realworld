@@ -75,6 +75,8 @@ def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
     assert "CALIBRATION_PREVIEW_READY" in source
     assert "INITIAL_BOARD_FIT_READY" in source
     assert "CALIBRATION_HOLDOUT_PASSED" in source
+    assert "while true; do" in source
+    assert "SECONDS >= deadline" in source
     assert source.index("CALIBRATION_PREVIEW_READY") < source.index(
         "INITIAL_BOARD_FIT_READY"
     )

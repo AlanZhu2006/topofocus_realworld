@@ -34,7 +34,9 @@ been computed.
 
 Incomplete calibration directories are now moved intact beneath
 `hub/runtime/calibration_sessions/failed/` on retry. A directory containing
-`shared_frame.json` is still protected from replacement.
+`shared_frame.json` is still protected from replacement. The board selector
+also performs one final attempt after its nominal deadline so that a slow WSJ
+keyframe arriving at the timeout boundary is not discarded.
 
 ## Artifact provenance
 
@@ -42,7 +44,7 @@ Incomplete calibration directories are now moved intact beneath
 |---|---:|---|---|
 | `hub/robot_overlay/prepare_yunji_odin1_calibration_driver.sh` | 1,565 B | `e197daa96b8cc0339a996e7c919fef80afebc00ba212957c84f474a0164a8232` | source-derived and locally tested |
 | `hub/robot_overlay/start_yunji_calibration_observation.sh` | 3,126 B | `7c8e6bebd130c6deb98a15cbfeb923df7343cc3a711f712d6024d921fa5691ed` | source-derived and locally tested |
-| `hub/scripts/calibrate_realworld_session.sh` | 24,540 B | `7d2dc63e6ecb80202c3a9cf586b82994b8bed4a27408807ad8e915b241c5f8e0` | source-derived and locally tested |
+| `hub/scripts/calibrate_realworld_session.sh` | 24,709 B | `0c75a60c7491ee91f52962f6b890a9c37ef3b924bd8e8c3e24800bac63523f1a` | source-derived and locally tested |
 
 The full Hub test suite passed after these changes. No file under `source/` or
 `dependencies/` was modified.
