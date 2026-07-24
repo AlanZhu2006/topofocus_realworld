@@ -589,8 +589,8 @@ verify_remote_release "$YUNJI_TMUX_TARGET" "$YUNJI_ROOT"
 restart_hub "$FOCUS_DEBUG_ROBOT_CONFIG" false
 ensure_maps
 ensure_glm
-ensure_foxglove
 start_read_only_robots
+ensure_foxglove
 
 final_hub_epoch_ns="$(date +%s%N)"
 if [[ "$mode" == live ]]; then

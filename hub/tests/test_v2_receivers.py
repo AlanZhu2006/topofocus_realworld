@@ -415,6 +415,14 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--qos-reliability best_effort" in wsj
     assert "--qos-durability volatile" in wsj
     assert "--qos-depth 1" in wsj
+    assert "topic_has_publisher" in wsj
+    assert "for topic in /slam/keyframe_depth /slam/keyframe_odom" in wsj
+    continuous_stream_loop = wsj[
+        wsj.index("for topic in \\\n  /camera/camera/color/image_raw")
+        : wsj.index("for topic in /slam/keyframe_depth")
+    ]
+    assert "/slam/keyframe_depth" not in continuous_stream_loop
+    assert "/slam/keyframe_odom" not in continuous_stream_loop
     assert "fail_closed_on_error" in wsj
     assert "fail_closed_on_error" in yunji
     assert "focus-yunji-water-bridge-live-v1.service" in yunji

@@ -150,19 +150,35 @@ fresh_topic_once() {
     >/dev/null 2>&1
 }
 
+topic_has_publisher() {
+  local topic="$1"
+  ros2 topic info "$topic" 2>/dev/null \
+    | grep -Eq '^Publisher count: [1-9][0-9]*$'
+}
+
 set +u
 source "$SETUP_FILE"
 set -u
+# RGB and processed depth are continuous streams and therefore prove that the
+# calibrated camera/perception epoch is advancing. Keyframe topics are
+# intentionally VOLATILE and event-driven; while the robot is stationary a
+# newly-created subscriber can legitimately see no sample before this short
+# startup deadline. Require their publishers here, then let the downstream
+# strict map-freshness gate prove that a synchronized keyframe arrived.
 for topic in \
   /camera/camera/color/image_raw \
-  /slam/depth \
-  /slam/keyframe_depth \
-  /slam/keyframe_odom; do
+  /slam/depth; do
   fresh_topic_once "$topic" || {
     echo "WSJ calibrated sensor epoch is stale at $topic." >&2
     echo "Refusing to restart camera/perception after calibration because that" \
       "would change the tracking origin; run a new board-calibration session." \
       >&2
+    exit 1
+  }
+done
+for topic in /slam/keyframe_depth /slam/keyframe_odom; do
+  topic_has_publisher "$topic" || {
+    echo "WSJ calibrated sensor epoch lacks a publisher at $topic." >&2
     exit 1
   }
 done

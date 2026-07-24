@@ -175,6 +175,9 @@ def test_oneclick_reuses_verified_yunji_core_for_live_mode():
     assert source.index("start_read_only_robots") < source.index(
         "arm_live_robots"
     )
+    assert source.rindex("start_read_only_robots") < source.rindex(
+        "ensure_foxglove"
+    )
 
 
 def test_hub_launcher_does_not_embed_admin_token_value():
