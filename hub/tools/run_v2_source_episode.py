@@ -1530,6 +1530,9 @@ def main() -> int:
             )
             if fused_snapshot is None:
                 raise RuntimeError("shadow round lacks fused decision map")
+            shared_positions, pose_provenance, pose_errors = (
+                frozen_shared_robot_positions(accepted)
+            )
             clearance_guarded_batch, frontier_clearance_guard = (
                 apply_frontier_clearance_guard(
                     built.batch,
@@ -1538,6 +1541,10 @@ def main() -> int:
                         "robot-0": args.robot_0_frontier_clearance_m,
                         "robot-1": args.robot_1_frontier_clearance_m,
                     },
+                    fallback_frontiers=shadow_manifest.get(
+                        "remaining_frontiers", []
+                    ),
+                    robot_xy_by_robot=shared_positions,
                 )
             )
             atomic_write_json(
@@ -1556,9 +1563,6 @@ def main() -> int:
                 blocked_robot_ids=frontier_clearance_guard[
                     "blocked_robot_ids"
                 ],
-            )
-            shared_positions, pose_provenance, pose_errors = (
-                frozen_shared_robot_positions(accepted)
             )
             guarded_batch, route_guard = apply_route_conflict_guard(
                 clearance_guarded_batch,

@@ -9,9 +9,9 @@ inside the source's arrival radius.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 import hashlib
 import math
-from typing import Mapping
 
 import numpy as np
 from scipy import ndimage
@@ -20,7 +20,7 @@ from .map_snapshot import MapSnapshot
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
 
-FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v1"
+FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v2"
 
 
 def _bounded_id(value: str) -> str:
@@ -132,10 +132,105 @@ def _frontier_report(
     }
 
 
-def _restrict_batch(
+def _fallback_decision(
+    previous: HighLevelDecisionV2,
+    *,
+    frontier: Mapping[str, object],
+    robot_xy_m: tuple[float, float],
+) -> HighLevelDecisionV2:
+    frontier_id = str(frontier["frontier_id"])
+    x_m = float(frontier["x_m"])
+    y_m = float(frontier["y_m"])
+    raw = previous.model_dump(mode="json")
+    raw["target"] = {
+        "kind": "FRONTIER_POINT",
+        "frontier_id": frontier_id,
+        "source_goal_dilation_cells": 10,
+        "pose": {
+            "frame_id": "shared_world",
+            "x": x_m,
+            "y": y_m,
+            "z": 0.0,
+            "yaw_rad": math.atan2(
+                y_m - robot_xy_m[1],
+                x_m - robot_xy_m[0],
+            ),
+        },
+    }
+    raw["leg_id"] = _bounded_id(
+        f"{previous.leg_id}-frontier-fallback-{frontier_id}"
+    )
+    raw["decision_id"] = _bounded_id(f"{raw['leg_id']}-lease-0")
+    raw["reason"] = (
+        "source-ranked remaining frontier passed the unchanged real-world "
+        "footprint-clearance guard after the VLM-selected frontier was rejected"
+    )
+    return HighLevelDecisionV2.model_validate(raw)
+
+
+def _normalize_fallback_frontiers(
+    fallback_frontiers: Sequence[Mapping[str, object]] | None,
+    *,
+    selected_frontier_ids: set[str],
+) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    seen: set[str] = set()
+    if fallback_frontiers is None:
+        source_frontiers: Sequence[Mapping[str, object]] = ()
+    elif isinstance(fallback_frontiers, (str, bytes)) or not isinstance(
+        fallback_frontiers, Sequence
+    ):
+        raise ValueError("remaining frontiers must be a sequence")
+    else:
+        source_frontiers = fallback_frontiers
+    for rank, frontier in enumerate(source_frontiers):
+        if not isinstance(frontier, Mapping):
+            raise ValueError("remaining frontier must be an object")
+        frontier_id = frontier.get("frontier_id")
+        x_m = frontier.get("x_m")
+        y_m = frontier.get("y_m")
+        if (
+            not isinstance(frontier_id, str)
+            or not frontier_id
+            or len(frontier_id) > 128
+        ):
+            raise ValueError("remaining frontier has an invalid frontier_id")
+        if (
+            isinstance(x_m, bool)
+            or isinstance(y_m, bool)
+            or not isinstance(x_m, (int, float))
+            or not isinstance(y_m, (int, float))
+            or not math.isfinite(float(x_m))
+            or not math.isfinite(float(y_m))
+        ):
+            raise ValueError(
+                f"remaining frontier {frontier_id!r} has invalid coordinates"
+            )
+        if frontier_id in seen:
+            raise ValueError(
+                f"remaining frontier list repeats {frontier_id!r}"
+            )
+        if frontier_id in selected_frontier_ids:
+            raise ValueError(
+                f"remaining frontier {frontier_id!r} was already selected"
+            )
+        seen.add(frontier_id)
+        normalized.append(
+            {
+                "source_rank": rank,
+                "frontier_id": frontier_id,
+                "x_m": float(x_m),
+                "y_m": float(y_m),
+            }
+        )
+    return normalized
+
+
+def _rewrite_batch(
     batch: DecisionBatchV2,
     *,
-    blocked_robot_ids: set[str],
+    held_robot_ids: set[str],
+    replacements: Mapping[str, HighLevelDecisionV2],
 ) -> DecisionBatchV2:
     original_active = tuple(
         batch.decisions[0].coordination.active_robot_ids
@@ -145,13 +240,14 @@ def _restrict_batch(
     effective = [
         robot_id
         for robot_id in original_active
-        if robot_id not in blocked_robot_ids
+        if robot_id not in held_robot_ids
     ]
     decisions: list[HighLevelDecisionV2] = []
     for previous in batch.decisions:
-        raw = previous.model_dump(mode="json")
+        replacement = replacements.get(previous.robot_id)
+        raw = (replacement or previous).model_dump(mode="json")
         raw["coordination"]["active_robot_ids"] = effective
-        if previous.robot_id in blocked_robot_ids:
+        if previous.robot_id in held_robot_ids:
             raw["mode"] = "HOLD"
             raw["target"] = None
             raw["lease_sequence"] = 0
@@ -172,8 +268,10 @@ def apply_frontier_clearance_guard(
     snapshot: MapSnapshot,
     *,
     clearance_by_robot_m: Mapping[str, float],
+    fallback_frontiers: Sequence[Mapping[str, object]] | None = None,
+    robot_xy_by_robot: Mapping[str, tuple[float, float]] | None = None,
 ) -> tuple[DecisionBatchV2, dict[str, object]]:
-    """Hold only active frontier legs lacking a safe approach region."""
+    """Reallocate rejected frontier legs once, then hold any still unsafe."""
 
     active_ids = list(
         batch.decisions[0].coordination.active_robot_ids
@@ -181,13 +279,15 @@ def apply_frontier_clearance_guard(
         else ()
     )
     checks: dict[str, dict[str, object]] = {}
-    blocked: set[str] = set()
+    rejected: set[str] = set()
+    selected_frontier_ids: set[str] = set()
     for decision in batch.decisions:
         if decision.robot_id not in active_ids:
             continue
         target = decision.target
         if target is None or target.kind != "FRONTIER_POINT":
             continue
+        selected_frontier_ids.add(target.frontier_id)
         if decision.robot_id not in clearance_by_robot_m:
             raise ValueError(
                 f"missing frontier clearance for {decision.robot_id}"
@@ -199,12 +299,74 @@ def apply_frontier_clearance_guard(
         )
         checks[decision.robot_id] = check
         if check["passed"] is not True:
-            blocked.add(decision.robot_id)
+            rejected.add(decision.robot_id)
 
+    candidates = _normalize_fallback_frontiers(
+        fallback_frontiers,
+        selected_frontier_ids=selected_frontier_ids,
+    )
+    positions = robot_xy_by_robot or {}
+    available = list(candidates)
+    fallback_checks: dict[str, list[dict[str, object]]] = {}
+    replacements: dict[str, HighLevelDecisionV2] = {}
+    assignments: list[dict[str, object]] = []
+    for decision in batch.decisions:
+        if decision.robot_id not in rejected:
+            continue
+        robot_xy = positions.get(decision.robot_id)
+        if (
+            not isinstance(robot_xy, (tuple, list))
+            or len(robot_xy) != 2
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in robot_xy
+            )
+        ):
+            fallback_checks[decision.robot_id] = []
+            continue
+        robot_reports: list[dict[str, object]] = []
+        for candidate in tuple(available):
+            replacement = _fallback_decision(
+                decision,
+                frontier=candidate,
+                robot_xy_m=(float(robot_xy[0]), float(robot_xy[1])),
+            )
+            report = _frontier_report(
+                snapshot,
+                replacement,
+                clearance_m=float(
+                    clearance_by_robot_m[decision.robot_id]
+                ),
+            )
+            report["source_rank"] = candidate["source_rank"]
+            robot_reports.append(report)
+            if report["passed"] is True:
+                replacements[decision.robot_id] = replacement
+                available.remove(candidate)
+                assignments.append(
+                    {
+                        "robot_id": decision.robot_id,
+                        "rejected_frontier_id": checks[
+                            decision.robot_id
+                        ]["frontier_id"],
+                        "fallback_frontier_id": candidate["frontier_id"],
+                        "source_rank": candidate["source_rank"],
+                    }
+                )
+                break
+        fallback_checks[decision.robot_id] = robot_reports
+
+    held = rejected - replacements.keys()
     guarded = (
         batch
-        if not blocked
-        else _restrict_batch(batch, blocked_robot_ids=blocked)
+        if not rejected
+        else _rewrite_batch(
+            batch,
+            held_robot_ids=held,
+            replacements=replacements,
+        )
     )
     effective_ids = list(
         guarded.decisions[0].coordination.active_robot_ids
@@ -215,16 +377,21 @@ def apply_frontier_clearance_guard(
         "schema_version": FRONTIER_CLEARANCE_SCHEMA_VERSION,
         "status": (
             "frontiers_clear"
-            if not blocked
+            if not rejected
             else (
-                "all_active_frontiers_blocked"
-                if not effective_ids
-                else "unsafe_frontiers_suppressed"
+                "unsafe_frontiers_reallocated"
+                if replacements
+                else (
+                    "all_active_frontiers_blocked"
+                    if not effective_ids
+                    else "unsafe_frontiers_suppressed"
+                )
             )
         ),
         "method": (
             "known-free distance transform over the frozen fused map; require "
-            "one footprint-clear cell inside the source frontier arrival disk"
+            "one footprint-clear cell inside the source frontier arrival disk; "
+            "rejected selections try source-ranked remaining frontiers once"
         ),
         "classification": (
             "source-derived real-world physical execution guard over the "
@@ -232,8 +399,12 @@ def apply_frontier_clearance_guard(
         ),
         "original_active_robot_ids": active_ids,
         "effective_active_robot_ids": effective_ids,
-        "blocked_robot_ids": sorted(blocked),
+        "selected_frontier_rejected_robot_ids": sorted(rejected),
+        "blocked_robot_ids": sorted(held),
         "checks": checks,
+        "fallback_candidates": candidates,
+        "fallback_checks": fallback_checks,
+        "fallback_assignments": assignments,
         "map_contract": {
             "frame_id": snapshot.frame_id,
             "resolution_m": snapshot.resolution_m,
@@ -244,7 +415,9 @@ def apply_frontier_clearance_guard(
             "map_format_version": snapshot.map_format_version,
         },
         "source_fidelity": (
-            "the VLM-selected target remains unchanged in the preserved "
-            "candidate batch; only physical motion authority is reduced"
+            "the exact VLM-selected target remains unchanged in the preserved "
+            "candidate batch; any execution fallback is an unused frontier "
+            "from the same frozen source manifest and must independently pass "
+            "the unchanged physical-clearance guard"
         ),
     }

@@ -87,3 +87,123 @@ def test_clear_frontiers_preserve_candidate_batch(observation_factory):
     assert report["status"] == "frontiers_clear"
     assert report["blocked_robot_ids"] == []
     assert guarded == candidate
+
+
+def test_rejected_frontiers_use_one_clear_source_remaining_frontier(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (1.025, 1.025),
+            "robot-1": (1.075, 1.075),
+        },
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        snapshot_with_one_wall_trap(),
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        fallback_frontiers=[
+            {
+                "frontier_id": "A",
+                "x_m": 3.0,
+                "y_m": 3.0,
+                "size_cells": 50,
+            }
+        ],
+        robot_xy_by_robot={
+            "robot-0": (0.0, 0.0),
+            "robot-1": (0.5, 0.0),
+        },
+    )
+
+    assert report["status"] == "unsafe_frontiers_reallocated"
+    assert report["selected_frontier_rejected_robot_ids"] == [
+        "robot-0",
+        "robot-1",
+    ]
+    assert report["blocked_robot_ids"] == ["robot-1"]
+    assert report["effective_active_robot_ids"] == ["robot-0"]
+    assert report["fallback_assignments"] == [
+        {
+            "robot_id": "robot-0",
+            "rejected_frontier_id": "frontier-0",
+            "fallback_frontier_id": "A",
+            "source_rank": 0,
+        }
+    ]
+    assert report["fallback_checks"]["robot-0"][0]["passed"] is True
+    assert report["fallback_checks"]["robot-0"][0][
+        "required_clearance_m"
+    ] == 0.35
+    assert report["fallback_checks"]["robot-1"] == []
+    assert [item.mode.value for item in guarded.decisions] == ["GOAL", "HOLD"]
+    target = guarded.decisions[0].target
+    assert target is not None
+    assert target.kind == "FRONTIER_POINT"
+    assert target.frontier_id == "A"
+    assert target.pose.x == 3.0
+    assert target.pose.y == 3.0
+    assert guarded.decisions[1].target is None
+
+
+def test_rejected_frontiers_still_hold_when_fallback_is_unsafe(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (1.025, 1.025),
+            "robot-1": (3.0, 3.0),
+        },
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        snapshot_with_one_wall_trap(),
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        fallback_frontiers=[
+            {"frontier_id": "A", "x_m": 1.075, "y_m": 1.075}
+        ],
+        robot_xy_by_robot={"robot-0": (0.0, 0.0)},
+    )
+
+    assert report["status"] == "unsafe_frontiers_suppressed"
+    assert report["blocked_robot_ids"] == ["robot-0"]
+    assert report["fallback_assignments"] == []
+    assert report["fallback_checks"]["robot-0"][0]["passed"] is False
+    assert [item.mode.value for item in guarded.decisions] == ["HOLD", "GOAL"]
+
+
+def test_clear_frontiers_ignore_fallback_candidates(observation_factory):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {"robot-0": (3.0, 3.0), "robot-1": (4.0, 4.0)},
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        snapshot_with_one_wall_trap(),
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        fallback_frontiers=[
+            {"frontier_id": "A", "x_m": 5.0, "y_m": 5.0}
+        ],
+        robot_xy_by_robot={
+            "robot-0": (0.0, 0.0),
+            "robot-1": (0.0, 0.0),
+        },
+    )
+
+    assert report["status"] == "frontiers_clear"
+    assert report["fallback_assignments"] == []
+    assert guarded == candidate
