@@ -48,8 +48,9 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
   A–D 前沿同时显示；旧 relay 源码哈希不一致时一键启动会自动拒绝。
 - 四场景 × 五次、标准 SPL/源码兼容 SPL 和 episode 报告已经实现。当前
   `physical_0p5m_protocol` 轨已有 3 个证据绑定的正常通过样本：
-  `SR=3/3=1.0`、平均源码兼容 `SPL=0.816269`；预先测量最短路的标准轨
-  仍无样本。
+  `SR=3/3=1.0`、平均源码兼容 `SPL=0.816269`。操作者确认 Formal 4 的
+  `L≈3.25 m` 是独立测量的最短可行路径，因此标准轨已有 1 个样本：
+  `SR=1/1=1.0`、standard SPL `1.0`。
 - 正式 `live` 已在本机接成源码节拍的多轮循环：前沿到达继续重规划，
   语义区域 `ARRIVED` 才会双机 HOLD 并自动封存终点 RGB-D/地图证据。
   r5 已在无碰撞真机运行中观察到自动多轮终止、双机 HOLD 和终点封存。
@@ -83,6 +84,12 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
   `0.602 m` 和约 `13.8°`。r6 因此作为标定漂移预检中止，不发布目标、
   不形成 episode、不进入 SR/SPL。两台机器人随后下电充电；下次必须重新
   做完整双位置板标定并先检查 fused overview。
+- 第五次正式实验的两次准备也都在严格无运动 debug 内中止，没有进入
+  live、发布 GOAL、创建 episode 或产生运动。当前边界重试发现 WSJ 原始
+  D435i 数据仍在线，但校正 camera-info/视觉里程计输出已冻结；旧 lab21
+  变换不能直接复用。操作者已将两台机器人下电充电并明确暂缓标定，因此
+  Formal 5 没有 SR/SPL 行。见
+  [第五次预检中止审计](audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md)。
 
 ## 实机直接入口
 
@@ -119,7 +126,8 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 第一个实验场景要求两台机器人从同一实验室起始区域在线建图、协调探索并
 找到白色椅子。当前媒体记录包含两次由操作者命名的 approach failure 和
 两次正常通过；最新第四次正式实验先按 runtime/终点证据归档，尚未把任何
-现场视频事后绑定到该 episode。媒体列明确标出可用性。
+现场视频事后绑定到该 episode。第五次只完成无运动预检且中止，不是
+episode。媒体列明确标出可用性。
 
 | Run | 结果 | 归因 | SR | Source-compatible SPL | 第三视角 | Foxglove Dashboard | 证据口径 |
 | --- | --- | --- | ---: | ---: | --- | --- | --- |
@@ -128,10 +136,11 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 | Formal 3 | **SUCCESS** | 操作者手动终点判定 | `1` | `0.864048` | [![Yunji 驶近目标椅并停止](media/demo/scene01_success_third_view_20260725_poster.jpg)](media/demo/scene01_success_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_success_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_success_3.mp4) | [![成功 run 的 Foxglove Dashboard](media/demo/scene01_success_dashboard_20260725_poster.jpg)](media/demo/scene01_success_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_success_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov) | `20260725-lab17-nearwall-fix / trial-05-nearwall-fix`；Yunji 停在所选 chair 语义落点 `0.321133 m` 内，操作者按 `0.5 m` 真机半径标注第三次正式实验成功。 |
 | Success 2 | **SUCCESS** | 正常通过 | `1` | `0.628399` | [![双机到达白色椅子附近](media/demo/scene01_success_2_third_view_20260725_poster.jpg)](media/demo/scene01_success_2_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_success_2_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_success_1.mp4) | [![第二次成功 run 的 Foxglove Dashboard](media/demo/scene01_success_2_dashboard_20260725_poster.jpg)](media/demo/scene01_success_2_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_success_2_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov) | `20260725-lab19-scene01-8ca1d52-yunjireboot1-r5 / trial-r5-01`；WSJ 本地规划器自动 `ARRIVED`，停点距 chair 语义目标 `0.406693 m`，正常通过。 |
 | Formal 4 | **SUCCESS** | 自动 `ARRIVED` + 操作者归档 | `1` | `0.956361` | 未绑定现场视频；[终点证据审计](audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md) | 未绑定 Dashboard | `20260725-lab21-wallfix-imudebounce-3a2d953 / trial-wallfix-imudebounce-r1`；Yunji 自动 `LOCAL_PLANNER_ARRIVED`、零速停止，终点 RGB 可见白椅，操作者明确归档为第四次正式实验成功。 |
+| Formal 5 preflight | **NOT STARTED** | WSJ tracking 输出冻结 | 排除 | 排除 | 候选媒体未绑定/提交 | 候选媒体未绑定/提交 | 两次准备均止于严格无运动 debug；无 live、GOAL、episode 或运动，不计 SR/SPL。见[预检中止审计](audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md)。 |
 
 | 当前计入指标的样本 | Success | SR | Mean source-compatible SPL | Standard SPL |
 | ---: | ---: | ---: | ---: | --- |
-| `3` | `3` | `1.0` | `0.816269` | 暂无：实验前未独立测量最短可行路径 |
+| `3` | `3` | `1.0` | `0.816269` | Formal 4：`1.0`（标准轨 `1/1`） |
 
 失败归因采用固定顺序：先检查传感器、标定/融合、地图/定位、传输、
 本地规划控制、硬件/供电和安全中止；这些任一异常都归为工程失败，不能写成
@@ -139,7 +148,8 @@ VLM 失败。工程链健康后，YOLO/SegFormer 的漏检或误检归为 percep
 failure；只有输入语义合理、目标执行正常，而 Perception/Judgment/Decision
 VLM 在完整预算内持续选择错误方向、历史点或前沿，才归为 VLM decision
 failure。当前已绑定的碰撞属于路线协调工程失败，r6 属于标定/融合预检
-失败；两者都不是 VLM 失败。完整口径见
+失败，Formal 5 属于 WSJ tracking 输出冻结的预检工程失败；三者都不是
+VLM 失败。完整口径见
 [失败归因协议](audit/FAILURE_ATTRIBUTION_PROTOCOL_20260725.md)。
 
 Success 判定采用项目当前正式的 `0.5 m` 真机终点半径。Formal 3 的终点
@@ -148,8 +158,11 @@ Success 判定采用项目当前正式的 `0.5 m` 真机终点半径。Formal 3 
 `3.070130/3.210222 m`，源码兼容 `SPL=0.956361`。因此当前三个证据绑定的
 实机样本为 `SR=3/3=1.0`，平均源码兼容 `SPL=0.816269`。Formal 3 运行时
 接收器仍配置旧 `0.15 m` 阈值，历史日志原样保留；r5 与 Formal 4 均自动
-产生 `LOCAL_PLANNER_ARRIVED` 和终点证据包。由于三次实验前都没有独立
-测量最短可行路径，均不产生标准 SPL。完整计算见
+产生 `LOCAL_PLANNER_ARRIVED` 和终点证据包。Formal 3 和 r5 尚无独立测量
+最短可行路径，因此没有 standard SPL。操作者明确确认 Formal 4 的近似
+`L≈3.25 m` 是独立测量最短可行路径；按 `S×L/max(P,L)`，其正式 standard
+SPL 为 `1.0`。`L` 比里程计记录的实际路径约长 `0.039778 m`，因此公式由
+`max(L,P)` 正常封顶为 `1.0`。完整计算见
 [首次成功审计](audit/SCENE01_CHAIR_SUCCESS_20260725.md) 和
 [第二次成功审计](audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md)，以及
 [第四次正式实验审计](audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md)。
@@ -159,7 +172,7 @@ Success 判定采用项目当前正式的 `0.5 m` 真机终点半径。Formal 3 
 该截图保留 Yunji 的绿色轨迹、两台机器人位姿、A–D 前沿及 `chair` 投影。
 底部 `plant` 色块是未经独立验证的模型输出，不作为真实目标或成功证据。
 
-Scene 01 当前工作区中的 12 个原始视频已全部通过 Git LFS 进入仓库：
+Scene 01 已归档的 12 个原始视频已全部通过 Git LFS 进入仓库：
 
 | 记录组 | 第三视角原始文件 | Dashboard 原始文件 | 状态 |
 | --- | --- | --- | --- |
@@ -169,6 +182,10 @@ Scene 01 当前工作区中的 12 个原始视频已全部通过 Git LFS 进入�
 | Failure 2 | [`experiment_1_approach_failure_2.mp4`](media/video/third_view/experiment_1/experiment_1_approach_failure_2.mp4) | [`experiment_1_approach_failure_2.mov`](media/video/dashboard/experiment_1/experiment_1_approach_failure_2.mov) | 用户标注 failure；指标排除 |
 | Formal 3 | [`experiment_1_success_3.mp4`](media/video/third_view/experiment_1/experiment_1_success_3.mp4) | [`experiment_1_success_3_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov) | 操作者手动标注第三次正式实验；0.5 m 真机协议正常通过 |
 | Success 2 | [`experiment_1_success_1.mp4`](media/video/third_view/experiment_1/experiment_1_success_1.mp4) | [`experiment_1_success_1_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov) | 自动 `ARRIVED`；0.5 m 真机协议正常通过 |
+
+工作区另有三份 `success_2`/`success_4` 候选媒体，尚未建立精确 runtime
+绑定，也未提交；本轮文档整理没有移动或修改它们。其字节数、时长和哈希见
+[第五次预检中止审计](audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md)。
 
 所有主文件和公开衍生文件的字节数、时长、SHA-256 与事实边界见
 [`media/README.md`](media/README.md) 和

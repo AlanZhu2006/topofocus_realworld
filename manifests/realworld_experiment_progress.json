@@ -23,11 +23,11 @@
   },
   "metric_tracks": {
     "pre_surveyed_standard": {
-      "recorded_episodes": 0,
-      "successes": 0,
-      "sr": null,
-      "standard_multi_spl_mean": null,
-      "reason": "No episode yet has a pre-surveyed shortest path and an automatic local-planner terminal under the declared radius."
+      "recorded_episodes": 1,
+      "successes": 1,
+      "sr": 1.0,
+      "standard_multi_spl_mean": 1.0,
+      "classification": "formal experiment 04 has an operator-confirmed independently measured shortest feasible path L=approximately 3.25 m and an automatic semantic-arrival terminal"
     },
     "physical_0p5m_protocol": {
       "recorded_episodes": 3,
@@ -71,6 +71,23 @@
         "size_bytes": 4795,
         "sha256": "1a3fa416d3050f0178921a73e7e71d7afc31bd78dff06a63db877217a4fccead",
         "classification": "source-derived read-only export index; local runtime file ignored by Git"
+      }
+    },
+    {
+      "record_id": "scene01-chair-formal-experiment-05-preflight-abort",
+      "formal_experiment_index": 5,
+      "attribution": "preflight_engineering_failure/wsj_tracking_output_stale",
+      "reason": "Both preparations stopped inside strict no-motion debug before live. The current-boundary attempt found live raw D435i streams but frozen calibrated WSJ camera-info and visual-odometry output; restarting tracking would invalidate the old shared-frame transform.",
+      "operator_closeout_statement": "已经下电并且去充电了 先不标定了 先做文档整理",
+      "live_started": false,
+      "robot_commands_issued": false,
+      "episode_created": false,
+      "sr_spl_status": "not_an_episode",
+      "evidence": {
+        "path": "hub/runtime/analysis/formal05_preflight_abort_20260725_1645/manifest.json",
+        "size_bytes": 4952,
+        "sha256": "bd64cfbc7a52a4faac491057812778f0c9cad22a13c019b3d9265e465cfae243",
+        "classification": "observed operator closeout joined with source-derived read-only preflight evidence; local runtime file ignored by Git"
       }
     }
   ],
@@ -363,8 +380,8 @@
         "operator_statement": "可以归档 作为第四次正式实验并且成功",
         "velocity_zero_confirmed": true,
         "target_visual_status": "large white chair directly visible in the time-aligned robot-1 terminal RGB; operator explicitly classified the run as successful",
-        "standard_track_eligible": false,
-        "standard_track_exclusion_reason": "No independently surveyed shortest collision-free path L was recorded before the run."
+        "standard_track_eligible": true,
+        "standard_track_basis": "The operator explicitly classified approximately 3.25 m as an independently measured shortest feasible path for the standard-SPL calculation."
       },
       "metrics": {
         "sr": 1.0,
@@ -380,8 +397,15 @@
         "start_to_stop_displacement_m": 3.070130248072939,
         "source_compatible_spl_formula": "S * displacement / max(displacement, actual_path)",
         "source_compatible_spl": 0.956360614325575,
-        "standard_spl": null,
-        "standard_spl_unavailable_reason": "No independently surveyed shortest collision-free path L was recorded before the run."
+        "independently_measured_shortest_feasible_path_m": 3.25,
+        "shortest_path_measurement_precision": "approximate",
+        "operator_measurement_statement": "还有那个具体的standard spl距离 我量了大概是3.25m",
+        "operator_independence_confirmation_statement": "不是 你就把3.25m作为独立测量最短可行路径来算",
+        "operator_measurement_reported_after_run": true,
+        "measurement_timing_relative_to_run": "unverified",
+        "standard_spl_formula": "S * L / max(L, actual_path)",
+        "standard_spl": 1.0,
+        "standard_spl_status": "official_operator_confirmed_independently_measured_shortest_feasible_path"
       },
       "run_summary": {
         "started_at_ns": 1784967692351902076,

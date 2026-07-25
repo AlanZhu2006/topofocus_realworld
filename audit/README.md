@@ -7,9 +7,15 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md`](FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md):
+  formal experiment 05 preparation stopped inside strict no-motion debug
+  after WSJ tracking output froze; no live, GOAL, episode, movement or SR/SPL
+  row, followed by operator-directed charging and deferred calibration.
 - [`SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md`](SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md):
   operator-designated formal experiment 04 success, automatic Yunji
-  `LOCAL_PLANNER_ARRIVED`, exact SR/source-compatible SPL, strict-debug and
+  `LOCAL_PLANNER_ARRIVED`, exact SR/source-compatible SPL, the operator's
+  independently measured approximate `L≈3.25 m` and standard `SPL=1.0`,
+  strict-debug and
   terminal-evidence provenance.
 - [`FAILURE_ATTRIBUTION_PROTOCOL_20260725.md`](FAILURE_ATTRIBUTION_PROTOCOL_20260725.md):
   evidence requirements separating preflight/engineering, perception, VLM

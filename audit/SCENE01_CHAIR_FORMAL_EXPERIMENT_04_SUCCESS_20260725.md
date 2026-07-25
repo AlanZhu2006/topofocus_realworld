@@ -94,3 +94,30 @@ Here, `live` abbreviates:
 
 No existing video was renamed, modified or retrospectively bound to this
 episode. No file under immutable `source/` or `dependencies/` was changed.
+
+## Operator metric addendum — 2026-07-25
+
+The original archive boundary above is preserved. The operator subsequently
+reported:
+
+> 还有那个具体的standard spl距离 我量了大概是3.25m
+
+and then explicitly corrected the evidence classification:
+
+> 不是 你就把3.25m作为独立测量最短可行路径来算
+
+This addendum therefore records `L≈3.25 m` as the independently measured
+shortest feasible path for formal experiment 04. The updated official metric
+is:
+
+```text
+standard SPL = S * L / max(L, P)
+             = 1 * 3.25 / max(3.25, 3.2102223806424663)
+             = 1.0
+```
+
+The independently measured `L` is approximate and exceeds the
+odometry-derived `P` by `0.0397776193575337 m`; the standard formula's
+denominator therefore caps the result at `1.0`. The machine-readable standard
+track now contains this one successful episode: `SR=1/1=1.0`, mean standard
+`SPL=1.0`.

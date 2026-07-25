@@ -1,8 +1,7 @@
 # Current project status
 
-Snapshot time: **2026-07-25, after operator-designated formal experiment 04
-`trial-wallfix-imudebounce-r1` completed with automatic Yunji semantic
-arrival**
+Snapshot time: **2026-07-25, after formal experiment 05 preparation stopped
+inside strict no-motion debug and both robots were powered down for charging**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -46,6 +45,14 @@ was `3.2102223806424663 m`, start-to-arrival displacement was
 `3.070130248072939 m`, per-episode `SR=1`, and source-compatible
 `SPL=0.956360614325575`.
 
+The operator later reported an approximate shortest-path distance of
+`L≈3.25 m` for formal experiment 04. Substitution into the standard formula
+gives `1.0`, and the operator explicitly confirmed that this value is an
+independently measured shortest feasible path. It is therefore the official
+standard SPL for this episode. The approximate `L` exceeds the
+odometry-derived executed path by `0.0397776193575337 m`; `max(L,P)` normally
+caps the result at `1.0`.
+
 The pre-incident controller allowed both robots to be active because source
 coordination removes Agent 0's selected frontier before Agent 1 chooses; that
 prevents duplicate frontier allocation but does not reserve collision-free
@@ -76,9 +83,10 @@ that legacy log unchanged. The separate `physical_0p5m_protocol` progress
 track now contains three evidence-bound normal successes with `SR=3/3=1.0`
 and mean source-compatible `SPL=0.816269191777991`. The operator subsequently
 identified `trial-05-nearwall-fix` as the manually annotated formal experiment
-03 and the newest episode as formal experiment 04. Standard SPL remains
-unavailable because no shortest path was independently surveyed before any of
-the three runs.
+03 and the newest episode as formal experiment 04. Formal experiment 04 is
+the one sample with an operator-confirmed independently measured shortest
+feasible path: standard `SPL=1.0`. The other two runs still have no standard
+SPL.
 
 Commit `b1762d15e1059281056ef1e6b4e472e9d25258e1` now passes the `0.5 m`
 semantic radius explicitly to both physical launchers, so future equivalent
@@ -92,6 +100,17 @@ WSJ fused pose was close to/inside a wall. Frozen-map analysis placed WSJ
 by `0.602050 m` separation and about `13.8°` heading. r6 was therefore
 rejected as a calibration/fusion preflight failure: no target, command,
 movement or episode, and no SR/SPL entry.
+
+Formal experiment 05 preparation then made two fail-closed attempts at strict
+no-motion debug. The first used a stale Yunji replay boundary and timed out
+before semantic snapshots became ready. The current-boundary retry found live
+raw D435i camera/IMU streams but no fresh calibrated WSJ camera-info or visual
+odometry output. It stopped before live because restarting perception would
+change the tracking epoch and invalidate direct reuse of the old shared-frame
+transform. No GOAL, episode, robot command or movement was produced. The
+operator then powered both robots down for charging and deferred calibration.
+Exact evidence is in
+[`audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md`](audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md).
 
 ## Latest completed physical session
 
@@ -146,7 +165,10 @@ The three metric samples are:
 | Formal 04: `trial-wallfix-imudebounce-r1` | Yunji | automatic semantic `ARRIVED`; scalar goal distance unavailable | `3.210222 m` | `1` | `0.956360614325575` |
 | **Current mean** | — | — | — | **`3/3=1.0`** | **`0.816269191777991`** |
 
-Pre-surveyed standard SPL is unavailable for all three.
+Formal experiment 04 has independently measured `L≈3.25 m` and official
+standard `SPL=1.0`. The standard track therefore has one successful sample:
+`SR=1/1=1.0`, mean standard `SPL=1.0`. The other two physical samples do not
+have independently measured shortest paths.
 
 ## Observed physical episode
 
@@ -262,12 +284,14 @@ full multi-robot trajectory planning.
 - The `physical_0p5m_protocol` track currently has three evidence-bound normal
   successes: `SR=3/3=1.0`, mean source-compatible
   `SPL=0.816269191777991`.
-- The pre-surveyed standard track still requires surveyed shortest paths,
-  automatic terminal/goal-region membership and independent target evidence.
+- The standard track has one sample: formal experiment 04 with independently
+  measured approximate `L≈3.25 m`, automatic semantic arrival, independent
+  terminal target evidence, `SR=1.0` and standard `SPL=1.0`.
 - Failure attribution is now explicit. The two user-labelled approach-failure
   videos remain unclassified because they lack exact runtime bindings. The
   collision is a route-coordination engineering failure; r6 is a
-  calibration/fusion preflight failure. Neither is a VLM decision failure.
+  calibration/fusion preflight failure; formal experiment 05 preparation is a
+  WSJ tracking-output preflight failure. None is a VLM decision failure.
 - A VLM decision failure requires healthy sensing/calibration/mapping/
   transport/control, independently established target presence, faithful
   target execution and a completed declared budget. Verified YOLO/SegFormer
@@ -311,29 +335,39 @@ At closeout:
 
 - `trial-wallfix-imudebounce-r1` ended with automatic Yunji semantic arrival,
   zero velocity and both robots held;
-- cleanup restored Hub `GOAL=false` and removed both chassis command paths
-  while preserving the warm read-only observation/map/Foxglove core;
+- both formal experiment 05 preparations stopped before live, GOAL, episode,
+  robot command or movement;
+- before shutdown Hub health showed `goal_output_enabled=false` for both
+  robots;
+- the local Hub, both formal05 map sessions and formal05 Foxglove relay were
+  stopped; the read-only GLM service remains running;
+- both robots are powered down for charging and calibration is explicitly
+  deferred;
 - no previous operator motion confirmation remains valid;
-- the lab21 dual-stationary-reanchor calibration remains reusable only while
-  both tracking epochs remain continuous and neither robot is moved;
+- WSJ calibrated perception/tracking output is frozen and must be restarted
+  before a future session; direct reuse of the lab21 WSJ transform is not
+  authorized;
 - old collision session `20260725-lab05-yunjireboot4` remains immutable
   evidence;
 - no physical command path is authorized.
 
 ## Next valid workflow
 
-1. Keep both robots stationary and restore only the existing WSJ/Yunji
-   SSH/tmux observation paths.
-2. Prove that both tracking epochs and physical poses are continuous before
-   reusing the lab21 calibration. If either robot moved or either tracking
-   process restarted, create a new session and recalibrate instead.
-3. Check each robot marker against both its own map and the other robot's map;
+1. Wait until charging is complete; do not reuse either formal05 preparation
+   session.
+2. Start a new session and restore observation paths without motion. Restart
+   the frozen WSJ perception/tracking process.
+3. Complete a fresh two-position board calibration before live. A different
+   path is valid only if a separately reviewed continuity/re-anchor procedure
+   independently validates the new WSJ tracking epoch; calibration remains
+   deferred until the operator chooses to resume.
+4. Check each robot marker against both its own map and the other robot's map;
    reject any fused-wall conflict.
-4. Complete strict no-motion debug and verify
+5. Complete strict no-motion debug and verify
    `semantic_arrival_radius_m=0.5`.
-5. Obtain a new `OPERATOR_PRESENT_AND_ROBOTS_CLEAR` authorization and run one
+6. Obtain a new `OPERATOR_PRESENT_AND_ROBOTS_CLEAR` authorization and run one
    supervised episode.
-6. Preserve automatic terminal evidence and classify any non-success using
+7. Preserve automatic terminal evidence and classify any non-success using
    [`audit/FAILURE_ATTRIBUTION_PROTOCOL_20260725.md`](audit/FAILURE_ATTRIBUTION_PROTOCOL_20260725.md).
    Survey `L` before the run if standard SPL is required.
 
@@ -344,9 +378,10 @@ At closeout:
 - Route-conflict implementation: `b79879bfc96805aa7e7b63cf3a8ebbfe59679730`
 - Runtime maps, observations, tokens, calibration state and full episode
   directories stay outside Git.
-- All 12 currently supplied original Scene 01 videos are committed through
-  Git LFS under `media/video/`; the largest is 80,244,552 bytes. Web-playable H.264
-  derivatives, posters, hashes and classifications are committed under
-  `media/demo/`.
+- The 12 archived original Scene 01 videos are committed through Git LFS under
+  `media/video/`; the largest is 80,244,552 bytes. Three additional
+  workspace-only media candidates remain unbound and uncommitted. Web-playable
+  H.264 derivatives, posters, hashes and classifications for the archived set
+  are committed under `media/demo/`.
 - Physical/runtime facts are labelled observed; algorithm outputs are labelled
   source-derived; causal claims without evidence remain unverified.

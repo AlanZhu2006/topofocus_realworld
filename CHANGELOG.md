@@ -8,12 +8,20 @@
   experiment 04 success: automatic Yunji `LOCAL_PLANNER_ARRIVED`, `SR=1`,
   source-compatible `SPL=0.956360614325575`, and checksummed terminal
   evidence.
+- Record the operator-confirmed independent shortest-feasible-path measurement
+  `L≈3.25 m` for formal experiment 04 and its official standard
+  `SPL=1.0`; the surveyed standard track is now `SR=1/1=1.0` with mean
+  standard `SPL=1.0`.
+- Archive formal experiment 05 preparation as a strict no-motion preflight
+  abort: WSJ raw D435i streams were live but calibrated camera/odometry output
+  was frozen; no live, GOAL, episode, motion or SR/SPL row was created.
+  Record both robots as powered down for charging and calibration as deferred.
 - Record the operator clarification that the manually terminal-annotated
   `trial-05-nearwall-fix` is formal experiment 03; preserve its existing
   `SR=1` and source-compatible `SPL=0.864048038008398`.
 - Update the three-sample evidence-bound physical track to `SR=3/3=1.0` and
-  mean source-compatible `SPL=0.816269191777991`; standard SPL remains
-  unavailable without independently surveyed shortest paths.
+  mean source-compatible `SPL=0.816269191777991`; formal experiment 04 is the
+  one sample with an independently measured path and official standard SPL.
 - Preserve the operator's byte-identical formal-experiment-03 master-video
   renames and do not infer a video binding for formal experiment 04.
 - Record `trial-r5-01` as the second normal 0.5 m physical-protocol success:
