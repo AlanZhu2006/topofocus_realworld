@@ -49,16 +49,17 @@ identity. A new placement begins with one board-only command that persists the
 complete session and immediately runs strict no-motion debug:
 
 ```bash
+SESSION_ID="scene02-plant-$(date +%Y%m%d-%H%M%S)"
 bash hub/scripts/calibrate_realworld_session.sh \
-  --session-id <unique-session-id> \
+  --session-id "$SESSION_ID" \
   --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY \
-  --goal-category chair
+  --goal-category plant
 ```
 
-Do not hand-author a current session around an old calibration. The latest
-physical session is also non-reusable because its Git commit, Odin tracking
-epoch and Go2 posture changed after the collision. Let this command capture a
-fit pair and an independently moved holdout pair.
+Do not hand-author a current session around an old calibration. The current
+pointer is an archival Scene 01 `chair` session after both robots were
+power-cycled; Scene 02 needs a fresh `plant`-bound fit pair and independently
+moved holdout pair.
 
 Repeat the no-motion full-stack gate without recalibrating:
 
@@ -66,8 +67,8 @@ Repeat the no-motion full-stack gate without recalibrating:
 bash hub/scripts/realworld_oneclick.sh \
   --session-file current \
   --mode debug \
-  --scene-id debug-chair \
-  --goal-category chair
+  --scene-id debug-plant \
+  --goal-category plant
 ```
 
 This starts/validates the Hub, GLM, current maps, Foxglove and read-only
@@ -80,9 +81,9 @@ Physical episode, only after the debug result and a fresh onsite confirmation:
 bash hub/scripts/realworld_oneclick.sh \
   --session-file current \
   --mode live \
-  --scene-id scene01-chair \
-  --episode-id scene01-chair-run01 \
-  --goal-category chair \
+  --scene-id scene02-plant \
+  --episode-id scene02-plant-run01 \
+  --goal-category plant \
   --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 ```
 

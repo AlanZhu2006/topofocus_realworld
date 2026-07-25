@@ -1,0 +1,19 @@
+{
+  "schema_version": "focus-realworld-shortest-feasible-path-v1",
+  "scene_id": "scene02-plant",
+  "target_category": "plant",
+  "measurement_status": "pending",
+  "shortest_feasible_path_m": null,
+  "precision": null,
+  "classification": "unverified pending independent onsite measurement",
+  "scope": "Scene 02 formal experiments 01-05",
+  "measurement_protocol": [
+    "Use the fixed formal Scene 02 start placement.",
+    "Measure the shortest collision-free path feasible for the robot body.",
+    "End at the boundary of the declared 0.5 m valid plant goal region.",
+    "Record the measured value, method and operator statement before Standard SPL finalization."
+  ],
+  "operator_statement": null,
+  "metric_formula": "standard_spl = S * L / max(L, P)",
+  "notes": "Do not reuse the Scene 01 value. This record is intentionally metric-ineligible until measurement_status is complete."
+}

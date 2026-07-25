@@ -7,6 +7,9 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE02_PLANT_PREPARATION_20260725.md`](SCENE02_PLANT_PREPARATION_20260725.md):
+  strict no-motion Scene 02 campaign preparation, plant-category path
+  verification, five planned episode IDs and fresh-calibration boundary.
 - [`SCENE01_CHAIR_FORMAL_EXPERIMENTS_01_05_20260725.md`](SCENE01_CHAIR_FORMAL_EXPERIMENTS_01_05_20260725.md):
   unified Scene 01 formal archive with five successes, per-robot behavior,
   SR/source-compatible SPL/Standard SPL and complete media/runtime provenance.

@@ -17,7 +17,7 @@ For normal onsite use, the repository-root `command.txt` stores copy-ready
 versions of the unwrapped commands below. It is a command reference, not
 another launcher: copy and run one relevant block at a time rather than
 executing the entire text file. It includes calibration, debug and five
-separate `scene01-chair` live episode commands.
+separate commands for the current `scene02-plant` campaign.
 
 ## Before the first command
 
@@ -50,10 +50,11 @@ board visible to both cameras:
 ```bash
 cd /home/asus/Research/focus_realworld_workspace
 
+SESSION_ID="scene02-plant-$(date +%Y%m%d-%H%M%S)"
 bash hub/scripts/calibrate_realworld_session.sh \
-  --session-id 20260725-lab01 \
+  --session-id "$SESSION_ID" \
   --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY \
-  --goal-category chair
+  --goal-category plant
 ```
 
 The command performs this sequence:
@@ -77,7 +78,7 @@ The command performs this sequence:
 8. starts calibrated read-only observation, completely fresh maps and a
    Foxglove relay bound to those exact maps;
 9. writes
-   `hub/runtime/sessions/20260725-lab01/session.json`, updates the ignored
+   `hub/runtime/sessions/<session-id>/session.json`, updates the ignored
    `current.json` pointer and runs strict no-motion VLM debug.
 
 There are exactly two operator pauses. The fit-only result produced after the
@@ -111,8 +112,8 @@ does not require this command:
 bash hub/scripts/realworld_oneclick.sh \
   --session-file current \
   --mode debug \
-  --scene-id debug-chair \
-  --goal-category chair
+  --scene-id debug-plant \
+  --goal-category plant
 ```
 
 The command first proves that any already-debugged session still has the same
@@ -168,9 +169,9 @@ After the same session has passed debug on the same Git commit:
 bash hub/scripts/realworld_oneclick.sh \
   --session-file current \
   --mode live \
-  --scene-id scene01-chair \
-  --episode-id scene01-chair-run01 \
-  --goal-category chair \
+  --scene-id scene02-plant \
+  --episode-id scene02-plant-run01 \
+  --goal-category plant \
   --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 ```
 

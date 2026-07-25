@@ -78,3 +78,15 @@ robot command is issued by this documentation/archive work.
 Engineering attempts and diagnostic media remain separate from the formal
 results in
 [`audit/SCENE01_ENGINEERING_DEBUG_INDEX_20260725.md`](audit/SCENE01_ENGINEERING_DEBUG_INDEX_20260725.md).
+
+## Next campaign
+
+Scene 02 is prepared as `scene02-plant`, target `plant`, with five planned
+formal episodes `scene02-plant-run01` through `scene02-plant-run05`. The
+operator command sheet now binds calibration, debug and live commands to
+`plant`; the Scene 01 session remains archival.
+
+No Scene 02 episode or metric sample has been created. Standard SPL remains
+unset until the Scene 02 shortest feasible path is independently measured.
+The preparation record is
+[`audit/SCENE02_PLANT_PREPARATION_20260725.md`](audit/SCENE02_PLANT_PREPARATION_20260725.md).

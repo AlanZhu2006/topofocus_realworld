@@ -1,0 +1,144 @@
+{
+  "schema_version": "focus-realworld-scene-preparation-v1",
+  "scene_id": "scene02-plant",
+  "target_category": "plant",
+  "prepared_at_date": "2026-07-25",
+  "prepared_from_git_commit": "5460d4b4ceab401dec53d7cd89c8f01866b695e3",
+  "status": "ready_for_onsite_calibration",
+  "operator_request": {
+    "statement": "好的 开始准备第二个场景 这个场景我们的目标是plant 先像第一个场景那样做好必要的准备",
+    "classification": "observed operator-designated next experiment campaign"
+  },
+  "formal_protocol": {
+    "planned_trial_count": 5,
+    "success_radius_m": 0.5,
+    "source_compatible_spl_formula": "S * D / max(D, P)",
+    "standard_spl_formula": "S * L / max(L, P)",
+    "shortest_feasible_path_m": null,
+    "shortest_feasible_path_status": "pending independent Scene 02 measurement before metric finalization",
+    "shortest_feasible_path_evidence": "manifests/scene02_plant_shortest_feasible_path_20260725.json",
+    "metric_sample_count": 0,
+    "success_count": 0,
+    "sr": null,
+    "mean_source_compatible_spl": null,
+    "mean_standard_spl": null
+  },
+  "planned_episodes": [
+    {
+      "formal_index": 1,
+      "episode_id": "scene02-plant-run01",
+      "status": "planned_no_episode"
+    },
+    {
+      "formal_index": 2,
+      "episode_id": "scene02-plant-run02",
+      "status": "planned_no_episode"
+    },
+    {
+      "formal_index": 3,
+      "episode_id": "scene02-plant-run03",
+      "status": "planned_no_episode"
+    },
+    {
+      "formal_index": 4,
+      "episode_id": "scene02-plant-run04",
+      "status": "planned_no_episode"
+    },
+    {
+      "formal_index": 5,
+      "episode_id": "scene02-plant-run05",
+      "status": "planned_no_episode"
+    }
+  ],
+  "onsite_sequence": [
+    {
+      "step": "independent_shortest_path_measurement",
+      "motion_authority": false,
+      "required_result": "Scene 02 plant shortest feasible path L and evidence file"
+    },
+    {
+      "step": "fresh_board_calibration_and_strict_debug",
+      "motion_authority": false,
+      "operator_confirmation": "OPERATOR_PRESENT_AND_BOARD_ONLY",
+      "required_result": "DEBUG_FULLSTACK_READY with plant-bound fresh maps"
+    },
+    {
+      "step": "formal_live_episode",
+      "motion_authority": true,
+      "operator_confirmation": "OPERATOR_PRESENT_AND_ROBOTS_CLEAR",
+      "required_result": "one bounded episode with terminal evidence and fail-closed cleanup"
+    }
+  ],
+  "previous_session_boundary": {
+    "session_id": "20260725-lab22-formal05-recalibration-ddsfix",
+    "map_goal_category": "chair",
+    "session_file": {
+      "path": "hub/runtime/sessions/20260725-lab22-formal05-recalibration-ddsfix/session.json",
+      "size_bytes": 4330,
+      "sha256": "6d76d6ccfae98a814105b4f697b8f3810f9aafc262cc0d70c22f4da2328d555d",
+      "classification": "source-derived local runtime identity; ignored by Git"
+    },
+    "reuse_for_scene02": false,
+    "reason": "The session is archival after the robot power cycles and its map contract is bound to chair, not plant."
+  },
+  "plant_pipeline_evidence": [
+    {
+      "path": "hub/src/focus_hub/transport_v2.py",
+      "size_bytes": 14817,
+      "sha256": "44d261be718fb7155b3a0b20b6d6264c45d50bcb708ab381da2a03ee38032cd6",
+      "classification": "source-derived transport contract includes plant"
+    },
+    {
+      "path": "hub/src/focus_hub/source_episode.py",
+      "size_bytes": 16567,
+      "sha256": "e5bed073f936cf05a0e884dd0107b537ce3940f316b5f2701f8cda18b8aa3a06",
+      "classification": "source-derived ObjectNav goal extraction includes plant"
+    },
+    {
+      "path": "hub/src/focus_hub/segformer_ade20k.py",
+      "size_bytes": 10122,
+      "sha256": "71b958f0713d1854e0479cdffa3cebd30a0b387f9de83697c830923ddf272d5f",
+      "classification": "source-derived plant/flower/pot mapping to MP3D plant channel 15"
+    },
+    {
+      "path": "hub/src/focus_hub/semantic_yolo.py",
+      "size_bytes": 8593,
+      "sha256": "90870d54a72795ed042ad4ef7a0e3917b978153dc4dcaecd4f0f73f8e06c2f6a",
+      "classification": "source-derived potted plant mapping to HM3D plant"
+    },
+    {
+      "path": "hub/scripts/calibrate_realworld_session.sh",
+      "size_bytes": 27855,
+      "sha256": "c676d5e341d72185b805768f0db3119d42ca74533e021ad738e055bc9fa55de0",
+      "classification": "source-derived strict no-motion calibration entry accepts plant"
+    },
+    {
+      "path": "hub/scripts/realworld_oneclick.sh",
+      "size_bytes": 34002,
+      "sha256": "f7cf8b2dd9b25ffa72a4d4861568e2bd82a6515033d39fcfcd72416861c04aa8",
+      "classification": "source-derived debug/live entry accepts and propagates plant"
+    },
+    {
+      "path": "command.txt",
+      "size_bytes": 10645,
+      "sha256": "6f2cd46878f9b97dc2cb32340ce7f6dc6629ca504be23d4002e4eacdff822d36",
+      "classification": "source-derived operator command sheet prepared for Scene 02 plant"
+    }
+  ],
+  "media_plan": {
+    "per_trial": [
+      "third_view_master",
+      "dashboard_master",
+      "third_view_web",
+      "dashboard_web",
+      "third_view_gif",
+      "dashboard_gif"
+    ],
+    "status": "planned_no_media"
+  },
+  "physical_action_during_preparation": {
+    "robot_goal_published": false,
+    "robot_command_issued": false,
+    "episode_created": false
+  }
+}

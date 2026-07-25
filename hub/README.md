@@ -22,24 +22,24 @@
   BuildMap + guarded `cmd_vel` 接收器以及 Yunji Odin/TinyNav 在线地图与
   guarded WATER 速度桥；
   正式入口已组合为有明确 HOLD 边界的源码节拍多轮 episode，并在语义
-  `ARRIVED` 后自动封存终点 RGB-D/地图；第一轮双机物理目标、运动、反馈
-  和续租已被观察，但交叉路线导致碰撞，尚无可计入 SR/SPL 的成功场景；
+  `ARRIVED` 后自动封存终点 RGB-D/地图；Scene 01 已归档五次正式成功及
+  SR/SPL，工程失败记录独立保存；
 - 发布前的共享坐标路线冲突门控：保留源码式双机 VLM candidate，直线
   corridor 小于 `0.9 m` 或共享位姿缺失时降低为单机执行/双机 HOLD；
   本机 replay 与测试已通过，仍待新 session 真机验证；
 - WSJ ROS 2 sender、云迹 ROS1/RealSense 回滚 sender、Odin1 ROS 2 适配器和 Go2 可复现部署层。
 
-默认配置始终 `allow_goal=false`。当前只完成了部分 HIL 工程验证，尚未
-完成一次带终点独立确认的正式场景；任何脚本都不应把“能建图”或
-`ARRIVED` 解释为自主导航成功。
+默认配置始终 `allow_goal=false`。Scene 01 的五次正式成功均有操作者确认
+与运行证据；任何新场景仍不能只凭“能建图”或 `ARRIVED` 判定成功。
 
 新摆位先运行一次标定与无运动全栈：
 
 ```bash
+SESSION_ID="scene02-plant-$(date +%Y%m%d-%H%M%S)"
 bash hub/scripts/calibrate_realworld_session.sh \
-  --session-id <unique-session-id> \
+  --session-id "$SESSION_ID" \
   --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY \
-  --goal-category chair
+  --goal-category plant
 ```
 
 之后使用两种启动模式：
@@ -47,21 +47,25 @@ bash hub/scripts/calibrate_realworld_session.sh \
 ```bash
 # 无运动：地图、Foxglove、真实 VLM 和只读接收器
 bash hub/scripts/realworld_oneclick.sh \
-  --session-file current --mode debug --goal-category chair
+  --session-file current --mode debug --scene-id debug-plant \
+  --goal-category plant
 
 # 有运动：还必须在现场一次性提供当次授权
 bash hub/scripts/realworld_oneclick.sh --mode live \
   --session-file current \
-  --scene-id scene01-chair --episode-id run01 --goal-category chair \
+  --scene-id scene02-plant --episode-id scene02-plant-run01 \
+  --goal-category plant \
   --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 ```
 
 标定命令自动保存 Git/标定/transform/map 边界、机器人部署根目录和 tmux
-身份；debug/live 不再要求人工替换旧 v12 常量。完整说明见
-[持久会话一键流程](docs/ONECLICK_SESSION_WORKFLOW.md)。该流程已经在
-两台真机上执行到并发运动；2026-07-25 的碰撞记录和后续串行保护见
-[碰撞审计](../audit/DUAL_ROBOT_COLLISION_20260725.md)。事故 session 绑定
-旧 Git/跟踪 epoch，下一次必须重新标定，不能直接复用为 `current` live。
+身份；debug/live 不再要求人工替换旧 v12 常量。当前 Scene 02 命令以
+`plant` 生成全新的语义地图，不能复用 Scene 01 的 `chair` session。完整说明见
+[持久会话一键流程](docs/ONECLICK_SESSION_WORKFLOW.md)。Scene 01 的正式
+结果见[统一归档](../audit/SCENE01_CHAIR_FORMAL_EXPERIMENTS_01_05_20260725.md)；
+Scene 02 的 `plant` 准备见
+[准备记录](../audit/SCENE02_PLANT_PREPARATION_20260725.md)。当前 Scene 01
+session 已归档，下一次必须重新标定，不能直接复用为 `current` live。
 
 ## 轻量开发环境
 

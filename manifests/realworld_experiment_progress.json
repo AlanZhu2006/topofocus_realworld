@@ -49,6 +49,18 @@
       "classification": "authoritative unified Scene 01 formal archive"
     }
   },
+  "planned_scene_campaigns": {
+    "scene02-plant": {
+      "path": "manifests/scene02_plant_preparation_20260725.json",
+      "target_category": "plant",
+      "planned_formal_experiments": 5,
+      "recorded_episodes": 0,
+      "metric_status": "no_samples",
+      "standard_shortest_feasible_path_status": "pending independent Scene 02 measurement",
+      "standard_shortest_feasible_path_evidence": "manifests/scene02_plant_shortest_feasible_path_20260725.json",
+      "classification": "operator-designated next campaign; no physical episode or robot command created during preparation"
+    }
+  },
   "attempts_not_in_metric_track": [
     {
       "record_id": "scene01-approach-failure-1-media",

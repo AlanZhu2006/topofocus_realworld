@@ -5,6 +5,7 @@ import subprocess
 
 
 HUB = Path(__file__).resolve().parents[1]
+WORKSPACE = HUB.parent
 SCRIPTS = HUB / "scripts"
 OVERLAY = HUB / "robot_overlay"
 
@@ -225,6 +226,24 @@ def test_operator_entry_help_is_noninteractive():
     )
     assert result.returncode == 0, result.stderr
     assert "--robot-0-shortest-evidence" in result.stdout
+
+
+def test_scene02_plant_operator_commands_are_explicit_and_bounded():
+    source = (WORKSPACE / "command.txt").read_text()
+
+    assert 'SESSION_ID="scene02-plant-$(date +%Y%m%d-%H%M%S)"' in source
+    assert "--scene-id debug-plant" in source
+    assert "--goal-category chair" not in source
+    assert source.count("--episode-id scene02-plant-run") == 5
+    for trial_index in range(1, 6):
+        assert (
+            f"--episode-id scene02-plant-run{trial_index:02d}"
+            in source
+        )
+    assert 'ROBOT_0_SHORTEST_M=""' in source
+    assert 'ROBOT_1_SHORTEST_M=""' in source
+    assert "scene02-plant-wsj.json" in source
+    assert "scene02-plant-yunji.json" in source
 
 
 def test_oneclick_reuses_verified_yunji_core_for_live_mode():

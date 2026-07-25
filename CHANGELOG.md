@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Scene 02 plant preparation (2026-07-25)
+
+- Prepare `scene02-plant` as the next five-trial formal campaign without
+  issuing any physical command.
+- Bind the operator command sheet to `plant`, fresh calibration/debug and
+  episode IDs `scene02-plant-run01` through `scene02-plant-run05`.
+- Record the existing end-to-end plant category support with checksummed
+  provenance and keep Standard SPL unset until a Scene 02 shortest feasible
+  path is independently measured.
+
 ### Scene 01 results and evidence (2026-07-25)
 
 - Unify operator-labelled `success_1` through `success_5` as Scene 01 formal
