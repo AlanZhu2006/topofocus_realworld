@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Yunji deployment wrapper for TinyNav's pinned velocity controller.
+"""Deployment wrapper for TinyNav's pinned velocity controller.
 
 The pinned TinyNav controller exposes ``linear_engage_threshold`` but compares
 the requested speed against ``min_effective_linear_speed`` instead.  A valid
@@ -9,8 +9,8 @@ floor.  Its timer then publishes zero forever.
 
 Keep the source controller immutable and preserve all of its stale-pose,
 stale-path, depth-stop, turn, acceleration and arrival guards.  This deployment
-subclass only applies the controller's already-declared engagement threshold to
-the freshly computed forward command.
+subclass, shared by Yunji and WSJ, only applies the controller's already-declared
+engagement threshold to the freshly computed forward command.
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def main(args: list[str] | None = None) -> None:
     import rclpy
     from tinynav.platforms.cmd_vel_control import CmdVelControlNode
 
-    class YunjiCmdVelControlNode(CmdVelControlNode):
+    class FocusCmdVelControlNode(CmdVelControlNode):
         def __init__(self) -> None:
             super().__init__()
             self._last_focus_speed_floor_log = 0.0
@@ -76,7 +76,7 @@ def main(args: list[str] | None = None) -> None:
             now = time.monotonic()
             if now - self._last_focus_speed_floor_log >= 2.0:
                 self.get_logger().info(
-                    "Focus Yunji velocity floor: "
+                    "Focus TinyNav velocity floor: "
                     f"{requested:.3f} -> {floored:.3f} m/s"
                 )
                 self._last_focus_speed_floor_log = now
@@ -87,7 +87,7 @@ def main(args: list[str] | None = None) -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     rclpy.init(args=args)
-    node = YunjiCmdVelControlNode()
+    node = FocusCmdVelControlNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

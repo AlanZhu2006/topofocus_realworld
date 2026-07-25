@@ -60,7 +60,8 @@ for required in \
   "$SCRIPT_DIR/run_tinynav_buildmap_live.py" \
   "$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py" \
   "$SCRIPT_DIR/ros_image_frame_alias.py" \
-  "$SCRIPT_DIR/tinynav_buildmap_goal_router.py"; do
+  "$SCRIPT_DIR/tinynav_buildmap_goal_router.py" \
+  "$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py"; do
   [[ -f "$required" ]] || {
     echo "Required file is missing: $required" >&2
     exit 1
@@ -136,7 +137,7 @@ tmux new-window -d -t "$SESSION" -n goal-router \
 started_windows+=("goal-router")
 
 tmux new-window -d -t "$SESSION" -n control \
-  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python /tinynav/tinynav/platforms/cmd_vel_control.py'"
+  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\"'"
 started_windows+=("control")
 
 source "$SETUP_FILE"
@@ -169,6 +170,6 @@ echo "  online occupancy: $online_output"
 echo "  frame:            $FRAME_ID"
 echo "  global source:    BuildMapNode + online known/free/occupied grid"
 echo "  local planner:    TinyNav planning_node.py"
-echo "  controller:       TinyNav cmd_vel_control.py -> raw /cmd_vel only"
+echo "  controller:       Focus-wrapped TinyNav cmd_vel_control.py -> raw /cmd_vel only"
 echo "  target source:    versioned /mapping/cmd_pois only"
 echo "  stale-map motion: <=${MAX_CACHED_MAP_MOTION_M} m (source keyframe + one cell)"

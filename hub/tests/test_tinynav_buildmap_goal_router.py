@@ -286,6 +286,22 @@ def test_wsj_launcher_bridges_one_source_keyframe_plus_one_grid_cell():
     assert '"keyframe.pose_jump_rotation_deg": 35.0' in online_mapping
 
 
+def test_wsj_launcher_uses_short_segment_velocity_floor_wrapper():
+    source = (
+        OVERLAY / "start_tinynav_buildmap_online_nav.sh"
+    ).read_text(encoding="utf-8")
+
+    assert '"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py"' in source
+    assert (
+        'uv run python \\"$SCRIPT_DIR/'
+        'yunji_tinynav_cmd_vel_control.py\\"'
+    ) in source
+    assert (
+        "uv run python /tinynav/tinynav/platforms/cmd_vel_control.py"
+        not in source
+    )
+
+
 def test_router_default_map_deadline_matches_verified_data_plane():
     source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
         encoding="utf-8"
