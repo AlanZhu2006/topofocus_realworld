@@ -21,7 +21,10 @@ SPL 使用成功机器人的起终点位移 `D` 作为源码兼容参考。
   <tr>
     <td width="50%" align="center">
       <strong>Formal 01 · SUCCESS</strong><br>
+      <small>Third view</small><br>
       <img src="media/demo/scene01_formal_01_preview.gif" width="440" alt="Formal 01 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene01_formal_01_dashboard.gif" width="440" alt="Formal 01 dashboard"><br>
       WSJ 先探索前沿，随后切换至 chair 语义区域并自动 ARRIVED；Yunji
       沿独立前沿推进后同步 HOLD。<br>
       <a href="media/demo/scene01_formal_01_third_view.mp4">Third view</a> ·
@@ -29,7 +32,10 @@ SPL 使用成功机器人的起终点位移 `D` 作为源码兼容参考。
     </td>
     <td width="50%" align="center">
       <strong>Formal 02 · SUCCESS</strong><br>
+      <small>Third view</small><br>
       <img src="media/demo/scene01_formal_02_preview.gif" width="440" alt="Formal 02 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene01_formal_02_dashboard.gif" width="440" alt="Formal 02 dashboard"><br>
       WSJ 完成前沿探索后进入 chair 语义区域并自动 ARRIVED；Yunji
       由协调器保持近静止。<br>
       <a href="media/demo/scene01_formal_02_third_view.mp4">Third view</a> ·
@@ -39,7 +45,10 @@ SPL 使用成功机器人的起终点位移 `D` 作为源码兼容参考。
   <tr>
     <td width="50%" align="center">
       <strong>Formal 03 · SUCCESS</strong><br>
+      <small>Third view</small><br>
       <img src="media/demo/scene01_formal_03_preview.gif" width="440" alt="Formal 03 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene01_formal_03_dashboard.gif" width="440" alt="Formal 03 dashboard"><br>
       WSJ 完成首轮前沿探索；Yunji 接力探索并驶入 chair 的
       0.5 m 成功区域，由操作者确认到达。<br>
       <a href="media/demo/scene01_formal_03_third_view.mp4">Third view</a> ·
@@ -47,7 +56,10 @@ SPL 使用成功机器人的起终点位移 `D` 作为源码兼容参考。
     </td>
     <td width="50%" align="center">
       <strong>Formal 04 · SUCCESS</strong><br>
+      <small>Third view</small><br>
       <img src="media/demo/scene01_formal_04_preview.gif" width="440" alt="Formal 04 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene01_formal_04_dashboard.gif" width="440" alt="Formal 04 dashboard"><br>
       双机交替并行探索；Yunji 切换至 chair 语义区域并自动 ARRIVED，
       WSJ 完成独立前沿后同步 HOLD。<br>
       <a href="media/demo/scene01_formal_04_third_view.mp4">Third view</a> ·
@@ -57,7 +69,10 @@ SPL 使用成功机器人的起终点位移 `D` 作为源码兼容参考。
   <tr>
     <td colspan="2" align="center">
       <strong>Formal 05 · SUCCESS</strong><br>
+      <small>Third view</small><br>
       <img src="media/demo/scene01_formal_05_preview.gif" width="440" alt="Formal 05 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene01_formal_05_dashboard.gif" width="440" alt="Formal 05 dashboard"><br>
       WSJ 完成前沿探索并持续导航至 chair 后自动 ARRIVED；Yunji
       按路径协调保持 HOLD。<br>
       <a href="media/demo/scene01_formal_05_third_view.mp4">Third view</a> ·

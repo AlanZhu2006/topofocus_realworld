@@ -33,7 +33,8 @@ Exact machine-readable metrics, paths, hashes and evidence classes are in
 - Five original third-view masters and five Dashboard masters are preserved
   under `media/video/**` through Git LFS.
 - Five standardized H.264 third-view/Dashboard pairs are under `media/demo/`.
-- Five 480 × 360 animated previews play directly in the main README.
+- Five third-view and five Dashboard animated previews play directly in the
+  main README.
 - Formal 05 display media covers the run beginning through physical arrival;
   its SR/SPL uses the complete episode report.
 

@@ -44,9 +44,8 @@ Standard SPL 统一使用操作者独立测量的 Scene 01 最短可行路径
 | Formal 05 | `20260725-lab22-formal05-recalibration-ddsfix / scene01-chair-run05` | [`experiment_1_success_5.mp4`](../media/video/third_view/experiment_1/experiment_1_success_5.mp4) | [`experiment_1_success_5_dashboard.mov`](../media/video/dashboard/experiment_1/experiment_1_success_5_dashboard.mov) |
 
 Formal 05 的公开展示片段覆盖实验开始至实际到达；其 SR/SPL 仍使用完整
-episode report 中的真实里程，不使用视频时长推算路径。五次 README 预览均
-为从对应第三视角主文件生成的 8 秒循环 GIF，完整 H.264 第三视角与
-Dashboard 保留在 `media/demo/`。
+episode report 中的真实里程，不使用视频时长推算路径。每次实验均提供
+8 秒第三视角与 Dashboard 循环 GIF；完整 H.264 文件保留在 `media/demo/`。
 
 ## 证据与复现
 

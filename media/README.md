@@ -4,13 +4,13 @@ Scene 01 contains five formal successful real-robot experiments. User-provided
 master videos are byte-preserved under `media/video/**` through Git LFS;
 browser-ready H.264 files and inline GIF previews are under `media/demo/`.
 
-| Run | Third-view master | Dashboard master | README preview |
+| Run | Third-view master | Dashboard master | README previews |
 | --- | --- | --- | --- |
-| Formal 01 | [`experiment_1_success_1.mp4`](video/third_view/experiment_1/experiment_1_success_1.mp4) | [`experiment_1_success_1_dashboard.mov`](video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov) | [`scene01_formal_01_preview.gif`](demo/scene01_formal_01_preview.gif) |
-| Formal 02 | [`experiment_1_success_2.mp4`](video/third_view/experiment_1/experiment_1_success_2.mp4) | [`experiment_1_success_2_dashboard.mov`](video/dashboard/experiment_1/experiment_1_success_2_dashboard.mov) | [`scene01_formal_02_preview.gif`](demo/scene01_formal_02_preview.gif) |
-| Formal 03 | [`experiment_1_success_3.mp4`](video/third_view/experiment_1/experiment_1_success_3.mp4) | [`experiment_1_success_3_dashboard.mov`](video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov) | [`scene01_formal_03_preview.gif`](demo/scene01_formal_03_preview.gif) |
-| Formal 04 | [`experiment_1_success_4.mp4`](video/third_view/experiment_1/experiment_1_success_4.mp4) | [`experiment_1_success_4_dashboard.mov`](video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov) | [`scene01_formal_04_preview.gif`](demo/scene01_formal_04_preview.gif) |
-| Formal 05 | [`experiment_1_success_5.mp4`](video/third_view/experiment_1/experiment_1_success_5.mp4) | [`experiment_1_success_5_dashboard.mov`](video/dashboard/experiment_1/experiment_1_success_5_dashboard.mov) | [`scene01_formal_05_preview.gif`](demo/scene01_formal_05_preview.gif) |
+| Formal 01 | [`experiment_1_success_1.mp4`](video/third_view/experiment_1/experiment_1_success_1.mp4) | [`experiment_1_success_1_dashboard.mov`](video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov) | [Third view](demo/scene01_formal_01_preview.gif) · [Dashboard](demo/scene01_formal_01_dashboard.gif) |
+| Formal 02 | [`experiment_1_success_2.mp4`](video/third_view/experiment_1/experiment_1_success_2.mp4) | [`experiment_1_success_2_dashboard.mov`](video/dashboard/experiment_1/experiment_1_success_2_dashboard.mov) | [Third view](demo/scene01_formal_02_preview.gif) · [Dashboard](demo/scene01_formal_02_dashboard.gif) |
+| Formal 03 | [`experiment_1_success_3.mp4`](video/third_view/experiment_1/experiment_1_success_3.mp4) | [`experiment_1_success_3_dashboard.mov`](video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov) | [Third view](demo/scene01_formal_03_preview.gif) · [Dashboard](demo/scene01_formal_03_dashboard.gif) |
+| Formal 04 | [`experiment_1_success_4.mp4`](video/third_view/experiment_1/experiment_1_success_4.mp4) | [`experiment_1_success_4_dashboard.mov`](video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov) | [Third view](demo/scene01_formal_04_preview.gif) · [Dashboard](demo/scene01_formal_04_dashboard.gif) |
+| Formal 05 | [`experiment_1_success_5.mp4`](video/third_view/experiment_1/experiment_1_success_5.mp4) | [`experiment_1_success_5_dashboard.mov`](video/dashboard/experiment_1/experiment_1_success_5_dashboard.mov) | [Third view](demo/scene01_formal_05_preview.gif) · [Dashboard](demo/scene01_formal_05_dashboard.gif) |
 
 Formal 05 display media covers the beginning of the run through physical
 arrival. Metric path length remains the complete runtime odometry value.

@@ -14,9 +14,9 @@
   `SPL=0.7260879584850242` and mean Standard
   `SPL=0.7809932415154623`, consistently using the independently measured
   Scene 01 reference `L≈3.25 m`.
-- Publish five standardized H.264 third-view/Dashboard pairs and five
-  480 × 360 animated rollout previews that play directly in the main README;
-  preserve every user-provided master through Git LFS.
+- Publish five standardized H.264 third-view/Dashboard pairs plus five
+  third-view and five Dashboard animated previews that play directly in the
+  main README; preserve every user-provided master through Git LFS.
 - Replace the long status-style README with a compact paper-repository layout:
   quantitative results, inline rollouts, one-line dual-robot action analysis
   and per-run metrics.

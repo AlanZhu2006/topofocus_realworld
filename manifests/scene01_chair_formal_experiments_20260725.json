@@ -95,6 +95,13 @@
           "sha256": "d30636dad6e9218b91f966c493b50eca9b82229bf3d9be4f45e6e25f0755cbf5",
           "classification": "source-derived H.264"
         },
+        "dashboard_preview": {
+          "path": "media/demo/scene01_formal_01_dashboard.gif",
+          "size_bytes": 1117547,
+          "duration_s": 8.01,
+          "sha256": "9a9e84b791f48207df3ab631c3488580cc1a7870968fbf4d6dc7ce4b11011c81",
+          "classification": "source-derived accelerated full-rollout dashboard preview"
+        },
         "inline_preview": {
           "path": "media/demo/scene01_formal_01_preview.gif",
           "size_bytes": 4664196,
@@ -180,6 +187,13 @@
           "size_bytes": 422322,
           "sha256": "3575d0af1609e246f25c09f72107196dfe66e4821dff3e9a7d48873297e1228b",
           "classification": "source-derived H.264"
+        },
+        "dashboard_preview": {
+          "path": "media/demo/scene01_formal_02_dashboard.gif",
+          "size_bytes": 793483,
+          "duration_s": 8.01,
+          "sha256": "387ab05c77bb809498f247453565f06bf1fca340e75d0e1dd23097d81b5ca9ca",
+          "classification": "source-derived accelerated full-rollout dashboard preview"
         },
         "inline_preview": {
           "path": "media/demo/scene01_formal_02_preview.gif",
@@ -268,6 +282,13 @@
           "sha256": "a88716cc94600859eb23e87ccfa131133259389e0bbdc46c6b5cd4746d4df4a5",
           "classification": "source-derived H.264"
         },
+        "dashboard_preview": {
+          "path": "media/demo/scene01_formal_03_dashboard.gif",
+          "size_bytes": 1101743,
+          "duration_s": 8.01,
+          "sha256": "186d83c8ad252f059c44c8b6e344a0ad4e5943fe5259cd94e36f231322c90d22",
+          "classification": "source-derived accelerated full-rollout dashboard preview"
+        },
         "inline_preview": {
           "path": "media/demo/scene01_formal_03_preview.gif",
           "size_bytes": 3154045,
@@ -354,6 +375,13 @@
           "size_bytes": 970337,
           "sha256": "492a43189ae7fabb265e64be3d2a302db2f1b257825f5b8ed69b3998b2a91bc1",
           "classification": "source-derived H.264"
+        },
+        "dashboard_preview": {
+          "path": "media/demo/scene01_formal_04_dashboard.gif",
+          "size_bytes": 1071722,
+          "duration_s": 8.01,
+          "sha256": "330158eca72c630674a5b14a7f1b3b902001b7b091f11df483b71ef2b886a6f1",
+          "classification": "source-derived accelerated full-rollout dashboard preview"
         },
         "inline_preview": {
           "path": "media/demo/scene01_formal_04_preview.gif",
@@ -442,6 +470,13 @@
           "size_bytes": 1311651,
           "sha256": "ed2e13d06df9bb5107076851a47eed4a657ea295d903181dbbe7c6296e5deab7",
           "classification": "source-derived H.264"
+        },
+        "dashboard_preview": {
+          "path": "media/demo/scene01_formal_05_dashboard.gif",
+          "size_bytes": 968944,
+          "duration_s": 8.01,
+          "sha256": "4336534154fb1f49bb5325d11bda2cf340afc14ba67e269e27833cb3a1a4bb00",
+          "classification": "source-derived accelerated full-rollout dashboard preview"
         },
         "inline_preview": {
           "path": "media/demo/scene01_formal_05_preview.gif",
