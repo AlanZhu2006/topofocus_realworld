@@ -232,12 +232,36 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError(
             "source calibration lacks an independent moved-board holdout"
         )
-    if source.get("other_robot") != args.robot_id:
-        raise ValueError("source calibration other robot mismatch")
-    old_version = str(source.get("transform_version", ""))
-    old_wire = source.get("shared_world_from_other_odom")
-    if not isinstance(old_wire, dict):
-        raise ValueError("source calibration lacks other tracking transform")
+    reference = source.get("calibration_frame", {}).get("reference")
+    if not isinstance(reference, dict):
+        raise ValueError("source calibration lacks reference epoch identity")
+    if source.get("other_robot") == args.robot_id:
+        role = "other"
+        old_version = str(source.get("transform_version", ""))
+        old_wire = source.get("shared_world_from_other_odom")
+        if not isinstance(old_wire, dict):
+            raise ValueError("source calibration lacks other tracking transform")
+        tracking_child_frame = str(
+            old_wire.get("child_frame", f"{args.robot_id}_tracking")
+        )
+    elif source.get("reference_robot") == args.robot_id:
+        role = "reference"
+        old_version = str(reference.get("transform_version", ""))
+        old_wire = source.get("shared_world_from_reference_tracking")
+        if old_wire is None:
+            old_wire = matrix_wire(
+                np.eye(4, dtype=np.float64),
+                child_frame=f"{args.robot_id}_tracking",
+            )
+        if not isinstance(old_wire, dict):
+            raise ValueError(
+                "source reference tracking handover must be an object"
+            )
+        tracking_child_frame = str(
+            old_wire.get("child_frame", f"{args.robot_id}_tracking")
+        )
+    else:
+        raise ValueError("source calibration robot mismatch")
     old_transform = np.asarray(old_wire.get("matrix"), dtype=np.float64).reshape(
         4, 4
     )
@@ -310,10 +334,56 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
     source_identity["classification"] = (
         "observed_board_calibration_with_independent_moved_board_holdout"
     )
-    reference = source.get("calibration_frame", {}).get("reference")
-    if not isinstance(reference, dict):
-        raise ValueError("source calibration lacks reference epoch identity")
-    return {
+    new_reference = dict(reference)
+    if role == "reference":
+        new_reference["transform_version"] = args.new_transform_version
+    validation_key = f"{role}_reanchor_validation"
+    validation = {
+        "passed": True,
+        "classification": (
+            "observed_stationary_pose_handover_source_derived_alignment"
+        ),
+        "robot_role": role,
+        "operator_confirmation": args.operator_confirmation,
+        "tracking_restart_boot_id": args.tracking_restart_boot_id,
+        "old_transform_version": old_version,
+        "new_transform_version": args.new_transform_version,
+        "pre_restart_observations": pre_evidence,
+        "post_restart_observations": post_evidence,
+        "pre_restart_anchor_reported_with_old_transform": matrix_wire(
+            pre_anchor, child_frame=tracking_child_frame
+        ),
+        "post_restart_anchor_reported_with_old_transform": matrix_wire(
+            post_anchor, child_frame=tracking_child_frame
+        ),
+        "planar_shared_frame_correction": matrix_wire(
+            correction, child_frame="previous_shared_world"
+        ),
+        "corrected_post_restart_anchor": matrix_wire(
+            corrected_post_anchor,
+            child_frame=tracking_child_frame,
+        ),
+        "metrics": {
+            "pre_epoch_stability": pre_stability,
+            "post_epoch_stability": post_stability,
+            "anchor_translation_residual_m": translation_residual_m,
+            "anchor_orientation_residual_deg": orientation_residual_deg,
+        },
+        "thresholds": {
+            "max_stability_translation_m": (
+                args.max_stability_translation_m
+            ),
+            "max_stability_rotation_deg": args.max_stability_rotation_deg,
+            "max_anchor_translation_residual_m": (
+                args.max_anchor_translation_residual_m
+            ),
+            "max_anchor_orientation_residual_deg": (
+                args.max_anchor_orientation_residual_deg
+            ),
+        },
+        "checks": checks,
+    }
+    artifact = {
         "schema_version": 3,
         "passed": True,
         "calibration_method": (
@@ -323,57 +393,19 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
         "reference_robot": source.get("reference_robot"),
         "other_robot": source.get("other_robot"),
         "shared_frame_calibration_id": args.new_calibration_id,
-        "transform_version": args.new_transform_version,
-        "calibration_frame": {"reference": reference},
-        "shared_world_from_other_odom": matrix_wire(
-            new_transform,
-            child_frame=str(old_wire.get("child_frame", "robot-1_odom")),
+        "transform_version": (
+            args.new_transform_version
+            if role == "other"
+            else source.get("transform_version")
+        ),
+        "calibration_frame": {"reference": new_reference},
+        "shared_world_from_other_odom": (
+            matrix_wire(new_transform, child_frame=tracking_child_frame)
+            if role == "other"
+            else source.get("shared_world_from_other_odom")
         ),
         "derived_from_board_calibration": source_identity,
-        "other_reanchor_validation": {
-            "passed": True,
-            "classification": (
-                "observed_stationary_pose_handover_source_derived_alignment"
-            ),
-            "operator_confirmation": args.operator_confirmation,
-            "tracking_restart_boot_id": args.tracking_restart_boot_id,
-            "old_transform_version": old_version,
-            "new_transform_version": args.new_transform_version,
-            "pre_restart_observations": pre_evidence,
-            "post_restart_observations": post_evidence,
-            "pre_restart_anchor_reported_with_old_transform": matrix_wire(
-                pre_anchor, child_frame="odin1_camera_optical_frame"
-            ),
-            "post_restart_anchor_reported_with_old_transform": matrix_wire(
-                post_anchor, child_frame="odin1_camera_optical_frame"
-            ),
-            "planar_shared_frame_correction": matrix_wire(
-                correction, child_frame="previous_shared_world"
-            ),
-            "corrected_post_restart_anchor": matrix_wire(
-                corrected_post_anchor,
-                child_frame="odin1_camera_optical_frame",
-            ),
-            "metrics": {
-                "pre_epoch_stability": pre_stability,
-                "post_epoch_stability": post_stability,
-                "anchor_translation_residual_m": translation_residual_m,
-                "anchor_orientation_residual_deg": orientation_residual_deg,
-            },
-            "thresholds": {
-                "max_stability_translation_m": (
-                    args.max_stability_translation_m
-                ),
-                "max_stability_rotation_deg": args.max_stability_rotation_deg,
-                "max_anchor_translation_residual_m": (
-                    args.max_anchor_translation_residual_m
-                ),
-                "max_anchor_orientation_residual_deg": (
-                    args.max_anchor_orientation_residual_deg
-                ),
-            },
-            "checks": checks,
-        },
+        validation_key: validation,
         "input_provenance": {
             "status": (
                 "operator_observed_stationary_robot_plus_spooled_rgbd_pose_"
@@ -393,6 +425,11 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
             "frame."
         ),
     }
+    if role == "reference":
+        artifact["shared_world_from_reference_tracking"] = matrix_wire(
+            new_transform, child_frame=tracking_child_frame
+        )
+    return artifact
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -438,13 +475,25 @@ def main() -> int:
         encoding="utf-8",
     )
     os.replace(temporary, args.output)
-    metrics = artifact["other_reanchor_validation"]["metrics"]
+    validation = artifact.get(
+        "other_reanchor_validation",
+        artifact.get("reference_reanchor_validation"),
+    )
+    if not isinstance(validation, dict):
+        raise RuntimeError("re-anchor artifact lacks validation metrics")
+    metrics = validation["metrics"]
+    reference = artifact.get("calibration_frame", {}).get("reference", {})
+    emitted_transform_version = (
+        reference.get("transform_version")
+        if "reference_reanchor_validation" in artifact
+        else artifact.get("transform_version")
+    )
     print(
         json.dumps(
             {
                 "output": str(args.output.resolve()),
                 "calibration_id": artifact["shared_frame_calibration_id"],
-                "transform_version": artifact["transform_version"],
+                "transform_version": emitted_transform_version,
                 "metrics": metrics,
                 "robot_commands_issued": False,
             },

@@ -301,12 +301,20 @@ def calibration_validation_kind(payload: dict[str, object]) -> str:
         ):
             return "independent_moved_board_holdout"
     derived = payload.get("derived_from_board_calibration")
-    reanchor = payload.get("other_reanchor_validation")
+    reanchors = tuple(
+        item
+        for item in (
+            payload.get("other_reanchor_validation"),
+            payload.get("reference_reanchor_validation"),
+        )
+        if item is not None
+    )
     if (
         isinstance(derived, dict)
         and re.fullmatch(r"[0-9a-f]{64}", str(derived.get("sha256", "")))
-        and isinstance(reanchor, dict)
-        and reanchor.get("passed") is True
+        and len(reanchors) == 1
+        and isinstance(reanchors[0], dict)
+        and reanchors[0].get("passed") is True
     ):
         return "validated_stationary_reanchor_of_board_calibration"
     raise ValueError(

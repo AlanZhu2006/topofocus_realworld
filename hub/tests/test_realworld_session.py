@@ -369,6 +369,20 @@ def test_calibration_cannot_replace_named_holdout_checks():
         calibration_validation_kind(payload)
 
 
+def test_reference_stationary_reanchor_is_classified():
+    payload = calibration_payload()
+    payload["holdout_validation"] = None
+    payload["derived_from_board_calibration"] = {
+        "sha256": "a" * 64,
+    }
+    payload["reference_reanchor_validation"] = {"passed": True}
+
+    assert (
+        calibration_validation_kind(payload)
+        == "validated_stationary_reanchor_of_board_calibration"
+    )
+
+
 def test_debug_manifest_rejects_any_true_command_alias(tmp_path):
     session = attach_debug(tmp_path, build_session(tmp_path))
     manifest = tmp_path / session.debug_validation.shadow_manifest.path

@@ -38,6 +38,7 @@ def write_observation(
     capture_time_ns: int,
     pose: np.ndarray,
     transform_version: str,
+    robot_id: str = "robot-1",
 ) -> None:
     directory = spool / f"{sequence:020d}"
     directory.mkdir(parents=True)
@@ -46,7 +47,7 @@ def write_observation(
     (directory / "rgb.jpg").write_bytes(rgb)
     (directory / "depth.png").write_bytes(depth)
     metadata = {
-        "robot_id": "robot-1",
+        "robot_id": robot_id,
         "sequence": sequence,
         "capture_time_ns": capture_time_ns,
         "rgb_size_bytes": len(rgb),
@@ -164,6 +165,90 @@ def test_stationary_reanchor_recovers_new_planar_epoch(tmp_path: Path):
     assert artifact["other_reanchor_validation"]["passed"] is True
     assert artifact["safety"]["robot_commands_issued"] is False
     assert "holdout_validation" not in artifact
+
+
+def test_stationary_reanchor_recovers_reference_epoch(tmp_path: Path):
+    spool = tmp_path / "spool"
+    source = tmp_path / "board.json"
+    output = tmp_path / "reanchored.json"
+    other_transform = planar(1.0, -0.5, 0.2)
+    source_calibration(source, other_transform)
+    pre_pose = planar(0.1, -0.2, 0.05)
+    correction = planar(0.8, -0.4, 0.3)
+    post_reported = np.linalg.inv(correction) @ pre_pose
+    for index in range(3):
+        write_observation(
+            spool,
+            sequence=10 + index,
+            capture_time_ns=100 + index,
+            pose=pre_pose @ planar(index * 0.0001, 0.0, 0.0),
+            transform_version="reference-v1",
+            robot_id="robot-0",
+        )
+        write_observation(
+            spool,
+            sequence=20 + index,
+            capture_time_ns=200 + index,
+            pose=post_reported @ planar(index * 0.0001, 0.0, 0.0),
+            transform_version="reference-v1",
+            robot_id="robot-0",
+        )
+
+    result = subprocess.run(
+        [
+            str(PYTHON),
+            str(TOOL),
+            "--workspace",
+            str(tmp_path),
+            "--source-calibration",
+            str(source),
+            "--spool",
+            str(spool),
+            "--robot-id",
+            "robot-0",
+            "--pre-first",
+            "10",
+            "--pre-last",
+            "12",
+            "--post-first",
+            "20",
+            "--post-last",
+            "22",
+            "--new-calibration-id",
+            "board-reference-restart-v2",
+            "--new-transform-version",
+            "reference-restart-v2",
+            "--tracking-restart-boot-id",
+            "boot-2",
+            "--operator-confirmation",
+            CONFIRMATION,
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    artifact = json.loads(output.read_text())
+    actual = np.asarray(
+        artifact["shared_world_from_reference_tracking"]["matrix"]
+    ).reshape(4, 4)
+    np.testing.assert_allclose(actual, correction, atol=3e-4)
+    np.testing.assert_allclose(
+        np.asarray(
+            artifact["shared_world_from_other_odom"]["matrix"]
+        ).reshape(4, 4),
+        other_transform,
+    )
+    assert (
+        artifact["calibration_frame"]["reference"]["transform_version"]
+        == "reference-restart-v2"
+    )
+    assert artifact["transform_version"] == "other-old-v1"
+    assert artifact["reference_reanchor_validation"]["passed"] is True
+    assert artifact["safety"]["robot_commands_issued"] is False
 
 
 def test_stationary_reanchor_rejects_missing_confirmation(tmp_path: Path):
