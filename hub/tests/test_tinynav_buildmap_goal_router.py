@@ -84,6 +84,64 @@ def test_goal_parser_accepts_only_fresh_single_hub_goal():
         router.parse_goal_payload(json.dumps(foreign), now_ns=1_000_000_000)
 
 
+def test_semantic_planner_targets_inside_unchanged_arrival_radius():
+    router = load_router()
+
+    assert router.planning_arrival_radius_m(
+        target_kind="SEMANTIC_REGION",
+        arrival_radius_m=0.50,
+        semantic_terminal_margin_m=0.15,
+        grid_resolution_m=0.05,
+    ) == pytest.approx(0.35)
+    assert router.planning_arrival_radius_m(
+        target_kind="FRONTIER_POINT",
+        arrival_radius_m=0.50,
+        semantic_terminal_margin_m=0.15,
+        grid_resolution_m=0.05,
+    ) == pytest.approx(0.50)
+    assert router.planning_arrival_radius_m(
+        target_kind="SEMANTIC_REGION",
+        arrival_radius_m=0.10,
+        semantic_terminal_margin_m=0.15,
+        grid_resolution_m=0.05,
+    ) == pytest.approx(0.05)
+
+
+def test_semantic_inner_disk_gives_arrival_boundary_crossing_margin():
+    router = load_router()
+    occupancy = grid(
+        [0] * 41,
+        width=41,
+        height=1,
+        resolution_m=0.05,
+    )
+    arrival_radius_m = 0.50
+    planning_radius_m = router.planning_arrival_radius_m(
+        target_kind="SEMANTIC_REGION",
+        arrival_radius_m=arrival_radius_m,
+        semantic_terminal_margin_m=0.15,
+        grid_resolution_m=occupancy.resolution_m,
+    )
+
+    plan = router.plan_route(
+        occupancy,
+        start_x=0.025,
+        start_y=0.025,
+        goal_x=1.525,
+        goal_y=0.025,
+        arrival_radius_m=planning_radius_m,
+        clearance_cells=0,
+    )
+
+    assert plan is not None
+    target_x, target_y = occupancy.cell_center(*plan.target_cell)
+    target_distance_m = (
+        (target_x - 1.525) ** 2 + (target_y - 0.025) ** 2
+    ) ** 0.5
+    assert target_distance_m <= planning_radius_m + 1e-12
+    assert arrival_radius_m - target_distance_m >= 0.149
+
+
 def test_same_leg_lease_renewal_must_be_newer_and_target_stable():
     router = load_router()
     current = router.parse_goal_payload(goal_payload(), now_ns=1_000_000_000)
@@ -276,10 +334,18 @@ def test_wsj_launcher_bridges_one_source_keyframe_plus_one_grid_cell():
     assert '--input-timeout-s \\"$ODOMETRY_INPUT_TIMEOUT_S\\"' in source
     assert 'FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75' in source
     assert 'FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35' in source
+    assert (
+        "FOCUS_WSJ_SEMANTIC_TERMINAL_PLANNING_MARGIN_M:-0.15"
+        in source
+    )
     assert '--start-snap-radius-m \\"$START_SNAP_RADIUS_M\\"' in source
     assert (
         '--start-footprint-override-m '
         '\\"$START_FOOTPRINT_OVERRIDE_M\\"'
+    ) in source
+    assert (
+        '--semantic-terminal-planning-margin-m '
+        '\\"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\\"'
     ) in source
     assert '"--alternate-size",' in online_mapping
     assert '"640x480",' in online_mapping

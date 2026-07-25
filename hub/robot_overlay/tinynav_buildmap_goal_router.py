@@ -63,6 +63,39 @@ class RoutePlan:
     remaining_goal_distance_m: float = 0.0
 
 
+def planning_arrival_radius_m(
+    *,
+    target_kind: str,
+    arrival_radius_m: float,
+    semantic_terminal_margin_m: float,
+    grid_resolution_m: float,
+) -> float:
+    """Return an inner semantic planning disk while preserving ARRIVED."""
+
+    values = (
+        arrival_radius_m,
+        semantic_terminal_margin_m,
+        grid_resolution_m,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("terminal planning radius contains a non-finite value")
+    if (
+        arrival_radius_m <= 0.0
+        or semantic_terminal_margin_m < 0.0
+        or grid_resolution_m <= 0.0
+    ):
+        raise ValueError("terminal planning radii must be positive")
+    if target_kind != "SEMANTIC_REGION":
+        return arrival_radius_m
+    # ARRIVED continues to use ``arrival_radius_m``. Planning toward its
+    # interior makes the base cross that boundary decisively instead of
+    # repeatedly selecting the first grid cell just inside it.
+    return max(
+        grid_resolution_m,
+        arrival_radius_m - semantic_terminal_margin_m,
+    )
+
+
 def quaternion_pose_matrix(pose: Any) -> tuple[float, ...]:
     """Convert a ROS-like pose to a validated row-major rigid transform."""
 
@@ -845,6 +878,14 @@ def run_ros(
             clearance_cells = max(
                 0, math.ceil(args.clearance_m / grid.resolution_m)
             )
+            route_arrival_radius_m = planning_arrival_radius_m(
+                target_kind=goal.target_kind,
+                arrival_radius_m=goal.arrival_radius_m,
+                semantic_terminal_margin_m=(
+                    args.semantic_terminal_planning_margin_m
+                ),
+                grid_resolution_m=grid.resolution_m,
+            )
             plan_started = time.monotonic()
             plan = plan_route(
                 grid,
@@ -852,7 +893,7 @@ def run_ros(
                 start_y=base_y,
                 goal_x=goal.x,
                 goal_y=goal.y,
-                arrival_radius_m=goal.arrival_radius_m,
+                arrival_radius_m=route_arrival_radius_m,
                 clearance_cells=clearance_cells,
                 start_snap_radius_m=args.start_snap_radius_m,
                 start_footprint_override_m=(
@@ -899,6 +940,13 @@ def run_ros(
                 odom_age_s=round(odom_age_s, 3),
                 plan_duration_s=round(plan_duration_s, 3),
                 waypoint=[round(waypoint_x, 3), round(waypoint_y, 3)],
+                arrival_radius_m=round(goal.arrival_radius_m, 3),
+                planning_arrival_radius_m=round(
+                    route_arrival_radius_m, 3
+                ),
+                semantic_terminal_planning_margin_m=round(
+                    args.semantic_terminal_planning_margin_m, 3
+                ),
                 occupancy_age_s=round(map_age_s, 3),
                 cached_map_motion_m=(
                     None
@@ -964,6 +1012,15 @@ def main() -> int:
     parser.add_argument("--lookahead-m", type=float, default=1.0)
     parser.add_argument("--clearance-m", type=float, default=0.05)
     parser.add_argument(
+        "--semantic-terminal-planning-margin-m",
+        type=float,
+        default=0.15,
+        help=(
+            "plan semantic routes this far inside the unchanged ARRIVED "
+            "radius so grid-boundary targets cannot chatter"
+        ),
+    )
+    parser.add_argument(
         "--minimum-partial-progress-m", type=float, default=0.10
     )
     parser.add_argument(
@@ -1003,6 +1060,7 @@ def main() -> int:
     if (
         args.lookahead_m <= 0
         or args.clearance_m < 0
+        or args.semantic_terminal_planning_margin_m < 0
         or args.minimum_partial_progress_m < 0
         or args.start_snap_radius_m < 0
         or args.start_footprint_override_m < 0

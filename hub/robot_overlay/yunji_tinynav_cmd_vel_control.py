@@ -7,6 +7,11 @@ short trajectory segment can therefore request, for example, 0.078 m/s: above
 the intended 0.04 m/s engage threshold but below the 0.10 m/s static-friction
 floor.  Its timer then publishes zero forever.
 
+The pinned controller also maps every negative forward component, however
+small, to a fixed -0.2 m/s reverse command.  Keep the meaningful reverse-path
+rejection at 2 cm, but zero sub-threshold negative jitter before it can become
+a full-speed reverse pulse.
+
 Keep the source controller immutable and preserve all of its stale-pose,
 stale-path, depth-stop, turn, acceleration and arrival guards.  This deployment
 subclass, shared by Yunji and WSJ, only applies the controller's already-declared
@@ -17,6 +22,9 @@ from __future__ import annotations
 import logging
 import math
 import time
+
+
+MEANINGFUL_REVERSE_SEGMENT_M = 0.02
 
 
 def path_segment_forward_component(
@@ -63,6 +71,26 @@ def apply_linear_engagement_floor(
     return requested_mps
 
 
+def classify_forward_component(
+    forward_m: float | None,
+    *,
+    meaningful_reverse_m: float = MEANINGFUL_REVERSE_SEGMENT_M,
+) -> str:
+    """Classify a segment before TinyNav quantizes reverse to -0.2 m/s."""
+
+    if not math.isfinite(meaningful_reverse_m) or meaningful_reverse_m <= 0.0:
+        raise ValueError("meaningful_reverse_m must be finite and positive")
+    if forward_m is None:
+        return "unknown"
+    if not math.isfinite(forward_m):
+        raise ValueError("forward_m must be finite")
+    if forward_m < -meaningful_reverse_m:
+        return "reject_reverse"
+    if forward_m < 0.0:
+        return "zero_tiny_reverse"
+    return "allow"
+
+
 def main(args: list[str] | None = None) -> None:
     import numpy as np
     import rclpy
@@ -76,6 +104,7 @@ def main(args: list[str] | None = None) -> None:
             super().__init__()
             self._last_focus_speed_floor_log = 0.0
             self._last_focus_reverse_log = 0.0
+            self._last_focus_tiny_reverse_log = 0.0
             self._reverse_required_publisher = self.create_publisher(
                 Bool, "/planning/reverse_required", 10
             )
@@ -137,10 +166,10 @@ def main(args: list[str] | None = None) -> None:
                 or len(message.poses) < 2
             ):
                 return
-            reverse_required = bool(
-                control_segment_forward_m is not None
-                and control_segment_forward_m < -0.02
+            segment_action = classify_forward_component(
+                control_segment_forward_m
             )
+            reverse_required = segment_action == "reject_reverse"
             self._reverse_required_publisher.publish(
                 Bool(data=reverse_required)
             )
@@ -161,6 +190,21 @@ def main(args: list[str] | None = None) -> None:
                         f"forward_component={control_segment_forward_m:.3f} m"
                     )
                     self._last_focus_reverse_log = now
+                return
+            if segment_action == "zero_tiny_reverse":
+                # TinyNav maps any negative raw_vx to -0.2 m/s. A negative
+                # component smaller than the meaningful reverse threshold is
+                # trajectory jitter, not permission to reverse.
+                self.latest_cmd = Twist()
+                self.prev_cmd = Twist()
+                self.cmd_pub.publish(Twist())
+                now = time.monotonic()
+                if now - self._last_focus_tiny_reverse_log >= 2.0:
+                    self.get_logger().info(
+                        "Focus TinyNav suppressed tiny reverse segment: "
+                        f"forward_component={control_segment_forward_m:.4f} m"
+                    )
+                    self._last_focus_tiny_reverse_log = now
                 return
             requested = float(self.latest_cmd.linear.x)
             floored = apply_linear_engagement_floor(

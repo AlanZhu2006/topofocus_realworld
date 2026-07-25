@@ -860,6 +860,11 @@ def test_wsj_launcher_reloads_persistent_goal_router_before_receiver() -> None:
         in launcher
     )
     assert '--input-timeout-s \\"$ODOMETRY_INPUT_TIMEOUT_S\\"' in launcher
+    assert (
+        '--semantic-terminal-planning-margin-m '
+        '\\"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\\"'
+        in launcher
+    )
 
 
 def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():

@@ -55,6 +55,9 @@ START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 # radius; independent surveyed goal-region membership remains authoritative for
 # reported SR/SPL.
 SEMANTIC_ARRIVAL_RADIUS_M="${FOCUS_WSJ_SEMANTIC_ARRIVAL_RADIUS_M:-0.50}"
+# Plan 0.15 m inside that unchanged terminal radius. Formal-05 otherwise
+# selected 0.4507-0.4952 m boundary cells and oscillated before crossing it.
+SEMANTIC_TERMINAL_PLANNING_MARGIN_M="${FOCUS_WSJ_SEMANTIC_TERMINAL_PLANNING_MARGIN_M:-0.15}"
 mode="debug"
 confirmation=""
 startup_complete="false"
@@ -375,7 +378,7 @@ old_goal_router_pid="$(
   tmux display-message -p -t "$SESSION:goal-router" '#{pane_pid}'
 )"
 tmux respawn-pane -k -t "$SESSION:goal-router" \
-  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id world --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\"'"
+  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id world --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\"'"
 new_goal_router_pid="$(
   tmux display-message -p -t "$SESSION:goal-router" '#{pane_pid}'
 )"

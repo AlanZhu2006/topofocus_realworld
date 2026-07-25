@@ -31,6 +31,9 @@
 - Make the WSJ controller reload graceful and wait for the old Fast DDS
   publisher to disappear before respawn; reject an unresolved/`UNKNOWN`
   publisher identity instead of timing out later in strict no-motion debug.
+- Preserve the `0.50 m` semantic ARRIVED contract while planning WSJ routes
+  `0.15 m` inside it, and suppress sub-2-cm negative trajectory jitter before
+  TinyNav can quantize it into a fixed `-0.2 m/s` reverse pulse.
 - Record the operator clarification that the manually terminal-annotated
   `trial-05-nearwall-fix` is formal experiment 03; preserve its existing
   `SR=1` and source-compatible `SPL=0.864048038008398`.

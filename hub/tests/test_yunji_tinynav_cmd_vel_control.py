@@ -40,6 +40,32 @@ def test_reverse_path_segment_is_negative_in_robot_forward_axis():
     ) == pytest.approx(0.20)
 
 
+@pytest.mark.parametrize(
+    ("forward_m", "expected"),
+    [
+        (None, "unknown"),
+        (0.0, "allow"),
+        (0.08, "allow"),
+        (-0.001, "zero_tiny_reverse"),
+        (-0.02, "zero_tiny_reverse"),
+        (-0.020001, "reject_reverse"),
+        (-0.2, "reject_reverse"),
+    ],
+)
+def test_tiny_negative_segments_cannot_become_fixed_reverse(
+    forward_m,
+    expected,
+):
+    assert MODULE.classify_forward_component(forward_m) == expected
+
+
+def test_reverse_classifier_rejects_invalid_values():
+    with pytest.raises(ValueError):
+        MODULE.classify_forward_component(float("nan"))
+    with pytest.raises(ValueError):
+        MODULE.classify_forward_component(0.1, meaningful_reverse_m=0.0)
+
+
 @pytest.mark.parametrize("requested", [-0.2, 0.0, 0.039, 0.1, 0.3])
 def test_commands_outside_engagement_band_are_unchanged(requested):
     assert MODULE.apply_linear_engagement_floor(
