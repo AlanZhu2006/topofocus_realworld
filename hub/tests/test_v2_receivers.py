@@ -504,6 +504,9 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert '"trajectory_missing_or_stale"' in source
     assert '"LOCAL_PLANNER_PATH_STALE"' in source
     assert 'active_goal.target_kind == "SEMANTIC_REGION"' in source
+    assert '"frontier_no_path_waiting_source_replan"' in source
+    assert 'node.router_reason == "NO_KNOWN_FREE_PATH"' in source
+    assert "node.authorized\n                            and" in source
     assert '"control_telemetry"' in source
 
 

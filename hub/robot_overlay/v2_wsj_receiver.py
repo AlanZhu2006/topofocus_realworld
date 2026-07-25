@@ -1487,7 +1487,28 @@ def main() -> int:
                 )
             ):
                 held_decision = active_decision
-                if recoverable_router_hold(
+                frontier_waiting_for_replan = bool(
+                    active_goal is not None
+                    and active_goal.target_kind == "FRONTIER_POINT"
+                    and node.router_reason == "NO_KNOWN_FREE_PATH"
+                )
+                if frontier_waiting_for_replan:
+                    # A transiently empty/self-occupied online component is a
+                    # valid real-world equivalent of colliding with a chosen
+                    # exploration action.  Close physical authority but keep
+                    # producing non-NAVIGATING feedback until the immutable
+                    # source's bounded step window requests a new frontier.
+                    # Semantic-region legs are never allowed through this path.
+                    if node.authorized:
+                        node.revoke(pause=False)
+                        emit(
+                            "frontier_no_path_waiting_source_replan",
+                            state=node.router_state,
+                            reason=node.router_reason,
+                            decision_id=held_decision.decision_id,
+                            leg_id=held_decision.leg_id,
+                        )
+                elif recoverable_router_hold(
                     node.router_reason,
                     receiver_runtime_ready=ready,
                 ):
@@ -2032,7 +2053,8 @@ def main() -> int:
                         time.monotonic() - last_feedback_monotonic >= 0.5
                     ):
                         planner_active = bool(
-                            node.trajectory_received_ns
+                            node.authorized
+                            and node.trajectory_received_ns
                             >= node.authority_started_ns
                             and time.time_ns() - node.trajectory_received_ns
                             <= int(args.trajectory_stale_timeout_s * 1e9)
