@@ -7,10 +7,21 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`FAILURE_ATTRIBUTION_PROTOCOL_20260725.md`](FAILURE_ATTRIBUTION_PROTOCOL_20260725.md):
+  evidence requirements separating preflight/engineering, perception, VLM
+  decision, navigation-policy and unclassified failures, plus current Scene 01
+  attribution.
+- [`R6_FUSION_PREFLIGHT_ABORT_20260725.md`](R6_FUSION_PREFLIGHT_ABORT_20260725.md):
+  operator-caught cross-map wall conflict after strict debug but before live,
+  frozen-map geometry diagnosis, exclusion from SR/SPL and the required fresh
+  calibration gate.
+- [`SCENE01_CHAIR_SUCCESS_R5_20260725.md`](SCENE01_CHAIR_SUCCESS_R5_20260725.md):
+  second normal Scene 01 success, automatic WSJ
+  `LOCAL_PLANNER_ARRIVED`, exact SR/source-compatible SPL and paired
+  external/Dashboard media provenance.
 - [`SCENE01_MEDIA_PUBLICATION_20260725.md`](SCENE01_MEDIA_PUBLICATION_20260725.md):
-  complete publication of the currently supplied Scene 01 source videos,
-  the two-failure/one-success homepage table, byte hashes, web derivatives and
-  exact runtime-binding boundaries.
+  initial ten-file publication plus the later second-success addendum,
+  byte hashes, web derivatives and exact runtime-binding boundaries.
 - [`LAB18_CALIBRATION_ABORT_20260725.md`](LAB18_CALIBRATION_ABORT_20260725.md):
   aborted repeat-2 calibration after the Go2 was moved to charge, the repaired
   cross-launcher release-root mismatch, preserved incomplete runtime

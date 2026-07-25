@@ -13,7 +13,7 @@ Known July 23/24 engineering attempts (`official-run01` and retry1–retry3)
 will be labelled as failed/excluded demos. Uploading their videos does not
 change their metric status.
 
-## Published Scene 01 success
+## Published Scene 01 successes
 
 ### Near-chair Yunji run — 2026-07-25
 
@@ -79,14 +79,73 @@ the separation between the 0.5 m physical-protocol track and the
 pre-surveyed standard track are in
 [`../../audit/SCENE01_CHAIR_SUCCESS_20260725.md`](../../audit/SCENE01_CHAIR_SUCCESS_20260725.md).
 
+### Automatic WSJ arrival r5 — 2026-07-25
+
+These recordings are explicitly bound to:
+
+- session: `20260725-lab19-scene01-8ca1d52-yunjireboot1-r5`;
+- session Git commit:
+  `8ca1d528b5e1bdc6e029f63031330250a4c962a9`;
+- scene: `scene01-chair`;
+- episode: `trial-r5-01`;
+- automatic result: WSJ `LOCAL_PLANNER_ARRIVED`;
+- goal distance: `0.406692832069 m` under the declared `0.5 m` radius;
+- metric result: `SR=1`, source-compatible `SPL=0.628398923`;
+- standard SPL: unavailable without a pre-surveyed shortest path.
+
+The external view shows the white chair and both robots at the end of the
+run. The Dashboard records both cameras, the per-robot and fused maps,
+trajectories and chair semantic region. The frozen WSJ decision RGB contains
+the chair; the later automatic terminal RGB faces the wall and is not used
+alone as target identity evidence.
+
+#### External-view automatic-success record
+
+- Original master:
+  `media/video/third_view/experiment_1/experiment_1_success_1.mp4`,
+  8,511,523 bytes, HEVC/AAC, 1280 × 720, nominal 30 fps,
+  74.100 seconds, SHA-256
+  `3d67f19f48601dcd239b950689c391b96231010bc2c6fdea07351f0ff12c8bd6`.
+- Published derivative:
+  `scene01_success_2_third_view_20260725.mp4`, 10,359,239 bytes,
+  H.264 High, `yuv420p`, 1280 × 720, 30 fps, 74.100 seconds, SHA-256
+  `0469c894b80035a30cdc5d8fb4142577c7bebf53ace00f71528147046ff35675`.
+- Poster:
+  `scene01_success_2_third_view_20260725_poster.jpg`, 188,224 bytes,
+  sampled at 73.0 seconds, SHA-256
+  `7611b39fae911b2def21018067240881b3910d04e949c4ec822e67fa01f339ac`.
+
+#### Dashboard automatic-success record
+
+- Original master:
+  `media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov`,
+  45,502,070 bytes, H.264/AAC, 2392 × 1080, 30 fps,
+  74.955 seconds, SHA-256
+  `4668756e7d7ad7e2dd18eab85d65de5c8243ef3c9b281afcc6aace1f942291dd`.
+- Published derivative:
+  `scene01_success_2_dashboard_20260725.mp4`, 1,175,482 bytes,
+  H.264 High, `yuv420p`, 1280 × 578, 30 fps, 74.900 seconds, SHA-256
+  `d30636dad6e9218b91f966c493b50eca9b82229bf3d9be4f45e6e25f0755cbf5`.
+- Poster:
+  `scene01_success_2_dashboard_20260725_poster.jpg`, 77,100 bytes,
+  sampled at 73.0 seconds, SHA-256
+  `15d9c77a8c525036cf7e3adb78c454e53391e1067656b5f2d8e3c160d244e13d`.
+
+The external-view derivative used CRF 25 at source dimensions. The Dashboard
+used CRF 26 scaled to 1280 pixels wide. Both were generated with the locally
+observed `ffmpeg` 4.4.2, `libx264`, `yuv420p`, fast-start MP4 and no audio.
+Exact runtime evidence is in
+[`../../audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md`](../../audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md).
+
 ## Published failed demos
 
 ### Scene 01 approach failure 1 — 2026-07-25
 
 The filenames and onsite description classify this pair as the first
 approach failure in Scene 01. The exact runtime session/episode and controller
-reason code have not been independently bound, so this recording is excluded
-from SR/SPL.
+reason code have not been independently bound, so this recording is an
+`unclassified_failure`, is excluded from SR/SPL and must not be described as
+a VLM failure.
 
 - Third-view master:
   `media/video/third_view/experiment_1/experiment_1_approach_failure_1.mp4`,
@@ -120,8 +179,9 @@ from SR/SPL.
 The filenames and onsite description classify this pair as the second
 approach failure in Scene 01. The third-view terminal frame shows Yunji closer
 to the chair region than in failure 1, but no automatic terminal or exact
-runtime binding is established by the media alone. It is excluded from
-SR/SPL.
+runtime binding is established by the media alone. It is an
+`unclassified_failure`, is excluded from SR/SPL and must not be described as
+a VLM failure.
 
 - Third-view master:
   `media/video/third_view/experiment_1/experiment_1_approach_failure_2.mp4`,

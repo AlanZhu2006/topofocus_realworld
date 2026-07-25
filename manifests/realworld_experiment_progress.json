@@ -7,6 +7,20 @@
     "trials_per_scene": 5,
     "total_episodes": 20
   },
+  "failure_attribution_policy": {
+    "order": [
+      "preflight_engineering_failure",
+      "execution_engineering_failure",
+      "perception_failure",
+      "vlm_decision_failure",
+      "navigation_policy_failure",
+      "unclassified_failure"
+    ],
+    "vlm_decision_failure_requires": "healthy synchronized sensing/calibration/mapping/transport/control, independently established target presence, faithfully executed VLM targets, saved per-round decisions and exhaustion of a predeclared budget",
+    "perception_boundary": "verified YOLO/SegFormer false positives or false negatives are perception failures, not VLM reasoning failures",
+    "unclassified_boundary": "a filename, video or onsite description without an exact runtime episode/control binding cannot establish VLM or engineering causality",
+    "full_protocol": "audit/FAILURE_ATTRIBUTION_PROTOCOL_20260725.md"
+  },
   "metric_tracks": {
     "pre_surveyed_standard": {
       "recorded_episodes": 0,
@@ -16,14 +30,50 @@
       "reason": "No episode yet has a pre-surveyed shortest path and an automatic local-planner terminal under the declared radius."
     },
     "physical_0p5m_protocol": {
-      "recorded_episodes": 1,
-      "successes": 1,
+      "recorded_episodes": 2,
+      "successes": 2,
       "sr": 1.0,
-      "source_compatible_multi_spl_mean": 0.864048038008398,
+      "source_compatible_multi_spl_mean": 0.746223480504199,
       "standard_multi_spl_mean": null,
-      "classification": "normal success under the declared 0.5 m real-world protocol; not mixed into the pre-surveyed standard track"
+      "classification": "two normal successes under the declared 0.5 m real-world protocol; not mixed into the pre-surveyed standard track"
     }
   },
+  "attempts_not_in_metric_track": [
+    {
+      "record_id": "scene01-approach-failure-1-media",
+      "attribution": "unclassified_failure",
+      "reason": "User-labelled media exists, but no exact session, episode, decision-batch or controller binding has been established.",
+      "sr_spl_status": "excluded_pending_evidence"
+    },
+    {
+      "record_id": "scene01-approach-failure-2-media",
+      "attribution": "unclassified_failure",
+      "reason": "User-labelled media exists, but no exact session, episode, decision-batch or controller binding has been established.",
+      "sr_spl_status": "excluded_pending_evidence"
+    },
+    {
+      "record_id": "scene01-chair-run01-fastfix",
+      "session_id": "20260725-lab05-yunjireboot4",
+      "attribution": "execution_engineering_failure/route_coordination",
+      "reason": "Sequential VLM allocation chose different frontiers, but the physical route corridors intersected before the route-conflict guard existed.",
+      "sr_spl_status": "excluded_engineering_attempt"
+    },
+    {
+      "record_id": "20260725-lab19-scene01-8ca1d52-yunjireboot1-r6",
+      "attribution": "preflight_engineering_failure/calibration_fusion",
+      "reason": "The operator and frozen-map analysis found a cross-map wall conflict before live goal publication.",
+      "live_started": false,
+      "robot_commands_issued": false,
+      "episode_created": false,
+      "sr_spl_status": "not_an_episode",
+      "evidence": {
+        "path": "hub/runtime/analysis/r6_pre_live_20260725_1243/manifest.json",
+        "size_bytes": 4795,
+        "sha256": "1a3fa416d3050f0178921a73e7e71d7afc31bd78dff06a63db877217a4fccead",
+        "classification": "source-derived read-only export index; local runtime file ignored by Git"
+      }
+    }
+  ],
   "episodes": [
     {
       "record_id": "scene01-chair_trial-05-nearwall-fix",
@@ -149,6 +199,133 @@
         "semantic_arrival_radius_m": 0.5,
         "effect": "Future WSJ and Yunji live receivers automatically emit semantic arrival inside the declared 0.5 m physical tolerance."
       }
+    },
+    {
+      "record_id": "scene01-chair_trial-r5-01",
+      "session_id": "20260725-lab19-scene01-8ca1d52-yunjireboot1-r5",
+      "session_git_commit": "8ca1d528b5e1bdc6e029f63031330250a4c962a9",
+      "scene_id": "scene01-chair",
+      "episode_id": "trial-r5-01",
+      "target_category": "chair",
+      "automatic_result": {
+        "success": true,
+        "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+        "robot_id": "robot-0",
+        "local_planner_stopped": true,
+        "reason_code": "LOCAL_PLANNER_ARRIVED",
+        "configured_semantic_arrival_radius_m": 0.5,
+        "semantic_goal_xy_m": [
+          -1.3887036027715443,
+          3.0674017103544813
+        ],
+        "arrival_pose_xy_m": [
+          -1.3167335325004346,
+          2.6671275934781966
+        ],
+        "arrival_distance_to_semantic_goal_m": 0.406692832069
+      },
+      "physical_protocol_result": {
+        "classification": "normal source-navigation ARRIVED success under the declared 0.5 m real-world protocol",
+        "counts_in_metric_track": "physical_0p5m_protocol",
+        "success": true,
+        "success_radius_m": 0.5,
+        "within_success_radius": true,
+        "velocity_zero_confirmed": true,
+        "target_visual_status": "white chair and both robots are visible at the end of the paired external-view recording; the frozen decision RGB also contains the chair",
+        "standard_track_eligible": false,
+        "standard_track_exclusion_reason": "No independently surveyed shortest collision-free path L was recorded before the run."
+      },
+      "metrics": {
+        "sr": 1.0,
+        "actual_path_length_m": 3.8507920422516904,
+        "start_xy_m": [
+          -1.048071261143531,
+          0.2622543944229162
+        ],
+        "stop_xy_m": [
+          -1.3167335325004346,
+          2.6671275934781966
+        ],
+        "start_to_stop_displacement_m": 2.419833573,
+        "source_compatible_spl_formula": "S * displacement / max(displacement, actual_path)",
+        "source_compatible_spl": 0.628398923,
+        "standard_spl": null,
+        "standard_spl_unavailable_reason": "No independently surveyed shortest collision-free path L was recorded before the run."
+      },
+      "evidence": [
+        {
+          "path": "hub/runtime/trial_annotations/scene01-chair_trial-r5-01_success.json",
+          "size_bytes": 2960,
+          "sha256": "bdcbadce63237de14804e4d27d99849ff0af7b4732c18572588dcd7d1eccf223",
+          "classification": "observed onsite success record joined with source-derived runtime evidence; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab19-scene01-8ca1d52-yunjireboot1-r5_live_scene01-chair_20260725_122623_471712554/episode_report.json",
+          "size_bytes": 20686,
+          "sha256": "e25e6853c4272be698b3049a3fec11a9f296c1d8d7b55397a82e5631b6c264c4",
+          "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab19-scene01-8ca1d52-yunjireboot1-r5_live_scene01-chair_20260725_122623_471712554/terminal/terminal_evidence.json",
+          "size_bytes": 10605,
+          "sha256": "64bd6c7d3ac26c5b245d08cc8627a9d9e45209babd7eda0fb2a6714c55610c62",
+          "classification": "source-derived terminal evidence index; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/spool/robot-0/00000000000000027693/rgb.jpg",
+          "size_bytes": 84007,
+          "sha256": "7c9f08f8e0fc8541c6166f0fd53ae2040f746ee7908d5b93fbe89ab5f2a97d9a",
+          "classification": "observed frozen WSJ decision RGB containing the chair; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab19-scene01-8ca1d52-yunjireboot1-r5_live_scene01-chair_20260725_122623_471712554/terminal/robot-0/rgb.jpg",
+          "size_bytes": 91042,
+          "sha256": "2df63768a7f582e64d2476014d0f90c75c7ce4cfe638bdb6aa7141247d3ade8e",
+          "classification": "observed automatic terminal RGB; camera faces the wall and is not used alone to identify the chair"
+        },
+        {
+          "path": "media/video/third_view/experiment_1/experiment_1_success_1.mp4",
+          "size_bytes": 8511523,
+          "sha256": "3d67f19f48601dcd239b950689c391b96231010bc2c6fdea07351f0ff12c8bd6",
+          "duration_s": 74.1,
+          "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+        },
+        {
+          "path": "media/demo/scene01_success_2_third_view_20260725.mp4",
+          "size_bytes": 10359239,
+          "sha256": "0469c894b80035a30cdc5d8fb4142577c7bebf53ace00f71528147046ff35675",
+          "duration_s": 74.1,
+          "classification": "source-derived H.264 public derivative of the observed external-view master"
+        },
+        {
+          "path": "media/demo/scene01_success_2_third_view_20260725_poster.jpg",
+          "size_bytes": 188224,
+          "sha256": "7611b39fae911b2def21018067240881b3910d04e949c4ec822e67fa01f339ac",
+          "source_time_s": 73.0,
+          "classification": "source-derived terminal still from the observed external-view master"
+        },
+        {
+          "path": "media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov",
+          "size_bytes": 45502070,
+          "sha256": "4668756e7d7ad7e2dd18eab85d65de5c8243ef3c9b281afcc6aace1f942291dd",
+          "duration_s": 74.955,
+          "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
+        },
+        {
+          "path": "media/demo/scene01_success_2_dashboard_20260725.mp4",
+          "size_bytes": 1175482,
+          "sha256": "d30636dad6e9218b91f966c493b50eca9b82229bf3d9be4f45e6e25f0755cbf5",
+          "duration_s": 74.9,
+          "classification": "source-derived H.264 public derivative of the observed Dashboard master"
+        },
+        {
+          "path": "media/demo/scene01_success_2_dashboard_20260725_poster.jpg",
+          "size_bytes": 77100,
+          "sha256": "15d9c77a8c525036cf7e3adb78c454e53391e1067656b5f2d8e3c160d244e13d",
+          "source_time_s": 73.0,
+          "classification": "source-derived Dashboard still"
+        }
+      ]
     }
   ]
 }

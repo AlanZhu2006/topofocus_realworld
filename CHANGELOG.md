@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Scene 01 results and evidence (2026-07-25)
+
+- Record `trial-r5-01` as the second normal 0.5 m physical-protocol success:
+  automatic WSJ `LOCAL_PLANNER_ARRIVED`, `SR=1`, source-compatible
+  `SPL=0.628398923`.
+- Update the two-sample physical track to `SR=2/2=1.0` and mean
+  source-compatible `SPL=0.746223480504199`; keep standard SPL unavailable
+  without independently surveyed shortest paths.
+- Publish the paired r5 third-view and Foxglove Dashboard masters through Git
+  LFS, plus browser-playable H.264 derivatives and terminal posters.
+- Preserve r6 as a calibration/fusion preflight abort after the operator found
+  a cross-map wall conflict; no live target, robot command, episode or metric
+  entry was created.
+- Define evidence-based failure attribution so engineering, perception, VLM
+  decision, navigation-policy and unclassified failures are not conflated.
+
 ### Dual-robot physical stack (2026-07-22 through 2026-07-24)
 
 - Replace the dated, hard-coded v12 launcher with a persistent physical-session

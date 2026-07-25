@@ -71,3 +71,36 @@ CRF 26 and are scaled to 1280 pixels wide.
 - Runtime episode directories, maps, tokens and robot-local logs remain
   outside Git.
 - No file under immutable `source/` or `dependencies/` was changed.
+
+## Later 2026-07-25 addendum: second success pair
+
+Two later user-provided masters extend the original ten-file inventory to
+twelve files:
+
+| Source master | Bytes | Duration | SHA-256 | Classification |
+| --- | ---: | ---: | --- | --- |
+| `media/video/third_view/experiment_1/experiment_1_success_1.mp4` | 8,511,523 | 74.100 s | `3d67f19f48601dcd239b950689c391b96231010bc2c6fdea07351f0ff12c8bd6` | observed external view bound to `trial-r5-01` |
+| `media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov` | 45,502,070 | 74.955 s | `4668756e7d7ad7e2dd18eab85d65de5c8243ef3c9b281afcc6aace1f942291dd` | observed Dashboard bound to `trial-r5-01` |
+
+The corresponding public H.264 assets are:
+
+| Published asset | Bytes | Duration/source time | SHA-256 |
+| --- | ---: | ---: | --- |
+| `media/demo/scene01_success_2_third_view_20260725.mp4` | 10,359,239 | 74.100 s | `0469c894b80035a30cdc5d8fb4142577c7bebf53ace00f71528147046ff35675` |
+| `media/demo/scene01_success_2_third_view_20260725_poster.jpg` | 188,224 | 73.0 s | `7611b39fae911b2def21018067240881b3910d04e949c4ec822e67fa01f339ac` |
+| `media/demo/scene01_success_2_dashboard_20260725.mp4` | 1,175,482 | 74.900 s | `d30636dad6e9218b91f966c493b50eca9b82229bf3d9be4f45e6e25f0755cbf5` |
+| `media/demo/scene01_success_2_dashboard_20260725_poster.jpg` | 77,100 | 73.0 s | `15d9c77a8c525036cf7e3adb78c454e53391e1067656b5f2d8e3c160d244e13d` |
+
+`trial-r5-01` normally passed the 0.5 m physical protocol after WSJ emitted
+`LOCAL_PLANNER_ARRIVED` at `0.406692832069 m`. Its metric row is
+`SR=1`, source-compatible `SPL=0.628398923`, standard SPL unavailable.
+Together with the first success, the current two-sample physical track is
+`SR=2/2=1.0` with mean source-compatible
+`SPL=0.746223480504199`.
+
+The two earlier approach-failure media pairs remain unclassified because they
+lack exact runtime bindings. This addendum does not relabel them as VLM
+failures. See
+[`FAILURE_ATTRIBUTION_PROTOCOL_20260725.md`](FAILURE_ATTRIBUTION_PROTOCOL_20260725.md)
+and
+[`SCENE01_CHAIR_SUCCESS_R5_20260725.md`](SCENE01_CHAIR_SUCCESS_R5_20260725.md).

@@ -38,6 +38,8 @@ file under its own collection protocol.
 | `video/dashboard/experiment_1/experiment_1_approach_failure_2.mov` | 77686245 | H.264 High, 2392 × 1080, 30 fps | 118.399000 s | `056a45564220138b85f2863642ef9e13fa3c197230b82739b893d322bc72b442` | observed user-labelled Scene 01 approach failure 2 Dashboard; exact runtime identity unverified |
 | `video/third_view/experiment_1/experiment_1_success.mp4` | 9749574 | HEVC Main, 544 × 960, 30 fps | 141.733333 s | `ab611dde043c78abbbe618a8f2ce95f1f5113b4f6b0df8466038abc1ebafb44c` | observed success third view bound to the 0.5 m physical-protocol track |
 | `video/dashboard/experiment_1/experiment_1_success_dashboard.mov` | 80244552 | H.264 High, 2392 × 1080, 30 fps | 125.829000 s | `ad0e99c4ebb56e90a5923af636f0269b118349e3353c05511b3e21c5020fae34` | observed success Dashboard bound to the 0.5 m physical-protocol track |
+| `video/third_view/experiment_1/experiment_1_success_1.mp4` | 8511523 | HEVC Main, 1280 × 720, nominal 30 fps | 74.100000 s | `3d67f19f48601dcd239b950689c391b96231010bc2c6fdea07351f0ff12c8bd6` | observed second success third view bound to `trial-r5-01` |
+| `video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov` | 45502070 | H.264 High, 2392 × 1080, 30 fps | 74.955000 s | `4668756e7d7ad7e2dd18eab85d65de5c8243ef3c9b281afcc6aace1f942291dd` | observed second success Dashboard bound to `trial-r5-01` |
 
 The `failure_1`, `failure_2` and `success` labels above come from the
 user-provided filenames and onsite classification. A filename alone does not
@@ -46,7 +48,7 @@ metric eligibility. The two approach failures remain excluded from SR/SPL
 until exact runtime evidence is bound. The success record has the separate
 evidence described below.
 
-## Bound near-chair success
+## Bound Scene 01 successes
 
 The success masters are bound to session `20260725-lab17-nearwall-fix`,
 episode `trial-05-nearwall-fix`. Yunji stopped `0.321133 m` from its selected
@@ -59,6 +61,16 @@ The original automatic outcome remains a failure under the old `0.15 m`
 arrival threshold. Public derivatives, exact classification and arithmetic
 are indexed in [`demo/README.md`](demo/README.md) and
 [`../audit/SCENE01_CHAIR_SUCCESS_20260725.md`](../audit/SCENE01_CHAIR_SUCCESS_20260725.md).
+
+The second success masters are bound to session
+`20260725-lab19-scene01-8ca1d52-yunjireboot1-r5`, episode `trial-r5-01`.
+WSJ automatically emitted `LOCAL_PLANNER_ARRIVED` at `0.406693 m` from the
+chair semantic goal. It contributes `SR=1` and source-compatible
+`SPL=0.628398923`. The two recorded physical-protocol samples therefore have
+`SR=2/2=1.0` and mean source-compatible `SPL=0.746223480504199`.
+Standard SPL remains unavailable for both because neither run had a
+pre-surveyed shortest path. Exact provenance is in
+[`../audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md`](../audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md).
 
 ## Bound collision
 
@@ -73,3 +85,9 @@ posters and their derivation parameters are indexed in
 [`demo/README.md`](demo/README.md). The complete publication inventory is
 preserved in
 [`../audit/SCENE01_MEDIA_PUBLICATION_20260725.md`](../audit/SCENE01_MEDIA_PUBLICATION_20260725.md).
+
+The two user-labelled approach failures still lack an exact runtime binding.
+They remain `unclassified_failure` rather than being called VLM failures.
+The project-wide distinction between engineering, perception and VLM
+decision failures is defined in
+[`../audit/FAILURE_ATTRIBUTION_PROTOCOL_20260725.md`](../audit/FAILURE_ATTRIBUTION_PROTOCOL_20260725.md).
