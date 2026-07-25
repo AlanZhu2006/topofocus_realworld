@@ -373,9 +373,15 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     try:
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.2)
-            observed_graph = graph()
             if not required_messages.issubset(latest):
                 continue
+            # Graph introspection can take several seconds on the long-lived
+            # TinyNav ROS domain.  Running eight endpoint queries before each
+            # spin starves the high-bandwidth Image/CameraInfo callbacks and
+            # makes healthy streams look absent.  Receive every required
+            # volatile sample first; the exclusive command-route graph is
+            # still checked before this verifier can pass.
+            observed_graph = graph()
             if args.geometry_image_topic:
                 # A profile reconnect can leave TinyNav publishing new-sized
                 # images with cached old CameraInfo. Fail immediately instead

@@ -175,6 +175,19 @@ def test_data_plane_cached_occupancy_requires_stationary_no_goal_hold():
         assert valid is False
 
 
+def test_data_plane_collects_messages_before_expensive_graph_queries():
+    source = (OVERLAY / "verify_tinynav_data_plane.py").read_text(
+        encoding="utf-8"
+    )
+    loop = source.split(
+        "while time.monotonic() < deadline:", 1
+    )[1].split("missing = sorted(", 1)[0]
+
+    assert loop.index(
+        "if not required_messages.issubset(latest):"
+    ) < loop.index("observed_graph = graph()")
+
+
 def test_calibration_geometry_verifier_is_read_only_and_reuses_contract():
     verifier = (OVERLAY / "verify_ros_geometry_profile.py").read_text(
         encoding="utf-8"
