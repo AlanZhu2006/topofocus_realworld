@@ -23,19 +23,30 @@
   },
   "metric_tracks": {
     "pre_surveyed_standard": {
-      "recorded_episodes": 1,
-      "successes": 1,
+      "recorded_episodes": 5,
+      "successes": 5,
       "sr": 1.0,
-      "standard_multi_spl_mean": 1.0,
-      "classification": "formal experiment 04 has an operator-confirmed independently measured shortest feasible path L=approximately 3.25 m and an automatic semantic-arrival terminal"
+      "standard_multi_spl_mean": 0.7809932415154623,
+      "classification": "Scene 01 formal experiments 01-05 use the operator-confirmed independently measured shortest feasible path L=approximately 3.25 m"
     },
     "physical_0p5m_protocol": {
-      "recorded_episodes": 3,
-      "successes": 3,
+      "recorded_episodes": 5,
+      "successes": 5,
       "sr": 1.0,
-      "source_compatible_multi_spl_mean": 0.816269191777991,
-      "standard_multi_spl_mean": null,
-      "classification": "three runtime-bound normal successes under the declared 0.5 m real-world protocol; newest is operator-designated formal experiment 04; not mixed into the pre-surveyed standard track"
+      "source_compatible_multi_spl_mean": 0.7260879584850242,
+      "standard_multi_spl_mean": 0.7809932415154623,
+      "classification": "five operator-confirmed formal successes under the declared 0.5 m real-world protocol"
+    }
+  },
+  "formal_scene_results": {
+    "scene01-chair": {
+      "path": "manifests/scene01_chair_formal_experiments_20260725.json",
+      "formal_experiments": 5,
+      "successes": 5,
+      "sr": 1.0,
+      "mean_source_compatible_spl": 0.7260879584850242,
+      "mean_standard_spl": 0.7809932415154623,
+      "classification": "authoritative unified Scene 01 formal archive"
     }
   },
   "attempts_not_in_metric_track": [
@@ -74,8 +85,8 @@
       }
     },
     {
-      "record_id": "scene01-chair-formal-experiment-05-preflight-abort",
-      "formal_experiment_index": 5,
+      "record_id": "scene01-chair-earlier-experiment-05-preflight-abort",
+      "planned_formal_experiment_index_at_time": 5,
       "attribution": "preflight_engineering_failure/wsj_tracking_output_stale",
       "reason": "Both preparations stopped inside strict no-motion debug before live. The current-boundary attempt found live raw D435i streams but frozen calibrated WSJ camera-info and visual-odometry output; restarting tracking would invalidate the old shared-frame transform.",
       "operator_closeout_statement": "已经下电并且去充电了 先不标定了 先做文档整理",
@@ -127,8 +138,8 @@
         "velocity_zero_confirmed": true,
         "target_visual_status": "chair independently visible in the external terminal frame; YOLO evidence is retained separately as unverified model inference",
         "protocol_basis": "The project real-world protocol uses a 0.5 m success radius; the measured terminal distance is 0.321133366707683 m.",
-        "standard_track_eligible": false,
-        "standard_track_exclusion_reason": "The original run did not emit automatic semantic ARRIVED under its 0.15 m radius, and no pre-surveyed shortest path was recorded."
+        "standard_track_eligible": true,
+        "standard_track_basis": "The operator designated the shared Scene 01 independently measured shortest feasible path L as approximately 3.25 m."
       },
       "metrics": {
         "sr": 1.0,
@@ -144,8 +155,9 @@
         "start_to_stop_displacement_m": 3.498394160748945,
         "source_compatible_spl_formula": "S * displacement / max(displacement, actual_path)",
         "source_compatible_spl": 0.864048038008398,
-        "standard_spl": null,
-        "standard_spl_unavailable_reason": "No pre-surveyed shortest collision-free path L was recorded before the run."
+        "independently_measured_shortest_feasible_path_m": 3.25,
+        "standard_spl_formula": "S * L / max(L, actual_path)",
+        "standard_spl": 0.8026986081311427
       },
       "model_evidence": {
         "category": "chair",
@@ -223,6 +235,8 @@
     },
     {
       "record_id": "scene01-chair_trial-r5-01",
+      "formal_experiment_index": 1,
+      "formal_experiment_ordinal_source": "observed operator-labelled success_1 media joined with runtime and operator success evidence",
       "session_id": "20260725-lab19-scene01-8ca1d52-yunjireboot1-r5",
       "session_git_commit": "8ca1d528b5e1bdc6e029f63031330250a4c962a9",
       "scene_id": "scene01-chair",
@@ -253,8 +267,8 @@
         "within_success_radius": true,
         "velocity_zero_confirmed": true,
         "target_visual_status": "white chair and both robots are visible at the end of the paired external-view recording; the frozen decision RGB also contains the chair",
-        "standard_track_eligible": false,
-        "standard_track_exclusion_reason": "No independently surveyed shortest collision-free path L was recorded before the run."
+        "standard_track_eligible": true,
+        "standard_track_basis": "The operator designated the shared Scene 01 independently measured shortest feasible path L as approximately 3.25 m."
       },
       "metrics": {
         "sr": 1.0,
@@ -270,8 +284,9 @@
         "start_to_stop_displacement_m": 2.419833573,
         "source_compatible_spl_formula": "S * displacement / max(displacement, actual_path)",
         "source_compatible_spl": 0.628398923,
-        "standard_spl": null,
-        "standard_spl_unavailable_reason": "No independently surveyed shortest collision-free path L was recorded before the run."
+        "independently_measured_shortest_feasible_path_m": 3.25,
+        "standard_spl_formula": "S * L / max(L, actual_path)",
+        "standard_spl": 0.8439822156949336
       },
       "evidence": [
         {
@@ -469,6 +484,118 @@
           "size_bytes": 134349,
           "sha256": "c9484cbb97df19675fc30af9085fd0620aa4a8b03c682ff28c983249abbc512f",
           "classification": "observed post-arrival RGB visibly containing the chair; local runtime file ignored by Git"
+        }
+      ]
+    },
+    {
+      "record_id": "scene01-chair_formal-experiment-02",
+      "formal_experiment_index": 2,
+      "formal_experiment_ordinal_source": "observed operator-labelled success_2 media joined with runtime and onsite success annotation",
+      "session_id": "lab-20260725-132014-wsjreanchor1-r2",
+      "session_git_commit": "85cb5d13669adce7e7f33b3658639283d483474f",
+      "scene_id": "scene01",
+      "episode_id": "trial-reanchor1-r1",
+      "target_category": "chair",
+      "automatic_result": {
+        "success": true,
+        "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+        "robot_id": "robot-0",
+        "navigation_status": "ARRIVED",
+        "reason_code": "LOCAL_PLANNER_ARRIVED",
+        "local_planner_stopped": true,
+        "velocity_zero_confirmed": true
+      },
+      "physical_protocol_result": {
+        "classification": "formal experiment 02 automatic semantic-arrival success with onsite operator annotation",
+        "counts_in_metric_track": "physical_0p5m_protocol",
+        "success": true,
+        "success_radius_m": 0.5,
+        "operator_statement": "成功",
+        "standard_track_eligible": true,
+        "standard_track_basis": "The operator designated the shared Scene 01 independently measured shortest feasible path L as approximately 3.25 m."
+      },
+      "metrics": {
+        "sr": 1.0,
+        "actual_path_length_m": 2.760376669861529,
+        "start_to_stop_displacement_m": 2.4647694152773214,
+        "source_compatible_spl": 0.8929105372423554,
+        "independently_measured_shortest_feasible_path_m": 3.25,
+        "standard_spl": 1.0
+      },
+      "run_summary": {
+        "source_rounds_completed": 2,
+        "high_level_batches_published": 7,
+        "robot_1_path_length_m": 0.009981059715437715,
+        "behavior": "WSJ explored a frontier then reached the chair semantic region; Yunji remained effectively stationary under route coordination."
+      },
+      "evidence": [
+        {
+          "path": "hub/runtime/oneclick_lab-20260725-132014-wsjreanchor1-r2_live_scene01_20260725_135412_317400705/episode_report.json",
+          "size_bytes": 20310,
+          "sha256": "d51e394ec9be12ab5044d970ad343f41f47ad0d00839aae821452912977ae913",
+          "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_lab-20260725-132014-wsjreanchor1-r2_live_scene01_20260725_135412_317400705/operator_success_annotation.json",
+          "size_bytes": 1642,
+          "sha256": "9bbc660ee74da18985072399a270f24bb8fad09908e95ab093dfcfc7f656672b",
+          "classification": "observed onsite success annotation; local runtime file ignored by Git"
+        }
+      ]
+    },
+    {
+      "record_id": "scene01-chair_formal-experiment-05",
+      "formal_experiment_index": 5,
+      "formal_experiment_ordinal_source": "observed operator confirmation that the latest run physically arrived and counts as formal experiment 05",
+      "session_id": "20260725-lab22-formal05-recalibration-ddsfix",
+      "session_git_commit": "9fc7b0506c44e3ab3f3507882cecf50a9d25a6c6",
+      "scene_id": "scene01-chair",
+      "episode_id": "scene01-chair-run05",
+      "target_category": "chair",
+      "automatic_result": {
+        "success": true,
+        "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+        "robot_id": "robot-0",
+        "navigation_status": "ARRIVED",
+        "reason_code": "LOCAL_PLANNER_ARRIVED",
+        "local_planner_stopped": true,
+        "velocity_zero_confirmed": true
+      },
+      "physical_protocol_result": {
+        "classification": "formal experiment 05 automatic semantic-arrival success with operator physical-arrival confirmation",
+        "counts_in_metric_track": "physical_0p5m_protocol",
+        "success": true,
+        "success_radius_m": 0.5,
+        "operator_statement": "确实到达了；刚刚跑的这个还是算成功",
+        "standard_track_eligible": true,
+        "standard_track_basis": "The operator designated the shared Scene 01 independently measured shortest feasible path L as approximately 3.25 m."
+      },
+      "metrics": {
+        "sr": 1.0,
+        "actual_path_length_m": 12.582980704514808,
+        "start_to_stop_displacement_m": 3.63297932436892,
+        "source_compatible_spl": 0.2887216796784403,
+        "independently_measured_shortest_feasible_path_m": 3.25,
+        "standard_spl": 0.2582853837512356
+      },
+      "run_summary": {
+        "source_rounds_completed": 2,
+        "high_level_batches_published": 47,
+        "robot_1_path_length_m": 0.053046557672852115,
+        "behavior": "WSJ explored a frontier then reached the chair semantic region; Yunji remained in coordinated HOLD."
+      },
+      "evidence": [
+        {
+          "path": "hub/runtime/oneclick_20260725-lab22-formal05-recalibration-ddsfix_live_scene01-chair_20260725_184527_493104820/episode_report.json",
+          "size_bytes": 20752,
+          "sha256": "e91cbc392b692cfd2fab5dcc97d7986c3a5291eb9269ae16d771b6cae85e3d41",
+          "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab22-formal05-recalibration-ddsfix_live_scene01-chair_20260725_184527_493104820/terminal/terminal_evidence.json",
+          "size_bytes": 10579,
+          "sha256": "d091cf44f1771fa84f20a397f9e151876ef175f928b3559d52c1d6488724d7f6",
+          "classification": "source-derived terminal evidence index; local runtime file ignored by Git"
         }
       ]
     }

@@ -1,0 +1,15 @@
+{
+  "schema_version": "focus-realworld-shortest-feasible-path-v1",
+  "scene_id": "scene01-chair",
+  "target_category": "chair",
+  "shortest_feasible_path_m": 3.25,
+  "precision": "approximate",
+  "classification": "observed operator-provided independent measurement",
+  "scope": "Scene 01 formal experiments 01-05",
+  "operator_statements": [
+    "还有那个具体的standard spl距离 我量了大概是3.25m",
+    "不是 你就把3.25m作为独立测量最短可行路径来算"
+  ],
+  "metric_formula": "standard_spl = S * L / max(L, P)",
+  "notes": "The same operator-designated Scene 01 reference is applied consistently to all five formal runs."
+}

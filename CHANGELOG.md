@@ -4,6 +4,24 @@
 
 ### Scene 01 results and evidence (2026-07-25)
 
+- Unify operator-labelled `success_1` through `success_5` as Scene 01 formal
+  experiments 01–05, all successful, with exact runtime/action/media bindings.
+- Add the previously omitted formal-02 runtime record
+  `trial-reanchor1-r1`, its automatic WSJ `LOCAL_PLANNER_ARRIVED` and onsite
+  success annotation; archive formal-05 `scene01-chair-run05` as automatic
+  WSJ arrival with operator-confirmed physical success.
+- Update the five-run aggregate to `SR=5/5=1.0`, mean source-compatible
+  `SPL=0.7260879584850242` and mean Standard
+  `SPL=0.7809932415154623`, consistently using the independently measured
+  Scene 01 reference `L≈3.25 m`.
+- Publish five standardized H.264 third-view/Dashboard pairs and five
+  480 × 360 animated rollout previews that play directly in the main README;
+  preserve every user-provided master through Git LFS.
+- Replace the long status-style README with a compact paper-repository layout:
+  quantitative results, inline rollouts, one-line dual-robot action analysis
+  and per-run metrics.
+- Separate all collision, preflight and development-attempt records into the
+  Scene 01 engineering-debug index while retaining their original evidence.
 - Archive `trial-wallfix-imudebounce-r1` as operator-designated formal
   experiment 04 success: automatic Yunji `LOCAL_PLANNER_ARRIVED`, `SR=1`,
   source-compatible `SPL=0.956360614325575`, and checksummed terminal

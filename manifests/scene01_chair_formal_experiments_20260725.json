@@ -1,0 +1,456 @@
+{
+  "schema_version": "focus-scene-formal-experiments-v1",
+  "scene_id": "scene01-chair",
+  "target_category": "chair",
+  "formal_experiment_count": 5,
+  "protocol": {
+    "success_radius_m": 0.5,
+    "standard_shortest_feasible_path_m": 3.25,
+    "standard_shortest_path_evidence": "manifests/scene01_chair_shortest_feasible_path_20260725.json",
+    "source_compatible_spl_formula": "S * D / max(D, P)",
+    "standard_spl_formula": "S * L / max(L, P)"
+  },
+  "aggregate": {
+    "episodes": 5,
+    "successes": 5,
+    "sr": 1.0,
+    "mean_source_compatible_spl": 0.7260879584850242,
+    "mean_standard_spl": 0.7809932415154623
+  },
+  "experiments": [
+    {
+      "formal_index": 1,
+      "result": "SUCCESS",
+      "session_id": "20260725-lab19-scene01-8ca1d52-yunjireboot1-r5",
+      "episode_id": "trial-r5-01",
+      "session_git_commit": "8ca1d528b5e1bdc6e029f63031330250a4c962a9",
+      "success_basis": "automatic LOCAL_PLANNER_ARRIVED plus operator confirmation",
+      "arriving_robot": {
+        "robot_id": "robot-0",
+        "name": "WSJ",
+        "actual_path_length_m": 3.8507920422516904,
+        "start_xy_m": [
+          -1.048071261143531,
+          0.2622543944229162
+        ],
+        "stop_xy_m": [
+          -1.3167335325004346,
+          2.6671275934781966
+        ],
+        "start_to_stop_displacement_m": 2.4198335727039226
+      },
+      "companion_robot": {
+        "robot_id": "robot-1",
+        "name": "Yunji",
+        "actual_path_length_m": 1.6611362527438573
+      },
+      "behavior": [
+        "round 0: WSJ explored a frontier while Yunji held for route separation",
+        "round 1: WSJ navigated to the chair semantic region while Yunji explored a disjoint frontier",
+        "WSJ reported ARRIVED and both robots entered HOLD"
+      ],
+      "metrics": {
+        "sr": 1.0,
+        "source_compatible_spl": 0.628398923170352,
+        "standard_spl": 0.8439822156949336
+      },
+      "runtime_evidence": [
+        {
+          "path": "hub/runtime/oneclick_20260725-lab19-scene01-8ca1d52-yunjireboot1-r5_live_scene01-chair_20260725_122623_471712554/episode_report.json",
+          "size_bytes": 20686,
+          "sha256": "e25e6853c4272be698b3049a3fec11a9f296c1d8d7b55397a82e5631b6c264c4",
+          "classification": "source-derived from observed robot feedback; runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/trial_annotations/scene01-chair_trial-r5-01_success.json",
+          "size_bytes": 2960,
+          "sha256": "bdcbadce63237de14804e4d27d99849ff0af7b4732c18572588dcd7d1eccf223",
+          "classification": "observed operator confirmation joined with runtime evidence; runtime file ignored by Git"
+        }
+      ],
+      "media": {
+        "third_view_master": {
+          "path": "media/video/third_view/experiment_1/experiment_1_success_1.mp4",
+          "size_bytes": 8511523,
+          "duration_s": 74.1,
+          "sha256": "3d67f19f48601dcd239b950689c391b96231010bc2c6fdea07351f0ff12c8bd6",
+          "classification": "observed operator-provided master"
+        },
+        "dashboard_master": {
+          "path": "media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov",
+          "size_bytes": 45502070,
+          "duration_s": 74.955,
+          "sha256": "4668756e7d7ad7e2dd18eab85d65de5c8243ef3c9b281afcc6aace1f942291dd",
+          "classification": "observed operator-provided master"
+        },
+        "third_view_web": {
+          "path": "media/demo/scene01_formal_01_third_view.mp4",
+          "size_bytes": 10359239,
+          "sha256": "0469c894b80035a30cdc5d8fb4142577c7bebf53ace00f71528147046ff35675",
+          "classification": "source-derived H.264"
+        },
+        "dashboard_web": {
+          "path": "media/demo/scene01_formal_01_dashboard.mp4",
+          "size_bytes": 1175482,
+          "sha256": "d30636dad6e9218b91f966c493b50eca9b82229bf3d9be4f45e6e25f0755cbf5",
+          "classification": "source-derived H.264"
+        },
+        "inline_preview": {
+          "path": "media/demo/scene01_formal_01_preview.gif",
+          "size_bytes": 4664196,
+          "duration_s": 8.01,
+          "sha256": "d7b3f14d16fbaa017a814f5c87fa0662131847a564177a0aa9d2998f00b3f318",
+          "classification": "source-derived accelerated full-rollout preview"
+        }
+      }
+    },
+    {
+      "formal_index": 2,
+      "result": "SUCCESS",
+      "session_id": "lab-20260725-132014-wsjreanchor1-r2",
+      "episode_id": "trial-reanchor1-r1",
+      "session_git_commit": "85cb5d13669adce7e7f33b3658639283d483474f",
+      "success_basis": "automatic LOCAL_PLANNER_ARRIVED plus onsite operator annotation",
+      "arriving_robot": {
+        "robot_id": "robot-0",
+        "name": "WSJ",
+        "actual_path_length_m": 2.760376669861529,
+        "start_xy_m": [
+          0.07557652190015922,
+          -0.3653652888782384
+        ],
+        "stop_xy_m": [
+          -0.01242074025128631,
+          2.0978327852401137
+        ],
+        "start_to_stop_displacement_m": 2.4647694152773214
+      },
+      "companion_robot": {
+        "robot_id": "robot-1",
+        "name": "Yunji",
+        "actual_path_length_m": 0.009981059715437715
+      },
+      "behavior": [
+        "round 0: WSJ explored a frontier while Yunji held for route separation",
+        "round 1: WSJ switched to the chair semantic region and Yunji remained effectively stationary",
+        "WSJ reported ARRIVED and both robots entered HOLD"
+      ],
+      "metrics": {
+        "sr": 1.0,
+        "source_compatible_spl": 0.8929105372423554,
+        "standard_spl": 1.0
+      },
+      "runtime_evidence": [
+        {
+          "path": "hub/runtime/oneclick_lab-20260725-132014-wsjreanchor1-r2_live_scene01_20260725_135412_317400705/episode_report.json",
+          "size_bytes": 20310,
+          "sha256": "d51e394ec9be12ab5044d970ad343f41f47ad0d00839aae821452912977ae913",
+          "classification": "source-derived from observed robot feedback; runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_lab-20260725-132014-wsjreanchor1-r2_live_scene01_20260725_135412_317400705/operator_success_annotation.json",
+          "size_bytes": 1642,
+          "sha256": "9bbc660ee74da18985072399a270f24bb8fad09908e95ab093dfcfc7f656672b",
+          "classification": "observed onsite success annotation; runtime file ignored by Git"
+        }
+      ],
+      "media": {
+        "third_view_master": {
+          "path": "media/video/third_view/experiment_1/experiment_1_success_2.mp4",
+          "size_bytes": 2403359,
+          "duration_s": 18.9,
+          "sha256": "145c7a334816d845a757ef714f0cbe74a0983ab7b728bf2c05e3e61551a2069e",
+          "classification": "observed operator-labelled master"
+        },
+        "dashboard_master": {
+          "path": "media/video/dashboard/experiment_1/experiment_1_success_2_dashboard.mov",
+          "size_bytes": 17640290,
+          "duration_s": 28.733333,
+          "sha256": "4e060ba8fe006a27113e1c3aa5ea0fddbc9d7e58812959b74ff34a69d492231d",
+          "classification": "observed operator-labelled master"
+        },
+        "third_view_web": {
+          "path": "media/demo/scene01_formal_02_third_view.mp4",
+          "size_bytes": 3205906,
+          "sha256": "d4d8f8542ca50e311120b20d5ff339ebf1557601653f9b1570790b5cad1f4007",
+          "classification": "source-derived H.264"
+        },
+        "dashboard_web": {
+          "path": "media/demo/scene01_formal_02_dashboard.mp4",
+          "size_bytes": 422322,
+          "sha256": "3575d0af1609e246f25c09f72107196dfe66e4821dff3e9a7d48873297e1228b",
+          "classification": "source-derived H.264"
+        },
+        "inline_preview": {
+          "path": "media/demo/scene01_formal_02_preview.gif",
+          "size_bytes": 4341899,
+          "duration_s": 8.01,
+          "sha256": "ff2e72febcdbb09991df306ab54afbe7538fdc7fcf618bd24c0b61e1802106c3",
+          "classification": "source-derived accelerated full-rollout preview"
+        }
+      }
+    },
+    {
+      "formal_index": 3,
+      "result": "SUCCESS",
+      "session_id": "20260725-lab17-nearwall-fix",
+      "episode_id": "trial-05-nearwall-fix",
+      "session_git_commit": "cbe6d9b02f50ded3607037c46abb0230d1639ebc",
+      "success_basis": "operator-designated success inside the 0.5 m physical goal radius",
+      "arriving_robot": {
+        "robot_id": "robot-1",
+        "name": "Yunji",
+        "actual_path_length_m": 4.048842201890332,
+        "start_xy_m": [
+          -0.15191210637574815,
+          -0.2028467717522671
+        ],
+        "stop_xy_m": [
+          3.1903207713161237,
+          -1.2364042666396216
+        ],
+        "start_to_stop_displacement_m": 3.4983941607489446,
+        "stop_to_goal_distance_m": 0.321133366707683
+      },
+      "companion_robot": {
+        "robot_id": "robot-0",
+        "name": "WSJ",
+        "actual_path_length_m": 0.7199807632892632
+      },
+      "behavior": [
+        "round 0: WSJ explored the first frontier while Yunji held",
+        "round 1: Yunji took over frontier exploration while WSJ held",
+        "round 2: Yunji navigated to the chair semantic region and stopped inside the declared success radius"
+      ],
+      "metrics": {
+        "sr": 1.0,
+        "source_compatible_spl": 0.8640480380083984,
+        "standard_spl": 0.8026986081311427
+      },
+      "runtime_evidence": [
+        {
+          "path": "hub/runtime/oneclick_20260725-lab17-nearwall-fix_live_scene01-chair_20260725_091340_534116604/episode_report.json",
+          "size_bytes": 9777,
+          "sha256": "e31d66e4c2a8ed136238b8670c22b9505daf520fc7715f05d4b4ce020dda769d",
+          "classification": "source-derived from observed robot feedback; runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab17-nearwall-fix_live_scene01-chair_20260725_091340_534116604/batch_012_round_2_goal.json",
+          "size_bytes": 6141,
+          "sha256": "fb4d31adb65f0d542a5ade69e6875cacf7932c15d7b039e2f5e6dc6a53ae26ec",
+          "classification": "source-derived applied semantic target; runtime file ignored by Git"
+        }
+      ],
+      "media": {
+        "third_view_master": {
+          "path": "media/video/third_view/experiment_1/experiment_1_success_3.mp4",
+          "size_bytes": 9749574,
+          "duration_s": 141.733333,
+          "sha256": "ab611dde043c78abbbe618a8f2ce95f1f5113b4f6b0df8466038abc1ebafb44c",
+          "classification": "observed operator-provided master"
+        },
+        "dashboard_master": {
+          "path": "media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov",
+          "size_bytes": 80244552,
+          "duration_s": 125.829,
+          "sha256": "ad0e99c4ebb56e90a5923af636f0269b118349e3353c05511b3e21c5020fae34",
+          "classification": "observed operator-provided master"
+        },
+        "third_view_web": {
+          "path": "media/demo/scene01_formal_03_third_view.mp4",
+          "size_bytes": 15972419,
+          "sha256": "62390579a390451b442562029c2d385729d282696605bb347dcbe2d64f11af1c",
+          "classification": "source-derived H.264"
+        },
+        "dashboard_web": {
+          "path": "media/demo/scene01_formal_03_dashboard.mp4",
+          "size_bytes": 1365229,
+          "sha256": "a88716cc94600859eb23e87ccfa131133259389e0bbdc46c6b5cd4746d4df4a5",
+          "classification": "source-derived H.264"
+        },
+        "inline_preview": {
+          "path": "media/demo/scene01_formal_03_preview.gif",
+          "size_bytes": 3154045,
+          "duration_s": 8.01,
+          "sha256": "3b639cde00b1c0917c5c3d17abfcb3ec6623e9770b9deee4f776142c972e830b",
+          "classification": "source-derived accelerated full-rollout preview"
+        }
+      }
+    },
+    {
+      "formal_index": 4,
+      "result": "SUCCESS",
+      "session_id": "20260725-lab21-wallfix-imudebounce-3a2d953",
+      "episode_id": "trial-wallfix-imudebounce-r1",
+      "session_git_commit": "3a2d953e7ab5c1b7891829b2101dc5bb52126e77",
+      "success_basis": "automatic LOCAL_PLANNER_ARRIVED plus operator formal-success classification",
+      "arriving_robot": {
+        "robot_id": "robot-1",
+        "name": "Yunji",
+        "actual_path_length_m": 3.2102223806424663,
+        "start_xy_m": [
+          -0.2471591459607408,
+          0.07065533898262284
+        ],
+        "stop_xy_m": [
+          2.695039579179446,
+          -0.8063659845414222
+        ],
+        "start_to_stop_displacement_m": 3.0701302480729393
+      },
+      "companion_robot": {
+        "robot_id": "robot-0",
+        "name": "WSJ",
+        "actual_path_length_m": 1.2249606477342507
+      },
+      "behavior": [
+        "rounds 0-1: WSJ and Yunji alternated frontier exploration",
+        "round 2: both robots explored separated frontier corridors",
+        "round 3: Yunji navigated to the chair semantic region while WSJ held its separate exploration leg",
+        "Yunji reported ARRIVED and both robots entered HOLD"
+      ],
+      "metrics": {
+        "sr": 1.0,
+        "source_compatible_spl": 0.9563606143255751,
+        "standard_spl": 1.0
+      },
+      "runtime_evidence": [
+        {
+          "path": "hub/runtime/oneclick_20260725-lab21-wallfix-imudebounce-3a2d953_live_scene01_20260725_162131_804477607/episode_report.json",
+          "size_bytes": 20592,
+          "sha256": "2f9036f80879d142f0beac4f6165a40be83634630d41d84b4aa26c76de1df169",
+          "classification": "source-derived from observed robot feedback; runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab21-wallfix-imudebounce-3a2d953_live_scene01_20260725_162131_804477607/terminal/terminal_evidence.json",
+          "size_bytes": 10440,
+          "sha256": "ed3dd6ae80c72900b71175e65e5b98fd41c8415eb6f6755e1557631d631763b3",
+          "classification": "source-derived terminal evidence index; runtime file ignored by Git"
+        }
+      ],
+      "media": {
+        "third_view_master": {
+          "path": "media/video/third_view/experiment_1/experiment_1_success_4.mp4",
+          "size_bytes": 6295795,
+          "duration_s": 52.5,
+          "sha256": "134bd28556f1d675b27413e2a9b66db17174aac82e20338b407e8f968c0051b2",
+          "classification": "observed operator-labelled master; byte-identical rename from experiment_1.mp4"
+        },
+        "dashboard_master": {
+          "path": "media/video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov",
+          "size_bytes": 41979329,
+          "duration_s": 67.663,
+          "sha256": "dd3518091413d7267e50b896364071882321c8a3802fd8c35d8efdb9e7c6a633",
+          "classification": "observed operator-labelled master"
+        },
+        "third_view_web": {
+          "path": "media/demo/scene01_formal_04_third_view.mp4",
+          "size_bytes": 7614994,
+          "sha256": "75d456a5b717f0159f580a778f0232fb44df6dc7ff6303786279f3c7ca8cccda",
+          "classification": "source-derived H.264"
+        },
+        "dashboard_web": {
+          "path": "media/demo/scene01_formal_04_dashboard.mp4",
+          "size_bytes": 970337,
+          "sha256": "492a43189ae7fabb265e64be3d2a302db2f1b257825f5b8ed69b3998b2a91bc1",
+          "classification": "source-derived H.264"
+        },
+        "inline_preview": {
+          "path": "media/demo/scene01_formal_04_preview.gif",
+          "size_bytes": 2890601,
+          "duration_s": 8.01,
+          "sha256": "804a40ee15dcf486899e4537da3558527ebced9780c12efaa089de6e1a6a5cfd",
+          "classification": "source-derived accelerated full-rollout preview"
+        }
+      }
+    },
+    {
+      "formal_index": 5,
+      "result": "SUCCESS",
+      "session_id": "20260725-lab22-formal05-recalibration-ddsfix",
+      "episode_id": "scene01-chair-run05",
+      "session_git_commit": "9fc7b0506c44e3ab3f3507882cecf50a9d25a6c6",
+      "success_basis": "automatic LOCAL_PLANNER_ARRIVED plus operator physical-arrival confirmation",
+      "arriving_robot": {
+        "robot_id": "robot-0",
+        "name": "WSJ",
+        "actual_path_length_m": 12.582980704514808,
+        "start_xy_m": [
+          0.08157023306202787,
+          -0.3662131973135202
+        ],
+        "stop_xy_m": [
+          -0.45738726282260606,
+          3.2265661709363336
+        ],
+        "start_to_stop_displacement_m": 3.63297932436892
+      },
+      "companion_robot": {
+        "robot_id": "robot-1",
+        "name": "Yunji",
+        "actual_path_length_m": 0.053046557672852115
+      },
+      "behavior": [
+        "round 0: WSJ explored a safe frontier while Yunji held for route separation",
+        "round 1: WSJ navigated to the chair semantic region while Yunji remained in coordinated HOLD",
+        "WSJ reported ARRIVED and both robots entered HOLD"
+      ],
+      "metrics": {
+        "sr": 1.0,
+        "source_compatible_spl": 0.2887216796784403,
+        "standard_spl": 0.2582853837512356
+      },
+      "runtime_evidence": [
+        {
+          "path": "hub/runtime/oneclick_20260725-lab22-formal05-recalibration-ddsfix_live_scene01-chair_20260725_184527_493104820/episode_report.json",
+          "size_bytes": 20752,
+          "sha256": "e91cbc392b692cfd2fab5dcc97d7986c3a5291eb9269ae16d771b6cae85e3d41",
+          "classification": "source-derived from observed robot feedback; runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab22-formal05-recalibration-ddsfix_live_scene01-chair_20260725_184527_493104820/terminal/terminal_evidence.json",
+          "size_bytes": 10579,
+          "sha256": "d091cf44f1771fa84f20a397f9e151876ef175f928b3559d52c1d6488724d7f6",
+          "classification": "source-derived terminal evidence index; runtime file ignored by Git"
+        }
+      ],
+      "media": {
+        "display_scope": "operator-provided cut from the beginning of the run through physical arrival",
+        "metric_scope": "SR and SPL use the complete immutable episode report rather than display-video duration",
+        "third_view_master": {
+          "path": "media/video/third_view/experiment_1/experiment_1_success_5.mp4",
+          "size_bytes": 7284393,
+          "duration_s": 66.6,
+          "sha256": "1f2a30ba06707812ce2a31ecf9535e066a791a8bd68bc729dcf9200db2df14b4",
+          "classification": "observed operator-provided arrival-cut master"
+        },
+        "dashboard_master": {
+          "path": "media/video/dashboard/experiment_1/experiment_1_success_5_dashboard.mov",
+          "size_bytes": 59249025,
+          "duration_s": 97.292,
+          "sha256": "17d838326a2ce29d333b18512593426f8b344f8decf8f331a1d0e93472459d71",
+          "classification": "observed operator-provided arrival-cut master"
+        },
+        "third_view_web": {
+          "path": "media/demo/scene01_formal_05_third_view.mp4",
+          "size_bytes": 9343106,
+          "sha256": "7190d32f57a956538e476fabf6e90d447e9dbc959300f622e61c6a5debf256a7",
+          "classification": "source-derived H.264"
+        },
+        "dashboard_web": {
+          "path": "media/demo/scene01_formal_05_dashboard.mp4",
+          "size_bytes": 1311651,
+          "sha256": "ed2e13d06df9bb5107076851a47eed4a657ea295d903181dbbe7c6296e5deab7",
+          "classification": "source-derived H.264"
+        },
+        "inline_preview": {
+          "path": "media/demo/scene01_formal_05_preview.gif",
+          "size_bytes": 4938087,
+          "duration_s": 8.01,
+          "sha256": "beae28a99811547beeeaed74f27e02e1a1691fd4f7a0b678a7b83a09c82a740c",
+          "classification": "source-derived accelerated arrival-cut preview"
+        }
+      }
+    }
+  ]
+}

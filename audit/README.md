@@ -7,10 +7,19 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE01_CHAIR_FORMAL_EXPERIMENTS_01_05_20260725.md`](SCENE01_CHAIR_FORMAL_EXPERIMENTS_01_05_20260725.md):
+  unified Scene 01 formal archive with five successes, per-robot behavior,
+  SR/source-compatible SPL/Standard SPL and complete media/runtime provenance.
+- [`SCENE01_ENGINEERING_DEBUG_INDEX_20260725.md`](SCENE01_ENGINEERING_DEBUG_INDEX_20260725.md):
+  separate index for development attempts, collision/preflight records and
+  engineering diagnostics excluded from the five formal results.
+- [`WSJ_SEMANTIC_ARRIVAL_STABILIZATION_20260725.md`](WSJ_SEMANTIC_ARRIVAL_STABILIZATION_20260725.md):
+  post-formal-05 arrival analysis, minimal terminal-planning/velocity fix and
+  local verification boundary.
 - [`FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md`](FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md):
-  formal experiment 05 preparation stopped inside strict no-motion debug
+  earlier experiment-05 preparation stopped inside strict no-motion debug
   after WSJ tracking output froze; no live, GOAL, episode, movement or SR/SPL
-  row, followed by operator-directed charging and deferred calibration.
+  row; retained only as an engineering preparation record.
 - [`SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md`](SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md):
   operator-designated formal experiment 04 success, automatic Yunji
   `LOCAL_PLANNER_ARRIVED`, exact SR/source-compatible SPL, the operator's
