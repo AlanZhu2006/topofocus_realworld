@@ -51,6 +51,7 @@ class CalibrationIdentity(StrictModel):
     validation_kind: Literal[
         "independent_moved_board_holdout",
         "validated_stationary_reanchor_of_board_calibration",
+        "validated_dual_stationary_reanchor_of_board_calibration",
     ]
 
 
@@ -317,9 +318,42 @@ def calibration_validation_kind(payload: dict[str, object]) -> str:
         and reanchors[0].get("passed") is True
     ):
         return "validated_stationary_reanchor_of_board_calibration"
+    components = payload.get("reanchor_components")
+    if (
+        isinstance(derived, dict)
+        and re.fullmatch(r"[0-9a-f]{64}", str(derived.get("sha256", "")))
+        and len(reanchors) == 2
+        and all(
+            isinstance(item, dict) and item.get("passed") is True
+            for item in reanchors
+        )
+        and isinstance(payload.get("reference_reanchor_validation"), dict)
+        and payload["reference_reanchor_validation"].get("robot_role")
+        == "reference"
+        and isinstance(payload.get("other_reanchor_validation"), dict)
+        and payload["other_reanchor_validation"].get("robot_role") == "other"
+        and payload.get("calibration_method")
+        == (
+            "dual_stationary_tracking_epoch_reanchor_of_"
+            "validated_board_alignment"
+        )
+        and isinstance(components, dict)
+        and set(components) == {"reference", "other"}
+        and all(
+            isinstance(components[role], dict)
+            and components[role].get("robot_role") == role
+            and isinstance(components[role].get("path"), str)
+            and int(components[role].get("size_bytes", -1)) > 0
+            and re.fullmatch(
+                r"[0-9a-f]{64}", str(components[role].get("sha256", ""))
+            )
+            for role in ("reference", "other")
+        )
+    ):
+        return "validated_dual_stationary_reanchor_of_board_calibration"
     raise ValueError(
         "calibration lacks a passed independent moved-board holdout or a "
-        "validated stationary reanchor of one"
+        "validated stationary reanchor contract"
     )
 
 
@@ -351,7 +385,11 @@ def validate_calibration_contract(
     observed_kind = calibration_validation_kind(payload)
     if observed_kind != calibration.validation_kind:
         raise ValueError("calibration validation classification drift")
-    if observed_kind == "validated_stationary_reanchor_of_board_calibration":
+    stationary_kinds = {
+        "validated_stationary_reanchor_of_board_calibration",
+        "validated_dual_stationary_reanchor_of_board_calibration",
+    }
+    if observed_kind in stationary_kinds:
         derived = payload.get("derived_from_board_calibration")
         if not isinstance(derived, dict):
             raise ValueError("stationary reanchor lacks its board-calibration source")
@@ -376,6 +414,71 @@ def validate_calibration_contract(
                 "stationary reanchor source lacks an independent moved-board "
                 "holdout"
             )
+    if (
+        observed_kind
+        == "validated_dual_stationary_reanchor_of_board_calibration"
+    ):
+        components = payload.get("reanchor_components")
+        if not isinstance(components, dict):
+            raise ValueError("dual stationary reanchor lacks its components")
+        component_payloads: dict[str, dict[str, object]] = {}
+        for role in ("reference", "other"):
+            identity_payload = components.get(role)
+            if not isinstance(identity_payload, dict):
+                raise ValueError(f"dual stationary reanchor lacks {role} identity")
+            identity = ArtifactIdentity.model_validate(
+                {
+                    key: identity_payload.get(key)
+                    for key in ArtifactIdentity.model_fields
+                }
+            )
+            component_path = verify_artifact(workspace, identity)
+            component_payload = json.loads(
+                component_path.read_text(encoding="utf-8")
+            )
+            if (
+                calibration_validation_kind(component_payload)
+                != "validated_stationary_reanchor_of_board_calibration"
+            ):
+                raise ValueError(f"{role} component is not a single reanchor")
+            validation = component_payload.get(f"{role}_reanchor_validation")
+            if (
+                not isinstance(validation, dict)
+                or validation.get("passed") is not True
+                or validation.get("robot_role") != role
+            ):
+                raise ValueError(f"{role} component role differs from contract")
+            component_derived = component_payload.get(
+                "derived_from_board_calibration"
+            )
+            if not isinstance(component_derived, dict) or any(
+                component_derived.get(key) != derived.get(key)
+                for key in ("path", "size_bytes", "sha256")
+            ):
+                raise ValueError(
+                    f"{role} component has a different board-calibration source"
+                )
+            component_payloads[role] = component_payload
+        reference_component = component_payloads["reference"]
+        other_component = component_payloads["other"]
+        if (
+            payload.get("calibration_frame", {}).get("reference")
+            != reference_component.get("calibration_frame", {}).get("reference")
+            or payload.get("shared_world_from_reference_tracking")
+            != reference_component.get("shared_world_from_reference_tracking")
+            or payload.get("reference_reanchor_validation")
+            != reference_component.get("reference_reanchor_validation")
+        ):
+            raise ValueError("dual reference transform differs from its component")
+        if (
+            payload.get("transform_version")
+            != other_component.get("transform_version")
+            or payload.get("shared_world_from_other_odom")
+            != other_component.get("shared_world_from_other_odom")
+            or payload.get("other_reanchor_validation")
+            != other_component.get("other_reanchor_validation")
+        ):
+            raise ValueError("dual other transform differs from its component")
     return payload
 
 

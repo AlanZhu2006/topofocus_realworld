@@ -21,6 +21,7 @@ from focus_hub.realworld_session import (
     expected_robot_config,
     git_identity,
     session_contract_sha256,
+    validate_calibration_contract,
     validate_debug_manifest,
     validate_session,
 )
@@ -381,6 +382,146 @@ def test_reference_stationary_reanchor_is_classified():
         calibration_validation_kind(payload)
         == "validated_stationary_reanchor_of_board_calibration"
     )
+
+
+def test_dual_stationary_reanchor_is_classified():
+    payload = calibration_payload()
+    payload["holdout_validation"] = None
+    payload["calibration_method"] = (
+        "dual_stationary_tracking_epoch_reanchor_of_validated_board_alignment"
+    )
+    payload["derived_from_board_calibration"] = {"sha256": "a" * 64}
+    payload["reference_reanchor_validation"] = {
+        "passed": True,
+        "robot_role": "reference",
+    }
+    payload["other_reanchor_validation"] = {
+        "passed": True,
+        "robot_role": "other",
+    }
+    payload["reanchor_components"] = {
+        role: {
+            "path": f"{role}.json",
+            "size_bytes": 1,
+            "sha256": character * 64,
+            "classification": f"{role} reanchor",
+            "robot_role": role,
+        }
+        for role, character in (("reference", "b"), ("other", "c"))
+    }
+
+    assert (
+        calibration_validation_kind(payload)
+        == "validated_dual_stationary_reanchor_of_board_calibration"
+    )
+
+
+def test_dual_stationary_reanchor_components_are_verified(tmp_path):
+    source_path = tmp_path / "source.json"
+    source = calibration_payload()
+    atomic_write_json(source_path, source)
+    source_identity = artifact_identity(
+        tmp_path, source_path, classification="board source"
+    ).model_dump()
+
+    reference_path = tmp_path / "reference.json"
+    reference = {
+        **source,
+        "schema_version": 3,
+        "holdout_validation": None,
+        "calibration_method": (
+            "stationary_tracking_epoch_reanchor_of_validated_board_alignment"
+        ),
+        "shared_frame_calibration_id": "reference-reanchor",
+        "calibration_frame": {
+            "reference": {"transform_version": "wsj-transform-v2"}
+        },
+        "shared_world_from_reference_tracking": {"matrix": list(range(16))},
+        "derived_from_board_calibration": source_identity,
+        "reference_reanchor_validation": {
+            "passed": True,
+            "robot_role": "reference",
+        },
+    }
+    atomic_write_json(reference_path, reference)
+
+    other_path = tmp_path / "other.json"
+    other = {
+        **source,
+        "schema_version": 3,
+        "holdout_validation": None,
+        "calibration_method": (
+            "stationary_tracking_epoch_reanchor_of_validated_board_alignment"
+        ),
+        "shared_frame_calibration_id": "other-reanchor",
+        "transform_version": "yunji-transform-v2",
+        "derived_from_board_calibration": source_identity,
+        "other_reanchor_validation": {
+            "passed": True,
+            "robot_role": "other",
+        },
+    }
+    atomic_write_json(other_path, other)
+
+    combined_path = tmp_path / "combined.json"
+    combined = {
+        **source,
+        "schema_version": 4,
+        "holdout_validation": None,
+        "calibration_method": (
+            "dual_stationary_tracking_epoch_reanchor_of_"
+            "validated_board_alignment"
+        ),
+        "shared_frame_calibration_id": "dual-reanchor",
+        "transform_version": other["transform_version"],
+        "calibration_frame": reference["calibration_frame"],
+        "shared_world_from_reference_tracking": reference[
+            "shared_world_from_reference_tracking"
+        ],
+        "derived_from_board_calibration": source_identity,
+        "reference_reanchor_validation": reference[
+            "reference_reanchor_validation"
+        ],
+        "other_reanchor_validation": other["other_reanchor_validation"],
+        "reanchor_components": {
+            "reference": {
+                **artifact_identity(
+                    tmp_path, reference_path, classification="reference"
+                ).model_dump(),
+                "robot_role": "reference",
+            },
+            "other": {
+                **artifact_identity(
+                    tmp_path, other_path, classification="other"
+                ).model_dump(),
+                "robot_role": "other",
+            },
+        },
+    }
+    atomic_write_json(combined_path, combined)
+    session = build_session(tmp_path)
+    robots = (
+        session.robots[0].model_copy(
+            update={"transform_version": "wsj-transform-v2"}
+        ),
+        session.robots[1].model_copy(
+            update={"transform_version": "yunji-transform-v2"}
+        ),
+    )
+    calibration = CalibrationIdentity(
+        calibration_id="dual-reanchor",
+        artifact=artifact_identity(
+            tmp_path, combined_path, classification="dual reanchor"
+        ),
+        validation_kind=(
+            "validated_dual_stationary_reanchor_of_board_calibration"
+        ),
+    )
+
+    validate_calibration_contract(tmp_path, calibration, robots)
+    reference_path.write_text(reference_path.read_text() + " ")
+    with pytest.raises(ValueError, match="artifact size drift"):
+        validate_calibration_contract(tmp_path, calibration, robots)
 
 
 def test_debug_manifest_rejects_any_true_command_alias(tmp_path):
