@@ -42,7 +42,7 @@ case "$component" in
     ;;
   controller)
     exec "$PYTHON_BIN" -u \
-      "$TINYNAV_SOURCE/tinynav/platforms/cmd_vel_control.py" "$@"
+      "$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py" "$@"
     ;;
   router)
     exec "$PYTHON_BIN" -u "$SCRIPT_DIR/tinynav_buildmap_goal_router.py" "$@"

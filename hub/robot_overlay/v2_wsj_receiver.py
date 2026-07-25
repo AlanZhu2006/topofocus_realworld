@@ -814,6 +814,7 @@ def main() -> int:
             self.trajectory_pose_count = 0
             self.trajectory_first_xy: tuple[float, float] | None = None
             self.trajectory_lookahead_xy: tuple[float, float] | None = None
+            self.router_status_lock = threading.Lock()
             self.router_status_received_ns = 0
             self.router_state = ""
             self.router_reason = ""
@@ -955,18 +956,16 @@ def main() -> int:
                     raise ValueError("unknown router state")
                 decision_id = payload.get("decision_id")
                 affected_decision_id = payload.get("affected_decision_id")
-                self.router_state = state
-                self.router_reason = reason
-                self.router_decision_id = (
+                parsed_decision_id = (
                     None if decision_id is None else str(decision_id)
                 )
-                self.router_affected_decision_id = (
+                parsed_affected_decision_id = (
                     None
                     if affected_decision_id is None
                     else str(affected_decision_id)
                 )
                 waypoint = payload.get("waypoint")
-                self.router_waypoint = (
+                parsed_waypoint = (
                     (float(waypoint[0]), float(waypoint[1]))
                     if (
                         isinstance(waypoint, list)
@@ -975,14 +974,50 @@ def main() -> int:
                     else None
                 )
                 route_length = payload.get("route_length_m")
-                self.router_route_length_m = (
+                parsed_route_length_m = (
                     None
                     if route_length is None
                     else float(route_length)
                 )
-                self.router_status_received_ns = time.time_ns()
+                received_ns = time.time_ns()
+                # The HTTP decision loop and ROS executor run on different
+                # threads.  Publish one coherent router status generation so
+                # a HOLD cannot be tested and then logged/classified using a
+                # newer ACCEPTED callback (or vice versa).
+                with self.router_status_lock:
+                    self.router_state = state
+                    self.router_reason = reason
+                    self.router_decision_id = parsed_decision_id
+                    self.router_affected_decision_id = (
+                        parsed_affected_decision_id
+                    )
+                    self.router_waypoint = parsed_waypoint
+                    self.router_route_length_m = parsed_route_length_m
+                    self.router_status_received_ns = received_ns
             except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 emit("router_status_rejected", error=str(exc)[:300])
+
+        def router_status_snapshot(
+            self,
+        ) -> tuple[
+            int,
+            str,
+            str,
+            str | None,
+            str | None,
+            tuple[float, float] | None,
+            float | None,
+        ]:
+            with self.router_status_lock:
+                return (
+                    self.router_status_received_ns,
+                    self.router_state,
+                    self.router_reason,
+                    self.router_decision_id,
+                    self.router_affected_decision_id,
+                    self.router_waypoint,
+                    self.router_route_length_m,
+                )
 
         def on_raw_cmd(self, message: Twist) -> None:
             now_ns = time.time_ns()
@@ -1443,14 +1478,23 @@ def main() -> int:
                 router_recovery_leg_id = None
                 router_recovery_started_ns = 0
                 router_recovery_reason = ""
+            (
+                router_status_received_ns,
+                router_state,
+                router_reason,
+                router_decision_id,
+                router_affected_decision_id,
+                _router_waypoint,
+                _router_route_length_m,
+            ) = node.router_status_snapshot()
             if (
                 router_recovery_leg_id is not None
                 and active_decision is not None
                 and active_decision.leg_id == router_recovery_leg_id
                 and now_ns < active_decision.expires_at_ns
-                and node.router_status_received_ns >= goal_issued_ns
-                and node.router_state == "NAVIGATING"
-                and node.router_decision_id == active_decision.decision_id
+                and router_status_received_ns >= goal_issued_ns
+                and router_state == "NAVIGATING"
+                and router_decision_id == active_decision.decision_id
             ):
                 recovery_duration_s = (
                     now_ns - router_recovery_started_ns
@@ -1458,8 +1502,8 @@ def main() -> int:
                 node.resume_existing_goal(active_decision.expires_at_ns)
                 emit(
                     "online_router_recovered",
-                    state=node.router_state,
-                    reason=node.router_reason,
+                    state=router_state,
+                    reason=router_reason,
                     previous_hold_reason=router_recovery_reason,
                     recovery_duration_s=round(recovery_duration_s, 3),
                     decision_id=active_decision.decision_id,
@@ -1474,23 +1518,19 @@ def main() -> int:
             if (
                 args.online_buildmap_world
                 and active_decision is not None
-                and node.router_status_received_ns >= goal_issued_ns
-                and node.router_state == "HOLD"
+                and router_status_received_ns >= goal_issued_ns
+                and router_state == "HOLD"
                 and (
-                    node.router_decision_id == active_decision.decision_id
-                    or node.router_affected_decision_id
+                    router_decision_id == active_decision.decision_id
+                    or router_affected_decision_id
                     == active_decision.decision_id
-                    or (
-                        node.router_decision_id is None
-                        and now_ns - goal_issued_ns > 1_000_000_000
-                    )
                 )
             ):
                 held_decision = active_decision
                 frontier_waiting_for_replan = bool(
                     active_goal is not None
                     and active_goal.target_kind == "FRONTIER_POINT"
-                    and node.router_reason == "NO_KNOWN_FREE_PATH"
+                    and router_reason == "NO_KNOWN_FREE_PATH"
                 )
                 if frontier_waiting_for_replan:
                     # A transiently empty/self-occupied online component is a
@@ -1503,13 +1543,13 @@ def main() -> int:
                         node.revoke(pause=False)
                         emit(
                             "frontier_no_path_waiting_source_replan",
-                            state=node.router_state,
-                            reason=node.router_reason,
+                            state=router_state,
+                            reason=router_reason,
                             decision_id=held_decision.decision_id,
                             leg_id=held_decision.leg_id,
                         )
                 elif recoverable_router_hold(
-                    node.router_reason,
+                    router_reason,
                     receiver_runtime_ready=ready,
                 ):
                     if router_recovery_leg_id != held_decision.leg_id:
@@ -1519,11 +1559,11 @@ def main() -> int:
                         node.revoke(pause=False)
                         router_recovery_leg_id = held_decision.leg_id
                         router_recovery_started_ns = now_ns
-                        router_recovery_reason = node.router_reason
+                        router_recovery_reason = router_reason
                         emit(
                             "online_router_recovery_wait",
-                            state=node.router_state,
-                            reason=node.router_reason,
+                            state=router_state,
+                            reason=router_reason,
                             grace_s=args.router_recovery_grace_s,
                             receiver_odom_age_s=round(odom_age_s, 3),
                             decision_id=held_decision.decision_id,
@@ -1540,16 +1580,16 @@ def main() -> int:
                             pose,
                             zero=True,
                             detail=(
-                                f"online router state={node.router_state} "
-                                f"reason={node.router_reason}; "
+                                f"online router state={router_state} "
+                                f"reason={router_reason}; "
                                 f"recovery_age_s={recovery_age_s:.3f}"
                             ),
                             terminal=True,
                         )
                         emit(
                             "online_router_recovery_timeout",
-                            state=node.router_state,
-                            reason=node.router_reason,
+                            state=router_state,
+                            reason=router_reason,
                             recovery_age_s=round(recovery_age_s, 3),
                             decision_id=held_decision.decision_id,
                         )
@@ -1567,15 +1607,15 @@ def main() -> int:
                         pose,
                         zero=True,
                         detail=(
-                            f"online router state={node.router_state} "
-                            f"reason={node.router_reason}"
+                            f"online router state={router_state} "
+                            f"reason={router_reason}"
                         ),
                         terminal=True,
                     )
                     emit(
                         "online_router_local_hold",
-                        state=node.router_state,
-                        reason=node.router_reason,
+                        state=router_state,
+                        reason=router_reason,
                         decision_id=held_decision.decision_id,
                     )
                     active_decision = None

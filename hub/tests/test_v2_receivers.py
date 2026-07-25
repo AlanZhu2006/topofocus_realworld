@@ -505,8 +505,14 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert '"LOCAL_PLANNER_PATH_STALE"' in source
     assert 'active_goal.target_kind == "SEMANTIC_REGION"' in source
     assert '"frontier_no_path_waiting_source_replan"' in source
-    assert 'node.router_reason == "NO_KNOWN_FREE_PATH"' in source
+    assert 'router_reason == "NO_KNOWN_FREE_PATH"' in source
     assert "node.authorized\n                            and" in source
+    assert "self.router_status_lock = threading.Lock()" in source
+    assert "node.router_status_snapshot()" in source
+    assert (
+        "router_decision_id == active_decision.decision_id" in source
+    )
+    assert "node.router_decision_id is None" not in source
     assert '"control_telemetry"' in source
 
 
