@@ -133,7 +133,14 @@ find the recorded Yunji onboard-NIC MAC `48:21:0B:6E:1F:BD`, and the two exact
 existing Yunji SSH/tmux panes remained disconnected.
 
 No alternate host was guessed and no new persistent transport was created.
-The Git publication and robot-disk synchronization are therefore recorded
-separately: robot synchronization remains unverified until the existing Yunji
-pane can reach the operator-confirmed address and the extracted bytes pass the
-release manifest.
+The implementation was published to `origin/main` as
+`aa4881a9046b30c06c2de7b8f7f81ce0bb6facda`
+(`Harden and accelerate one-click startup`). After publication, the exact
+existing `focus_yunji_tunnel_20260722:sensor-audit` pane was respawned once
+with its saved SSH/reverse-tunnel command; it exited with SSH status 255
+without producing a remote-shell witness.
+
+Git publication and robot-disk synchronization are therefore separate:
+robot synchronization remains unverified until the existing Yunji pane can
+reach the operator-confirmed address and the extracted bytes pass the release
+manifest.
