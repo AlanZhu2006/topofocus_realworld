@@ -382,20 +382,22 @@ until [[ -s "$alignment" ]]; do
   sleep 1
 done
 
-if [[ "$mode" == live ]]; then
-  tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx go2-bridge && {
-    echo "Refusing to replace existing Go2 bridge window." >&2
-    exit 1
-  }
-  tmux new-window -d -t "$SESSION" -n go2-bridge \
-    "bash -lc 'set -o pipefail; export GO2_CMD_TOPIC=/focus_guarded_cmd_vel GO2_MAX_VX=0.20 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.50 GO2_MIN_CMD_V=0.15 GO2_MIN_CMD_W=0.30 GO2_REMOTE_PRIORITY=true GO2_LOG_COMMANDS=true GO2_LOG_INTERVAL_SEC=0.2; bash /home/nvidia/twork/tinynav/scripts/run_go2_cmd_bridge.sh 2>&1 | tee \"$bridge_log\"'"
-  echo "WSJ Go2 bridge command log: $bridge_log"
-fi
-
+# The Unitree SDK2 bridge and ROS 2 coexist in one Python process. On the
+# deployed Go2, starting that participant can delay discovery for newly
+# created high-bandwidth image subscribers even though the existing mapper,
+# sender and controller subscriptions continue normally. Prove every sensor,
+# geometry, map-freshness and non-actuating command-route invariant before the
+# SDK2 participant exists. The post-bridge check below then proves only the
+# one endpoint that the bridge adds.
 source "$SETUP_FILE"
+pre_bridge_args=()
+if [[ "$mode" == live ]]; then
+  pre_bridge_args+=(--pre-bridge-full-check)
+fi
 "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   --robot-id robot-0 \
   --mode "$mode" \
+  "${pre_bridge_args[@]}" \
   --frame-id world \
   --camera-frame camera \
   --fresh-image-topic /camera/camera/color/image_raw \
@@ -405,6 +407,22 @@ source "$SETUP_FILE"
   --max-occupancy-age-s 12 \
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
   --timeout-s 35
+
+if [[ "$mode" == live ]]; then
+  tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx go2-bridge && {
+    echo "Refusing to replace existing Go2 bridge window." >&2
+    exit 1
+  }
+  tmux new-window -d -t "$SESSION" -n go2-bridge \
+    "bash -lc 'set -o pipefail; export GO2_CMD_TOPIC=/focus_guarded_cmd_vel GO2_MAX_VX=0.20 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.50 GO2_MIN_CMD_V=0.15 GO2_MIN_CMD_W=0.30 GO2_REMOTE_PRIORITY=true GO2_LOG_COMMANDS=true GO2_LOG_INTERVAL_SEC=0.2; bash /home/nvidia/twork/tinynav/scripts/run_go2_cmd_bridge.sh 2>&1 | tee \"$bridge_log\"'"
+  echo "WSJ Go2 bridge command log: $bridge_log"
+  "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
+    --robot-id robot-0 \
+    --mode live \
+    --post-bridge-command-check \
+    --camera-frame camera \
+    --timeout-s 20
+fi
 
 startup_complete="true"
 trap - EXIT

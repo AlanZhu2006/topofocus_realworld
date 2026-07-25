@@ -180,12 +180,74 @@ def test_data_plane_collects_messages_before_expensive_graph_queries():
         encoding="utf-8"
     )
     loop = source.split(
-        "while time.monotonic() < deadline:", 1
+        "# Full sensor/map validation loop.", 1
     )[1].split("missing = sorted(", 1)[0]
 
     assert loop.index(
         "if not required_messages.issubset(latest):"
     ) < loop.index("observed_graph = graph()")
+
+
+def test_data_plane_phase_specific_command_graph_contract():
+    verifier = load_overlay("verify_tinynav_data_plane.py")
+    pre_bridge = {
+        "raw": {
+            "publishers": ["/cmd_vel_control_node"],
+            "subscriptions": ["/focus_v2_wsj_receiver"],
+        },
+        "guarded": {
+            "publishers": ["/focus_v2_wsj_receiver"],
+            "subscriptions": [],
+        },
+        "target": {
+            "publishers": ["/focus_tinynav_buildmap_goal_router"],
+            "subscriptions": ["/planning_node"],
+        },
+        "poi": {
+            "publishers": ["/focus_v2_wsj_receiver"],
+            "subscriptions": ["/focus_tinynav_buildmap_goal_router"],
+        },
+    }
+
+    verifier.validate_command_graph(
+        pre_bridge,
+        robot_id="robot-0",
+        mode="live",
+        pre_bridge_full_check=True,
+    )
+    with pytest.raises(ValueError, match="guarded chassis subscriber"):
+        verifier.validate_command_graph(
+            pre_bridge,
+            robot_id="robot-0",
+            mode="live",
+        )
+
+    post_bridge = {
+        "guarded": {
+            "publishers": ["/focus_v2_wsj_receiver"],
+            "subscriptions": ["/go2_cmd_bridge"],
+        }
+    }
+    verifier.validate_command_graph(
+        post_bridge,
+        robot_id="robot-0",
+        mode="live",
+        guarded_only=True,
+    )
+
+
+def test_wsj_live_verification_is_split_around_go2_bridge():
+    launcher = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text(
+        encoding="utf-8"
+    )
+    pre_index = launcher.index("--pre-bridge-full-check")
+    bridge_index = launcher.index(
+        'tmux new-window -d -t "$SESSION" -n go2-bridge'
+    )
+    post_index = launcher.index("--post-bridge-command-check")
+
+    assert pre_index < bridge_index < post_index
+    assert "high-bandwidth image subscribers" in launcher
 
 
 def test_calibration_geometry_verifier_is_read_only_and_reuses_contract():

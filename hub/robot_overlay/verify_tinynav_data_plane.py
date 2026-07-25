@@ -47,6 +47,79 @@ def require_endpoint(
         )
 
 
+def validate_command_graph(
+    observed_graph: dict[str, dict[str, list[str]]],
+    *,
+    robot_id: str,
+    mode: str,
+    pre_bridge_full_check: bool = False,
+    guarded_only: bool = False,
+) -> None:
+    """Validate the exclusive command route for the requested startup phase."""
+
+    if not guarded_only:
+        require_endpoint(
+            observed_graph["raw"]["publishers"],
+            description="raw cmd_vel publisher",
+            contains="cmd_vel_control_node",
+        )
+        require_endpoint(
+            observed_graph["raw"]["subscriptions"],
+            description="raw cmd_vel subscriber",
+            contains="focus_v2_",
+        )
+    require_endpoint(
+        observed_graph["guarded"]["publishers"],
+        description="guarded cmd_vel publisher",
+        contains="focus_v2_",
+    )
+    expected_guarded_subscriber = (
+        None
+        if robot_id == "robot-0"
+        and (mode == "debug" or pre_bridge_full_check)
+        else (
+            "go2_cmd_bridge"
+            if robot_id == "robot-0"
+            else "focus_water_cmd_vel_bridge"
+        )
+    )
+    guarded_subscribers = observed_graph["guarded"]["subscriptions"]
+    if expected_guarded_subscriber is None:
+        if guarded_subscribers:
+            raise ValueError(
+                "WSJ pre-bridge/debug mode unexpectedly has a chassis "
+                f"subscriber: {guarded_subscribers}"
+            )
+    else:
+        require_endpoint(
+            guarded_subscribers,
+            description="guarded chassis subscriber",
+            contains=expected_guarded_subscriber,
+        )
+    if guarded_only:
+        return
+    require_endpoint(
+        observed_graph["target"]["publishers"],
+        description="TinyNav target publisher",
+        contains="focus_tinynav_buildmap_goal_router",
+    )
+    require_endpoint(
+        observed_graph["target"]["subscriptions"],
+        description="TinyNav target subscriber",
+        contains="planning_node",
+    )
+    require_endpoint(
+        observed_graph["poi"]["publishers"],
+        description="Hub POI publisher",
+        contains="focus_v2_",
+    )
+    require_endpoint(
+        observed_graph["poi"]["subscriptions"],
+        description="Hub POI subscriber",
+        contains="focus_tinynav_buildmap_goal_router",
+    )
+
+
 def validate_occupancy(message: Any, *, frame_id: str) -> dict[str, object]:
     if str(message.header.frame_id) != frame_id:
         raise ValueError(
@@ -271,27 +344,31 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         reliability=ReliabilityPolicy.RELIABLE,
         durability=DurabilityPolicy.TRANSIENT_LOCAL,
     )
-    subscriptions = [
-        node.create_subscription(
-            Odometry,
-            args.odom_topic,
-            lambda message: latest.__setitem__("odom", message),
-            volatile_qos,
-        ),
-        node.create_subscription(
-            OccupancyGrid,
-            args.occupancy_topic,
-            lambda message: latest.__setitem__("occupancy", message),
-            map_qos,
-        ),
-        node.create_subscription(
-            String,
-            args.router_status_topic,
-            lambda message: latest.__setitem__("router", message),
-            volatile_qos,
-        ),
-    ]
-    if args.platform_status_topic:
+    subscriptions = []
+    if not args.post_bridge_command_check:
+        subscriptions.extend(
+            [
+                node.create_subscription(
+                    Odometry,
+                    args.odom_topic,
+                    lambda message: latest.__setitem__("odom", message),
+                    volatile_qos,
+                ),
+                node.create_subscription(
+                    OccupancyGrid,
+                    args.occupancy_topic,
+                    lambda message: latest.__setitem__("occupancy", message),
+                    map_qos,
+                ),
+                node.create_subscription(
+                    String,
+                    args.router_status_topic,
+                    lambda message: latest.__setitem__("router", message),
+                    volatile_qos,
+                ),
+            ]
+        )
+    if args.platform_status_topic and not args.post_bridge_command_check:
         subscriptions.append(
             node.create_subscription(
                 String,
@@ -300,19 +377,20 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 volatile_qos,
             )
         )
-    for index, topic in enumerate(args.fresh_image_topic):
-        key = f"image_{index}"
-        subscriptions.append(
-            node.create_subscription(
-                Image,
-                topic,
-                lambda message, image_key=key: latest.__setitem__(
-                    image_key, message
-                ),
-                volatile_qos,
+    if not args.post_bridge_command_check:
+        for index, topic in enumerate(args.fresh_image_topic):
+            key = f"image_{index}"
+            subscriptions.append(
+                node.create_subscription(
+                    Image,
+                    topic,
+                    lambda message, image_key=key: latest.__setitem__(
+                        image_key, message
+                    ),
+                    volatile_qos,
+                )
             )
-        )
-    if args.geometry_image_topic:
+    if args.geometry_image_topic and not args.post_bridge_command_check:
         subscriptions.extend(
             [
                 node.create_subscription(
@@ -334,12 +412,17 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             ]
         )
 
-    topics = {
+    all_topics = {
         "raw": args.raw_cmd_topic,
         "guarded": args.guarded_cmd_topic,
         "target": args.target_topic,
         "poi": args.poi_topic,
     }
+    topics = (
+        {"guarded": args.guarded_cmd_topic}
+        if args.post_bridge_command_check
+        else all_topics
+    )
 
     def graph() -> dict[str, dict[str, list[str]]]:
         return {
@@ -371,6 +454,45 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     cached_occupancy_motion_m: float | None = None
     using_cached_occupancy = False
     try:
+        if args.post_bridge_command_check:
+            last_graph_error: ValueError | None = None
+            while time.monotonic() < deadline:
+                rclpy.spin_once(node, timeout_sec=0.2)
+                observed_graph = graph()
+                try:
+                    validate_command_graph(
+                        observed_graph,
+                        robot_id=args.robot_id,
+                        mode=args.mode,
+                        guarded_only=True,
+                    )
+                except ValueError as error:
+                    last_graph_error = error
+                    continue
+                return {
+                    "schema_version": (
+                        "focus-tinynav-data-plane-verification-v1"
+                    ),
+                    "robot_id": args.robot_id,
+                    "mode": args.mode,
+                    "verification_scope": "post_bridge_command_graph",
+                    "passed": True,
+                    "robot_commands_issued": False,
+                    "pre_bridge_full_verification_required": True,
+                    "command_graph": observed_graph,
+                }
+            detail = (
+                str(last_graph_error)
+                if last_graph_error is not None
+                else "no resolved guarded command endpoints"
+            )
+            raise TimeoutError(
+                "timed out waiting for the post-bridge guarded command "
+                f"route: {detail}"
+            )
+
+        # Full sensor/map validation loop. Keep message collection ahead of
+        # expensive graph discovery queries.
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.2)
             if not required_messages.issubset(latest):
@@ -437,18 +559,16 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     )
                     if not using_cached_occupancy:
                         continue
-            if all(
-                observed_graph[key]["publishers"]
-                for key in ("raw", "guarded", "target", "poi")
-            ) and all(
-                observed_graph[key]["subscriptions"]
-                for key in ("raw", "target", "poi")
-            ):
-                if args.robot_id == "robot-0" and args.mode == "debug":
-                    if not observed_graph["guarded"]["subscriptions"]:
-                        break
-                elif observed_graph["guarded"]["subscriptions"]:
-                    break
+            try:
+                validate_command_graph(
+                    observed_graph,
+                    robot_id=args.robot_id,
+                    mode=args.mode,
+                    pre_bridge_full_check=args.pre_bridge_full_check,
+                )
+            except ValueError:
+                continue
+            break
         missing = sorted(required_messages - latest.keys())
         if missing:
             raise TimeoutError(
@@ -483,62 +603,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 f"{args.camera_frame!r}"
             )
 
-        require_endpoint(
-            observed_graph["raw"]["publishers"],
-            description="raw cmd_vel publisher",
-            contains="cmd_vel_control_node",
-        )
-        require_endpoint(
-            observed_graph["raw"]["subscriptions"],
-            description="raw cmd_vel subscriber",
-            contains="focus_v2_",
-        )
-        require_endpoint(
-            observed_graph["guarded"]["publishers"],
-            description="guarded cmd_vel publisher",
-            contains="focus_v2_",
-        )
-        expected_guarded_subscriber = (
-            None
-            if args.robot_id == "robot-0" and args.mode == "debug"
-            else (
-                "go2_cmd_bridge"
-                if args.robot_id == "robot-0"
-                else "focus_water_cmd_vel_bridge"
-            )
-        )
-        guarded_subscribers = observed_graph["guarded"]["subscriptions"]
-        if expected_guarded_subscriber is None:
-            if guarded_subscribers:
-                raise ValueError(
-                    "WSJ debug mode unexpectedly has a chassis subscriber: "
-                    f"{guarded_subscribers}"
-                )
-        else:
-            require_endpoint(
-                guarded_subscribers,
-                description="guarded chassis subscriber",
-                contains=expected_guarded_subscriber,
-            )
-        require_endpoint(
-            observed_graph["target"]["publishers"],
-            description="TinyNav target publisher",
-            contains="focus_tinynav_buildmap_goal_router",
-        )
-        require_endpoint(
-            observed_graph["target"]["subscriptions"],
-            description="TinyNav target subscriber",
-            contains="planning_node",
-        )
-        require_endpoint(
-            observed_graph["poi"]["publishers"],
-            description="Hub POI publisher",
-            contains="focus_v2_",
-        )
-        require_endpoint(
-            observed_graph["poi"]["subscriptions"],
-            description="Hub POI subscriber",
-            contains="focus_tinynav_buildmap_goal_router",
+        validate_command_graph(
+            observed_graph,
+            robot_id=args.robot_id,
+            mode=args.mode,
+            pre_bridge_full_check=args.pre_bridge_full_check,
         )
 
         occupancy = validate_occupancy(
@@ -572,6 +641,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             "schema_version": "focus-tinynav-data-plane-verification-v1",
             "robot_id": args.robot_id,
             "mode": args.mode,
+            "verification_scope": (
+                "pre_bridge_full"
+                if args.pre_bridge_full_check
+                else "full"
+            ),
             "passed": True,
             "robot_commands_issued": False,
             "odometry": {
@@ -605,6 +679,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--robot-id", choices=("robot-0", "robot-1"), required=True)
     parser.add_argument("--mode", choices=("debug", "live"), required=True)
+    parser.add_argument(
+        "--pre-bridge-full-check",
+        action="store_true",
+        help=(
+            "in WSJ live mode, fully validate sensors/maps and require the "
+            "guarded chassis subscriber to remain absent"
+        ),
+    )
+    parser.add_argument(
+        "--post-bridge-command-check",
+        action="store_true",
+        help=(
+            "after the WSJ Go2 bridge starts, validate only its exclusive "
+            "guarded command route; requires a prior full check"
+        ),
+    )
     parser.add_argument("--frame-id", default="world")
     parser.add_argument("--camera-frame", required=True)
     parser.add_argument("--odom-topic", default="/slam/odometry")
@@ -650,6 +740,35 @@ def main() -> int:
     args = parser.parse_args()
     if args.timeout_s <= 0:
         parser.error("--timeout-s must be positive")
+    if args.pre_bridge_full_check and args.post_bridge_command_check:
+        parser.error(
+            "--pre-bridge-full-check and --post-bridge-command-check "
+            "are mutually exclusive"
+        )
+    if args.pre_bridge_full_check and (
+        args.robot_id != "robot-0" or args.mode != "live"
+    ):
+        parser.error(
+            "--pre-bridge-full-check is only valid for robot-0 live mode"
+        )
+    if args.post_bridge_command_check and (
+        args.robot_id != "robot-0" or args.mode != "live"
+    ):
+        parser.error(
+            "--post-bridge-command-check is only valid for robot-0 live mode"
+        )
+    if args.post_bridge_command_check and (
+        args.platform_status_topic
+        or args.fresh_image_topic
+        or args.geometry_image_topic
+        or args.camera_info_topic
+        or args.max_occupancy_age_s > 0
+        or args.max_cached_occupancy_motion_m > 0
+    ):
+        parser.error(
+            "--post-bridge-command-check does not accept sensor/map checks; "
+            "run --pre-bridge-full-check first"
+        )
     if bool(args.geometry_image_topic) != bool(args.camera_info_topic):
         parser.error(
             "--geometry-image-topic and --camera-info-topic must be used together"
