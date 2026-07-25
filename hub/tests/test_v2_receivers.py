@@ -881,6 +881,11 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert "--external-odometry-health" in launcher
     assert "--enable-live-tinynav-motion" in launcher
     assert "--reject-reverse-trajectory" in launcher
+    assert "--rotate-first-on-reverse" in launcher
+    assert "--rotate-first-max-angular-radps" in launcher
+    assert "--rotate-first-timeout-s" in launcher
+    assert "FOCUS_YUNJI_REVERSE_ROTATE_MAX_ANGULAR_RADPS:-0.35" in launcher
+    assert "FOCUS_YUNJI_REVERSE_ROTATE_TIMEOUT_S:-12.0" in launcher
     assert "/focus_guarded_cmd_vel" in launcher
     assert "/api/joy_control" in bridge
     assert "/api/accessible_point_query" not in launcher + bridge
@@ -903,11 +908,13 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
             launcher.index('if [[ "$reuse_verified_debug_core" == true ]]'),
         )
     ]
+    assert "start_router" in reuse_branch
+    assert "start_controller" in reuse_branch
+    assert "Yunji goal router reloaded from the current deployment" in reuse_branch
     assert (
-        "systemctl restart focus-yunji-tinynav-router-v1.service"
+        "Yunji rotate-first controller reloaded from the current deployment"
         in reuse_branch
     )
-    assert "Yunji goal router reloaded from the current deployment" in reuse_branch
     assert '--setenv="OPENBLAS_NUM_THREADS=1"' in launcher
     assert '--setenv="OMP_NUM_THREADS=1"' in launcher
     assert '--setenv="MKL_NUM_THREADS=1"' in launcher

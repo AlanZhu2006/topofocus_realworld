@@ -23,6 +23,10 @@ COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"
 # than infra1. 0.38 keeps a measured margin while still rejecting a grossly
 # wrong intrinsic/extrinsic profile.
 REGISTRATION_MIN_COVERAGE="${FOCUS_WSJ_REGISTRATION_MIN_COVERAGE:-0.38}"
+# TinyNav keyframes normally arrive about every 3.1 s. Give a newly attached
+# five-topic synchronizer several keyframes, then restart only this read-only
+# sender once if the Hub sequence still has not advanced.
+SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-15}"
 
 usage() {
   cat <<'EOF'
@@ -59,6 +63,10 @@ done
 }
 [[ "$PREVIEW_URL" =~ ^http://127\.0\.0\.1:[0-9]+$ ]] || {
   echo "Foxglove preview URL must remain loopback-only." >&2
+  exit 2
+}
+[[ "$SENDER_ADVANCE_TIMEOUT_S" =~ ^[1-9][0-9]*$ ]] || {
+  echo "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S must be a positive integer." >&2
   exit 2
 }
 for required in \
@@ -125,12 +133,129 @@ ensure_camera_preview() {
   echo "WSJ Foxglove camera preview is active (read-only)."
 }
 
+hub_latest_sequence() {
+  local token payload
+  token="$(<"$TOKEN_FILE")"
+  payload="$(
+    curl -fsS --max-time 5 -H "X-Robot-Token: $token" \
+      "$HUB_URL/v1/robots/robot-0/observations/latest"
+  )"
+  unset token
+  FOCUS_SEQUENCE_JSON="$payload" python3 -c \
+    'import json,os; print(int(json.loads(os.environ["FOCUS_SEQUENCE_JSON"])["last_sequence"]))'
+}
+
+wait_for_hub_sequence_advance() {
+  local baseline="$1" deadline token payload candidate
+  latest_sequence="$baseline"
+  deadline=$((SECONDS + SENDER_ADVANCE_TIMEOUT_S))
+  while (( SECONDS < deadline )); do
+    token="$(<"$TOKEN_FILE")"
+    payload="$(
+      curl -fsS --max-time 5 -H "X-Robot-Token: $token" \
+        "$HUB_URL/v1/robots/robot-0/observations/latest" \
+        2>/dev/null || true
+    )"
+    unset token
+    if [[ -n "$payload" ]]; then
+      candidate="$(
+        FOCUS_SEQUENCE_JSON="$payload" python3 -c \
+          'import json,os; print(int(json.loads(os.environ["FOCUS_SEQUENCE_JSON"])["last_sequence"]))' \
+          2>/dev/null || true
+      )"
+      if [[ "$candidate" =~ ^-?[0-9]+$ ]]; then
+        latest_sequence="$candidate"
+        (( latest_sequence > baseline )) && return 0
+      fi
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+stop_tracked_sender() {
+  local deadline
+  if tmux list-windows -t "$SESSION" -F '#{window_name}' \
+      | grep -qx hub-sender; then
+    tmux send-keys -t "$SESSION:hub-sender" C-c >/dev/null 2>&1 || true
+  fi
+  deadline=$((SECONDS + 8))
+  while pgrep -af \
+      'focus_ros_sender\.py.*--enable-command-capable-observations' \
+      >/dev/null 2>&1; do
+    (( SECONDS < deadline )) || break
+    sleep 1
+  done
+  if tmux list-windows -t "$SESSION" -F '#{window_name}' \
+      | grep -qx hub-sender; then
+    tmux kill-window -t "$SESSION:hub-sender" >/dev/null 2>&1 || true
+  fi
+  deadline=$((SECONDS + 5))
+  while pgrep -af \
+      'focus_ros_sender\.py.*--enable-command-capable-observations' \
+      >/dev/null 2>&1; do
+    (( SECONDS < deadline )) || {
+      echo "Tracked WSJ observation sender did not stop." >&2
+      return 1
+    }
+    sleep 1
+  done
+}
+
+launch_sender() {
+  local stamp command_text deadline
+  local -a command
+  stamp="$(date -u +%Y%m%dT%H%M%S_%N)"
+  metrics="/home/nvidia/.local/state/topofocus/wsj-command-observation-${stamp}.json"
+  log="/home/nvidia/.local/state/topofocus/wsj-command-observation-${stamp}.log"
+  command=(
+    "$PYTHON_BIN" -u "$SCRIPT_DIR/focus_ros_sender.py"
+    --base-url "$HUB_URL"
+    --robot-id robot-0
+    --transform-version "$TRANSFORM_VERSION"
+    --rgb-topic /camera/camera/color/image_raw
+    --depth-topic /slam/keyframe_depth
+    --info-topic /slam/camera_info
+    --pose-topic /slam/keyframe_odom
+    --camera-frame camera
+    --register-rgb-to-depth
+    --rgb-info-topic /camera/camera/color/camera_info
+    --rgb-optical-frame camera_color_optical_frame
+    --depth-optical-frame camera_infra1_optical_frame
+    --registration-min-coverage "$REGISTRATION_MIN_COVERAGE"
+    --capture-time-source header
+    --rate-hz 2.0
+    --max-frames 0
+    --metrics-out "$metrics"
+    --enable-command-capable-observations
+    --activation-confirmation COMMAND_CAPABLE_OBSERVATION_ONLY
+    --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION"
+    --shared-tracking-calibration-file "$SHARED_TRACKING_CALIBRATION"
+    --shared-frame-calibration-id "$SHARED_FRAME_CALIBRATION_ID"
+    --heartbeat-hz 0
+  )
+  printf -v command_text '%q ' "${command[@]}"
+  tmux new-window -d -t "$SESSION" -n hub-sender \
+    "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; set -o pipefail; $command_text 2>&1 | tee \"$log\"'"
+
+  deadline=$((SECONDS + 30))
+  until pgrep -af \
+      'focus_ros_sender\.py.*--enable-command-capable-observations' \
+      >/dev/null 2>&1; do
+    if [[ "$(tmux display-message -p -t "$SESSION:hub-sender" \
+        '#{pane_dead}' 2>/dev/null || true)" == 1 ]]; then
+      tmux capture-pane -pt "$SESSION:hub-sender" -S -80 >&2 || true
+      return 1
+    fi
+    (( SECONDS < deadline )) || {
+      echo "Timed out waiting for the WSJ command-capable sender." >&2
+      return 1
+    }
+    sleep 1
+  done
+}
+
 ensure_camera_preview
-if pgrep -af 'focus_ros_sender.*--enable-command-capable-observations' \
-  >/dev/null 2>&1; then
-  echo "WSJ command-capable observation sender is already running."
-  exit 0
-fi
 if pgrep -af 'go2_cmd_bridge' >/dev/null 2>&1; then
   echo "Refusing to replace observation metadata while a Go2 bridge is active." >&2
   exit 1
@@ -143,65 +268,83 @@ if tmux has-session -t "$LEGACY_SESSION" 2>/dev/null \
   sleep 2
   tmux kill-window -t "$LEGACY_SESSION:sender_rgb" >/dev/null 2>&1 || true
 fi
-if tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx hub-sender; then
-  echo "Refusing to replace existing $SESSION:hub-sender." >&2
+sender_processes="$(
+  pgrep -af 'focus_ros_sender(_rgb)?\.py' 2>/dev/null || true
+)"
+sender_window="false"
+if tmux list-windows -t "$SESSION" -F '#{window_name}' \
+    | grep -qx hub-sender; then
+  sender_window="true"
+fi
+if [[ -n "$sender_processes" ]] \
+   && grep -Fv -- "--enable-command-capable-observations" \
+     <<<"$sender_processes" >/dev/null; then
+  echo "An incompatible WSJ observation sender is still running:" >&2
+  printf '%s\n' "$sender_processes" >&2
   exit 1
 fi
-if pgrep -af 'focus_ros_sender(_rgb)?\.py' >/dev/null 2>&1; then
+if [[ -n "$sender_processes" && "$sender_window" != true ]]; then
   echo "An untracked WSJ observation sender is still running." >&2
   exit 1
 fi
+if [[ -z "$sender_processes" && "$sender_window" == true ]]; then
+  tmux kill-window -t "$SESSION:hub-sender" >/dev/null 2>&1 || true
+  sender_window="false"
+fi
 
-stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-metrics="/home/nvidia/.local/state/topofocus/wsj-command-observation-${stamp}.json"
-log="/home/nvidia/.local/state/topofocus/wsj-command-observation-${stamp}.log"
-command=(
-  "$PYTHON_BIN" -u "$SCRIPT_DIR/focus_ros_sender.py"
-  --base-url "$HUB_URL"
-  --robot-id robot-0
-  --transform-version "$TRANSFORM_VERSION"
-  --rgb-topic /camera/camera/color/image_raw
-  --depth-topic /slam/keyframe_depth
-  --info-topic /slam/camera_info
-  --pose-topic /slam/keyframe_odom
-  --camera-frame camera
-  --register-rgb-to-depth
-  --rgb-info-topic /camera/camera/color/camera_info
-  --rgb-optical-frame camera_color_optical_frame
-  --depth-optical-frame camera_infra1_optical_frame
-  --registration-min-coverage "$REGISTRATION_MIN_COVERAGE"
-  --capture-time-source header
-  --rate-hz 2.0
-  --max-frames 0
-  --metrics-out "$metrics"
-  --enable-command-capable-observations
-  --activation-confirmation COMMAND_CAPABLE_OBSERVATION_ONLY
-  --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION"
-  --shared-tracking-calibration-file "$SHARED_TRACKING_CALIBRATION"
-  --shared-frame-calibration-id "$SHARED_FRAME_CALIBRATION_ID"
-  --heartbeat-hz 0
-)
-printf -v command_text '%q ' "${command[@]}"
-tmux new-window -d -t "$SESSION" -n hub-sender \
-  "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; set -o pipefail; $command_text 2>&1 | tee \"$log\"'"
+initial_sequence="$(hub_latest_sequence)"
+attempt_baseline="$initial_sequence"
+latest_sequence="$initial_sequence"
+metrics=""
+log=""
+sender_restarts=0
+sender_ready="false"
 
-deadline=$((SECONDS + 30))
-until pgrep -af 'focus_ros_sender\.py.*--enable-command-capable-observations' \
-  >/dev/null 2>&1; do
-  if [[ "$(tmux display-message -p -t "$SESSION:hub-sender" '#{pane_dead}')" == 1 ]]; then
-    tmux capture-pane -pt "$SESSION:hub-sender" -S -80 >&2 || true
-    exit 1
+if [[ "$sender_window" != true ]]; then
+  launch_sender
+fi
+
+# Attempt zero observes the existing/new sender. Attempt one is the sole
+# self-heal: restart only this read-only process, never camera/perception or a
+# command component. A second failure is terminal and remains fail-closed.
+for attempt in 0 1; do
+  if wait_for_hub_sequence_advance "$attempt_baseline"; then
+    sender_ready="true"
+    break
   fi
-  (( SECONDS < deadline )) || {
-    echo "Timed out waiting for the WSJ command-capable sender." >&2
-    exit 1
-  }
-  sleep 1
+  if [[ "$attempt" == 1 ]]; then
+    current_sequence="$(hub_latest_sequence)"
+    if (( current_sequence > attempt_baseline )); then
+      latest_sequence="$current_sequence"
+      sender_ready="true"
+    fi
+    break
+  fi
+  current_sequence="$(hub_latest_sequence)"
+  if (( current_sequence > attempt_baseline )); then
+    latest_sequence="$current_sequence"
+    sender_ready="true"
+    break
+  fi
+  echo "WSJ observation sequence did not advance from $attempt_baseline; restarting only the read-only sender once." >&2
+  stop_tracked_sender
+  attempt_baseline="$current_sequence"
+  launch_sender
+  sender_restarts=1
 done
+
+[[ "$sender_ready" == true ]] || {
+  echo "WSJ observation sender failed to advance after one bounded read-only restart." >&2
+  exit 1
+}
 
 echo "WSJ command-capable observation metadata is active (NO MOTION PATH)."
 echo "  transform: $TRANSFORM_VERSION"
 echo "  mount:     $BASE_CAMERA_CALIBRATION"
 echo "  shared:    $SHARED_TRACKING_CALIBRATION"
-echo "  metrics:   $metrics"
-echo "  log:       $log"
+echo "  Hub sequence: $initial_sequence -> $latest_sequence"
+echo "  read-only sender restarts: $sender_restarts"
+if [[ -n "$metrics" ]]; then
+  echo "  metrics:   $metrics"
+  echo "  log:       $log"
+fi

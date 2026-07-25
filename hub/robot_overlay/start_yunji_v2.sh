@@ -37,6 +37,11 @@ ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_YUNJI_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
 MAP_TIMEOUT_S="${FOCUS_YUNJI_MAP_TIMEOUT_S:-12.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
+# A reverse local lookahead is recovered without reverse translation.  The
+# controller holds one turn direction, WATER retains the lower 0.40 rad/s
+# actuator cap, and the receiver still rejects after this bounded interval.
+REVERSE_ROTATE_MAX_ANGULAR_RADPS="${FOCUS_YUNJI_REVERSE_ROTATE_MAX_ANGULAR_RADPS:-0.35}"
+REVERSE_ROTATE_TIMEOUT_S="${FOCUS_YUNJI_REVERSE_ROTATE_TIMEOUT_S:-12.0}"
 # Keep the transported/source-derived semantic approach mask unchanged, but
 # align the physical terminal check with TinyNav's observed short-path limit.
 # In the 2026-07-25 chair run the planner stopped emitting a multi-pose path at
@@ -169,6 +174,32 @@ start_unit() {
     "$@" >/dev/null
 }
 
+start_router() {
+  start_unit focus-yunji-tinynav-router-v1.service \
+    /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" router \
+      --frame-id world \
+      --robot-id robot-1 \
+      --base-camera-frame odin1_camera_optical_frame \
+      --occupancy-topic /semantic_mapping/occupancy_bev \
+      --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
+      --lookahead-m "$LOOKAHEAD_M" \
+      --clearance-m "$REACHABILITY_CLEARANCE_M" \
+      --start-snap-radius-m "$START_SNAP_RADIUS_M" \
+      --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
+      --input-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S" \
+      --map-timeout-s "$MAP_TIMEOUT_S" \
+      --max-cached-map-motion-m 0.25
+}
+
+start_controller() {
+  start_unit focus-yunji-tinynav-controller-v1.service \
+    /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" controller \
+      --rotate-first-on-reverse \
+      --rotate-first-max-angular-radps \
+        "$REVERSE_ROTATE_MAX_ANGULAR_RADPS" \
+      --rotate-first-timeout-s "$REVERSE_ROTATE_TIMEOUT_S"
+}
+
 # Remove every previous direct-/api/move receiver before creating the new
 # online TinyNav command path.
 for unit in \
@@ -225,22 +256,33 @@ if [[ "$reuse_verified_debug_core" == true ]]; then
     systemctl show --property MainPID --value \
       focus-yunji-tinynav-router-v1.service
   )"
-  sudo -n systemctl restart focus-yunji-tinynav-router-v1.service
-  systemctl is-active --quiet focus-yunji-tinynav-router-v1.service || {
-    echo "Yunji goal router did not return active after reload." >&2
-    exit 1
-  }
+  old_controller_pid="$(
+    systemctl show --property MainPID --value \
+      focus-yunji-tinynav-controller-v1.service
+  )"
+  start_router
+  start_controller
   new_router_pid="$(
     systemctl show --property MainPID --value \
       focus-yunji-tinynav-router-v1.service
+  )"
+  new_controller_pid="$(
+    systemctl show --property MainPID --value \
+      focus-yunji-tinynav-controller-v1.service
   )"
   [[ "$new_router_pid" =~ ^[1-9][0-9]*$ \
       && "$new_router_pid" != "$old_router_pid" ]] || {
     echo "Yunji goal router did not reload into a new process." >&2
     exit 1
   }
+  [[ "$new_controller_pid" =~ ^[1-9][0-9]*$ \
+      && "$new_controller_pid" != "$old_controller_pid" ]] || {
+    echo "Yunji velocity controller did not reload into a new process." >&2
+    exit 1
+  }
   echo "Reusing the verified Yunji perception/planning core without interrupting /slam/depth."
   echo "Yunji goal router reloaded from the current deployment: $new_router_pid"
+  echo "Yunji rotate-first controller reloaded from the current deployment: $new_controller_pid"
 else
   start_unit focus-yunji-tinynav-adapter-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" adapter \
@@ -264,23 +306,8 @@ else
       --camera-forward-m 0.23 \
       --safety-margin-m 0.05
 
-  start_unit focus-yunji-tinynav-router-v1.service \
-    /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" router \
-      --frame-id world \
-      --robot-id robot-1 \
-      --base-camera-frame odin1_camera_optical_frame \
-      --occupancy-topic /semantic_mapping/occupancy_bev \
-      --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
-      --lookahead-m "$LOOKAHEAD_M" \
-      --clearance-m "$REACHABILITY_CLEARANCE_M" \
-      --start-snap-radius-m "$START_SNAP_RADIUS_M" \
-      --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
-      --input-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S" \
-      --map-timeout-s "$MAP_TIMEOUT_S" \
-      --max-cached-map-motion-m 0.25
-
-  start_unit focus-yunji-tinynav-controller-v1.service \
-    /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" controller
+  start_router
+  start_controller
 fi
 
 bridge_args=(

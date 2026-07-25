@@ -66,6 +66,85 @@ def test_reverse_classifier_rejects_invalid_values():
         MODULE.classify_forward_component(0.1, meaningful_reverse_m=0.0)
 
 
+@pytest.mark.parametrize(
+    ("requested", "latched_direction", "expected"),
+    [
+        (0.70, 0, 0.35),
+        (-0.70, 0, -0.35),
+        (-0.70, 1, 0.35),
+        (0.70, -1, -0.35),
+        (0.03, 1, 0.10),
+        (0.0, 1, 0.0),
+    ],
+)
+def test_rotate_first_is_zero_linear_compatible_and_direction_latched(
+    requested,
+    latched_direction,
+    expected,
+):
+    assert MODULE.bounded_rotate_first_angular(
+        requested,
+        latched_direction=latched_direction,
+    ) == pytest.approx(expected)
+
+
+def test_rotate_first_rejects_invalid_angular_contract():
+    with pytest.raises(ValueError):
+        MODULE.bounded_rotate_first_angular(
+            float("nan"),
+            latched_direction=0,
+        )
+    with pytest.raises(ValueError):
+        MODULE.bounded_rotate_first_angular(
+            0.3,
+            latched_direction=2,
+        )
+    with pytest.raises(ValueError):
+        MODULE.bounded_rotate_first_angular(
+            0.3,
+            latched_direction=1,
+            minimum_radps=0.4,
+            maximum_radps=0.3,
+        )
+
+
+def test_rotate_first_has_a_strict_bounded_timeout():
+    assert not MODULE.reverse_recovery_expired(
+        started_monotonic=10.0,
+        now_monotonic=21.999,
+        timeout_s=12.0,
+    )
+    assert MODULE.reverse_recovery_expired(
+        started_monotonic=10.0,
+        now_monotonic=22.0,
+        timeout_s=12.0,
+    )
+    with pytest.raises(ValueError):
+        MODULE.reverse_recovery_expired(
+            started_monotonic=10.0,
+            now_monotonic=9.0,
+            timeout_s=12.0,
+        )
+
+
+def test_rotate_first_is_explicitly_opt_in():
+    defaults = MODULE.build_parser().parse_args([])
+    enabled = MODULE.build_parser().parse_args(
+        [
+            "--rotate-first-on-reverse",
+            "--rotate-first-max-angular-radps",
+            "0.30",
+            "--rotate-first-timeout-s",
+            "8.0",
+        ]
+    )
+
+    assert defaults.rotate_first_on_reverse is False
+    assert enabled.rotate_first_on_reverse is True
+    assert enabled.rotate_first_max_angular_radps == pytest.approx(0.30)
+    assert enabled.rotate_first_timeout_s == pytest.approx(8.0)
+
+
 @pytest.mark.parametrize("requested", [-0.2, 0.0, 0.039, 0.1, 0.3])
 def test_commands_outside_engagement_band_are_unchanged(requested):
     assert MODULE.apply_linear_engagement_floor(

@@ -140,6 +140,23 @@ def test_wsj_formal_observation_replaces_non_color_calibration_preview():
     assert '--registration-min-coverage "$REGISTRATION_MIN_COVERAGE"' in launcher
 
 
+def test_wsj_formal_observation_self_heals_one_sync_startup_stall():
+    launcher = (
+        OVERLAY / "start_wsj_command_observation.sh"
+    ).read_text()
+
+    assert "wait_for_hub_sequence_advance" in launcher
+    assert "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-15" in launcher
+    assert "for attempt in 0 1" in launcher
+    assert "restart only this read-only process" in launcher
+    assert "failed to advance after one bounded read-only restart" in launcher
+    assert launcher.index("go2_cmd_bridge") < launcher.index(
+        "for attempt in 0 1"
+    )
+    assert "start_go2" not in launcher
+    assert "water_cmd_vel_bridge" not in launcher
+
+
 def test_calibration_robot_entries_contain_no_live_motion_flag():
     sources = "\n".join(
         (OVERLAY / name).read_text()
@@ -195,6 +212,7 @@ def test_wsj_controller_reload_waits_out_stale_dds_identity():
     assert "old WSJ controller publisher to leave DDS" in source
     assert "Node name: cmd_vel_control_node" in source
     assert "_NODE_.*_UNKNOWN_" in source
+    assert "--rotate-first-on-reverse" not in source
     assert source.index("remain-on-exit on") < source.index(
         "tmux respawn-pane -t"
     )
