@@ -99,6 +99,34 @@ def test_source_round_step_quota_matches_source_clock():
         )
 
 
+def test_current_goal_evidence_maps_detector_name_to_goal_category():
+    module = load_module()
+
+    evidence = module.current_goal_evidence_by_robot(
+        {
+            "robots": [
+                {
+                    "robot_id": "robot-0",
+                    "detections": {
+                        "potted plant": 0.56,
+                        "chair": 0.91,
+                    },
+                },
+                {
+                    "robot_id": "robot-1",
+                    "detections": {
+                        "potted plant": 0.88,
+                        "airplane": 0.5,
+                    },
+                },
+            ]
+        },
+        "plant",
+    )
+
+    assert evidence == {"robot-0": 0.56, "robot-1": 0.88}
+
+
 def test_freeze_next_round_fails_immediately_for_latched_map(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

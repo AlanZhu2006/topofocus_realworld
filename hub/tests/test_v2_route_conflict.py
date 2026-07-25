@@ -50,6 +50,46 @@ def test_observed_crossing_routes_are_serialized(observation_factory):
     assert guarded.decisions[1].target is None
 
 
+def test_conflict_prefers_robot_with_stronger_current_goal_evidence(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_route_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (-1.0, 4.0),
+            "robot-1": (1.0, 4.0),
+        },
+    )
+
+    guarded, report = apply_route_conflict_guard(
+        candidate,
+        shared_start_xy={
+            "robot-0": (0.0, 0.0),
+            "robot-1": (0.2, 0.0),
+        },
+        minimum_separation_m=0.9,
+        goal_evidence_by_robot={
+            "robot-0": 0.56,
+            "robot-1": 0.88,
+        },
+    )
+
+    assert report["status"] == "serialized_route_corridor_conflict"
+    assert report["effective_active_robot_ids"] == ["robot-1"]
+    assert report["serialized_leader_robot_id"] == "robot-1"
+    assert report["serialized_leader_priority_source"] == (
+        "current_goal_detector_evidence"
+    )
+    assert report["goal_evidence_by_robot"] == {
+        "robot-0": 0.56,
+        "robot-1": 0.88,
+    }
+    assert [item.mode.value for item in guarded.decisions] == ["HOLD", "GOAL"]
+
+
 def test_well_separated_parallel_routes_remain_concurrent(observation_factory):
     observations, _registry, digests, now = ready_registries(
         observation_factory

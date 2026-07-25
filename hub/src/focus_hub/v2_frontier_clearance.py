@@ -20,7 +20,7 @@ from .map_snapshot import MapSnapshot
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
 
-FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v2"
+FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v3"
 
 
 def _bounded_id(value: str) -> str:
@@ -30,11 +30,100 @@ def _bounded_id(value: str) -> str:
     return f"{value[:111]}-{suffix}"
 
 
+def _point_to_cell_footprint_distances(
+    snapshot: MapSnapshot,
+    rows: np.ndarray,
+    columns: np.ndarray,
+    *,
+    x_m: float,
+    y_m: float,
+) -> np.ndarray:
+    """Return point-to-cell-square distances for the requested grid cells."""
+
+    center_x = (
+        snapshot.origin_xy_m[0]
+        + (columns.astype(np.float64) + 0.5) * snapshot.resolution_m
+    )
+    center_y = (
+        snapshot.origin_xy_m[1]
+        + (rows.astype(np.float64) + 0.5) * snapshot.resolution_m
+    )
+    half_cell = snapshot.resolution_m / 2.0
+    dx = np.maximum(np.abs(center_x - x_m) - half_cell, 0.0)
+    dy = np.maximum(np.abs(center_y - y_m) - half_cell, 0.0)
+    return np.hypot(dx, dy)
+
+
+def _reachable_known_free(
+    snapshot: MapSnapshot,
+    known_free: np.ndarray,
+    *,
+    robot_xy_m: tuple[float, float] | None,
+    maximum_seed_distance_m: float,
+) -> tuple[np.ndarray, dict[str, object]]:
+    """Return the robot-local known-free component containing its measured pose."""
+
+    if robot_xy_m is None:
+        return known_free, {
+            "reachability_filter_applied": False,
+            "start_seed_cell_rc": None,
+            "start_seed_distance_m": None,
+            "reachable_known_free_cell_count": int(np.count_nonzero(known_free)),
+        }
+    if (
+        len(robot_xy_m) != 2
+        or not all(math.isfinite(float(value)) for value in robot_xy_m)
+        or not math.isfinite(maximum_seed_distance_m)
+        or maximum_seed_distance_m <= 0.0
+    ):
+        raise ValueError("robot reachability seed inputs must be finite")
+
+    rows, columns = np.nonzero(known_free)
+    if not rows.size:
+        return np.zeros_like(known_free), {
+            "reachability_filter_applied": True,
+            "start_seed_cell_rc": None,
+            "start_seed_distance_m": None,
+            "reachable_known_free_cell_count": 0,
+        }
+    distances = _point_to_cell_footprint_distances(
+        snapshot,
+        rows,
+        columns,
+        x_m=float(robot_xy_m[0]),
+        y_m=float(robot_xy_m[1]),
+    )
+    seed_index = int(np.argmin(distances))
+    seed_distance_m = float(distances[seed_index])
+    seed = (int(rows[seed_index]), int(columns[seed_index]))
+    if seed_distance_m > maximum_seed_distance_m + 1e-12:
+        return np.zeros_like(known_free), {
+            "reachability_filter_applied": True,
+            "start_seed_cell_rc": list(seed),
+            "start_seed_distance_m": seed_distance_m,
+            "reachable_known_free_cell_count": 0,
+        }
+
+    labels, _count = ndimage.label(
+        known_free,
+        structure=np.ones((3, 3), dtype=bool),
+    )
+    label_id = int(labels[seed])
+    reachable = labels == label_id
+    return reachable, {
+        "reachability_filter_applied": True,
+        "start_seed_cell_rc": list(seed),
+        "start_seed_distance_m": seed_distance_m,
+        "reachable_known_free_cell_count": int(np.count_nonzero(reachable)),
+    }
+
+
 def _frontier_report(
     snapshot: MapSnapshot,
     decision: HighLevelDecisionV2,
     *,
     clearance_m: float,
+    robot_xy_m: tuple[float, float] | None = None,
 ) -> dict[str, object]:
     target = decision.target
     if target is None or target.kind != "FRONTIER_POINT":
@@ -69,7 +158,17 @@ def _frontier_report(
     clearance_field_m = (
         ndimage.distance_transform_edt(known_free) * snapshot.resolution_m
     )
-    safe = known_free & (clearance_field_m + 1e-12 >= clearance_m)
+    reachable, reachability = _reachable_known_free(
+        snapshot,
+        known_free,
+        robot_xy_m=robot_xy_m,
+        maximum_seed_distance_m=clearance_m,
+    )
+    safe = (
+        known_free
+        & reachable
+        & (clearance_field_m + 1e-12 >= clearance_m)
+    )
 
     rows, columns = np.nonzero(safe)
     target_x = float(target.pose.x)
@@ -79,15 +178,13 @@ def _frontier_report(
         * decision.map_provenance.resolution_m
     )
     if rows.size:
-        safe_x = (
-            snapshot.origin_xy_m[0]
-            + (columns.astype(np.float64) + 0.5) * snapshot.resolution_m
+        safe_distances = _point_to_cell_footprint_distances(
+            snapshot,
+            rows,
+            columns,
+            x_m=target_x,
+            y_m=target_y,
         )
-        safe_y = (
-            snapshot.origin_xy_m[1]
-            + (rows.astype(np.float64) + 0.5) * snapshot.resolution_m
-        )
-        safe_distances = np.hypot(safe_x - target_x, safe_y - target_y)
         inside = safe_distances <= arrival_radius_m + 1e-12
         approach_count = int(np.count_nonzero(inside))
         nearest_safe_m = float(np.min(safe_distances))
@@ -112,6 +209,9 @@ def _frontier_report(
         and 0 <= column < known_free.shape[1]
     )
     target_known_free = bool(known_free[row, column]) if in_bounds else False
+    target_reachable_known_free = (
+        bool(reachable[row, column]) if in_bounds else False
+    )
     target_clearance_m = (
         float(clearance_field_m[row, column]) if in_bounds else None
     )
@@ -122,12 +222,16 @@ def _frontier_report(
         "target_cell_rc": [row, column],
         "target_in_bounds": in_bounds,
         "target_known_free": target_known_free,
+        "target_reachable_known_free": target_reachable_known_free,
         "target_clearance_m": target_clearance_m,
         "required_clearance_m": clearance_m,
         "arrival_radius_m": arrival_radius_m,
+        "approach_distance_method": "point_to_grid_cell_footprint",
         "safe_approach_cell_count": approach_count,
         "nearest_safe_approach_distance_m": nearest_safe_m,
         "maximum_approach_clearance_m": maximum_approach_clearance_m,
+        "execution_map_transform_version": snapshot.transform_version,
+        **reachability,
         "passed": approach_count > 0,
     }
 
@@ -270,8 +374,14 @@ def apply_frontier_clearance_guard(
     clearance_by_robot_m: Mapping[str, float],
     fallback_frontiers: Sequence[Mapping[str, object]] | None = None,
     robot_xy_by_robot: Mapping[str, tuple[float, float]] | None = None,
+    execution_snapshots_by_robot: Mapping[str, MapSnapshot] | None = None,
 ) -> tuple[DecisionBatchV2, dict[str, object]]:
-    """Reallocate rejected frontier legs once, then hold any still unsafe."""
+    """Reallocate rejected frontier legs once, then hold any still unsafe.
+
+    When per-robot frozen snapshots are supplied, a target must have a
+    footprint-clear approach cell in that robot's own known-free component.
+    The fused snapshot remains the source/VLM coordinate authority only.
+    """
 
     active_ids = list(
         batch.decisions[0].coordination.active_robot_ids
@@ -281,6 +391,39 @@ def apply_frontier_clearance_guard(
     checks: dict[str, dict[str, object]] = {}
     rejected: set[str] = set()
     selected_frontier_ids: set[str] = set()
+    positions = robot_xy_by_robot or {}
+    use_robot_execution_maps = execution_snapshots_by_robot is not None
+
+    def execution_snapshot(robot_id: str) -> MapSnapshot:
+        if execution_snapshots_by_robot is None:
+            return snapshot
+        if robot_id not in execution_snapshots_by_robot:
+            raise ValueError(
+                f"missing frozen execution map for {robot_id}"
+            )
+        return execution_snapshots_by_robot[robot_id]
+
+    def reachability_position(
+        robot_id: str,
+    ) -> tuple[float, float] | None:
+        if not use_robot_execution_maps:
+            return None
+        raw = positions.get(robot_id)
+        if (
+            not isinstance(raw, (tuple, list))
+            or len(raw) != 2
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in raw
+            )
+        ):
+            raise ValueError(
+                f"missing finite frozen shared pose for {robot_id}"
+            )
+        return (float(raw[0]), float(raw[1]))
+
     for decision in batch.decisions:
         if decision.robot_id not in active_ids:
             continue
@@ -293,9 +436,10 @@ def apply_frontier_clearance_guard(
                 f"missing frontier clearance for {decision.robot_id}"
             )
         check = _frontier_report(
-            snapshot,
+            execution_snapshot(decision.robot_id),
             decision,
             clearance_m=float(clearance_by_robot_m[decision.robot_id]),
+            robot_xy_m=reachability_position(decision.robot_id),
         )
         checks[decision.robot_id] = check
         if check["passed"] is not True:
@@ -305,7 +449,6 @@ def apply_frontier_clearance_guard(
         fallback_frontiers,
         selected_frontier_ids=selected_frontier_ids,
     )
-    positions = robot_xy_by_robot or {}
     available = list(candidates)
     fallback_checks: dict[str, list[dict[str, object]]] = {}
     replacements: dict[str, HighLevelDecisionV2] = {}
@@ -334,11 +477,12 @@ def apply_frontier_clearance_guard(
                 robot_xy_m=(float(robot_xy[0]), float(robot_xy[1])),
             )
             report = _frontier_report(
-                snapshot,
+                execution_snapshot(decision.robot_id),
                 replacement,
                 clearance_m=float(
                     clearance_by_robot_m[decision.robot_id]
                 ),
+                robot_xy_m=reachability_position(decision.robot_id),
             )
             report["source_rank"] = candidate["source_rank"]
             robot_reports.append(report)
@@ -389,11 +533,22 @@ def apply_frontier_clearance_guard(
             )
         ),
         "method": (
+            "known-free distance transform over each robot's frozen shared-frame "
+            "map; require one cell in that robot's reachable known-free component "
+            "whose footprint intersects the source frontier arrival disk; rejected "
+            "selections try source-ranked remaining frontiers once"
+            if use_robot_execution_maps
+            else
             "known-free distance transform over the frozen fused map; require "
-            "one footprint-clear cell inside the source frontier arrival disk; "
-            "rejected selections try source-ranked remaining frontiers once"
+            "one footprint-clear cell whose footprint intersects the source "
+            "frontier arrival disk; rejected selections try source-ranked "
+            "remaining frontiers once"
         ),
         "classification": (
+            "source-derived real-world physical execution guard over frozen "
+            "robot-local maps registered in the shared frame"
+            if use_robot_execution_maps
+            else
             "source-derived real-world physical execution guard over the "
             "frozen shared-frame map"
         ),
@@ -413,6 +568,20 @@ def apply_frontier_clearance_guard(
                 snapshot.shared_frame_calibration_id
             ),
             "map_format_version": snapshot.map_format_version,
+        },
+        "execution_map_contracts": {
+            robot_id: {
+                "frame_id": execution_snapshot(robot_id).frame_id,
+                "resolution_m": execution_snapshot(robot_id).resolution_m,
+                "transform_version": execution_snapshot(robot_id).transform_version,
+                "shared_frame_calibration_id": (
+                    execution_snapshot(robot_id).shared_frame_calibration_id
+                ),
+                "map_format_version": (
+                    execution_snapshot(robot_id).map_format_version
+                ),
+            }
+            for robot_id in active_ids
         },
         "source_fidelity": (
             "the exact VLM-selected target remains unchanged in the preserved "

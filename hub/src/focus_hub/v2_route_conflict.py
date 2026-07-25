@@ -15,7 +15,7 @@ from typing import Mapping
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
 
-ROUTE_CONFLICT_SCHEMA_VERSION = "focus-v2-route-conflict-guard-v1"
+ROUTE_CONFLICT_SCHEMA_VERSION = "focus-v2-route-conflict-guard-v2"
 Point2 = tuple[float, float]
 
 
@@ -157,12 +157,14 @@ def apply_route_conflict_guard(
     shared_start_xy: Mapping[str, object],
     minimum_separation_m: float,
     priority_index: int = 0,
+    goal_evidence_by_robot: Mapping[str, object] | None = None,
 ) -> tuple[DecisionBatchV2, dict[str, object]]:
     """Serialize a pair whose conservative shared-frame corridors overlap.
 
     A missing shared pose is also serialized because concurrent clearance
-    cannot then be established.  Semantic-region legs take priority; otherwise
-    ``priority_index`` rotates the deterministic source robot ordering.
+    cannot then be established. Semantic-region legs take priority. Within
+    the eligible set, stronger current goal-category detector evidence wins;
+    absent or tied evidence falls back to ``priority_index`` rotation.
     """
 
     if (
@@ -172,6 +174,18 @@ def apply_route_conflict_guard(
         raise ValueError("minimum route separation must be positive and finite")
     if priority_index < 0:
         raise ValueError("priority_index must be non-negative")
+    normalized_evidence: dict[str, float] = {}
+    for robot_id, raw_score in (goal_evidence_by_robot or {}).items():
+        if (
+            not isinstance(robot_id, str)
+            or not robot_id
+            or isinstance(raw_score, bool)
+            or not isinstance(raw_score, (int, float))
+            or not math.isfinite(float(raw_score))
+            or not 0.0 <= float(raw_score) <= 1.0
+        ):
+            raise ValueError("goal evidence must map robot IDs to [0, 1]")
+        normalized_evidence[robot_id] = float(raw_score)
 
     active = [
         decision
@@ -226,6 +240,7 @@ def apply_route_conflict_guard(
     guarded = batch
     selected: str | None = None
     suppressed: list[str] = []
+    priority_source: str | None = None
     if len(active) > 1 and conflict:
         eligible = [
             decision for decision in active if decision.robot_id in routes
@@ -238,7 +253,33 @@ def apply_route_conflict_guard(
         ]
         candidates = semantic or eligible
         if candidates:
-            selected = candidates[priority_index % len(candidates)].robot_id
+            scored = [
+                (
+                    normalized_evidence[decision.robot_id],
+                    decision,
+                )
+                for decision in candidates
+                if decision.robot_id in normalized_evidence
+            ]
+            if scored:
+                maximum_score = max(score for score, _decision in scored)
+                tied = [
+                    decision
+                    for score, decision in scored
+                    if math.isclose(
+                        score,
+                        maximum_score,
+                        rel_tol=0.0,
+                        abs_tol=1e-12,
+                    )
+                ]
+                selected = tied[priority_index % len(tied)].robot_id
+                priority_source = "current_goal_detector_evidence"
+            else:
+                selected = candidates[
+                    priority_index % len(candidates)
+                ].robot_id
+                priority_source = "rotating_source_robot_order"
         suppressed = [
             robot_id for robot_id in active_ids if robot_id != selected
         ]
@@ -275,13 +316,17 @@ def apply_route_conflict_guard(
         "original_active_robot_ids": active_ids,
         "effective_active_robot_ids": effective,
         "serialized_leader_robot_id": selected,
+        "serialized_leader_priority_source": priority_source,
+        "goal_evidence_by_robot": dict(sorted(normalized_evidence.items())),
         "suppressed_robot_ids": suppressed,
         "missing_shared_pose_robot_ids": missing,
         "routes": routes,
         "pairwise": pairwise,
         "source_fidelity": (
             "VLM target selection is unchanged and preserved separately; "
-            "only physical concurrency authority may be reduced"
+            "current detector evidence only chooses which already-guarded "
+            "robot moves first when physical concurrency authority must be "
+            "reduced"
         ),
     }
     return guarded, report

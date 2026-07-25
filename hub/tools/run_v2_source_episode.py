@@ -54,6 +54,7 @@ from focus_hub.realworld_session import (  # noqa: E402
     session_contract_sha256,
     validate_session,
 )
+from focus_hub.semantic_yolo import YOLO_TO_HM3D_NAME  # noqa: E402
 from focus_hub.source_episode import (  # noqa: E402
     SOURCE_HM3D_OBJECTNAV_GOALS,
     SOURCE_MAX_EPISODE_STEPS,
@@ -127,6 +128,43 @@ def atomic_write_json(path: Path, payload: object) -> None:
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
+
+
+def current_goal_evidence_by_robot(
+    shadow_manifest: dict[str, object],
+    goal_category: str,
+) -> dict[str, float]:
+    """Extract current goal-class detector confidence for serialization only."""
+
+    evidence: dict[str, float] = {}
+    raw_robots = shadow_manifest.get("robots", [])
+    if not isinstance(raw_robots, list):
+        return evidence
+    for raw_robot in raw_robots:
+        if not isinstance(raw_robot, dict):
+            continue
+        robot_id = raw_robot.get("robot_id")
+        detections = raw_robot.get("detections")
+        if not isinstance(robot_id, str) or not isinstance(detections, dict):
+            continue
+        scores: list[float] = []
+        for raw_name, raw_score in detections.items():
+            if not isinstance(raw_name, str):
+                continue
+            mapped_name = YOLO_TO_HM3D_NAME.get(raw_name, raw_name)
+            if mapped_name != goal_category:
+                continue
+            if (
+                isinstance(raw_score, bool)
+                or not isinstance(raw_score, (int, float))
+                or not math.isfinite(float(raw_score))
+                or not 0.0 <= float(raw_score) <= 1.0
+            ):
+                continue
+            scores.append(float(raw_score))
+        if scores:
+            evidence[robot_id] = max(scores)
+    return evidence
 
 
 def append_jsonl(path: Path, payload: dict[str, object]) -> None:
@@ -1079,7 +1117,9 @@ def main() -> int:
                 "policy": (
                     "preserve source-derived VLM allocations; serialize "
                     "physical execution when straight shared-frame route "
-                    "corridors overlap or a shared pose is unavailable"
+                    "corridors overlap or a shared pose is unavailable; "
+                    "current goal-class detector confidence chooses which "
+                    "already-guarded robot moves first"
                 ),
             },
             "frontier_clearance_guard": {
@@ -1089,8 +1129,9 @@ def main() -> int:
                 },
                 "policy": (
                     "preserve source/VLM selection in the candidate artifact; "
-                    "withhold physical authority when no known-free "
-                    "footprint-clear cell exists inside its arrival disk"
+                    "withhold physical authority when the assigned robot's "
+                    "frozen shared-frame map has no reachable known-free, "
+                    "footprint-clear cell intersecting its arrival disk"
                 ),
             },
         },
@@ -1530,6 +1571,21 @@ def main() -> int:
             )
             if fused_snapshot is None:
                 raise RuntimeError("shadow round lacks fused decision map")
+            execution_snapshots = {}
+            for robot_id, row in rows.items():
+                raw_map_dir = row.get("map_dir")
+                if not isinstance(raw_map_dir, str) or not raw_map_dir:
+                    raise RuntimeError(
+                        f"frozen input lacks a map directory for {robot_id}"
+                    )
+                execution_snapshot = load_map_snapshot(
+                    Path(raw_map_dir) / "central_map.npz"
+                )
+                if execution_snapshot is None:
+                    raise RuntimeError(
+                        f"frozen input lacks an execution map for {robot_id}"
+                    )
+                execution_snapshots[robot_id] = execution_snapshot
             shared_positions, pose_provenance, pose_errors = (
                 frozen_shared_robot_positions(accepted)
             )
@@ -1545,6 +1601,7 @@ def main() -> int:
                         "remaining_frontiers", []
                     ),
                     robot_xy_by_robot=shared_positions,
+                    execution_snapshots_by_robot=execution_snapshots,
                 )
             )
             atomic_write_json(
@@ -1564,11 +1621,16 @@ def main() -> int:
                     "blocked_robot_ids"
                 ],
             )
+            goal_evidence = current_goal_evidence_by_robot(
+                shadow_manifest,
+                args.goal_category,
+            )
             guarded_batch, route_guard = apply_route_conflict_guard(
                 clearance_guarded_batch,
                 shared_start_xy=shared_positions,
                 minimum_separation_m=args.route_conflict_min_separation_m,
                 priority_index=requested_round,
+                goal_evidence_by_robot=goal_evidence,
             )
             route_guard["pose_provenance"] = pose_provenance
             route_guard["pose_errors"] = pose_errors
@@ -1593,6 +1655,15 @@ def main() -> int:
                 ],
                 effective_active_robot_ids=route_guard[
                     "effective_active_robot_ids"
+                ],
+                serialized_leader_robot_id=route_guard[
+                    "serialized_leader_robot_id"
+                ],
+                serialized_leader_priority_source=route_guard[
+                    "serialized_leader_priority_source"
+                ],
+                goal_evidence_by_robot=route_guard[
+                    "goal_evidence_by_robot"
                 ],
             )
             if built.report.get("preflight_ready") is not True:

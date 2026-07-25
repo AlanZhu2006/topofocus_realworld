@@ -40,6 +40,24 @@ def snapshot_with_one_wall_trap() -> MapSnapshot:
     )
 
 
+def snapshot_from_free_mask(
+    free: np.ndarray,
+    *,
+    transform_version: str,
+) -> MapSnapshot:
+    grid = np.zeros((2, *free.shape), dtype=np.float32)
+    grid[1] = free.astype(np.float32)
+    return MapSnapshot(
+        grid=grid,
+        origin_xy_m=(0.0, 0.0),
+        resolution_m=0.05,
+        frame_id="shared_world",
+        transform_version=transform_version,
+        shared_frame_calibration_id="shared-board-v1",
+        map_format_version="focus-hub-central-map-v3",
+    )
+
+
 def test_wall_adjacent_frontier_is_held_without_suppressing_clear_peer(
     observation_factory,
 ):
@@ -67,6 +85,99 @@ def test_wall_adjacent_frontier_is_held_without_suppressing_clear_peer(
     assert [item.mode.value for item in guarded.decisions] == ["GOAL", "HOLD"]
     assert guarded.decisions[0].target == candidate.decisions[0].target
     assert guarded.decisions[1].target is None
+
+
+def test_arrival_disk_intersects_safe_cell_footprint_not_only_its_center(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (0.95, 0.95),
+            "robot-1": (3.0, 3.0),
+        },
+    )
+    free = np.zeros((100, 100), dtype=bool)
+    free[20:80, 20:80] = True
+    snapshot = snapshot_from_free_mask(
+        free,
+        transform_version="multi-robot-source-derived",
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        snapshot,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+    )
+
+    check = report["checks"]["robot-0"]
+    assert check["approach_distance_method"] == (
+        "point_to_grid_cell_footprint"
+    )
+    assert check["nearest_safe_approach_distance_m"] < 0.5
+    assert check["safe_approach_cell_count"] > 0
+    assert check["passed"] is True
+    assert guarded == candidate
+
+
+def test_per_robot_execution_map_rejects_disconnected_global_frontier(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (3.75, 3.75),
+            "robot-1": (2.5, 2.5),
+        },
+    )
+    fused_free = np.ones((100, 100), dtype=bool)
+    robot_0_free = np.zeros((100, 100), dtype=bool)
+    robot_0_free[5:35, 5:35] = True
+    robot_0_free[60:90, 60:90] = True
+    robot_1_free = np.ones((100, 100), dtype=bool)
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        snapshot_from_free_mask(
+            fused_free,
+            transform_version="multi-robot-source-derived",
+        ),
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        robot_xy_by_robot={
+            "robot-0": (0.75, 0.75),
+            "robot-1": (0.75, 0.75),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": snapshot_from_free_mask(
+                robot_0_free,
+                transform_version="robot-0-transform-v1",
+            ),
+            "robot-1": snapshot_from_free_mask(
+                robot_1_free,
+                transform_version="robot-1-transform-v1",
+            ),
+        },
+    )
+
+    assert report["status"] == "unsafe_frontiers_suppressed"
+    assert report["blocked_robot_ids"] == ["robot-0"]
+    assert report["effective_active_robot_ids"] == ["robot-1"]
+    robot_0_check = report["checks"]["robot-0"]
+    assert robot_0_check["target_known_free"] is True
+    assert robot_0_check["target_reachable_known_free"] is False
+    assert robot_0_check["safe_approach_cell_count"] == 0
+    assert robot_0_check["reachability_filter_applied"] is True
+    assert report["checks"]["robot-1"]["passed"] is True
+    assert report["execution_map_contracts"]["robot-0"][
+        "transform_version"
+    ] == "robot-0-transform-v1"
+    assert [item.mode.value for item in guarded.decisions] == ["HOLD", "GOAL"]
 
 
 def test_clear_frontiers_preserve_candidate_batch(observation_factory):
