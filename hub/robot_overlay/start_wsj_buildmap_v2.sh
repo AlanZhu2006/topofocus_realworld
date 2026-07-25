@@ -255,15 +255,49 @@ bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
 # predate the checked deployment. Pause first, then replace only the raw
 # /cmd_vel controller before any receiver or chassis bridge can be created.
 # The latched pause makes the new process publish zero until the v2 receiver
-# explicitly authorizes a fresh trajectory in live mode.
+# explicitly authorizes a fresh trajectory in live mode. Let rclpy shut down
+# cleanly before respawning the pane: an abrupt tmux respawn was observed to
+# leave a Fast DDS publisher whose participant identity stayed UNKNOWN, which
+# the exclusive-route verifier must reject.
 timeout 5 ros2 topic pub --once \
   /nav/paused std_msgs/msg/Bool '{data: true}' \
   >/dev/null 2>&1 || true
 old_control_pid="$(
   tmux display-message -p -t "$SESSION:control" '#{pane_pid}'
 )"
-tmux respawn-pane -k -t "$SESSION:control" \
-  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\"'"
+control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\"'"
+tmux set-option -w -t "$SESSION:control" remain-on-exit on
+tmux send-keys -t "$SESSION:control" C-c
+deadline=$((SECONDS + 15))
+until [[ "$(tmux display-message -p -t "$SESSION:control" \
+    '#{pane_dead}' 2>/dev/null || true)" == 1 ]]; do
+  (( SECONDS < deadline )) || {
+    echo "WSJ controller did not stop cleanly; removing its isolated pane." >&2
+    tmux kill-window -t "$SESSION:control" >/dev/null 2>&1 || true
+    break
+  }
+  sleep 1
+done
+
+# Do not let a stale, still-discovered publisher satisfy the new-process
+# readiness check. No chassis bridge exists at this point, and the pause above
+# remains latched throughout this bounded gap.
+deadline=$((SECONDS + 30))
+while timeout 5 ros2 topic info /cmd_vel -v 2>/dev/null \
+    | grep -q 'Endpoint type: PUBLISHER'; do
+  (( SECONDS < deadline )) || {
+    echo "Timed out waiting for the old WSJ controller publisher to leave DDS." >&2
+    exit 1
+  }
+  sleep 1
+done
+
+if tmux display-message -p -t "$SESSION:control" >/dev/null 2>&1; then
+  tmux respawn-pane -t "$SESSION:control" "$control_command"
+  tmux set-option -w -t "$SESSION:control" remain-on-exit off
+else
+  tmux new-window -d -t "$SESSION" -n control "$control_command"
+fi
 new_control_pid="$(
   tmux display-message -p -t "$SESSION:control" '#{pane_pid}'
 )"
@@ -276,14 +310,21 @@ control_start="$(
   echo "WSJ velocity controller did not reload from the deployment wrapper." >&2
   exit 1
 }
-deadline=$((SECONDS + 15))
-until ros2 node list 2>/dev/null | grep -qx /cmd_vel_control_node; do
+deadline=$((SECONDS + 30))
+until controller_graph="$(
+    timeout 5 ros2 topic info /cmd_vel -v 2>/dev/null || true
+  )" \
+  && grep -Eq '^Publisher count: 1[[:space:]]*$' <<<"$controller_graph" \
+  && grep -Eq '^Node name: cmd_vel_control_node[[:space:]]*$' \
+    <<<"$controller_graph" \
+  && ! grep -q '_NODE_.*_UNKNOWN_' <<<"$controller_graph"; do
   if [[ "$(tmux display-message -p -t "$SESSION:control" '#{pane_dead}')" == 1 ]]; then
     tmux capture-pane -pt "$SESSION:control" -S -100 >&2 || true
     exit 1
   fi
   (( SECONDS < deadline )) || {
-    echo "Timed out waiting for the reloaded WSJ velocity controller." >&2
+    echo "Timed out waiting for the named WSJ controller publisher." >&2
+    printf '%s\n' "$controller_graph" >&2
     exit 1
   }
   sleep 1

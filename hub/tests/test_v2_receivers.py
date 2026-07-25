@@ -832,7 +832,7 @@ def test_wsj_launcher_reloads_persistent_goal_router_before_receiver() -> None:
         'tmux respawn-pane -k -t "$SESSION:goal-router"'
     )
     controller_reload_index = launcher.index(
-        'tmux respawn-pane -k -t "$SESSION:control"'
+        'tmux respawn-pane -t "$SESSION:control"'
     )
     receiver_index = launcher.index(
         'tmux new-window -d -t "$SESSION" -n v2-receiver'
@@ -850,6 +850,8 @@ def test_wsj_launcher_reloads_persistent_goal_router_before_receiver() -> None:
         "WSJ velocity controller reloaded from the current deployment"
         in launcher
     )
+    assert 'tmux send-keys -t "$SESSION:control" C-c' in launcher
+    assert 'tmux respawn-pane -k -t "$SESSION:control"' not in launcher
     assert "yunji_tinynav_cmd_vel_control.py" in launcher
     assert "WSJ goal-router reloaded from the current deployment" in launcher
     assert '--start-snap-radius-m \\"$START_SNAP_RADIUS_M\\"' in launcher

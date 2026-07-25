@@ -182,6 +182,22 @@ def test_robot_launchers_require_explicit_session_identity():
     assert "shared-board-odin1-20260723-v3" not in wsj + yunji
 
 
+def test_wsj_controller_reload_waits_out_stale_dds_identity():
+    source = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
+
+    assert "remain-on-exit on" in source
+    assert 'tmux send-keys -t "$SESSION:control" C-c' in source
+    assert "old WSJ controller publisher to leave DDS" in source
+    assert "Node name: cmd_vel_control_node" in source
+    assert "_NODE_.*_UNKNOWN_" in source
+    assert source.index("remain-on-exit on") < source.index(
+        "tmux respawn-pane -t"
+    )
+    assert source.index("tmux respawn-pane -t") < source.index(
+        "Node name: cmd_vel_control_node"
+    )
+
+
 def test_operator_entry_help_is_noninteractive():
     for name in ("realworld_oneclick.sh", "calibrate_realworld_session.sh"):
         result = subprocess.run(

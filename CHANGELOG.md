@@ -28,6 +28,9 @@
 - Make board calibration recover a disconnected existing WSJ/Yunji SSH tmux
   pane in place and require a unique remote-shell response before release
   verification, avoiding the previous 180-second wait on a dead pane.
+- Make the WSJ controller reload graceful and wait for the old Fast DDS
+  publisher to disappear before respawn; reject an unresolved/`UNKNOWN`
+  publisher identity instead of timing out later in strict no-motion debug.
 - Record the operator clarification that the manually terminal-annotated
   `trial-05-nearwall-fix` is formal experiment 03; preserve its existing
   `SR=1` and source-compatible `SPL=0.864048038008398`.
