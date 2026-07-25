@@ -272,9 +272,30 @@ def validate_frozen_robot(
         "name": robot.name,
         "map_dir": str(final_dir.resolve()),
         "map_sha256": sha256_file(frozen_dir / "central_map.npz"),
+        # Stage-1 Perception uses the current RGB+YOLO observation while the
+        # geometry-sensitive BEV may deliberately remain at the most recent
+        # accepted floor/keyframe.  Preserve both clocks instead of implying
+        # that current evidence was projected into this frozen map.
         "source_sequence": sequence,
         "source_capture_time_ns": metadata.capture_time_ns,
         "source_age_s": age_s,
+        "perception_source_sequence": sequence,
+        "map_last_integrated_sequence": (
+            None
+            if summary.get("last_observation_sequence") is None
+            else int(summary["last_observation_sequence"])
+        ),
+        "perception_map_sequence_gap": (
+            None
+            if summary.get("last_observation_sequence") is None
+            else sequence - int(summary["last_observation_sequence"])
+        ),
+        "perception_map_relationship": (
+            "same_observation"
+            if int(summary.get("last_observation_sequence", sequence))
+            == sequence
+            else "current_stage1_with_last_geometry_accepted_bev"
+        ),
         "source_mapping_health": {
             "classification": mapping_health,
             "command_ready": metadata.health.ready_for_goal(),

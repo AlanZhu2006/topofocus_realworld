@@ -323,7 +323,12 @@ def test_a_star_can_use_bounded_known_free_start_seed():
     )
 
     assert plan is not None
-    assert plan.cells[0] == (1, 1)
+    assert plan.cells[0] == (0, 0)
+    assert plan.cells[2] == (1, 1)
+    assert all(
+        max(abs(first[0] - second[0]), abs(first[1] - second[1])) == 1
+        for first, second in zip(plan.cells, plan.cells[1:])
+    )
     assert plan.start_snap_distance_m == pytest.approx(
         1.4 * 2 ** 0.5
     )
@@ -360,8 +365,17 @@ def test_a_star_can_leave_a_self_occupied_measured_base_footprint():
     )
 
     assert plan is not None
-    assert occupancy.free_with_clearance(
-        *plan.cells[0], clearance_cells=1
+    assert plan.cells[0] == (4, 4)
+    safe_cells = [
+        cell
+        for cell in plan.cells
+        if occupancy.free_with_clearance(*cell, clearance_cells=1)
+    ]
+    assert safe_cells
+    assert plan.cells.index(safe_cells[0]) > 0
+    assert all(
+        max(abs(first[0] - second[0]), abs(first[1] - second[1])) == 1
+        for first, second in zip(plan.cells, plan.cells[1:])
     )
     assert plan.start_snap_distance_m == pytest.approx(3.0)
 
@@ -402,6 +416,32 @@ def test_lookahead_is_bounded_to_the_route():
     assert router.select_lookahead(
         occupancy, plan, lookahead_m=20.0
     ) == pytest.approx((3.5, 0.5))
+
+
+def test_start_snap_route_does_not_teleport_to_remote_clearance_seed():
+    router = load_router()
+    data = [0] * (9 * 5)
+    data[2 * 9 + 1] = 100
+    occupancy = grid(data, width=9, height=5)
+
+    plan = router.plan_route(
+        occupancy,
+        start_x=1.5,
+        start_y=2.5,
+        goal_x=7.5,
+        goal_y=2.5,
+        arrival_radius_m=0.1,
+        clearance_cells=1,
+        start_snap_radius_m=3.0,
+        start_footprint_override_m=1.1,
+    )
+
+    assert plan is not None
+    assert plan.cells[0] == (2, 1)
+    assert all(
+        max(abs(first[0] - second[0]), abs(first[1] - second[1])) == 1
+        for first, second in zip(plan.cells, plan.cells[1:])
+    )
 
 
 def test_router_has_no_robot_sdk_or_velocity_output():

@@ -603,6 +603,21 @@ def main() -> int:
         help="minimum remaining-distance reduction that resets the watchdog",
     )
     parser.add_argument(
+        "--trajectory-start-grace-s",
+        type=float,
+        default=1.5,
+        help="maximum delay from local authorization to the first non-empty path",
+    )
+    parser.add_argument(
+        "--trajectory-stale-timeout-s",
+        type=float,
+        default=1.0,
+        help=(
+            "close the physical velocity gate when TinyNav stops publishing "
+            "non-empty collision-free paths"
+        ),
+    )
+    parser.add_argument(
         "--slam-data-timeout-s",
         type=float,
         default=2.0,
@@ -671,6 +686,8 @@ def main() -> int:
         args.router_recovery_grace_s,
         args.no_progress_timeout_s,
         args.minimum_goal_progress_m,
+        args.trajectory_start_grace_s,
+        args.trajectory_stale_timeout_s,
         args.slam_transient_grace_s,
         args.max_goal_distance_m,
         args.max_alignment_shift_m,
@@ -794,13 +811,21 @@ def main() -> int:
             self.nav_done = False
             self.raw_cmd_received_ns = 0
             self.trajectory_received_ns = 0
+            self.trajectory_pose_count = 0
+            self.trajectory_first_xy: tuple[float, float] | None = None
+            self.trajectory_lookahead_xy: tuple[float, float] | None = None
             self.router_status_received_ns = 0
             self.router_state = ""
             self.router_reason = ""
             self.router_decision_id: str | None = None
             self.router_affected_decision_id: str | None = None
+            self.router_waypoint: tuple[float, float] | None = None
+            self.router_route_length_m: float | None = None
             self.authority_deadline_ns = 0
+            self.authority_started_ns = 0
             self.authorized = False
+            self.latest_raw_cmd = (0.0, 0.0)
+            self.latest_guard_reason = "startup"
             self.poi_publisher = self.create_publisher(String, args.cmd_pois_topic, 10)
             pause_qos = QoSProfile(
                 depth=1,
@@ -908,8 +933,18 @@ def main() -> int:
             if message.data:
                 self.nav_done = True
 
-        def on_trajectory(self, _message: RosPath) -> None:
+        def on_trajectory(self, message: RosPath) -> None:
+            if len(message.poses) < 2:
+                return
             self.trajectory_received_ns = time.time_ns()
+            self.trajectory_pose_count = len(message.poses)
+            first = message.poses[0].pose.position
+            lookahead = message.poses[1].pose.position
+            self.trajectory_first_xy = (float(first.x), float(first.y))
+            self.trajectory_lookahead_xy = (
+                float(lookahead.x),
+                float(lookahead.y),
+            )
 
         def on_router_status(self, message: String) -> None:
             try:
@@ -930,16 +965,52 @@ def main() -> int:
                     if affected_decision_id is None
                     else str(affected_decision_id)
                 )
+                waypoint = payload.get("waypoint")
+                self.router_waypoint = (
+                    (float(waypoint[0]), float(waypoint[1]))
+                    if (
+                        isinstance(waypoint, list)
+                        and len(waypoint) == 2
+                    )
+                    else None
+                )
+                route_length = payload.get("route_length_m")
+                self.router_route_length_m = (
+                    None
+                    if route_length is None
+                    else float(route_length)
+                )
                 self.router_status_received_ns = time.time_ns()
             except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 emit("router_status_rejected", error=str(exc)[:300])
 
         def on_raw_cmd(self, message: Twist) -> None:
-            self.raw_cmd_received_ns = time.time_ns()
-            if live and self.authorized and time.time_ns() < self.authority_deadline_ns:
+            now_ns = time.time_ns()
+            self.raw_cmd_received_ns = now_ns
+            self.latest_raw_cmd = (
+                float(message.linear.x),
+                float(message.angular.z),
+            )
+            path_fresh = bool(
+                self.trajectory_received_ns >= self.authority_started_ns
+                and now_ns - self.trajectory_received_ns
+                <= int(args.trajectory_stale_timeout_s * 1e9)
+            )
+            if (
+                live
+                and self.authorized
+                and now_ns < self.authority_deadline_ns
+                and path_fresh
+            ):
                 self.guarded_publisher.publish(message)
+                self.latest_guard_reason = "authorized_fresh_trajectory"
             elif live:
                 self.guarded_publisher.publish(Twist())
+                self.latest_guard_reason = (
+                    "trajectory_missing_or_stale"
+                    if self.authorized
+                    else "authority_closed"
+                )
 
         def enforce_gate(self) -> None:
             if not live:
@@ -951,12 +1022,16 @@ def main() -> int:
 
         def authorize(self, expires_at_ns: int) -> None:
             if live:
+                if not self.authorized:
+                    self.authority_started_ns = time.time_ns()
                 self.authority_deadline_ns = expires_at_ns
                 self.authorized = True
 
         def revoke(self, *, pause: bool = True) -> bool:
             self.authorized = False
             self.authority_deadline_ns = 0
+            self.authority_started_ns = 0
+            self.latest_guard_reason = "revoked"
             if live:
                 self.guarded_publisher.publish(Twist())
                 if pause:
@@ -1820,6 +1895,74 @@ def main() -> int:
                     router_recovery_leg_id = None
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
+                elif (
+                    # A semantic approach that cannot produce a collision-free
+                    # local path cannot legitimately become ARRIVED, so fail
+                    # that episode leg closed.  A frontier is different: the
+                    # immutable source advances to a fresh VLM decision after
+                    # its bounded step window.  Keep its physical gate closed
+                    # and report ACCEPTED (never NAVIGATING) until that round
+                    # boundary, allowing the next image/map decision to choose
+                    # another frontier instead of hanging at the wall.
+                    active_goal.target_kind == "SEMANTIC_REGION"
+                    and
+                    node.authorized
+                    and node.authority_started_ns > 0
+                    and (
+                        (
+                            node.trajectory_received_ns
+                            < node.authority_started_ns
+                            and now_ns - node.authority_started_ns
+                            > int(args.trajectory_start_grace_s * 1e9)
+                        )
+                        or (
+                            node.trajectory_received_ns
+                            >= node.authority_started_ns
+                            and now_ns - node.trajectory_received_ns
+                            > int(args.trajectory_stale_timeout_s * 1e9)
+                        )
+                    )
+                ):
+                    failed_decision = active_decision
+                    path_age_s = (
+                        None
+                        if node.trajectory_received_ns <= 0
+                        else (
+                            now_ns - node.trajectory_received_ns
+                        ) / 1e9
+                    )
+                    node.revoke()
+                    post(
+                        failed_decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_PLANNER_PATH_STALE",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=(
+                            "TinyNav produced no fresh non-empty collision-free "
+                            "trajectory; "
+                            f"path_age_s={path_age_s}; "
+                            f"router={node.router_state}/{node.router_reason}"
+                        ),
+                        terminal=True,
+                    )
+                    emit(
+                        "local_planner_path_stale",
+                        decision_id=failed_decision.decision_id,
+                        leg_id=failed_decision.leg_id,
+                        path_age_s=path_age_s,
+                        router_state=node.router_state,
+                        router_reason=node.router_reason,
+                        router_waypoint=node.router_waypoint,
+                        latest_raw_cmd=list(node.latest_raw_cmd),
+                    )
+                    active_decision = None
+                    active_goal = None
+                    progress_watchdog.reset()
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
                 elif router_recovery_leg_id == active_decision.leg_id:
                     # Do not manufacture NAVIGATING feedback while the local
                     # velocity gate is closed for bounded recovery.
@@ -1888,9 +2031,35 @@ def main() -> int:
                     elif (
                         time.monotonic() - last_feedback_monotonic >= 0.5
                     ):
-                        planner_active = (
-                            node.trajectory_received_ns >= goal_issued_ns
-                            or node.raw_cmd_received_ns >= goal_issued_ns
+                        planner_active = bool(
+                            node.trajectory_received_ns
+                            >= node.authority_started_ns
+                            and time.time_ns() - node.trajectory_received_ns
+                            <= int(args.trajectory_stale_timeout_s * 1e9)
+                        )
+                        emit(
+                            "control_telemetry",
+                            decision_id=active_decision.decision_id,
+                            local_pose=[
+                                round(pose[0], 4),
+                                round(pose[1], 4),
+                                round(pose[2], 4),
+                            ],
+                            local_goal=[
+                                round(active_goal.x, 4),
+                                round(active_goal.y, 4),
+                            ],
+                            router_state=node.router_state,
+                            router_reason=node.router_reason,
+                            router_waypoint=node.router_waypoint,
+                            router_route_length_m=node.router_route_length_m,
+                            trajectory_pose_count=node.trajectory_pose_count,
+                            trajectory_first_xy=node.trajectory_first_xy,
+                            trajectory_lookahead_xy=(
+                                node.trajectory_lookahead_xy
+                            ),
+                            raw_cmd=list(node.latest_raw_cmd),
+                            guard_reason=node.latest_guard_reason,
                         )
                         post(
                             active_decision,
@@ -1907,9 +2076,13 @@ def main() -> int:
                             pose,
                             goal=active_goal,
                             detail=(
-                                "TinyNav trajectory/cmd_vel observed"
+                                "fresh non-empty TinyNav trajectory observed"
                                 if planner_active
-                                else "waiting for first TinyNav trajectory"
+                                else (
+                                    "physical velocity gate is closed while "
+                                    "waiting for a fresh collision-free "
+                                    "TinyNav trajectory"
+                                )
                             ),
                         )
                         last_feedback_monotonic = time.monotonic()

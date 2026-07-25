@@ -769,6 +769,7 @@ if [[ "$mode" == live ]]; then
       --robot-config "$FOCUS_LIVE_ROBOT_CONFIG" \
       --robot-0-min-sequence "$wsj_epoch_sequence" \
       --robot-1-min-sequence "$yunji_epoch_sequence" \
+      --round-input-timeout-s 45 \
       --enable-live-goal-publication \
       --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR; then
     echo "LIVE_SOURCE_EPISODE_FINISHED: $run_dir/episode_report.json"

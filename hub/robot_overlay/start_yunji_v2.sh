@@ -22,6 +22,10 @@ TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus
 REACHABILITY_CLEARANCE_M="${FOCUS_YUNJI_REACHABILITY_CLEARANCE_M:-0.34}"
 START_SNAP_RADIUS_M="${FOCUS_YUNJI_START_SNAP_RADIUS_M:-1.0}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_YUNJI_START_FOOTPRINT_OVERRIDE_M:-0.34}"
+# Follow the recovered start-to-seed route closely.  A one-metre rolling
+# waypoint can skip the entire bounded escape path on Yunji's forward-cropped
+# map and ask the local planner to cut a corner toward a wall.
+LOOKAHEAD_M="${FOCUS_YUNJI_LOOKAHEAD_M:-0.35}"
 # Observed during the first two-robot live episode on 2026-07-24: Odin normally
 # publishes /slam/odometry at about 3.5 Hz (0.26--0.35 s intervals), but one
 # processing transient exceeded the router's old 1.0 s default and aborted the
@@ -259,6 +263,7 @@ else
       --base-camera-frame odin1_camera_optical_frame \
       --occupancy-topic /semantic_mapping/occupancy_bev \
       --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
+      --lookahead-m "$LOOKAHEAD_M" \
       --clearance-m "$REACHABILITY_CLEARANCE_M" \
       --start-snap-radius-m "$START_SNAP_RADIUS_M" \
       --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \

@@ -273,20 +273,23 @@ def plan_route(
     if not math.isfinite(minimum_progress_m) or minimum_progress_m < 0:
         raise ValueError("minimum_progress_m must be finite and non-negative")
     start = grid.cell(start_x, start_y)
+    start_escape_path: tuple[tuple[int, int], ...] = ()
     if start is None or not grid.free_with_clearance(
         *start, clearance_cells=clearance_cells
     ):
         if start_snap_radius_m <= 0:
             return None
-        start = grid.nearest_clearance_seed(
+        seed_path = grid.nearest_clearance_seed_path(
             start_x,
             start_y,
             clearance_cells=clearance_cells,
             max_distance_m=start_snap_radius_m,
             start_footprint_override_m=start_footprint_override_m,
         )
-        if start is None:
+        if seed_path is None:
             return None
+        start_escape_path = seed_path
+        start = seed_path[-1]
     start_center = grid.cell_center(*start)
     start_snap_distance_m = math.hypot(
         start_center[0] - start_x, start_center[1] - start_y
@@ -392,10 +395,20 @@ def plan_route(
     while cells[-1] != start:
         cells.append(parent[cells[-1]])
     cells.reverse()
+    if start_escape_path:
+        cells = [*start_escape_path[:-1], *cells]
+    length_m = 0.0
+    for first, second in zip(cells, cells[1:]):
+        first_xy = grid.cell_center(*first)
+        second_xy = grid.cell_center(*second)
+        length_m += math.hypot(
+            second_xy[0] - first_xy[0],
+            second_xy[1] - first_xy[1],
+        )
     return RoutePlan(
         cells=tuple(cells),
         target_cell=target,
-        length_m=float(best_cost[target]),
+        length_m=float(length_m),
         start_snap_distance_m=start_snap_distance_m,
         reaches_arrival_region=reaches_arrival_region,
         remaining_goal_distance_m=max(

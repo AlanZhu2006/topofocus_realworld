@@ -359,6 +359,46 @@ def test_ground_guard_no_floor_breaks_consecutive_drift_run(monkeypatch):
     assert pipeline.mapper.calls == 0
 
 
+def test_stage1_yolo_stays_current_when_wall_frame_cannot_update_map(
+    monkeypatch,
+):
+    detector = _Detector()
+    pipeline, segmenter = _pipeline(
+        "session-a",
+        ground_guard=True,
+        semantic_detector=detector,
+        semantic_yolo_reinforce_map=False,
+    )
+    no_floor = GroundCandidate(
+        accepted=False,
+        ground_z_m=None,
+        reason="insufficient_candidates",
+        candidate_points=10,
+        inlier_points=0,
+        inlier_ratio=0.0,
+        tilt_deg=None,
+        plane_coefficients=None,
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate", lambda *_args: no_floor
+    )
+
+    decision = pipeline.process(_observation(10, "session-a"))
+    status = pipeline.semantic_yolo_status()
+
+    assert decision.reason == "ground_insufficient_candidates"
+    assert detector.calls == 1
+    assert segmenter.calls == 0
+    assert pipeline.mapper.calls == 0
+    assert pipeline.last_sequence is None
+    assert status["last_sequence"] == 10
+    assert status["last_detections"][0]["class_name"] == "chair"
+    assert status["inference_policy"] == "every_current_observation_for_stage1"
+
+
 def test_ground_guard_passes_frame_plane_to_mapper(monkeypatch):
     pipeline, segmenter = _pipeline("session-a", ground_guard=True)
     candidate = GroundCandidate(

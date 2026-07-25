@@ -145,9 +145,50 @@ def test_frozen_input_requires_current_epoch_and_strict_mapping_metadata(
     )
 
     assert record["source_sequence"] == 10
+    assert record["perception_source_sequence"] == 10
+    assert record["map_last_integrated_sequence"] is None
+    assert record["perception_map_sequence_gap"] is None
+    assert record["perception_map_relationship"] == "same_observation"
     assert snapshot.transform_version == "calib-test-v1"
     assert metadata.mapping_only is False
     assert record["source_mapping_health"]["classification"] == "command_ready"
+
+
+def test_frozen_input_records_current_perception_over_last_accepted_bev(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now_ns = 100_000_000_000
+    observation = observation_factory(
+        sequence=10,
+        now_ns=now_ns,
+        mapping_only=False,
+        health_ready=True,
+    )
+    session, frozen, spool = build_inputs(tmp_path, observation)
+    summary_path = frozen / "map_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["last_observation_sequence"] = 8
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    record, _, _ = module.validate_frozen_robot(
+        session,
+        "robot-0",
+        frozen,
+        tmp_path / "accepted/wsj",
+        spool,
+        now_ns=now_ns,
+        max_input_age_s=1.0,
+        minimum_source_sequence=10,
+    )
+
+    assert record["perception_source_sequence"] == 10
+    assert record["map_last_integrated_sequence"] == 8
+    assert record["perception_map_sequence_gap"] == 2
+    assert (
+        record["perception_map_relationship"]
+        == "current_stage1_with_last_geometry_accepted_bev"
+    )
 
 
 def test_frozen_input_accepts_exact_fail_closed_wsj_mapping_health(

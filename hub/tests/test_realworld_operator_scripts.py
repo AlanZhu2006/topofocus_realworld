@@ -46,6 +46,7 @@ def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():
     assert "wait_and_seal_terminal_evidence(" in runner
     assert "semantic_arrival_episode_complete_hold" in runner
     assert "LIVE_RECEIVERS_READY_NO_GOAL" in source
+    assert "--round-input-timeout-s 45" in source
     assert 'payload.get("ready_for_goal") is not True' in source
     assert 'payload.get("health_source") != "heartbeat"' in source
 

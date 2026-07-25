@@ -303,7 +303,7 @@ class OccupancyGrid2D:
             self.origin_y_m + (row + 0.5) * self.resolution_m,
         )
 
-    def nearest_clearance_seed(
+    def nearest_clearance_seed_path(
         self,
         start_x_m: float,
         start_y_m: float,
@@ -311,8 +311,8 @@ class OccupancyGrid2D:
         clearance_cells: int = 1,
         max_distance_m: float,
         start_footprint_override_m: float = 0.0,
-    ) -> tuple[int, int] | None:
-        """Find the nearest clearance-safe seed through known-free cells.
+    ) -> tuple[tuple[int, int], ...] | None:
+        """Find a bounded traversed path to the nearest clearance-safe seed.
 
         A fresh forward-looking online map can place the robot's free start
         cell beside the unknown map boundary.  In that case footprint
@@ -326,6 +326,10 @@ class OccupancyGrid2D:
         traversible override without changing the occupancy grid: the returned
         seed must still be genuinely known-free with the requested clearance,
         and no occupied/unknown cell outside the measured footprint is crossed.
+
+        Returning the complete escape path is important: a caller must not
+        silently start its route at a seed up to a metre away and command a
+        straight-line shortcut from the measured robot pose.
         """
 
         if clearance_cells < 0:
@@ -378,6 +382,7 @@ class OccupancyGrid2D:
             return None
 
         reached = {start}
+        parent: dict[tuple[int, int], tuple[int, int]] = {}
         pending = deque([start])
         best: tuple[float, int, int] | None = None
         max_distance_sq = max_distance_m * max_distance_m
@@ -420,18 +425,49 @@ class OccupancyGrid2D:
                 check_x, check_y = self.cell_center(
                     check_row, check_column
                 )
-                inside_measured_footprint = (
+                check_distance_sq = (
                     (check_x - start_x_m) ** 2
                     + (check_y - start_y_m) ** 2
+                )
+                if check_distance_sq > max_distance_sq + 1e-12:
+                    continue
+                inside_measured_footprint = (
+                    check_distance_sq
                     <= footprint_distance_sq + 1e-12
                 )
                 if check_value != 0 and not inside_measured_footprint:
                     continue
                 reached.add(candidate_cell)
+                parent[candidate_cell] = (row, column)
                 pending.append(candidate_cell)
         if best is None:
             return None
-        return best[1], best[2]
+        seed = (best[1], best[2])
+        path = [seed]
+        while path[-1] != start:
+            path.append(parent[path[-1]])
+        path.reverse()
+        return tuple(path)
+
+    def nearest_clearance_seed(
+        self,
+        start_x_m: float,
+        start_y_m: float,
+        *,
+        clearance_cells: int = 1,
+        max_distance_m: float,
+        start_footprint_override_m: float = 0.0,
+    ) -> tuple[int, int] | None:
+        """Return only the endpoint of :meth:`nearest_clearance_seed_path`."""
+
+        path = self.nearest_clearance_seed_path(
+            start_x_m,
+            start_y_m,
+            clearance_cells=clearance_cells,
+            max_distance_m=max_distance_m,
+            start_footprint_override_m=start_footprint_override_m,
+        )
+        return None if path is None else path[-1]
 
     def reachable_component(
         self,

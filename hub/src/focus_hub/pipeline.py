@@ -255,6 +255,46 @@ class SpoolMappingPipeline:
         # session: repeatedly appending those poses can draw a convincing but
         # false line across the discontinuity that caused the latch.
         self.last_rgb_bgr = observation.rgb_bgr
+        # The executable source feeds the Perception VLM with the *current*
+        # RGB plus YOLO detections.  Pixel-map integration is a separate,
+        # geometry-sensitive operation.  In evidence-only mode, therefore,
+        # keep Stage-1 perception current even when a wall-facing frame has no
+        # trustworthy visible floor and must not be fused into the BEV.
+        #
+        # Map-reinforcement mode remains keyframe-only because its detections
+        # mutate the pixel labels that are projected into the map below.
+        if (
+            self.semantic_detector is not None
+            and not self.semantic_yolo_reinforce_map
+        ):
+            self.semantic_yolo_frames_inferred += 1
+            self.last_semantic_yolo_sequence = observation.sequence
+            try:
+                detections = self.semantic_detector.detect_boxes(
+                    observation.rgb_bgr
+                )
+                self.last_semantic_yolo_detections = [
+                    {
+                        "class_name": item.class_name,
+                        "confidence": item.confidence,
+                        "xyxy": list(item.xyxy),
+                        "status": "model_inference_unverified",
+                    }
+                    for item in detections
+                ]
+                self.last_semantic_yolo_evidence = []
+                self.last_semantic_yolo_error = None
+                if detections:
+                    self.semantic_yolo_frames_with_detections += 1
+            except Exception as exc:
+                # Preserve the exact source frame and an explicit failure
+                # rather than silently falling back to an older RGB frame.
+                self.semantic_yolo_failures += 1
+                self.last_semantic_yolo_detections = []
+                self.last_semantic_yolo_evidence = []
+                self.last_semantic_yolo_error = (
+                    f"{type(exc).__name__}: {exc}"
+                )[:300]
         if self.mapping_blocked_reason is not None:
             self.trajectory_xy_m = [self.last_camera_xy]
             self.robot_trajectory_xy_m = [self.last_robot_xy]
@@ -397,7 +437,10 @@ class SpoolMappingPipeline:
             return decision
 
         pred = self.segmenter.segment(observation.rgb_bgr, observation.depth_m)
-        if self.semantic_detector is not None:
+        if (
+            self.semantic_detector is not None
+            and self.semantic_yolo_reinforce_map
+        ):
             self.semantic_yolo_frames_inferred += 1
             self.last_semantic_yolo_sequence = observation.sequence
             try:
@@ -413,21 +456,12 @@ class SpoolMappingPipeline:
                 ]
                 if detections:
                     self.semantic_yolo_frames_with_detections += 1
-                if self.semantic_yolo_reinforce_map:
-                    pred, yolo_evidence = reinforce_rednet_prediction(
-                        pred,
-                        observation.depth_m,
-                        detections,
-                        self.semantic_yolo_config,
-                    )
-                else:
-                    # The executable HPC source sends real YOLOv10 detections
-                    # to the Perception VLM, while its pixel semantic BEV comes
-                    # from the segmentation backend. Preserve that separation
-                    # for real-camera deployment: persist the detections and
-                    # exact source frame without painting box-derived labels
-                    # into the map.
-                    yolo_evidence = []
+                pred, yolo_evidence = reinforce_rednet_prediction(
+                    pred,
+                    observation.depth_m,
+                    detections,
+                    self.semantic_yolo_config,
+                )
                 self.last_semantic_yolo_evidence = [
                     item.to_dict() for item in yolo_evidence
                 ]
@@ -503,6 +537,11 @@ class SpoolMappingPipeline:
             "map_reinforcement_enabled": (
                 self.semantic_detector is not None
                 and self.semantic_yolo_reinforce_map
+            ),
+            "inference_policy": (
+                "integrated_keyframes_only_for_map_reinforcement"
+                if self.semantic_yolo_reinforce_map
+                else "every_current_observation_for_stage1"
             ),
             "model_provenance": provenance,
             "config": {

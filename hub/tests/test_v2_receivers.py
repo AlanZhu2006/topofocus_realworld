@@ -499,6 +499,12 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert "raw and guarded cmd_vel topics must differ" in source
     assert "poi_has_no_bypass_publisher" in source
     assert "raw_cmd_has_no_direct_bridge" in source
+    assert "--trajectory-start-grace-s" in source
+    assert "--trajectory-stale-timeout-s" in source
+    assert '"trajectory_missing_or_stale"' in source
+    assert '"LOCAL_PLANNER_PATH_STALE"' in source
+    assert 'active_goal.target_kind == "SEMANTIC_REGION"' in source
+    assert '"control_telemetry"' in source
 
 
 def test_wsj_online_buildmap_mode_is_explicit_and_pause_is_latched():
