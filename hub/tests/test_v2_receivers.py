@@ -450,6 +450,37 @@ def test_wsj_slam_gate_tolerates_only_one_transient_interval_blip():
     )
 
 
+def test_wsj_slam_gate_bounds_skipped_invalid_imu_optimizer_report():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    gate = wsj.SlamHealthDebouncer(
+        max_transient_failures=1,
+        max_last_good_age_s=2.0,
+    )
+    valid = valid_slam_payload()
+    skipped = valid.replace(
+        '"optimizer_status": "ok"',
+        '"optimizer_status": "skipped_imu_invalid"',
+    )
+
+    assert gate.update(skipped, received_ns=900_000_000) == (
+        False,
+        "optimizer_status=skipped_imu_invalid",
+    )
+    assert gate.update(valid, received_ns=1_000_000_000)[0] is True
+    first_pass, first_detail = gate.update(
+        skipped,
+        received_ns=1_500_000_000,
+    )
+    assert first_pass is True
+    assert first_detail == (
+        "optimizer_status=skipped_imu_invalid_transient_tolerated_1/1"
+    )
+    assert gate.update(
+        skipped,
+        received_ns=1_900_000_000,
+    ) == (False, "optimizer_status=skipped_imu_invalid")
+
+
 def test_wsj_tracking_freshness_keeps_odom_deadline_stricter_than_slam():
     wsj = load_overlay("v2_wsj_receiver.py")
 

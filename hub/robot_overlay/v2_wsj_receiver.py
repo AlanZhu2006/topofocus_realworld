@@ -76,6 +76,11 @@ SLAM_OVERWRITE_RECOVERY_MIN_REPORTS = 3
 SLAM_OVERWRITE_RECOVERY_MIN_S = 2.0
 TRANSIENT_SLAM_FAILURES = frozenset(
     {
+        # The bounded perception adapter freezes its last accepted pose,
+        # zeroes its internal velocity, and publishes no pose for this frame.
+        # Treat only one such report after a recent good report like the
+        # equivalent interval-level diagnostic blips below.
+        "optimizer_status=skipped_imu_invalid",
         "imu_intervals_invalid",
         "imu_intervals_missing",
         "imu_interval_invalid",
