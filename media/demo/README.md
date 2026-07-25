@@ -13,6 +13,72 @@ Known July 23/24 engineering attempts (`official-run01` and retry1–retry3)
 will be labelled as failed/excluded demos. Uploading their videos does not
 change their metric status.
 
+## Published operator-adjudicated success
+
+### Near-chair Yunji run — 2026-07-25
+
+These recordings are explicitly bound to:
+
+- session: `20260725-lab17-nearwall-fix`;
+- session Git commit:
+  `cbe6d9b02f50ded3607037c46abb0230d1639ebc`;
+- scene: `scene01-chair`;
+- episode: `trial-05-nearwall-fix`;
+- automatic outcome: `failed_robot_or_controller_holding` with Yunji
+  `LOCAL_PLANNER_PATH_STALE` under the old `0.15 m` arrival radius;
+- adjudicated outcome: success under the declared `0.5 m` physical terminal
+  radius;
+- metric track: `operator_adjudicated_0p5m_demo`;
+- metric result: `SR=1`, source-compatible `SPL=0.864048038008398`,
+  standard SPL unavailable without a pre-surveyed shortest path.
+
+The external video shows Yunji drive toward the white chair and stop beside
+it while WSJ remains at the start area. Robot-log geometry places Yunji
+`0.321133366707683 m` from its selected semantic approach point. The original
+automatic report is preserved rather than rewritten.
+
+#### External-view success record
+
+- Published video:
+  `operator_adjudicated_success_third_view_20260725.mp4`
+- Poster:
+  `operator_adjudicated_success_third_view_20260725_poster.jpg`
+- Original user-provided master:
+  `media/video/third_view/experiment_1/experiment_1_success.mp4`,
+  9,749,574 bytes, HEVC/AAC, 544 × 960, nominal 30 fps,
+  141.733333 seconds, SHA-256
+  `ab611dde043c78abbbe618a8f2ce95f1f5113b4f6b0df8466038abc1ebafb44c`;
+  retained locally and ignored.
+- Published derivative: 15,972,419 bytes, H.264, `yuv420p`, 544 × 960,
+  30 fps, 141.734 seconds, SHA-256
+  `62390579a390451b442562029c2d385729d282696605bb347dcbe2d64f11af1c`.
+- Poster: 138,572 bytes, 544 × 960, sampled at 141.0 seconds, SHA-256
+  `27340abea65bdb2706aff8254c5257c915bc29aa03d336eaa849f0e5022702bc`.
+
+#### Dashboard success record
+
+- Published video:
+  `operator_adjudicated_success_dashboard_20260725.mp4`
+- Poster:
+  `operator_adjudicated_success_dashboard_20260725_poster.jpg`
+- Original user-provided master:
+  `media/video/dashboard/experiment_1/experiment_1_success_dashboard.mov`,
+  80,244,552 bytes, H.264/AAC, 2392 × 1080, 30 fps, 125.829 seconds,
+  SHA-256
+  `ad0e99c4ebb56e90a5923af636f0269b118349e3353c05511b3e21c5020fae34`;
+  retained locally and ignored.
+- Published derivative: 1,365,229 bytes, H.264, `yuv420p`, 1280 × 578,
+  30 fps, 125.767 seconds, SHA-256
+  `a88716cc94600859eb23e87ccfa131133259389e0bbdc46c6b5cd4746d4df4a5`.
+- Poster: 82,157 bytes, 1280 × 578, sampled at 123.0 seconds, SHA-256
+  `7d76b00a4e793cd9d88887ba24d7c906ba9fa6b01d0716950ea12a1ed95741bc`.
+
+Both derivatives were produced with the locally observed `ffmpeg` 4.4.2,
+`libx264`, `yuv420p`, fast-start MP4 and no audio. Exact runtime evidence and
+the separation between automatic, adjudicated and standard metric tracks are
+in
+[`../../audit/NEAR_CHAIR_SUCCESS_20260725.md`](../../audit/NEAR_CHAIR_SUCCESS_20260725.md).
+
 ## Published failed demos
 
 ### Bound dual-robot collision — 2026-07-25

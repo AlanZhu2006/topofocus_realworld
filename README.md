@@ -9,8 +9,10 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 权威状态见 [CURRENT_STATUS.md](CURRENT_STATUS.md)。摘要如下：
 
 - 双机真实链路已经实际跑到“观测、在线地图、VLM、高层 v2 目标、
-  两台机器人本地规划与运动、本地反馈、租约续期和故障 HOLD”，但仍没有
-  一次可计入 SR/SPL 的正式场景成功。
+  两台机器人本地规划与运动、本地反馈、租约续期和故障 HOLD”。最新
+  `trial-05-nearwall-fix` 已作为 `0.5 m` 真机协议下的人工复核成功计入
+  单独进度轨：`SR=1`、源码兼容 `SPL=0.864048`；尚不能报告没有预先测量
+  最短路的标准 SPL。
 - WSJ 当前为 D435i + 修复后的 TinyNav perception/IMU + 在线
   BuildMap；Yunji 当前为 Odin1 `O1-P070100205`，不是旧的 RealSense
   路径。
@@ -21,8 +23,8 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 - 碰撞根因不是“两个机器人拿到同一个前沿”，而是源码式顺序分配只保证
   前沿不同，没有保证两条物理路线分离。提交 `b79879b` 新增
   `0.9 m` 保守路线冲突门控：保留原始双机 VLM candidate，但冲突时只放行
-  一台，另一台 HOLD。事故几何 replay 和本机完整测试已通过，尚未重新真机
-  验证。
+  一台，另一台 HOLD。最新真机 run 三轮都观察到该串行化生效：WSJ/Yunji
+  不再同时穿越冲突路线。
 - Yunji 正式链路已改为与 WSJ 相同的在线 TinyNav 架构：Odin 提供
   校正深度、位姿和世界点云，TinyNav 负责在线 occupancy、A*、局部规划
   与控制；WATER 只执行经过租约门控的 `/api/joy_control` 速度。该实现
@@ -36,8 +38,9 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 - `example.png` 风格的双机 2D 图已经作为 WSJ、Yunji 和 fused 三个
   Foxglove Image topic 实现：像素语义、标签、轨迹、base 位姿/朝向和
   A–D 前沿同时显示；旧 relay 源码哈希不一致时一键启动会自动拒绝。
-- 四场景 × 五次、标准 SPL/源码兼容 SPL 和 episode 报告已经实现；
-  当前没有有效正式样本，因此 SR/SPL 暂无数值。
+- 四场景 × 五次、标准 SPL/源码兼容 SPL 和 episode 报告已经实现。当前
+  单独的 `operator_adjudicated_0p5m_demo` 轨已有 1 个样本：
+  `SR=1.0`、源码兼容 `SPL=0.864048`；预先测量最短路的标准轨仍无样本。
 - 正式 `live` 已在本机接成源码节拍的多轮循环：前沿到达继续重规划，
   语义区域 `ARRIVED` 才会双机 HOLD 并自动封存终点 RGB-D/地图证据。
   第一轮物理发布、反馈和租约续期已被观察；自动多轮终止和终点封存仍待
@@ -47,6 +50,18 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
   严格无运动 debug；操作者已确认最新 Foxglove 地图正常。随后只是 Go2
   底盘充电下电，WSJ Jetson/perception SLAM 仍持续运行，因此该事件本身不要求重新
   标定。
+- session `20260725-lab17-nearwall-fix` 随后完成三轮真机运动：Yunji 在
+  第三轮检测到 chair 并停在语义落点 `0.321 m` 内。旧 `0.15 m` 到达门限
+  先触发 `LOCAL_PLANNER_PATH_STALE`；提交 `b1762d1` 已把两台真机 launcher
+  的语义到达半径显式设为 `0.5 m`，后续同类终点应自动 `ARRIVED`。
+- Yunji 在该 run 后于 09:26 重启，Odin driver 于 09:27 重新进入 active；
+  tracking epoch 已改变。随后准备 `20260725-lab18-repeat2` 时，Go2 又被
+  移到充电位，因此这次不能再走 stationary re-anchor；lab18 在出板结果前
+  已安全中止。Go2 回到新起点后必须用新 session 做完整双位置板标定。
+- lab18 启动还发现 WSJ/Yunji 发布根目录中的交叉 launcher 版本不一致；
+  两个文件已原子同步，之后双端完整字节校验通过。该问题只影响发布一致性
+  门禁，没有产生运动。记录见
+  [lab18 标定中止审计](audit/LAB18_CALIBRATION_ABORT_20260725.md)。
 - 一键流程已加入 tracking-epoch 判定和热复用：底盘单独上下电可直接进入
   下一次 live；WSJ perception/SLAM 或 Yunji Odin 真正重启才会在发布目标前
   拒绝旧标定。同一 session 的后续实验并行切换双机接收器，结束时只移除
@@ -95,6 +110,27 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 片段保留并排除在 SR/SPL 之外；完整文件哈希和转码来源见
 [`media/demo/README.md`](media/demo/README.md)。
 
+### 首个 0.5 m 真机协议人工复核成功
+
+| 第三视角 | 同期 Foxglove Dashboard |
+| --- | --- |
+| [![Yunji 驶近目标椅并停止](media/demo/operator_adjudicated_success_third_view_20260725_poster.jpg)](media/demo/operator_adjudicated_success_third_view_20260725.mp4) | [![成功 run 的 Foxglove Dashboard](media/demo/operator_adjudicated_success_dashboard_20260725_poster.jpg)](media/demo/operator_adjudicated_success_dashboard_20260725.mp4) |
+| [播放 141.7 秒第三视角](media/demo/operator_adjudicated_success_third_view_20260725.mp4) | [播放 125.8 秒 Dashboard](media/demo/operator_adjudicated_success_dashboard_20260725.mp4) |
+
+`20260725-lab17-nearwall-fix / trial-05-nearwall-fix` 中，Yunji 走过
+`4.048842 m`，停在所选 chair 语义落点 `0.321133 m` 内。操作者按随后
+固定的 `0.5 m` 真机终点半径复核为成功，因此单独进度轨计
+`SR=1`、源码兼容 `SPL=0.864048`。旧程序的自动
+`LOCAL_PLANNER_PATH_STALE` 结果仍原样保留；因为没有预先测量最短路径，
+该样本暂不产生标准 SPL。完整证据与口径见
+[near-chair 成功审计](audit/NEAR_CHAIR_SUCCESS_20260725.md)。
+
+![本轮带双机位姿、轨迹、前沿和语义区域的地图截图](media/image/experiment_1_map.png)
+
+这张用户提供的本轮截图保留了 Yunji 的完整绿色轨迹、两台机器人位姿、
+A–D 前沿以及 `chair` 投影。底部 `plant` 色块仍是未经独立验证的模型输出，
+不作为真实目标或成功证据。
+
 ### 已绑定的双机碰撞记录
 
 | 第三视角 | 同期 Foxglove Dashboard |
@@ -120,7 +156,9 @@ Dashboard 同期显示短轨迹汇合、WSJ 相机近距离遮挡和模型投影
 双机 Foxglove preview：完整看到标定板后按第一次 Enter 计算初始拟合，
 只移动标定板后按第二次 Enter 完成 holdout、部署和无运动 debug；机器人
 在标定阶段没有运动命令路径。单独给底盘下电不会改变相机外参；运行脚本
-会用 tracking 进程 epoch 判断是否可以直接复用。
+会用 tracking 进程 epoch 判断是否可以直接复用。若把整台机器人移到充电
+位或重新摆放，则共享物理位置已经改变，必须使用新 session 重新做完整
+双位置板标定。
 
 ### 语义 2D 地图展示目标
 

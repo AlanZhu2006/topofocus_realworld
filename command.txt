@@ -19,7 +19,8 @@
 #
 # 上下电后先按这三类判断：
 #   A. 只给 Go2/WATER 底盘下电，Jetson/Odin/SLAM 没重启：
-#      不需要标定，也不需要重复 debug；底盘重新站立后直接运行第 3/4 节。
+#      仅在整台机器人和相机物理位置完全未变时，不需要标定或重复 debug；
+#      底盘重新站立后直接运行第 3/4 节。把整台机器人移到充电位不属于 A。
 #   B. Hub 本机、Foxglove 或 SSH 重启，但两端 tracking 进程没重启：
 #      同样直接运行 live；一键脚本会恢复 Hub/隧道外的本机组件。
 #   C. WSJ perception/SLAM 或 Yunji Odin driver 重启，或者相机/机器人被挪动：
@@ -41,7 +42,8 @@
 #   脚本完成第一次拟合后，提示只移动标定板；
 #   第二次提示：再次确认两边完整看到板，直接按 Enter；
 #   随后自动完成 holdout、部署、fresh map 和无运动 debug。
-# 每个新摆位必须使用新的、全小写 session ID。
+# 每个新摆位必须使用新的、全小写 session ID。下面自动生成一次性 ID，
+# 避免重复使用旧目录；同一轮后续 live 仍统一使用 --session-file current。
 #
 # 成功标志：
 #   DEBUG_FULLSTACK_READY
@@ -49,8 +51,9 @@
 #   hub/runtime/sessions/current.json 已生成
 #
 cd /home/asus/Research/focus_realworld_workspace
+SESSION_ID="lab-$(date +%Y%m%d-%H%M%S)"
 bash hub/scripts/calibrate_realworld_session.sh \
-  --session-id 20260725-lab13 \
+  --session-id "$SESSION_ID" \
   --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY \
   --goal-category chair
 

@@ -1,7 +1,8 @@
 # Current project status
 
-Snapshot time: **2026-07-25, after fresh session `20260725-lab12` passed
-strict debug and the operator accepted its new Foxglove maps**
+Snapshot time: **2026-07-25, after `trial-05-nearwall-fix`, its 0.5 m
+operator adjudication, the automatic-arrival fix, a subsequent Yunji power
+cycle and the aborted `20260725-lab18-repeat2` calibration**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -22,12 +23,12 @@ RGB-D/pose
   -> fail-closed HOLD
 ```
 
-Both robots moved during episode `scene01-chair-run01-fastfix`. This is the
-first observed concurrent physical execution of the current end-to-end
-architecture, but it is **not a success**: their assigned frontiers were
-different while the corresponding start-to-target routes crossed. The robots
-made physical contact, the operator stopped the run, and the episode is
-excluded from SR/SPL.
+The earlier episode `scene01-chair-run01-fastfix` remains a collision and is
+excluded. The newer session `20260725-lab17-nearwall-fix`, episode
+`trial-05-nearwall-fix`, completed three source-scheduled rounds with the
+post-collision route guard serializing physical authority. Yunji detected the
+chair and approached the semantic point; WSJ was intentionally HOLD whenever
+its route conflicted.
 
 The pre-incident controller allowed both robots to be active because source
 coordination removes Agent 0's selected frontier before Agent 1 chooses; that
@@ -38,10 +39,21 @@ the buffered shared-frame start-to-target segments come within `0.9 m`.
 Replay of the observed starts and targets reports a minimum predicted
 separation of `0.0 m` and reduces authority to one robot. This fix is committed
 and locally tested. It is included in the newer calibrated/debugged
-`20260725-lab12` deployment, but has not yet been verified in motion.
+`20260725-lab12` deployment and has now been observed in motion over all three
+rounds of `trial-05-nearwall-fix`.
 
-No official scene has completed successfully. Current SR and SPL therefore
-remain **not available**, rather than zero-valued experimental estimates.
+The old receiver stopped the episode with `LOCAL_PLANNER_PATH_STALE` at
+`0.321133 m` from its semantic approach point because that run still used a
+`0.15 m` arrival radius. The onsite operator explicitly adjudicated it
+successful under the subsequently declared `0.5 m` physical radius. The
+separate `operator_adjudicated_0p5m_demo` progress track therefore contains
+one sample with `SR=1.0` and exact source-compatible `SPL=0.864048`; standard
+SPL remains unavailable because no shortest path was surveyed before the run.
+The original automatic failure record is unchanged.
+
+Commit `b1762d15e1059281056ef1e6b4e472e9d25258e1` now passes the `0.5 m`
+semantic radius explicitly to both physical launchers, so future equivalent
+terminals can report automatic `ARRIVED`.
 
 ## Latest validated physical session
 
@@ -49,28 +61,49 @@ The latest session that passed strict no-motion debug is:
 
 | Item | Observed value |
 | --- | --- |
-| Session | `20260725-lab12` |
-| Session Git commit | `9c5f922659b11ec3958e5ab36a4043470d10a0bb` |
-| Calibration ID | `shared-board-odin1-20260725-lab12-v1` |
-| Calibration kind | independent moved-board holdout |
-| Calibration SHA-256 | `088bf0f1ad779745053feead66e791fa884baab3bf57a13925decbffe280d1a3` |
-| WSJ transform | `wsj-tinynav-depth-20260725-lab12-raw-v1` |
-| Yunji transform | `yunji-odin1-board-20260725-lab12-v1` |
-| WSJ map boundary | sequence `24627` |
-| Yunji map boundary | sequence `227341` |
-| Debug manifest SHA-256 | `c18b2291fc16c86b7549772eeed7b28918c94eac531027191295488921925d3b` |
-| Live episode | not yet run for this session |
+| Session | `20260725-lab17-nearwall-fix` |
+| Session Git commit | `cbe6d9b02f50ded3607037c46abb0230d1639ebc` |
+| Calibration ID | `shared-board-odin1-20260725-lab15-reanchor1-v1` |
+| Calibration kind | validated stationary re-anchor of board calibration |
+| Calibration SHA-256 | `825d8ef714cbf06f24b783f476b21becd5ccf0af28dbb78075ba97e45ac32d0a` |
+| WSJ transform | `wsj-tinynav-depth-20260725-lab15-raw-v1` |
+| Yunji transform | `yunji-odin1-reanchor-20260725-lab15-reanchor1-v1` |
+| WSJ map boundary | sequence `26943` |
+| Yunji map boundary | sequence `238267` |
+| Debug manifest SHA-256 | `176650ecac3dd802188fbc0a010ed98e1f89d1d23b8a72633754a613354b07ac` |
+| Live episode | `trial-05-nearwall-fix`; operator-adjudicated 0.5 m success |
 | Hub API | `http://127.0.0.1:8188` |
 | GLM endpoint | `http://127.0.0.1:31511/v1` |
 | Foxglove | `ws://10.208.2.249:8765` |
 
-The operator confirmed that both new per-robot maps and their Foxglove
-presentation looked normal. The later Go2 charging event powered only the
-chassis down; WSJ Jetson/perception SLAM and the sensor stream remained alive. That
-event therefore does not change the shared transform. A new Git commit still
-requires a new session/debug binding, but it can reuse this physical
-calibration when the tracking processes and robot placement remain unchanged;
-it does not require another board fit.
+After this run, Yunji was fully power-cycled. Read-only inspection observed a
+new host boot at `2026-07-25 09:26:54 +08:00` and the Odin driver active from
+`09:27:02`. A later `20260725-lab18-repeat2` calibration attempt was cancelled
+before a board fit because the Go2 was moved to its charging position. There
+is therefore no lab18 calibration to reuse, and the old lab17 shared placement
+is no longer valid for the next physical run.
+
+The lab18 release check also exposed stale cross-robot launcher copies in the
+remote release roots. Both cross-launchers were synchronized atomically and a
+subsequent complete byte-identical verification passed on WSJ and Yunji before
+the calibration was cancelled. Exact hashes and the incomplete-attempt
+boundary are recorded in
+[`audit/LAB18_CALIBRATION_ABORT_20260725.md`](audit/LAB18_CALIBRATION_ABORT_20260725.md).
+
+## Latest near-chair episode
+
+The exact evidence and arithmetic for `trial-05-nearwall-fix` are in
+[`audit/NEAR_CHAIR_SUCCESS_20260725.md`](audit/NEAR_CHAIR_SUCCESS_20260725.md)
+and the machine-readable
+[`manifests/realworld_experiment_progress.json`](manifests/realworld_experiment_progress.json).
+The key facts are:
+
+- Yunji path length: `4.048842201890332 m`;
+- start-to-stop displacement: `3.498394160748945 m`;
+- final distance to the selected semantic point: `0.321133366707683 m`;
+- third-view terminal frame independently shows Yunji beside the chair;
+- posthoc 0.5 m track: `SR=1`, source-compatible `SPL=0.864048038008398`;
+- pre-surveyed standard SPL: unavailable.
 
 ## Observed physical episode
 
@@ -124,8 +157,9 @@ sequential frontier allocation.
 
 Its current limitation is explicit: straight start-to-target segment
 separation is conservative and does not certify robot-local planner detours.
-The next physical run must first verify that the observed crossing case
-produces one GOAL plus one HOLD before allowing movement.
+The latest physical run verified that crossing/near-crossing allocations
+produce one GOAL plus one HOLD, but this is still serialization rather than
+full multi-robot trajectory planning.
 
 ## Subsystem status
 
@@ -177,18 +211,19 @@ produces one GOAL plus one HOLD before allowing movement.
 - Four scenes × five trials are documented.
 - Standard SPL and source-compatible SPL are implemented.
 - Episode reports preserve robot-local start/stop poses and accumulated path.
-- Official success still requires surveyed shortest paths, goal-region
-  membership and independent terminal target evidence.
+- The operator-adjudicated 0.5 m progress track currently has one success:
+  `SR=1`, source-compatible `SPL=0.864048`.
+- The pre-surveyed standard track still requires surveyed shortest paths,
+  automatic terminal/goal-region membership and independent target evidence.
 - Collision, operator stop, controller error, incomplete terminal evidence
-  and debug/shadow runs are excluded.
+  and debug/shadow runs remain excluded from that standard track.
 
 ## Today's implementation delta
 
-The runtime series through session `20260725-lab12` is authored as
-`AlanZhu2006 <yz11502@nyu.edu>`. The current acceleration change adds a
-read-only Linux tracking-epoch probe, parallel robot lifecycle operations,
-warm fail-closed cleanup and documented power-cycle classification. Exact
-commit and diff statistics are taken from Git after this change is committed.
+The runtime series through session `20260725-lab17-nearwall-fix` is authored
+as `AlanZhu2006 <yz11502@nyu.edu>`. In addition to the startup acceleration,
+the current code includes the physically exercised route guard and the
+explicit `0.5 m` semantic-arrival setting for future physical runs.
 
 The work groups into:
 
@@ -212,35 +247,41 @@ series.
 
 At closeout:
 
-- the operator confirmed the fresh `20260725-lab12` maps looked correct;
-- Hub health reports `goal_output_enabled=false` for both robots;
+- `trial-05-nearwall-fix` ended with both robots HOLD and zero velocity
+  confirmed in the episode report;
 - no previous operator motion confirmation remains valid;
-- the Go2 chassis is charging and cannot currently run a physical episode;
-- the WSJ compute/sensor tracking process stayed alive across that
-  chassis-only event, so the board calibration itself remains reusable;
+- Yunji was subsequently power-cycled; its host and Odin driver are active,
+  but its tracking epoch is new;
+- the Go2 was moved to charge, so the old shared physical placement is
+  invalid regardless of whether Yunji stayed fixed;
+- `20260725-lab18-repeat2` was cancelled before any valid board fit, holdout,
+  fresh-map debug or live episode;
+- the WSJ connection closed during the charging transition and is not assumed
+  available;
+- a local health check after cancellation reports
+  `goal_output_enabled=false` for `robot-0` and `robot-1`, and no calibration
+  or live runner process remains;
 - old collision session `20260725-lab05-yunjireboot4` remains immutable
   evidence;
-- no live command may run until the Go2 is again powered, standing, clear and
-  a fresh onsite operator confirmation is supplied.
+- the fail-closed Hub process may remain available for observation, but no
+  physical command path is authorized.
 
 ## Next valid workflow
 
-1. Power and stand the Go2 in its intended operating posture; keep both robots
-   fixed and place the complete 7 × 10 board in both camera views.
-2. Run the new-session calibration block in [`command.txt`](command.txt).
-   It deploys the committed code, creates fresh maps/Foxglove and performs
-   strict no-motion debug.
-3. Confirm `DEBUG_FULLSTACK_READY`, both data-plane verification reports and
-   the new route-guard code/session identity.
-4. In a bounded live preflight, inspect `route_conflict_guard.json`. A crossing
-   allocation must expose only one active robot.
-5. Obtain one new onsite motion confirmation and run one supervised episode.
-6. Record independent terminal evidence and surveyed shortest paths only if
-   the episode reaches a valid terminal candidate.
-
-The calibration command already includes the required debug. A second manual
-debug run is optional unless the host, code, tracking epoch or visualization
-state changes afterward.
+1. After charging, return both robots to the intended experiment start poses
+   and keep them stationary.
+2. Restore the existing WSJ SSH/tmux connection and verify both tracking
+   streams without enabling either chassis command path.
+3. Run the normal two-position board calibration with a fresh session ID.
+   Lab18 cannot be reused, and a stationary re-anchor is insufficient because
+   the Go2 was physically moved.
+4. Let the calibration command complete fresh maps/Foxglove and strict
+   no-motion debug. Verify that both physical launchers report
+   `semantic_arrival_radius_m=0.5`.
+5. Obtain a new `OPERATOR_PRESENT_AND_ROBOTS_CLEAR` authorization and run one
+   supervised episode.
+6. Preserve automatic terminal evidence and record the path/metric result
+   immediately. Survey `L` before the run if standard SPL is required.
 
 ## Git and provenance
 
