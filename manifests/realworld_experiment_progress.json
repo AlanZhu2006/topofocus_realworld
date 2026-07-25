@@ -30,12 +30,12 @@
       "reason": "No episode yet has a pre-surveyed shortest path and an automatic local-planner terminal under the declared radius."
     },
     "physical_0p5m_protocol": {
-      "recorded_episodes": 2,
-      "successes": 2,
+      "recorded_episodes": 3,
+      "successes": 3,
       "sr": 1.0,
-      "source_compatible_multi_spl_mean": 0.746223480504199,
+      "source_compatible_multi_spl_mean": 0.816269191777991,
       "standard_multi_spl_mean": null,
-      "classification": "two normal successes under the declared 0.5 m real-world protocol; not mixed into the pre-surveyed standard track"
+      "classification": "three runtime-bound normal successes under the declared 0.5 m real-world protocol; newest is operator-designated formal experiment 04; not mixed into the pre-surveyed standard track"
     }
   },
   "attempts_not_in_metric_track": [
@@ -77,6 +77,8 @@
   "episodes": [
     {
       "record_id": "scene01-chair_trial-05-nearwall-fix",
+      "formal_experiment_index": 3,
+      "formal_experiment_ordinal_source": "observed operator post-run clarification: 还有第三次是那个我手动标注的在readme里有的那个",
       "session_id": "20260725-lab17-nearwall-fix",
       "session_git_commit": "cbe6d9b02f50ded3607037c46abb0230d1639ebc",
       "scene_id": "scene01-chair",
@@ -91,7 +93,7 @@
         "configured_semantic_arrival_radius_m": 0.15
       },
       "physical_protocol_result": {
-        "classification": "normal geometry-checked success under the declared 0.5 m real-world protocol",
+        "classification": "operator-designated formal experiment 03; manually annotated normal geometry-checked success under the declared 0.5 m real-world protocol",
         "counts_in_metric_track": "physical_0p5m_protocol",
         "success": true,
         "success_radius_m": 0.5,
@@ -153,7 +155,8 @@
           "classification": "observed remote Yunji receiver log; robot-local file"
         },
         {
-          "path": "media/video/third_view/experiment_1/experiment_1_success.mp4",
+          "path": "media/video/third_view/experiment_1/experiment_1_success_3.mp4",
+          "original_archived_path": "media/video/third_view/experiment_1/experiment_1_success.mp4",
           "size_bytes": 9749574,
           "sha256": "ab611dde043c78abbbe618a8f2ce95f1f5113b4f6b0df8466038abc1ebafb44c",
           "duration_s": 141.733333,
@@ -174,7 +177,8 @@
           "classification": "source-derived terminal still from the observed external-view master"
         },
         {
-          "path": "media/video/dashboard/experiment_1/experiment_1_success_dashboard.mov",
+          "path": "media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov",
+          "original_archived_path": "media/video/dashboard/experiment_1/experiment_1_success_dashboard.mov",
           "size_bytes": 80244552,
           "sha256": "ad0e99c4ebb56e90a5923af636f0269b118349e3353c05511b3e21c5020fae34",
           "duration_s": 125.829,
@@ -324,6 +328,123 @@
           "sha256": "15d9c77a8c525036cf7e3adb78c454e53391e1067656b5f2d8e3c160d244e13d",
           "source_time_s": 73.0,
           "classification": "source-derived Dashboard still"
+        }
+      ]
+    },
+    {
+      "record_id": "scene01-chair_formal-experiment-04",
+      "formal_experiment_index": 4,
+      "formal_experiment_ordinal_source": "observed operator post-run statement: 可以归档 作为第四次正式实验并且成功",
+      "session_id": "20260725-lab21-wallfix-imudebounce-3a2d953",
+      "session_git_commit": "3a2d953e7ab5c1b7891829b2101dc5bb52126e77",
+      "shared_frame_calibration_id": "shared-board-odin1-20260725-lab21-wallfix-dualreanchor2-v1",
+      "scene_id": "scene01",
+      "episode_id": "trial-wallfix-imudebounce-r1",
+      "target_category": "chair",
+      "automatic_result": {
+        "success": true,
+        "success_basis": "automatic semantic ARRIVED and post-run operator success classification",
+        "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+        "robot_id": "robot-1",
+        "target_kind": "SEMANTIC_REGION",
+        "navigation_status": "ARRIVED",
+        "local_planner_stopped": true,
+        "reason_code": "LOCAL_PLANNER_ARRIVED",
+        "velocity_zero_confirmed": true,
+        "automatic_terminal_candidate_complete": true,
+        "automatic_report_official_success_verified": false,
+        "automatic_report_boundary": "The automatic report predates the post-run operator annotation and is preserved unchanged."
+      },
+      "physical_protocol_result": {
+        "classification": "operator-designated formal experiment 04 and normal automatic semantic-arrival success under the declared 0.5 m real-world protocol",
+        "counts_in_metric_track": "physical_0p5m_protocol",
+        "success": true,
+        "success_radius_m": 0.5,
+        "operator_statement": "可以归档 作为第四次正式实验并且成功",
+        "velocity_zero_confirmed": true,
+        "target_visual_status": "large white chair directly visible in the time-aligned robot-1 terminal RGB; operator explicitly classified the run as successful",
+        "standard_track_eligible": false,
+        "standard_track_exclusion_reason": "No independently surveyed shortest collision-free path L was recorded before the run."
+      },
+      "metrics": {
+        "sr": 1.0,
+        "actual_path_length_m": 3.2102223806424663,
+        "start_xy_m": [
+          -0.2471591459607408,
+          0.07065533898262284
+        ],
+        "stop_xy_m": [
+          2.695039579179446,
+          -0.8063659845414222
+        ],
+        "start_to_stop_displacement_m": 3.070130248072939,
+        "source_compatible_spl_formula": "S * displacement / max(displacement, actual_path)",
+        "source_compatible_spl": 0.956360614325575,
+        "standard_spl": null,
+        "standard_spl_unavailable_reason": "No independently surveyed shortest collision-free path L was recorded before the run."
+      },
+      "run_summary": {
+        "started_at_ns": 1784967692351902076,
+        "completed_at_ns": 1784967850104611768,
+        "source_rounds_completed": 4,
+        "high_level_batches_published": 19,
+        "robot_0_path_length_m": 1.2249606477342507,
+        "both_robots_held_after_arrival": true
+      },
+      "evidence": [
+        {
+          "path": "hub/runtime/sessions/20260725-lab21-wallfix-imudebounce-3a2d953/session.json",
+          "size_bytes": 4338,
+          "sha256": "a93931c27db02fbcb61b0edf26e37281b6b3fc13aa17c209cd5a6687af6b369f",
+          "classification": "observed and source-derived session contract; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/calibration_sessions/20260725-lab21-wallfix-dualreanchor2/shared_frame.json",
+          "size_bytes": 21485,
+          "sha256": "c688becd72e9f320014812c57e3aae15798ad4e731978a063f5bdf2137bae8ed",
+          "classification": "observed and source-derived shared-frame calibration; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab21-wallfix-imudebounce-3a2d953_debug_debug-wallfix-imudebounce_20260725_161937_918937881/shadow/shadow_manifest.json",
+          "size_bytes": 18831,
+          "sha256": "018ab08c62db3cffb58758d6dafe159880c8ff759f7b683e2514b8a1febcb9c3",
+          "classification": "observed strict no-motion full-stack debug manifest; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab21-wallfix-imudebounce-3a2d953_live_scene01_20260725_162131_804477607/episode_report.json",
+          "size_bytes": 20592,
+          "sha256": "2f9036f80879d142f0beac4f6165a40be83634630d41d84b4aa26c76de1df169",
+          "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab21-wallfix-imudebounce-3a2d953_live_scene01_20260725_162131_804477607/scene_manifest.json",
+          "size_bytes": 35184,
+          "sha256": "c534d037c619b3d47309cc405ba4681d91b26d645e87ea82587d1b9d1d678033",
+          "classification": "source-derived continuous scene manifest; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab21-wallfix-imudebounce-3a2d953_live_scene01_20260725_162131_804477607/controller_events.jsonl",
+          "size_bytes": 29368,
+          "sha256": "8b2ce0e5357960117196d3b7a5b6aec9df8086d258eae38175de068c58b7878b",
+          "classification": "source-derived controller event log; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab21-wallfix-imudebounce-3a2d953_live_scene01_20260725_162131_804477607/batch_018_round_3_goal.json",
+          "size_bytes": 6666,
+          "sha256": "7f3ca6460cc5c9c50d9185561d696f0eefe3ef68a7596c2fdfaf534665efe747",
+          "classification": "source-derived applied high-level target batch; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab21-wallfix-imudebounce-3a2d953_live_scene01_20260725_162131_804477607/terminal/terminal_evidence.json",
+          "size_bytes": 10440,
+          "sha256": "ed3dd6ae80c72900b71175e65e5b98fd41c8415eb6f6755e1557631d631763b3",
+          "classification": "source-derived terminal evidence index; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_20260725-lab21-wallfix-imudebounce-3a2d953_live_scene01_20260725_162131_804477607/terminal/robot-1/rgb.jpg",
+          "size_bytes": 134349,
+          "sha256": "c9484cbb97df19675fc30af9085fd0620aa4a8b03c682ff28c983249abbc512f",
+          "classification": "observed post-arrival RGB visibly containing the chair; local runtime file ignored by Git"
         }
       ]
     }

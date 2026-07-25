@@ -1,5 +1,14 @@
 # Scene 01 chair physical success — 2026-07-25
 
+## Later formal ordinal annotation
+
+On 2026-07-25 the operator clarified that this manually annotated README
+result is **formal experiment 03**. The metric values and original evidence
+classification below are unchanged. The two byte-identical master files were
+renamed to `experiment_1_success_3.mp4` and
+`experiment_1_success_3_dashboard.mov`; their original archived paths remain
+part of the historical provenance.
+
 ## Outcome
 
 Session `20260725-lab17-nearwall-fix`, scene `scene01-chair`, episode

@@ -10,10 +10,11 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 
 - 双机真实链路已经实际跑到“观测、在线地图、VLM、高层 v2 目标、
   两台机器人本地规划与运动、本地反馈、租约续期和故障 HOLD”。Scene 01
-  当前已有两个按项目 `0.5 m` 真机成功半径正常通过的样本；最新
-  `20260725-lab19-scene01-8ca1d52-yunjireboot1-r5 / trial-r5-01`
-  由 WSJ 本地规划器自动返回 `ARRIVED`，终点距 chair 语义落点
-  `0.406693 m`。
+  当前已有三个进入独立 `0.5 m` 真机轨的成功样本。操作者明确将
+  `trial-05-nearwall-fix` 标为第三次正式实验（手动终点判定成功），将
+  最新 `20260725-lab21-wallfix-imudebounce-3a2d953 /
+  trial-wallfix-imudebounce-r1` 标为第四次正式实验（成功）；最新 run
+  由 Yunji 本地规划器自动返回 `ARRIVED` 并封存终点证据。
 - WSJ 当前为 D435i + 修复后的 TinyNav perception/IMU + 在线
   BuildMap；Yunji 当前为 Odin1 `O1-P070100205`，不是旧的 RealSense
   路径。
@@ -46,8 +47,8 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
   Foxglove Image topic 实现：像素语义、标签、轨迹、base 位姿/朝向和
   A–D 前沿同时显示；旧 relay 源码哈希不一致时一键启动会自动拒绝。
 - 四场景 × 五次、标准 SPL/源码兼容 SPL 和 episode 报告已经实现。当前
-  `physical_0p5m_protocol` 轨已有 2 个正常通过样本：
-  `SR=2/2=1.0`、平均源码兼容 `SPL=0.746223`；预先测量最短路的标准轨
+  `physical_0p5m_protocol` 轨已有 3 个证据绑定的正常通过样本：
+  `SR=3/3=1.0`、平均源码兼容 `SPL=0.816269`；预先测量最短路的标准轨
   仍无样本。
 - 正式 `live` 已在本机接成源码节拍的多轮循环：前沿到达继续重规划，
   语义区域 `ARRIVED` 才会双机 HOLD 并自动封存终点 RGB-D/地图证据。
@@ -116,20 +117,21 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 ### 第一个真机场景：Scene 01 — Chair
 
 第一个实验场景要求两台机器人从同一实验室起始区域在线建图、协调探索并
-找到白色椅子。当前上传记录包含两次由操作者命名的 approach failure 和
-两次正常通过；每一行都同时给出第三视角、Foxglove Dashboard、适合网页
-播放的 H.264 版本和未经改写的原始文件。
+找到白色椅子。当前媒体记录包含两次由操作者命名的 approach failure 和
+两次正常通过；最新第四次正式实验先按 runtime/终点证据归档，尚未把任何
+现场视频事后绑定到该 episode。媒体列明确标出可用性。
 
 | Run | 结果 | 归因 | SR | Source-compatible SPL | 第三视角 | Foxglove Dashboard | 证据口径 |
 | --- | --- | --- | ---: | ---: | --- | --- | --- |
 | Failure 1 | **FAILURE** | 未分类：缺少 runtime 绑定 | 排除 | 排除 | [![Scene 01 failure 1 第三视角](media/demo/scene01_failure_1_third_view_20260725_poster.jpg)](media/demo/scene01_failure_1_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_failure_1_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_approach_failure_1.mp4) | [![Scene 01 failure 1 Dashboard](media/demo/scene01_failure_1_dashboard_20260725_poster.jpg)](media/demo/scene01_failure_1_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_failure_1_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_approach_failure_1_dashboard.mov) | 用户文件名标记为 `approach_failure_1`；第三视角末端 Yunji 停在门边，未建立可计入指标的目标终点。具体 runtime episode ID/控制器错误码未独立绑定，不能认定为 VLM 失败。 |
 | Failure 2 | **FAILURE** | 未分类：缺少 runtime 绑定 | 排除 | 排除 | [![Scene 01 failure 2 第三视角](media/demo/scene01_failure_2_third_view_20260725_poster.jpg)](media/demo/scene01_failure_2_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_failure_2_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_approach_failure_2.mp4) | [![Scene 01 failure 2 Dashboard](media/demo/scene01_failure_2_dashboard_20260725_poster.jpg)](media/demo/scene01_failure_2_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_failure_2_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_approach_failure_2.mov) | 用户文件名标记为 `approach_failure_2`；Yunji 向椅子区域推进，但没有被验证为有效自动终点。缺少逐轮决策/控制证据，不能认定为 VLM 失败。 |
-| Success 1 | **SUCCESS** | 正常通过 | `1` | `0.864048` | [![Yunji 驶近目标椅并停止](media/demo/scene01_success_third_view_20260725_poster.jpg)](media/demo/scene01_success_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_success_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_success.mp4) | [![成功 run 的 Foxglove Dashboard](media/demo/scene01_success_dashboard_20260725_poster.jpg)](media/demo/scene01_success_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_success_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_success_dashboard.mov) | `20260725-lab17-nearwall-fix / trial-05-nearwall-fix`；Yunji 停在所选 chair 语义落点 `0.321133 m` 内，在 `0.5 m` 真机成功半径下正常通过。 |
+| Formal 3 | **SUCCESS** | 操作者手动终点判定 | `1` | `0.864048` | [![Yunji 驶近目标椅并停止](media/demo/scene01_success_third_view_20260725_poster.jpg)](media/demo/scene01_success_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_success_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_success_3.mp4) | [![成功 run 的 Foxglove Dashboard](media/demo/scene01_success_dashboard_20260725_poster.jpg)](media/demo/scene01_success_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_success_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov) | `20260725-lab17-nearwall-fix / trial-05-nearwall-fix`；Yunji 停在所选 chair 语义落点 `0.321133 m` 内，操作者按 `0.5 m` 真机半径标注第三次正式实验成功。 |
 | Success 2 | **SUCCESS** | 正常通过 | `1` | `0.628399` | [![双机到达白色椅子附近](media/demo/scene01_success_2_third_view_20260725_poster.jpg)](media/demo/scene01_success_2_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_success_2_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_success_1.mp4) | [![第二次成功 run 的 Foxglove Dashboard](media/demo/scene01_success_2_dashboard_20260725_poster.jpg)](media/demo/scene01_success_2_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_success_2_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov) | `20260725-lab19-scene01-8ca1d52-yunjireboot1-r5 / trial-r5-01`；WSJ 本地规划器自动 `ARRIVED`，停点距 chair 语义目标 `0.406693 m`，正常通过。 |
+| Formal 4 | **SUCCESS** | 自动 `ARRIVED` + 操作者归档 | `1` | `0.956361` | 未绑定现场视频；[终点证据审计](audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md) | 未绑定 Dashboard | `20260725-lab21-wallfix-imudebounce-3a2d953 / trial-wallfix-imudebounce-r1`；Yunji 自动 `LOCAL_PLANNER_ARRIVED`、零速停止，终点 RGB 可见白椅，操作者明确归档为第四次正式实验成功。 |
 
 | 当前计入指标的样本 | Success | SR | Mean source-compatible SPL | Standard SPL |
 | ---: | ---: | ---: | ---: | --- |
-| `2` | `2` | `1.0` | `0.746223` | 暂无：实验前未独立测量最短可行路径 |
+| `3` | `3` | `1.0` | `0.816269` | 暂无：实验前未独立测量最短可行路径 |
 
 失败归因采用固定顺序：先检查传感器、标定/融合、地图/定位、传输、
 本地规划控制、硬件/供电和安全中止；这些任一异常都归为工程失败，不能写成
@@ -140,15 +142,17 @@ failure。当前已绑定的碰撞属于路线协调工程失败，r6 属于标�
 失败；两者都不是 VLM 失败。完整口径见
 [失败归因协议](audit/FAILURE_ATTRIBUTION_PROTOCOL_20260725.md)。
 
-Success 判定采用项目当前正式的 `0.5 m` 真机终点半径。Success 1 的终点
-距离为 `0.321133 m`，源码兼容 `SPL=0.864048`；Success 2 的终点距离为
-`0.406693 m`，源码兼容 `SPL=0.628399`。因此当前已记录的两个实机样本
-为 `SR=2/2=1.0`，平均源码兼容 `SPL=0.746223`。Success 1 运行时接收器
-仍配置旧 `0.15 m` 阈值，历史日志原样保留；Success 2 已自动产生
-`LOCAL_PLANNER_ARRIVED` 和终点证据包。由于两次实验前都没有独立测量最短
-可行路径，二者均不产生标准 SPL。完整计算见
+Success 判定采用项目当前正式的 `0.5 m` 真机终点半径。Formal 3 的终点
+距离为 `0.321133 m`，源码兼容 `SPL=0.864048`；r5 成功的终点距离为
+`0.406693 m`，源码兼容 `SPL=0.628399`；Formal 4 的位移/实际路径为
+`3.070130/3.210222 m`，源码兼容 `SPL=0.956361`。因此当前三个证据绑定的
+实机样本为 `SR=3/3=1.0`，平均源码兼容 `SPL=0.816269`。Formal 3 运行时
+接收器仍配置旧 `0.15 m` 阈值，历史日志原样保留；r5 与 Formal 4 均自动
+产生 `LOCAL_PLANNER_ARRIVED` 和终点证据包。由于三次实验前都没有独立
+测量最短可行路径，均不产生标准 SPL。完整计算见
 [首次成功审计](audit/SCENE01_CHAIR_SUCCESS_20260725.md) 和
-[第二次成功审计](audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md)。
+[第二次成功审计](audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md)，以及
+[第四次正式实验审计](audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md)。
 
 ![Scene 01 带双机位姿、轨迹、前沿和语义区域的地图截图](media/image/experiment_1_map.png)
 
@@ -163,7 +167,7 @@ Scene 01 当前工作区中的 12 个原始视频已全部通过 Git LFS 进入�
 | 碰撞记录 | [`experiment_1_collision.mp4`](media/video/third_view/experiment_1/experiment_1_collision.mp4) | [`experiment_1_collision_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_collision_dashboard.mov) | 已绑定碰撞，排除在 SR/SPL 外 |
 | Failure 1 | [`experiment_1_approach_failure_1.mp4`](media/video/third_view/experiment_1/experiment_1_approach_failure_1.mp4) | [`experiment_1_approach_failure_1_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_approach_failure_1_dashboard.mov) | 用户标注 failure；指标排除 |
 | Failure 2 | [`experiment_1_approach_failure_2.mp4`](media/video/third_view/experiment_1/experiment_1_approach_failure_2.mp4) | [`experiment_1_approach_failure_2.mov`](media/video/dashboard/experiment_1/experiment_1_approach_failure_2.mov) | 用户标注 failure；指标排除 |
-| Success 1 | [`experiment_1_success.mp4`](media/video/third_view/experiment_1/experiment_1_success.mp4) | [`experiment_1_success_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_success_dashboard.mov) | 0.5 m 真机协议正常通过 |
+| Formal 3 | [`experiment_1_success_3.mp4`](media/video/third_view/experiment_1/experiment_1_success_3.mp4) | [`experiment_1_success_3_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov) | 操作者手动标注第三次正式实验；0.5 m 真机协议正常通过 |
 | Success 2 | [`experiment_1_success_1.mp4`](media/video/third_view/experiment_1/experiment_1_success_1.mp4) | [`experiment_1_success_1_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov) | 自动 `ARRIVED`；0.5 m 真机协议正常通过 |
 
 所有主文件和公开衍生文件的字节数、时长、SHA-256 与事实边界见

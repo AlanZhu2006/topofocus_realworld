@@ -7,6 +7,10 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md`](SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md):
+  operator-designated formal experiment 04 success, automatic Yunji
+  `LOCAL_PLANNER_ARRIVED`, exact SR/source-compatible SPL, strict-debug and
+  terminal-evidence provenance.
 - [`FAILURE_ATTRIBUTION_PROTOCOL_20260725.md`](FAILURE_ATTRIBUTION_PROTOCOL_20260725.md):
   evidence requirements separating preflight/engineering, perception, VLM
   decision, navigation-policy and unclassified failures, plus current Scene 01

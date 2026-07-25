@@ -4,6 +4,18 @@
 
 ### Scene 01 results and evidence (2026-07-25)
 
+- Archive `trial-wallfix-imudebounce-r1` as operator-designated formal
+  experiment 04 success: automatic Yunji `LOCAL_PLANNER_ARRIVED`, `SR=1`,
+  source-compatible `SPL=0.956360614325575`, and checksummed terminal
+  evidence.
+- Record the operator clarification that the manually terminal-annotated
+  `trial-05-nearwall-fix` is formal experiment 03; preserve its existing
+  `SR=1` and source-compatible `SPL=0.864048038008398`.
+- Update the three-sample evidence-bound physical track to `SR=3/3=1.0` and
+  mean source-compatible `SPL=0.816269191777991`; standard SPL remains
+  unavailable without independently surveyed shortest paths.
+- Preserve the operator's byte-identical formal-experiment-03 master-video
+  renames and do not infer a video binding for formal experiment 04.
 - Record `trial-r5-01` as the second normal 0.5 m physical-protocol success:
   automatic WSJ `LOCAL_PLANNER_ARRIVED`, `SR=1`, source-compatible
   `SPL=0.628398923`.

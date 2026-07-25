@@ -44,7 +44,7 @@ automatic report is preserved rather than rewritten.
 - Poster:
   `scene01_success_third_view_20260725_poster.jpg`
 - Original user-provided master:
-  `media/video/third_view/experiment_1/experiment_1_success.mp4`,
+  `media/video/third_view/experiment_1/experiment_1_success_3.mp4`,
   9,749,574 bytes, HEVC/AAC, 544 × 960, nominal 30 fps,
   141.733333 seconds, SHA-256
   `ab611dde043c78abbbe618a8f2ce95f1f5113b4f6b0df8466038abc1ebafb44c`;
@@ -62,7 +62,7 @@ automatic report is preserved rather than rewritten.
 - Poster:
   `scene01_success_dashboard_20260725_poster.jpg`
 - Original user-provided master:
-  `media/video/dashboard/experiment_1/experiment_1_success_dashboard.mov`,
+  `media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov`,
   80,244,552 bytes, H.264/AAC, 2392 × 1080, 30 fps, 125.829 seconds,
   SHA-256
   `ad0e99c4ebb56e90a5923af636f0269b118349e3353c05511b3e21c5020fae34`;

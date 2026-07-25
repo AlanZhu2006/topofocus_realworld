@@ -1,9 +1,8 @@
 # Current project status
 
-Snapshot time: **2026-07-25, after automatic Scene 01 success
-`trial-r5-01`, the r6 fused-map preflight rejection, the later
-`trial-reanchor1-r2` Yunji wall-turn diagnosis, and Yunji's subsequent
-power-cycle**
+Snapshot time: **2026-07-25, after operator-designated formal experiment 04
+`trial-wallfix-imudebounce-r1` completed with automatic Yunji semantic
+arrival**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -31,11 +30,21 @@ three source-scheduled rounds with the post-collision route guard serializing
 physical authority. Yunji reached `0.321133 m` from its selected chair
 semantic point and passes the declared `0.5 m` physical protocol.
 
-The latest completed physical episode is
+The earlier automatic physical success is
 `20260725-lab19-scene01-8ca1d52-yunjireboot1-r5 / trial-r5-01`. WSJ emitted
 `LOCAL_PLANNER_ARRIVED`, stopped `0.406692832069 m` from the chair semantic
 goal and triggered the automatic terminal-evidence bundle. Its
 source-compatible SPL is `0.628398923`.
+
+The latest completed physical episode is
+`20260725-lab21-wallfix-imudebounce-3a2d953 /
+trial-wallfix-imudebounce-r1`, which the operator designated **formal
+experiment 04: success**. Yunji emitted `LOCAL_PLANNER_ARRIVED`, stopped with
+zero velocity, and triggered a complete post-arrival candidate bundle whose
+time-aligned terminal RGB visibly contains the white chair. Its actual path
+was `3.2102223806424663 m`, start-to-arrival displacement was
+`3.070130248072939 m`, per-episode `SR=1`, and source-compatible
+`SPL=0.956360614325575`.
 
 The pre-incident controller allowed both robots to be active because source
 coordination removes Agent 0's selected frontier before Agent 1 chooses; that
@@ -64,9 +73,12 @@ The old receiver stopped `trial-05-nearwall-fix` with
 `LOCAL_PLANNER_PATH_STALE` because that run still used a `0.15 m` arrival
 radius. The project now uses a `0.5 m` real-world success radius and retains
 that legacy log unchanged. The separate `physical_0p5m_protocol` progress
-track now contains two normal successes with `SR=2/2=1.0` and mean
-source-compatible `SPL=0.746223480504199`. Standard SPL remains unavailable
-because no shortest path was independently surveyed before either run.
+track now contains three evidence-bound normal successes with `SR=3/3=1.0`
+and mean source-compatible `SPL=0.816269191777991`. The operator subsequently
+identified `trial-05-nearwall-fix` as the manually annotated formal experiment
+03 and the newest episode as formal experiment 04. Standard SPL remains
+unavailable because no shortest path was independently surveyed before any of
+the three runs.
 
 Commit `b1762d15e1059281056ef1e6b4e472e9d25258e1` now passes the `0.5 m`
 semantic radius explicitly to both physical launchers, so future equivalent
@@ -87,23 +99,24 @@ The latest session that completed live is:
 
 | Item | Observed value |
 | --- | --- |
-| Session | `20260725-lab19-scene01-8ca1d52-yunjireboot1-r5` |
-| Session Git commit | `8ca1d528b5e1bdc6e029f63031330250a4c962a9` |
-| Calibration ID | `shared-board-odin1-20260725-lab19-yunjireboot1-v1` |
-| Calibration kind | validated stationary re-anchor of board calibration |
-| Calibration SHA-256 | `68c947c7de6cbda146e81a12791f4e258809b55d7f967184b2fe48089e50daa0` |
-| WSJ transform | `wsj-tinynav-depth-20260725-lab19-scene01-rerun-raw-v1` |
-| Yunji transform | `yunji-odin1-stationary-reanchor-20260725-lab19-r1-v1` |
-| WSJ map boundary | sequence `27659` |
-| Yunji map boundary | sequence `245131` |
-| Debug manifest SHA-256 | `7bd4614ebaf4c3bed09eb918c7a6c371137898126a43fc17326a50b91243cc0c` |
-| Live episode | `trial-r5-01`; automatic `ARRIVED`, normal success under the 0.5 m physical protocol |
+| Session | `20260725-lab21-wallfix-imudebounce-3a2d953` |
+| Session Git commit | `3a2d953e7ab5c1b7891829b2101dc5bb52126e77` |
+| Calibration ID | `shared-board-odin1-20260725-lab21-wallfix-dualreanchor2-v1` |
+| Calibration kind | validated dual stationary re-anchor of board calibration |
+| Calibration SHA-256 | `c688becd72e9f320014812c57e3aae15798ad4e731978a063f5bdf2137bae8ed` |
+| WSJ transform | `wsj-tinynav-depth-20260725-lab21-wallfix-wsjreanchor4-v1` |
+| Yunji transform | `yunji-odin1-board-20260725-lab21-wallfix-yunjireanchor1-v1` |
+| WSJ map boundary | sequence `28988` |
+| Yunji map boundary | sequence `254465` |
+| Debug manifest SHA-256 | `018ab08c62db3cffb58758d6dafe159880c8ff759f7b683e2514b8a1febcb9c3` |
+| Live episode | `trial-wallfix-imudebounce-r1`; automatic Yunji `ARRIVED`, operator-designated formal experiment 04 success |
 | Hub API | `http://127.0.0.1:8188` |
 | GLM endpoint | `http://127.0.0.1:31511/v1` |
 | Foxglove | `ws://10.208.2.249:8765` |
 
-The r5 result is preserved independently of the later r6 calibration/fusion
-rejection. The r6 debug manifest SHA-256 is
+The earlier r5 result is preserved independently of the later r6
+calibration/fusion rejection and the newer lab21 success. The r6 debug
+manifest SHA-256 is
 `e55447da56308c35c2a8fbb165fe983c071f31fd82e9f1bbe813de3aa78d077e`;
 passing that automated gate did not override the contradictory fused
 visualization. Exact diagnosis and frozen-input hashes are in
@@ -120,18 +133,20 @@ boundary are recorded in
 
 The exact evidence and arithmetic are in
 [`audit/SCENE01_CHAIR_SUCCESS_20260725.md`](audit/SCENE01_CHAIR_SUCCESS_20260725.md),
-[`audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md`](audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md)
+[`audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md`](audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md),
+[`audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md`](audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md)
 and the machine-readable
 [`manifests/realworld_experiment_progress.json`](manifests/realworld_experiment_progress.json).
-The two metric samples are:
+The three metric samples are:
 
 | Episode | Arriving robot | Goal distance | Path | SR | Source-compatible SPL |
 | --- | --- | ---: | ---: | ---: | ---: |
-| `trial-05-nearwall-fix` | Yunji | `0.321133 m` | `4.048842 m` | `1` | `0.864048038008398` |
+| Formal 03: `trial-05-nearwall-fix` | Yunji | `0.321133 m` | `4.048842 m` | `1` | `0.864048038008398` |
 | `trial-r5-01` | WSJ | `0.406693 m` | `3.850792 m` | `1` | `0.628398923` |
-| **Current mean** | — | — | — | **`2/2=1.0`** | **`0.746223480504199`** |
+| Formal 04: `trial-wallfix-imudebounce-r1` | Yunji | automatic semantic `ARRIVED`; scalar goal distance unavailable | `3.210222 m` | `1` | `0.956360614325575` |
+| **Current mean** | — | — | — | **`3/3=1.0`** | **`0.816269191777991`** |
 
-Pre-surveyed standard SPL is unavailable for both.
+Pre-surveyed standard SPL is unavailable for all three.
 
 ## Observed physical episode
 
@@ -244,8 +259,9 @@ full multi-robot trajectory planning.
 - Four scenes × five trials are documented.
 - Standard SPL and source-compatible SPL are implemented.
 - Episode reports preserve robot-local start/stop poses and accumulated path.
-- The `physical_0p5m_protocol` track currently has two normal successes:
-  `SR=2/2=1.0`, mean source-compatible `SPL=0.746223480504199`.
+- The `physical_0p5m_protocol` track currently has three evidence-bound normal
+  successes: `SR=3/3=1.0`, mean source-compatible
+  `SPL=0.816269191777991`.
 - The pre-surveyed standard track still requires surveyed shortest paths,
   automatic terminal/goal-region membership and independent target evidence.
 - Failure attribution is now explicit. The two user-labelled approach-failure
@@ -263,11 +279,13 @@ full multi-robot trajectory planning.
 ## Today's implementation delta
 
 The runtime series through session
-`20260725-lab19-scene01-8ca1d52-yunjireboot1-r6` is authored
+`20260725-lab21-wallfix-imudebounce-3a2d953` is authored
 as `AlanZhu2006 <yz11502@nyu.edu>`. In addition to the startup acceleration,
 the current code includes the physically exercised route guard and the
-explicit `0.5 m` semantic-arrival setting that produced r5's automatic
-`ARRIVED`.
+explicit `0.5 m` semantic-arrival setting, the safe remaining-frontier
+fallback from `05447b9`, and the bounded WSJ IMU-skip debounce from
+`3a2d953`. The latest run exercised the latter two and ended in automatic
+Yunji `ARRIVED`.
 
 The work groups into:
 
@@ -291,39 +309,31 @@ series.
 
 At closeout:
 
-- `trial-r5-01` ended with automatic semantic arrival and both robots held;
-- r6 stopped before live; its frozen export explicitly records
-  `hub_decisions_published=false`, `planner_or_receiver_contacted=false` and
-  `robot_commands_issued=false`;
+- `trial-wallfix-imudebounce-r1` ended with automatic Yunji semantic arrival,
+  zero velocity and both robots held;
+- cleanup restored Hub `GOAL=false` and removed both chassis command paths
+  while preserving the warm read-only observation/map/Foxglove core;
 - no previous operator motion confirmation remains valid;
-- Yunji has been powered back on and its Odin driver is active; WSJ and Yunji
-  live receivers and both chassis bridges are inactive;
-- the r5/r6 shared transform is rejected for the next experiment because the
-  fused geometry contradicted the per-robot occupancy evidence;
-- an attempted replacement calibration was cancelled before board
-  observation; it produced no reusable calibration;
+- the lab21 dual-stationary-reanchor calibration remains reusable only while
+  both tracking epochs remain continuous and neither robot is moved;
 - old collision session `20260725-lab05-yunjireboot4` remains immutable
   evidence;
 - no physical command path is authorized.
 
 ## Next valid workflow
 
-1. After charging, return both robots to the intended experiment start poses
-   and keep them stationary.
-2. Restore the existing WSJ/Yunji SSH/tmux observation paths and verify both
-   tracking streams without enabling either chassis command path.
-3. Yunji's Odin tracking epoch restarted. Use a validated stationary re-anchor
-   only if stationary continuity can be proved from preserved pre/post
-   observations; otherwise run a fresh full two-position board calibration
-   with a new session ID. Do not silently reuse the old epoch.
-4. Let the calibration command build fresh maps and Foxglove views. Before
-   live, check each robot marker against both its own map and the other
-   robot's map; reject any fused-wall conflict.
-5. Complete strict no-motion debug and verify
+1. Keep both robots stationary and restore only the existing WSJ/Yunji
+   SSH/tmux observation paths.
+2. Prove that both tracking epochs and physical poses are continuous before
+   reusing the lab21 calibration. If either robot moved or either tracking
+   process restarted, create a new session and recalibrate instead.
+3. Check each robot marker against both its own map and the other robot's map;
+   reject any fused-wall conflict.
+4. Complete strict no-motion debug and verify
    `semantic_arrival_radius_m=0.5`.
-6. Obtain a new `OPERATOR_PRESENT_AND_ROBOTS_CLEAR` authorization and run one
+5. Obtain a new `OPERATOR_PRESENT_AND_ROBOTS_CLEAR` authorization and run one
    supervised episode.
-7. Preserve automatic terminal evidence and classify any non-success using
+6. Preserve automatic terminal evidence and classify any non-success using
    [`audit/FAILURE_ATTRIBUTION_PROTOCOL_20260725.md`](audit/FAILURE_ATTRIBUTION_PROTOCOL_20260725.md).
    Survey `L` before the run if standard SPL is required.
 
