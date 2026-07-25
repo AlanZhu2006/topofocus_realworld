@@ -40,9 +40,18 @@ if [[ -n "$forbidden" ]]; then
   exit 1
 fi
 
-oversized="$(repository_candidates | xargs -0 -r stat -c '%s %n' | awk '$1 > 52428800 {print}')"
+oversized=""
+while IFS= read -r -d '' candidate; do
+  candidate_size="$(stat -c '%s' "$candidate")"
+  (( candidate_size > 52428800 )) || continue
+  candidate_filter="$(git check-attr filter -- "$candidate")"
+  if [[ "$candidate" == media/video/* && "$candidate_filter" == *": filter: lfs" ]]; then
+    continue
+  fi
+  printf -v oversized '%s%s %s\n' "$oversized" "$candidate_size" "$candidate"
+done < <(repository_candidates)
 if [[ -n "$oversized" ]]; then
-  echo "Tracked files larger than 50 MiB are not allowed:" >&2
+  echo "Non-LFS tracked files larger than 50 MiB are not allowed:" >&2
   printf '%s\n' "$oversized" >&2
   exit 1
 fi

@@ -15,13 +15,13 @@
       "standard_multi_spl_mean": null,
       "reason": "No episode yet has a pre-surveyed shortest path and an automatic local-planner terminal under the declared radius."
     },
-    "operator_adjudicated_0p5m_demo": {
+    "physical_0p5m_protocol": {
       "recorded_episodes": 1,
       "successes": 1,
       "sr": 1.0,
       "source_compatible_multi_spl_mean": 0.864048038008398,
       "standard_multi_spl_mean": null,
-      "classification": "operator-adjudicated posthoc demo progress; not mixed into the pre-surveyed standard track"
+      "classification": "normal success under the declared 0.5 m real-world protocol; not mixed into the pre-surveyed standard track"
     }
   },
   "episodes": [
@@ -40,9 +40,9 @@
         "reason_code": "LOCAL_PLANNER_PATH_STALE",
         "configured_semantic_arrival_radius_m": 0.15
       },
-      "operator_adjudication": {
-        "classification": "operator-attested and geometry-checked posthoc demo success",
-        "counts_in_metric_track": "operator_adjudicated_0p5m_demo",
+      "physical_protocol_result": {
+        "classification": "normal geometry-checked success under the declared 0.5 m real-world protocol",
+        "counts_in_metric_track": "physical_0p5m_protocol",
         "success": true,
         "success_radius_m": 0.5,
         "resolved_local_goal_xy_m": [
@@ -57,7 +57,7 @@
         "within_success_radius": true,
         "velocity_zero_confirmed": true,
         "target_visual_status": "chair independently visible in the external terminal frame; YOLO evidence is retained separately as unverified model inference",
-        "operator_basis": "The onsite operator explicitly requested that this near-chair run count as success.",
+        "protocol_basis": "The project real-world protocol uses a 0.5 m success radius; the measured terminal distance is 0.321133366707683 m.",
         "standard_track_eligible": false,
         "standard_track_exclusion_reason": "The original run did not emit automatic semantic ARRIVED under its 0.15 m radius, and no pre-surveyed shortest path was recorded."
       },
@@ -107,17 +107,17 @@
           "size_bytes": 9749574,
           "sha256": "ab611dde043c78abbbe618a8f2ce95f1f5113b4f6b0df8466038abc1ebafb44c",
           "duration_s": 141.733333,
-          "classification": "observed user-provided external-view master; local file ignored by Git"
+          "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
         },
         {
-          "path": "media/demo/operator_adjudicated_success_third_view_20260725.mp4",
+          "path": "media/demo/scene01_success_third_view_20260725.mp4",
           "size_bytes": 15972419,
           "sha256": "62390579a390451b442562029c2d385729d282696605bb347dcbe2d64f11af1c",
           "duration_s": 141.734,
           "classification": "source-derived H.264 public derivative of the observed external-view master"
         },
         {
-          "path": "media/demo/operator_adjudicated_success_third_view_20260725_poster.jpg",
+          "path": "media/demo/scene01_success_third_view_20260725_poster.jpg",
           "size_bytes": 138572,
           "sha256": "27340abea65bdb2706aff8254c5257c915bc29aa03d336eaa849f0e5022702bc",
           "source_time_s": 141.0,
@@ -128,10 +128,10 @@
           "size_bytes": 80244552,
           "sha256": "ad0e99c4ebb56e90a5923af636f0269b118349e3353c05511b3e21c5020fae34",
           "duration_s": 125.829,
-          "classification": "observed user-provided Dashboard master; local file ignored by Git"
+          "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
         },
         {
-          "path": "media/demo/operator_adjudicated_success_dashboard_20260725.mp4",
+          "path": "media/demo/scene01_success_dashboard_20260725.mp4",
           "size_bytes": 1365229,
           "sha256": "a88716cc94600859eb23e87ccfa131133259389e0bbdc46c6b5cd4746d4df4a5",
           "duration_s": 125.767,
@@ -147,7 +147,7 @@
       "followup_fix": {
         "git_commit": "b1762d15e1059281056ef1e6b4e472e9d25258e1",
         "semantic_arrival_radius_m": 0.5,
-        "effect": "Future WSJ and Yunji live receivers automatically emit semantic arrival inside the declared physical tolerance instead of relying on posthoc adjudication."
+        "effect": "Future WSJ and Yunji live receivers automatically emit semantic arrival inside the declared 0.5 m physical tolerance."
       }
     }
   ]

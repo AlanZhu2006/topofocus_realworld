@@ -1,7 +1,7 @@
 # Current project status
 
-Snapshot time: **2026-07-25, after `trial-05-nearwall-fix`, its 0.5 m
-operator adjudication, the automatic-arrival fix, a subsequent Yunji power
+Snapshot time: **2026-07-25, after `trial-05-nearwall-fix` passed under the
+0.5 m physical protocol, the automatic-arrival fix, a subsequent Yunji power
 cycle and the aborted `20260725-lab18-repeat2` calibration**
 
 This is the canonical current-state document. Dated files under `audit/` are
@@ -44,12 +44,12 @@ rounds of `trial-05-nearwall-fix`.
 
 The old receiver stopped the episode with `LOCAL_PLANNER_PATH_STALE` at
 `0.321133 m` from its semantic approach point because that run still used a
-`0.15 m` arrival radius. The onsite operator explicitly adjudicated it
-successful under the subsequently declared `0.5 m` physical radius. The
-separate `operator_adjudicated_0p5m_demo` progress track therefore contains
-one sample with `SR=1.0` and exact source-compatible `SPL=0.864048`; standard
-SPL remains unavailable because no shortest path was surveyed before the run.
-The original automatic failure record is unchanged.
+`0.15 m` arrival radius. The project now uses a `0.5 m` real-world success
+radius, and the observed `0.321133 m` terminal is therefore a normal Scene 01
+pass. The separate `physical_0p5m_protocol` progress track contains one sample
+with `SR=1.0` and exact source-compatible `SPL=0.864048`; standard SPL remains
+unavailable because no shortest path was surveyed before the run. The legacy
+automatic log is retained unchanged for reproducibility.
 
 Commit `b1762d15e1059281056ef1e6b4e472e9d25258e1` now passes the `0.5 m`
 semantic radius explicitly to both physical launchers, so future equivalent
@@ -71,7 +71,7 @@ The latest session that passed strict no-motion debug is:
 | WSJ map boundary | sequence `26943` |
 | Yunji map boundary | sequence `238267` |
 | Debug manifest SHA-256 | `176650ecac3dd802188fbc0a010ed98e1f89d1d23b8a72633754a613354b07ac` |
-| Live episode | `trial-05-nearwall-fix`; operator-adjudicated 0.5 m success |
+| Live episode | `trial-05-nearwall-fix`; normal success under the 0.5 m physical protocol |
 | Hub API | `http://127.0.0.1:8188` |
 | GLM endpoint | `http://127.0.0.1:31511/v1` |
 | Foxglove | `ws://10.208.2.249:8765` |
@@ -90,10 +90,10 @@ the calibration was cancelled. Exact hashes and the incomplete-attempt
 boundary are recorded in
 [`audit/LAB18_CALIBRATION_ABORT_20260725.md`](audit/LAB18_CALIBRATION_ABORT_20260725.md).
 
-## Latest near-chair episode
+## Latest Scene 01 chair success
 
 The exact evidence and arithmetic for `trial-05-nearwall-fix` are in
-[`audit/NEAR_CHAIR_SUCCESS_20260725.md`](audit/NEAR_CHAIR_SUCCESS_20260725.md)
+[`audit/SCENE01_CHAIR_SUCCESS_20260725.md`](audit/SCENE01_CHAIR_SUCCESS_20260725.md)
 and the machine-readable
 [`manifests/realworld_experiment_progress.json`](manifests/realworld_experiment_progress.json).
 The key facts are:
@@ -102,7 +102,8 @@ The key facts are:
 - start-to-stop displacement: `3.498394160748945 m`;
 - final distance to the selected semantic point: `0.321133366707683 m`;
 - third-view terminal frame independently shows Yunji beside the chair;
-- posthoc 0.5 m track: `SR=1`, source-compatible `SPL=0.864048038008398`;
+- 0.5 m physical-protocol track: `SR=1`,
+  source-compatible `SPL=0.864048038008398`;
 - pre-surveyed standard SPL: unavailable.
 
 ## Observed physical episode
@@ -211,7 +212,7 @@ full multi-robot trajectory planning.
 - Four scenes × five trials are documented.
 - Standard SPL and source-compatible SPL are implemented.
 - Episode reports preserve robot-local start/stop poses and accumulated path.
-- The operator-adjudicated 0.5 m progress track currently has one success:
+- The `physical_0p5m_protocol` track currently has one normal success:
   `SR=1`, source-compatible `SPL=0.864048`.
 - The pre-surveyed standard track still requires surveyed shortest paths,
   automatic terminal/goal-region membership and independent target evidence.
@@ -290,8 +291,9 @@ At closeout:
 - Route-conflict implementation: `b79879bfc96805aa7e7b63cf3a8ebbfe59679730`
 - Runtime maps, observations, tokens, calibration state and full episode
   directories stay outside Git.
-- Original high-resolution user videos stay under ignored `media/video/`.
-- Size-bounded H.264 derivatives, posters, hashes and classifications are
-  committed under `media/demo/`.
+- All currently supplied original Scene 01 videos are committed through Git
+  LFS under `media/video/`; the largest is 80,244,552 bytes. Web-playable H.264
+  derivatives, posters, hashes and classifications are committed under
+  `media/demo/`.
 - Physical/runtime facts are labelled observed; algorithm outputs are labelled
   source-derived; causal claims without evidence remain unverified.

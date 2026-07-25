@@ -174,10 +174,12 @@ inferred from container metadata.
 
 | Asset | Bytes | Stream | Duration | SHA-256 |
 | --- | ---: | --- | ---: | --- |
-| `media/video/experiment_1_collision.mp4` | 1,640,232 | HEVC/AAC, 1280 × 720, nominal 30 fps | 12.366667 s | `1b883c310b176ed75587b5672d09a0ab14a604e214663f0c760835f1eb5ec659` |
-| `media/video/experiment_1_collision_dashboard.mov` | 19,138,555 | H.264, 3420 × 1544, nominal 60 fps | 16.341667 s | `a429b838566efbd4769b1f613ba2530d1c0c972cc1cc685b72f278aac5ecffc9` |
+| `media/video/third_view/experiment_1/experiment_1_collision.mp4` | 1,640,232 | HEVC/AAC, 1280 × 720, nominal 30 fps | 12.366667 s | `1b883c310b176ed75587b5672d09a0ab14a604e214663f0c760835f1eb5ec659` |
+| `media/video/dashboard/experiment_1/experiment_1_collision_dashboard.mov` | 19,138,555 | H.264, 3420 × 1544, nominal 60 fps | 16.341667 s | `a429b838566efbd4769b1f613ba2530d1c0c972cc1cc685b72f278aac5ecffc9` |
 
-Original masters remain ignored under `media/video/`. Public derivatives:
+Original masters are now committed byte-for-byte through Git LFS under
+`media/video/`.
+Public derivatives:
 
 | Published asset | Bytes | SHA-256 |
 | --- | ---: | --- |

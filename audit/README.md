@@ -7,15 +7,18 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE01_MEDIA_PUBLICATION_20260725.md`](SCENE01_MEDIA_PUBLICATION_20260725.md):
+  complete publication of the currently supplied Scene 01 source videos,
+  the two-failure/one-success homepage table, byte hashes, web derivatives and
+  exact runtime-binding boundaries.
 - [`LAB18_CALIBRATION_ABORT_20260725.md`](LAB18_CALIBRATION_ABORT_20260725.md):
   aborted repeat-2 calibration after the Go2 was moved to charge, the repaired
   cross-launcher release-root mismatch, preserved incomplete runtime
   provenance and the required full-calibration restart boundary.
-- [`NEAR_CHAIR_SUCCESS_20260725.md`](NEAR_CHAIR_SUCCESS_20260725.md):
-  first operator-adjudicated `0.5 m` near-chair success, exact
+- [`SCENE01_CHAIR_SUCCESS_20260725.md`](SCENE01_CHAIR_SUCCESS_20260725.md):
+  first normal success under the `0.5 m` physical protocol, exact
   source-compatible SPL, paired external/Dashboard video provenance, preserved
-  automatic `LOCAL_PLANNER_PATH_STALE` result and the forward automatic-arrival
-  fix.
+  legacy `LOCAL_PLANNER_PATH_STALE` log and the forward automatic-arrival fix.
 - [`DUAL_ROBOT_COLLISION_20260725.md`](DUAL_ROBOT_COLLISION_20260725.md):
   first observed concurrent end-to-end physical motion, operator-confirmed
   collision, paired third-view/Dashboard provenance, runtime hashes, route

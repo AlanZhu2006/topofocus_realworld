@@ -21,6 +21,10 @@
 *.mp4 binary
 *.bundle binary
 
+# Keep complete user-provided source videos reproducible without placing
+# 50–100 MB binary blobs directly in the ordinary Git object graph.
+media/video/** filter=lfs diff=lfs merge=lfs -text
+
 # This upstream file is the sole CRLF file in the immutable source snapshot.
 # Check it out as CRLF so manifests/source-files.sha256 remains portable.
 source/Focus_realworld/CogVLM2/video_demo/cli_video_demo.py text eol=crlf

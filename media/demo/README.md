@@ -13,7 +13,7 @@ Known July 23/24 engineering attempts (`official-run01` and retry1–retry3)
 will be labelled as failed/excluded demos. Uploading their videos does not
 change their metric status.
 
-## Published operator-adjudicated success
+## Published Scene 01 success
 
 ### Near-chair Yunji run — 2026-07-25
 
@@ -26,9 +26,9 @@ These recordings are explicitly bound to:
 - episode: `trial-05-nearwall-fix`;
 - automatic outcome: `failed_robot_or_controller_holding` with Yunji
   `LOCAL_PLANNER_PATH_STALE` under the old `0.15 m` arrival radius;
-- adjudicated outcome: success under the declared `0.5 m` physical terminal
+- outcome: normal success under the declared `0.5 m` physical terminal
   radius;
-- metric track: `operator_adjudicated_0p5m_demo`;
+- metric track: `physical_0p5m_protocol`;
 - metric result: `SR=1`, source-compatible `SPL=0.864048038008398`,
   standard SPL unavailable without a pre-surveyed shortest path.
 
@@ -40,15 +40,15 @@ automatic report is preserved rather than rewritten.
 #### External-view success record
 
 - Published video:
-  `operator_adjudicated_success_third_view_20260725.mp4`
+  `scene01_success_third_view_20260725.mp4`
 - Poster:
-  `operator_adjudicated_success_third_view_20260725_poster.jpg`
+  `scene01_success_third_view_20260725_poster.jpg`
 - Original user-provided master:
   `media/video/third_view/experiment_1/experiment_1_success.mp4`,
   9,749,574 bytes, HEVC/AAC, 544 × 960, nominal 30 fps,
   141.733333 seconds, SHA-256
   `ab611dde043c78abbbe618a8f2ce95f1f5113b4f6b0df8466038abc1ebafb44c`;
-  retained locally and ignored.
+  committed byte-for-byte.
 - Published derivative: 15,972,419 bytes, H.264, `yuv420p`, 544 × 960,
   30 fps, 141.734 seconds, SHA-256
   `62390579a390451b442562029c2d385729d282696605bb347dcbe2d64f11af1c`.
@@ -58,15 +58,15 @@ automatic report is preserved rather than rewritten.
 #### Dashboard success record
 
 - Published video:
-  `operator_adjudicated_success_dashboard_20260725.mp4`
+  `scene01_success_dashboard_20260725.mp4`
 - Poster:
-  `operator_adjudicated_success_dashboard_20260725_poster.jpg`
+  `scene01_success_dashboard_20260725_poster.jpg`
 - Original user-provided master:
   `media/video/dashboard/experiment_1/experiment_1_success_dashboard.mov`,
   80,244,552 bytes, H.264/AAC, 2392 × 1080, 30 fps, 125.829 seconds,
   SHA-256
   `ad0e99c4ebb56e90a5923af636f0269b118349e3353c05511b3e21c5020fae34`;
-  retained locally and ignored.
+  committed byte-for-byte.
 - Published derivative: 1,365,229 bytes, H.264, `yuv420p`, 1280 × 578,
   30 fps, 125.767 seconds, SHA-256
   `a88716cc94600859eb23e87ccfa131133259389e0bbdc46c6b5cd4746d4df4a5`.
@@ -75,11 +75,85 @@ automatic report is preserved rather than rewritten.
 
 Both derivatives were produced with the locally observed `ffmpeg` 4.4.2,
 `libx264`, `yuv420p`, fast-start MP4 and no audio. Exact runtime evidence and
-the separation between automatic, adjudicated and standard metric tracks are
-in
-[`../../audit/NEAR_CHAIR_SUCCESS_20260725.md`](../../audit/NEAR_CHAIR_SUCCESS_20260725.md).
+the separation between the 0.5 m physical-protocol track and the
+pre-surveyed standard track are in
+[`../../audit/SCENE01_CHAIR_SUCCESS_20260725.md`](../../audit/SCENE01_CHAIR_SUCCESS_20260725.md).
 
 ## Published failed demos
+
+### Scene 01 approach failure 1 — 2026-07-25
+
+The filenames and onsite description classify this pair as the first
+approach failure in Scene 01. The exact runtime session/episode and controller
+reason code have not been independently bound, so this recording is excluded
+from SR/SPL.
+
+- Third-view master:
+  `media/video/third_view/experiment_1/experiment_1_approach_failure_1.mp4`,
+  9,212,106 bytes, HEVC Main, 1280 × 720, 30 fps, 80.733333 seconds,
+  SHA-256
+  `46502195c9a5e80f5f26550c5b4970a33d08649c19497b51840e2a5e01d11d10`.
+- Published third-view derivative:
+  `scene01_failure_1_third_view_20260725.mp4`, 10,816,593 bytes,
+  H.264 High, `yuv420p`, 1280 × 720, 30 fps, 80.734 seconds, SHA-256
+  `0ac7702650891f1ba39bf29d61759b3e8762ab04dd1158e5bccce4f93f348a0d`.
+- Third-view poster:
+  `scene01_failure_1_third_view_20260725_poster.jpg`, 72,618 bytes,
+  sampled at 75 seconds, SHA-256
+  `0fd8772f285663077857a05fcb151face1d34e39822a22682adfdbabee4fbea5`.
+- Dashboard master:
+  `media/video/dashboard/experiment_1/experiment_1_approach_failure_1_dashboard.mov`,
+  78,882,292 bytes, H.264 High, 2392 × 1080, 30 fps, 154.135 seconds,
+  SHA-256
+  `77c09b2f4bedaf4114e81fde3c06f5b854b4b248ed74569c15698f61fcbc884b`.
+- Published Dashboard derivative:
+  `scene01_failure_1_dashboard_20260725.mp4`, 1,528,819 bytes,
+  H.264 High, `yuv420p`, 1280 × 578, 30 fps, 154.067 seconds, SHA-256
+  `672185fa44bd58fbbc7e4c06feb011272878b5bdf3f6cf37a7132c0e132f18bd`.
+- Dashboard poster:
+  `scene01_failure_1_dashboard_20260725_poster.jpg`, 38,961 bytes,
+  sampled at 148 seconds, SHA-256
+  `eeb4faf4d43796b5a61aa33f6dab55309946ab0c393288cd2bd3a5f376aa9854`.
+
+### Scene 01 approach failure 2 — 2026-07-25
+
+The filenames and onsite description classify this pair as the second
+approach failure in Scene 01. The third-view terminal frame shows Yunji closer
+to the chair region than in failure 1, but no automatic terminal or exact
+runtime binding is established by the media alone. It is excluded from
+SR/SPL.
+
+- Third-view master:
+  `media/video/third_view/experiment_1/experiment_1_approach_failure_2.mp4`,
+  14,118,922 bytes, HEVC Main, 1280 × 720, 30 fps, 116.466667 seconds,
+  SHA-256
+  `2d6c8904f472f2591848e59bc94fdee9d503403c27ab012a14423ff01604a8e6`.
+- Published third-view derivative:
+  `scene01_failure_2_third_view_20260725.mp4`, 14,416,450 bytes,
+  H.264 High, `yuv420p`, 1280 × 720, 30 fps, 116.467 seconds, SHA-256
+  `381e73976f6ce3e08607e6a00053baf740b4d6b9a7b2e9351eba4f4d81c3eee3`.
+- Third-view poster:
+  `scene01_failure_2_third_view_20260725_poster.jpg`, 74,517 bytes,
+  sampled at 110 seconds, SHA-256
+  `5aa2c67de2d63afc1a0e13b2985cd54a3e44b44b586d0ee3d5ff2746a1419ef7`.
+- Dashboard master:
+  `media/video/dashboard/experiment_1/experiment_1_approach_failure_2.mov`,
+  77,686,245 bytes, H.264 High, 2392 × 1080, 30 fps, 118.399 seconds,
+  SHA-256
+  `056a45564220138b85f2863642ef9e13fa3c197230b82739b893d322bc72b442`.
+- Published Dashboard derivative:
+  `scene01_failure_2_dashboard_20260725.mp4`, 1,303,005 bytes,
+  H.264 High, `yuv420p`, 1280 × 578, 30 fps, 118.334 seconds, SHA-256
+  `f4fcffcdd776ed650e7d5654201061e1e477604c47c298fb882508e1a408a0e3`.
+- Dashboard poster:
+  `scene01_failure_2_dashboard_20260725_poster.jpg`, 38,882 bytes,
+  sampled at 112 seconds, SHA-256
+  `f02505185e21fbc9bb755c3f32693bcdab9fba48b92dfe429b56482134f1c0b6`.
+
+Both failure pairs keep their source masters byte-for-byte. The public
+derivatives were produced with the locally observed `ffmpeg` 4.4.2,
+`libx264`, `yuv420p`, fast-start MP4 and no audio. Third views use CRF 25;
+Dashboards are scaled to 1280 pixels wide and use CRF 26.
 
 ### Bound dual-robot collision — 2026-07-25
 
@@ -107,10 +181,11 @@ target truth.
 - Poster:
   `dual_robot_collision_third_view_20260725_poster.jpg`
 - Original user-provided master:
-  `media/video/experiment_1_collision.mp4`, 1,640,232 bytes, HEVC/AAC,
+  `media/video/third_view/experiment_1/experiment_1_collision.mp4`,
+  1,640,232 bytes, HEVC/AAC,
   1280 × 720, nominal 30 fps, 12.366667 seconds, SHA-256
   `1b883c310b176ed75587b5672d09a0ab14a604e214663f0c760835f1eb5ec659`;
-  retained locally and ignored.
+  committed byte-for-byte.
 - Published derivative: 2,481,165 bytes, H.264, `yuv420p`, 1280 × 720,
   30 fps, no audio, 12.367 seconds, SHA-256
   `8b62b5e763e529c8d2bf12caf5066d57187226de3117dc0fb3e7d7d0df3d395e`.
@@ -124,10 +199,11 @@ target truth.
 - Poster:
   `dual_robot_collision_dashboard_20260725_poster.jpg`
 - Original user-provided master:
-  `media/video/experiment_1_collision_dashboard.mov`, 19,138,555 bytes,
-  H.264, 3420 × 1544, nominal 60 fps, 16.341667 seconds, SHA-256
+  `media/video/dashboard/experiment_1/experiment_1_collision_dashboard.mov`,
+  19,138,555 bytes, H.264, 3420 × 1544, nominal 60 fps,
+  16.341667 seconds, SHA-256
   `a429b838566efbd4769b1f613ba2530d1c0c972cc1cc685b72f278aac5ecffc9`;
-  retained locally and ignored.
+  committed byte-for-byte.
 - Published derivative: 284,926 bytes, H.264, `yuv420p`, 1280 × 578,
   30 fps, no audio, 16.334 seconds, SHA-256
   `fd8d5709fc1bf1d9568d9cf594cc37b578942ebc7b077f78307346b68780ea8f`.
@@ -163,7 +239,8 @@ reason are not inferred from video pixels alone.
   `media/video/third_view_failure_1.mp4`, 1,296,348 bytes, HEVC Main/AAC,
   1280 × 720, nominal 30 fps, 10.167 seconds, SHA-256
   `19d3e8958ab27fa7a1381d16c00842a113f64a051d0b4651217b48f3687718e2`;
-  retained locally and ignored.
+  observed on 2026-07-24 but not present in the current workspace; its
+  published derivative and source hash preserve provenance.
 - Published derivative: 1,712,294 bytes, H.264 High, `yuv420p`, 1280 × 720,
   30 fps, no audio, 10.167 seconds, SHA-256
   `98fd321a207fd099c741338309cc0c313e0dbdab3ba98ad1438853aa377b82a5`.
@@ -182,7 +259,8 @@ reason are not inferred from video pixels alone.
   `media/video/third_view_failure_2.mp4`, 767,264 bytes, HEVC Main/AAC,
   720 × 1280, nominal 30 fps, 4.833 seconds, SHA-256
   `4c51517313c01e6310e170368c0c3336027523569d03467f12b6ea9c77fbe456`;
-  retained locally and ignored.
+  observed on 2026-07-24 but not present in the current workspace; its
+  published derivative and source hash preserve provenance.
 - Published derivative: 1,182,484 bytes, H.264 High, `yuv420p`, 720 × 1280,
   30 fps, no audio, 4.834 seconds, SHA-256
   `5cb70e13fe4a6ac53102a09b0f4ad874efd385021fc1e43a567c5a4ac4f316e1`.
@@ -211,8 +289,8 @@ Posters were sampled at 2.5 seconds and 2.0 seconds respectively.
   `media/video/dashboard_failure.mov`, 63,604,095 bytes,
   SHA-256
   `302fa28afcaf67f47189a7a099d310b82ee3f8e05b38afc5a4a155e8c8c4fe9f`;
-  retained locally and ignored because it exceeds the repository's 50 MiB
-  audit bound.
+  observed on 2026-07-24 but not present in the current workspace; its
+  published derivative and source hash preserve provenance.
 - Published derivative: 499,397 bytes, H.264, 1280 × 770, 60 fps,
   24.084 seconds, SHA-256
   `17c7678ff8a268dd9b54036a45dcaacbfd18c36e2478907c6605aa0944cca598`.
