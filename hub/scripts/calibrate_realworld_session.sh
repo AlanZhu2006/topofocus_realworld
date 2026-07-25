@@ -127,13 +127,67 @@ if dirty:
         "hub/, source/, and dependencies/ first."
     )
 PY
-for target in "$WSJ_TMUX_TARGET" "$YUNJI_TMUX_TARGET"; do
-  tmux display-message -p -t "$target" '#{pane_current_command}' \
-    >/dev/null 2>&1 || {
-      echo "Existing SSH/tmux target is unavailable: $target" >&2
-      exit 1
-    }
-done
+
+probe_ssh_tmux_shell() {
+  local target="$1" token line deadline pane_state output
+  token="FOCUS_SSH_PROBE_$(date +%s%N)_${RANDOM}"
+  printf -v line 'printf "\\n__%s_SHELL_READY__\\n"' "$token"
+  tmux send-keys -t "$target" -l "$line"
+  tmux send-keys -t "$target" Enter
+  deadline=$((SECONDS + 30))
+  while (( SECONDS < deadline )); do
+    pane_state="$(
+      tmux display-message -p -t "$target" \
+        '#{pane_dead}:#{pane_current_command}' 2>/dev/null || true
+    )"
+    if [[ "$pane_state" == 0:ssh ]]; then
+      output="$(
+        tmux capture-pane -pJt "$target" -S -80 2>/dev/null || true
+      )"
+      if grep -Eq "^__${token}_SHELL_READY__[[:space:]]*$" <<<"$output"; then
+        echo "SSH_TMUX_SHELL_READY: $target"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  echo "Existing SSH/tmux shell did not answer its probe: $target" >&2
+  tmux capture-pane -pJt "$target" -S -30 2>/dev/null \
+    | tail -n 30 >&2 || true
+  return 1
+}
+
+ensure_ssh_tmux_shell() {
+  local target="$1" pane_state start_command
+  pane_state="$(
+    tmux display-message -p -t "$target" \
+      '#{pane_dead}:#{pane_current_command}' 2>/dev/null || true
+  )"
+  [[ -n "$pane_state" ]] || {
+    echo "Existing SSH/tmux target is unavailable: $target" >&2
+    return 1
+  }
+  start_command="$(
+    tmux display-message -p -t "$target" \
+      '#{pane_start_command}' 2>/dev/null || true
+  )"
+  [[ "$start_command" == *"ssh "* ]] || {
+    echo "Existing tmux target is not the expected SSH pane: $target" >&2
+    return 1
+  }
+  if [[ "$pane_state" == 1:* ]]; then
+    echo "Respawning disconnected existing SSH/tmux pane: $target"
+    tmux respawn-pane -k -t "$target"
+    echo "SSH_TMUX_PANE_RESPAWNED: $target"
+  elif [[ "$pane_state" != 0:ssh ]]; then
+    echo "Existing SSH/tmux target has unexpected state '$pane_state': $target" >&2
+    return 1
+  fi
+  probe_ssh_tmux_shell "$target"
+}
+
+ensure_ssh_tmux_shell "$WSJ_TMUX_TARGET"
+ensure_ssh_tmux_shell "$YUNJI_TMUX_TARGET"
 
 work_dir="$HUB_DIR/runtime/calibration_sessions/$session_id"
 if [[ -e "$work_dir" ]]; then

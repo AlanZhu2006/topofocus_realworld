@@ -25,6 +25,9 @@
 - Split the wide Scene 01 result table into a compact metric table and a
   fixed-width video gallery; add H.264/`yuv420p`/fast-start derivatives and
   inspected posters for all three unbound candidate masters.
+- Make board calibration recover a disconnected existing WSJ/Yunji SSH tmux
+  pane in place and require a unique remote-shell response before release
+  verification, avoiding the previous 180-second wait on a dead pane.
 - Record the operator clarification that the manually terminal-annotated
   `trial-05-nearwall-fix` is formal experiment 03; preserve its existing
   `SR=1` and source-compatible `SPL=0.864048038008398`.

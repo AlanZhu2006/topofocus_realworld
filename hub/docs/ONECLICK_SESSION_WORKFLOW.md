@@ -58,8 +58,9 @@ bash hub/scripts/calibrate_realworld_session.sh \
 
 The command performs this sequence:
 
-1. proves the Git tree is clean and both remote deployment trees are
-   byte-identical;
+1. proves the Git tree is clean, respawns either disconnected existing
+   SSH/tmux pane in place, requires a unique remote-shell probe from both
+   robots, and verifies both remote deployment trees byte-identically;
 2. disables Hub GOAL and starts mapping-only camera streams—no WSJ bridge,
    WATER receiver or planner command path—and opens one Foxglove preview;
 3. waits for fresh WSJ and Yunji camera images, then asks the operator to

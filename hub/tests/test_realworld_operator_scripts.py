@@ -98,6 +98,13 @@ def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
     assert 'row.get("camera_ready") is not True' in source
     assert "--min-board-spacing-px" in source
     assert "BOARD_TOO_SMALL" in source
+    assert "ensure_ssh_tmux_shell" in source
+    assert "tmux respawn-pane -k" in source
+    assert "SSH_TMUX_PANE_RESPAWNED" in source
+    assert "SSH_TMUX_SHELL_READY" in source
+    assert source.index("ensure_ssh_tmux_shell") < source.index(
+        "Verifying byte-identical robot release roots before calibration."
+    )
 
 
 def test_wsj_calibration_uses_one_native_infrared_geometry_frame():
