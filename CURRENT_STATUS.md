@@ -382,8 +382,9 @@ At closeout:
 - All 15 original Scene 01 videos are committed through Git LFS under
   `media/video/`; the largest is 80,244,552 bytes. The three newest
   `success_2`/`success_4` candidates remain runtime-unbound but are now
-  checksummed and committed byte-for-byte. Web-playable H.264 derivatives,
-  posters, hashes and classifications for the previously published set are
-  committed under `media/demo/`.
+  checksummed and committed byte-for-byte. Every candidate now also has a
+  browser-playable H.264 derivative and inspected poster under `media/demo/`;
+  the README uses one fixed-width video-card layout while retaining the
+  binding boundary.
 - Physical/runtime facts are labelled observed; algorithm outputs are labelled
   source-derived; causal claims without evidence remain unverified.

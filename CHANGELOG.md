@@ -22,6 +22,9 @@
 - Update the current README metric table to three eligible samples,
   `SR=3/3=1.0`, mean source-compatible `SPL=0.816269`, independently measured
   Formal-4 `L≈3.25 m`, and official standard `SPL=1.0`.
+- Split the wide Scene 01 result table into a compact metric table and a
+  fixed-width video gallery; add H.264/`yuv420p`/fast-start derivatives and
+  inspected posters for all three unbound candidate masters.
 - Record the operator clarification that the manually terminal-annotated
   `trial-05-nearwall-fix` is formal experiment 03; preserve its existing
   `SR=1` and source-compatible `SPL=0.864048038008398`.

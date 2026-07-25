@@ -137,6 +137,33 @@ observed `ffmpeg` 4.4.2, `libx264`, `yuv420p`, fast-start MP4 and no audio.
 Exact runtime evidence is in
 [`../../audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md`](../../audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md).
 
+## Published unbound Scene 01 candidates
+
+These web assets make the three newly committed candidate masters display in
+the same README card format as the bound/failure recordings. Their metric
+classification is unchanged: filenames and visible content do not establish
+an exact runtime or episode binding.
+
+| Source master | Bytes | Duration | SHA-256 | Binding |
+| --- | ---: | ---: | --- | --- |
+| `media/video/third_view/experiment_1/experiment_1_success_2.mp4` | 2,403,359 | 18.900000 s | `145c7a334816d845a757ef714f0cbe74a0983ab7b728bf2c05e3e61551a2069e` | `success_2` third-view candidate; unverified |
+| `media/video/dashboard/experiment_1/experiment_1_success_2_dashboard.mov` | 17,640,290 | 28.733333 s | `4e060ba8fe006a27113e1c3aa5ea0fddbc9d7e58812959b74ff34a69d492231d` | `success_2` Dashboard candidate; unverified |
+| `media/video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov` | 41,979,329 | 67.663000 s | `dd3518091413d7267e50b896364071882321c8a3802fd8c35d8efdb9e7c6a633` | `success_4` Dashboard candidate; formal-04 binding unverified |
+
+| Published asset | Bytes | Duration/source time | SHA-256 | Format |
+| --- | ---: | ---: | --- | --- |
+| `scene01_unbound_success_2_third_view_20260725.mp4` | 3,205,906 | 18.900 s | `d4d8f8542ca50e311120b20d5ff339ebf1557601653f9b1570790b5cad1f4007` | H.264 High, `yuv420p`, 1280 × 720, 30 fps |
+| `scene01_unbound_success_2_third_view_20260725_poster.jpg` | 188,438 | 18.0 s | `10c2288ab47f9d77abbb8f4e716aaa2ff99c89a7099e5b56d7c1f16f2af60211` | inspected 1280 × 720 poster |
+| `scene01_unbound_success_2_dashboard_20260725.mp4` | 422,322 | 28.734 s | `3575d0af1609e246f25c09f72107196dfe66e4821dff3e9a7d48873297e1228b` | H.264 High, `yuv420p`, 1280 × 578, 30 fps |
+| `scene01_unbound_success_2_dashboard_20260725_poster.jpg` | 75,670 | 27.5 s | `93af6e4932d6e60e0df02ff402fdb99ad4c2be9ecd2debc8a63a53d28ba88e71` | inspected 1280 × 578 poster |
+| `scene01_unbound_success_4_dashboard_20260725.mp4` | 970,337 | 67.600 s | `492a43189ae7fabb265e64be3d2a302db2f1b257825f5b8ed69b3998b2a91bc1` | H.264 High, `yuv420p`, 1280 × 578, 30 fps |
+| `scene01_unbound_success_4_dashboard_20260725_poster.jpg` | 78,113 | 66.0 s | `1de52548b3d1beceb210d891b54bd1170f0368bf19e98a19f7139b47b891eecb` | inspected 1280 × 578 poster |
+
+The third-view derivative uses `libx264` CRF 25 at source dimensions. Both
+Dashboard derivatives use CRF 26 scaled to 1280 pixels wide. All three use the
+locally observed `ffmpeg` 4.4.2, `yuv420p`, fast-start MP4 and no audio. Source
+masters remain byte-for-byte unchanged.
+
 ## Published failed demos
 
 ### Scene 01 approach failure 1 — 2026-07-25

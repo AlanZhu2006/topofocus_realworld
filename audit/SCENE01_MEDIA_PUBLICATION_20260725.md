@@ -124,3 +124,23 @@ alone does not establish a binding to formal experiment 04, and none of these
 files can belong to formal experiment 05 because that workflow stopped before
 live and produced no episode or motion. No SR/SPL value changes as a result of
 publishing these files.
+
+## Later 2026-07-25 addendum: unified web display
+
+The README's wide result/video table was split into a compact metric table and
+a fixed-width video gallery. The three unbound candidate masters now have the
+same browser-playable H.264 plus poster presentation as the older records:
+
+| Published asset | Bytes | Duration/source time | SHA-256 | Classification |
+| --- | ---: | ---: | --- | --- |
+| `media/demo/scene01_unbound_success_2_third_view_20260725.mp4` | 3,205,906 | 18.900 s | `d4d8f8542ca50e311120b20d5ff339ebf1557601653f9b1570790b5cad1f4007` | source-derived H.264 web display; runtime binding unverified |
+| `media/demo/scene01_unbound_success_2_third_view_20260725_poster.jpg` | 188,438 | 18.0 s | `10c2288ab47f9d77abbb8f4e716aaa2ff99c89a7099e5b56d7c1f16f2af60211` | inspected source-derived poster |
+| `media/demo/scene01_unbound_success_2_dashboard_20260725.mp4` | 422,322 | 28.734 s | `3575d0af1609e246f25c09f72107196dfe66e4821dff3e9a7d48873297e1228b` | source-derived H.264 web display; runtime binding unverified |
+| `media/demo/scene01_unbound_success_2_dashboard_20260725_poster.jpg` | 75,670 | 27.5 s | `93af6e4932d6e60e0df02ff402fdb99ad4c2be9ecd2debc8a63a53d28ba88e71` | inspected source-derived poster |
+| `media/demo/scene01_unbound_success_4_dashboard_20260725.mp4` | 970,337 | 67.600 s | `492a43189ae7fabb265e64be3d2a302db2f1b257825f5b8ed69b3998b2a91bc1` | source-derived H.264 web display; formal-04 binding unverified |
+| `media/demo/scene01_unbound_success_4_dashboard_20260725_poster.jpg` | 78,113 | 66.0 s | `1de52548b3d1beceb210d891b54bd1170f0368bf19e98a19f7139b47b891eecb` | inspected source-derived poster |
+
+The third view used `libx264` CRF 25 at 1280 × 720. Dashboard videos used CRF
+26 at 1280 × 578. All outputs are `yuv420p`, fast-start, no-audio derivatives
+from the checksummed masters. This presentation-only change does not bind a
+candidate or change SR/SPL.

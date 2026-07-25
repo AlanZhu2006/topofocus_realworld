@@ -132,18 +132,43 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 runtime/终点证据归档，尚未把现场视频精确绑定到该 episode。第五次只完成
 无运动预检且中止，不是 episode。媒体列明确标出可用性。
 
-| Run | 结果 | 归因 | SR | Source-compatible SPL | 第三视角 | Foxglove Dashboard | 证据口径 |
-| --- | --- | --- | ---: | ---: | --- | --- | --- |
-| Failure 1 | **FAILURE** | 未分类：缺少 runtime 绑定 | 排除 | 排除 | [![Scene 01 failure 1 第三视角](media/demo/scene01_failure_1_third_view_20260725_poster.jpg)](media/demo/scene01_failure_1_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_failure_1_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_approach_failure_1.mp4) | [![Scene 01 failure 1 Dashboard](media/demo/scene01_failure_1_dashboard_20260725_poster.jpg)](media/demo/scene01_failure_1_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_failure_1_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_approach_failure_1_dashboard.mov) | 用户文件名标记为 `approach_failure_1`；第三视角末端 Yunji 停在门边，未建立可计入指标的目标终点。具体 runtime episode ID/控制器错误码未独立绑定，不能认定为 VLM 失败。 |
-| Failure 2 | **FAILURE** | 未分类：缺少 runtime 绑定 | 排除 | 排除 | [![Scene 01 failure 2 第三视角](media/demo/scene01_failure_2_third_view_20260725_poster.jpg)](media/demo/scene01_failure_2_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_failure_2_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_approach_failure_2.mp4) | [![Scene 01 failure 2 Dashboard](media/demo/scene01_failure_2_dashboard_20260725_poster.jpg)](media/demo/scene01_failure_2_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_failure_2_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_approach_failure_2.mov) | 用户文件名标记为 `approach_failure_2`；Yunji 向椅子区域推进，但没有被验证为有效自动终点。缺少逐轮决策/控制证据，不能认定为 VLM 失败。 |
-| Formal 3 | **SUCCESS** | 操作者手动终点判定 | `1` | `0.864048` | [![Yunji 驶近目标椅并停止](media/demo/scene01_success_third_view_20260725_poster.jpg)](media/demo/scene01_success_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_success_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_success_3.mp4) | [![成功 run 的 Foxglove Dashboard](media/demo/scene01_success_dashboard_20260725_poster.jpg)](media/demo/scene01_success_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_success_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov) | `20260725-lab17-nearwall-fix / trial-05-nearwall-fix`；Yunji 停在所选 chair 语义落点 `0.321133 m` 内，操作者按 `0.5 m` 真机半径标注第三次正式实验成功。 |
-| Success 2 | **SUCCESS** | 正常通过 | `1` | `0.628399` | [![双机到达白色椅子附近](media/demo/scene01_success_2_third_view_20260725_poster.jpg)](media/demo/scene01_success_2_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_success_2_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_success_1.mp4) | [![第二次成功 run 的 Foxglove Dashboard](media/demo/scene01_success_2_dashboard_20260725_poster.jpg)](media/demo/scene01_success_2_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_success_2_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov) | `20260725-lab19-scene01-8ca1d52-yunjireboot1-r5 / trial-r5-01`；WSJ 本地规划器自动 `ARRIVED`，停点距 chair 语义目标 `0.406693 m`，正常通过。 |
-| Formal 4 | **SUCCESS** | 自动 `ARRIVED` + 操作者归档 | `1` | `0.956361` | 未绑定现场视频；[终点证据审计](audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md) | [候选原始 Dashboard](media/video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov)（文件名标注，未验证绑定） | `20260725-lab21-wallfix-imudebounce-3a2d953 / trial-wallfix-imudebounce-r1`；Yunji 自动 `LOCAL_PLANNER_ARRIVED`、零速停止，终点 RGB 可见白椅，操作者明确归档为第四次正式实验成功。 |
-| Formal 5 preflight | **NOT STARTED** | WSJ tracking 输出冻结 | 排除 | 排除 | 无：实验未开始 | 无：实验未开始 | 两次准备均止于严格无运动 debug；无 live、GOAL、episode 或运动，不计 SR/SPL。见[预检中止审计](audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md)。 |
+视频与指标拆成两个表，避免宽表把缩略图压得过小。每个视频单元格统一为
+“点击海报播放 H.264；下方可打开网页版本或原始主文件”。
+
+#### 实验结果与指标
+
+| Run | 结果 | 归因 | SR | Source-compatible SPL | Standard SPL | 证据口径 |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| Failure 1 | **FAILURE** | 未分类：缺少 runtime 绑定 | 排除 | 排除 | 排除 | 用户文件名标记为 `approach_failure_1`；没有可计入指标的目标终点，不能认定为 VLM 失败。 |
+| Failure 2 | **FAILURE** | 未分类：缺少 runtime 绑定 | 排除 | 排除 | 排除 | 用户文件名标记为 `approach_failure_2`；缺少逐轮决策/控制证据，不能认定为 VLM 失败。 |
+| Formal 3 | **SUCCESS** | 操作者手动终点判定 | `1` | `0.864048` | — | `20260725-lab17-nearwall-fix / trial-05-nearwall-fix`；Yunji 停在 chair 语义落点 `0.321133 m` 内。 |
+| R5 success | **SUCCESS** | 自动 `ARRIVED` | `1` | `0.628399` | — | `20260725-lab19-scene01-8ca1d52-yunjireboot1-r5 / trial-r5-01`；WSJ 停点距 chair 语义目标 `0.406693 m`。 |
+| Formal 4 | **SUCCESS** | 自动 `ARRIVED` + 操作者归档 | `1` | `0.956361` | `1.0`（`L≈3.25 m`） | `20260725-lab21-wallfix-imudebounce-3a2d953 / trial-wallfix-imudebounce-r1`；终点 RGB 可见白椅。 |
+| Formal 5 preflight | **NOT STARTED** | WSJ tracking 输出冻结 | 排除 | 排除 | 排除 | 严格无运动 debug 中止；无 live、GOAL、episode 或运动。 |
 
 | 当前计入指标的样本 | Success | SR | Mean source-compatible SPL | 独立测量最短可行路径 `L` | Standard SPL |
 | ---: | ---: | ---: | ---: | ---: | ---: |
 | `3` | `3` | `1.0` | `0.816269` | Formal 4：`≈3.25 m` | `1.0`（标准轨 `1/1`） |
+
+#### 视频展示
+
+海报统一按 `300 px` 宽度展示。`未绑定候选` 只表示用户文件名与画面，
+不会改变 SR/SPL 或替代 runtime 证据。
+
+| 记录 | 第三视角 | Foxglove Dashboard | 绑定状态 |
+| --- | --- | --- | --- |
+| Failure 1 | <a href="media/demo/scene01_failure_1_third_view_20260725.mp4"><img src="media/demo/scene01_failure_1_third_view_20260725_poster.jpg" alt="Failure 1 第三视角" width="300"></a><br>[播放 H.264](media/demo/scene01_failure_1_third_view_20260725.mp4) · [原始主文件](media/video/third_view/experiment_1/experiment_1_approach_failure_1.mp4) | <a href="media/demo/scene01_failure_1_dashboard_20260725.mp4"><img src="media/demo/scene01_failure_1_dashboard_20260725_poster.jpg" alt="Failure 1 Dashboard" width="300"></a><br>[播放 H.264](media/demo/scene01_failure_1_dashboard_20260725.mp4) · [原始主文件](media/video/dashboard/experiment_1/experiment_1_approach_failure_1_dashboard.mov) | 未分类；指标排除 |
+| Failure 2 | <a href="media/demo/scene01_failure_2_third_view_20260725.mp4"><img src="media/demo/scene01_failure_2_third_view_20260725_poster.jpg" alt="Failure 2 第三视角" width="300"></a><br>[播放 H.264](media/demo/scene01_failure_2_third_view_20260725.mp4) · [原始主文件](media/video/third_view/experiment_1/experiment_1_approach_failure_2.mp4) | <a href="media/demo/scene01_failure_2_dashboard_20260725.mp4"><img src="media/demo/scene01_failure_2_dashboard_20260725_poster.jpg" alt="Failure 2 Dashboard" width="300"></a><br>[播放 H.264](media/demo/scene01_failure_2_dashboard_20260725.mp4) · [原始主文件](media/video/dashboard/experiment_1/experiment_1_approach_failure_2.mov) | 未分类；指标排除 |
+| Formal 3 | <a href="media/demo/scene01_success_third_view_20260725.mp4"><img src="media/demo/scene01_success_third_view_20260725_poster.jpg" alt="Formal 3 第三视角" width="300"></a><br>[播放 H.264](media/demo/scene01_success_third_view_20260725.mp4) · [原始主文件](media/video/third_view/experiment_1/experiment_1_success_3.mp4) | <a href="media/demo/scene01_success_dashboard_20260725.mp4"><img src="media/demo/scene01_success_dashboard_20260725_poster.jpg" alt="Formal 3 Dashboard" width="300"></a><br>[播放 H.264](media/demo/scene01_success_dashboard_20260725.mp4) · [原始主文件](media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov) | 已绑定：`trial-05-nearwall-fix` |
+| R5 success | <a href="media/demo/scene01_success_2_third_view_20260725.mp4"><img src="media/demo/scene01_success_2_third_view_20260725_poster.jpg" alt="R5 success 第三视角" width="300"></a><br>[播放 H.264](media/demo/scene01_success_2_third_view_20260725.mp4) · [原始主文件](media/video/third_view/experiment_1/experiment_1_success_1.mp4) | <a href="media/demo/scene01_success_2_dashboard_20260725.mp4"><img src="media/demo/scene01_success_2_dashboard_20260725_poster.jpg" alt="R5 success Dashboard" width="300"></a><br>[播放 H.264](media/demo/scene01_success_2_dashboard_20260725.mp4) · [原始主文件](media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov) | 已绑定：`trial-r5-01` |
+| `success_2` 候选 | <a href="media/demo/scene01_unbound_success_2_third_view_20260725.mp4"><img src="media/demo/scene01_unbound_success_2_third_view_20260725_poster.jpg" alt="success_2 候选第三视角" width="300"></a><br>[播放 H.264](media/demo/scene01_unbound_success_2_third_view_20260725.mp4) · [原始主文件](media/video/third_view/experiment_1/experiment_1_success_2.mp4) | <a href="media/demo/scene01_unbound_success_2_dashboard_20260725.mp4"><img src="media/demo/scene01_unbound_success_2_dashboard_20260725_poster.jpg" alt="success_2 候选 Dashboard" width="300"></a><br>[播放 H.264](media/demo/scene01_unbound_success_2_dashboard_20260725.mp4) · [原始主文件](media/video/dashboard/experiment_1/experiment_1_success_2_dashboard.mov) | **未绑定候选**；不计指标 |
+| Formal 4 | — | <a href="media/demo/scene01_unbound_success_4_dashboard_20260725.mp4"><img src="media/demo/scene01_unbound_success_4_dashboard_20260725_poster.jpg" alt="success_4 候选 Dashboard" width="300"></a><br>[播放 H.264](media/demo/scene01_unbound_success_4_dashboard_20260725.mp4) · [原始主文件](media/video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov) | Formal 4 已由 runtime 归档；此视频仍是**未绑定候选** |
+| Formal 5 preflight | — | — | 未开始，无视频 |
+
+Formal 4 的指标证据见
+[第四次正式实验审计](audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md)；
+Formal 5 的排除边界见
+[第五次预检中止审计](audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md)。
 
 失败归因采用固定顺序：先检查传感器、标定/融合、地图/定位、传输、
 本地规划控制、硬件/供电和安全中止；这些任一异常都归为工程失败，不能写成
@@ -200,7 +225,7 @@ Scene 01 已归档的 15 个原始视频已全部通过 Git LFS 进入仓库：
 
 | 横屏第三视角 | 竖屏第三视角 |
 | --- | --- |
-| [![第三视角片段 1：WSJ Go2 与 Yunji](media/demo/third_view_failure_1_20260724_poster.jpg)](media/demo/third_view_failure_1_20260724.mp4) | [![第三视角片段 2：Yunji 与 WSJ Go2](media/demo/third_view_failure_2_20260724_poster.jpg)](media/demo/third_view_failure_2_20260724.mp4) |
+| <a href="media/demo/third_view_failure_1_20260724.mp4"><img src="media/demo/third_view_failure_1_20260724_poster.jpg" alt="第三视角片段 1" width="300"></a> | <a href="media/demo/third_view_failure_2_20260724.mp4"><img src="media/demo/third_view_failure_2_20260724_poster.jpg" alt="第三视角片段 2" width="300"></a> |
 | [播放 10.2 秒 MP4](media/demo/third_view_failure_1_20260724.mp4) | [播放 4.8 秒 MP4](media/demo/third_view_failure_2_20260724.mp4) |
 
 两个片段从实验室第三视角展示 WSJ Go2、Yunji 及其实际传感器/计算设备。
@@ -212,7 +237,7 @@ Scene 01 已归档的 15 个原始视频已全部通过 Git LFS 进入仓库：
 
 | 第三视角 | 同期 Foxglove Dashboard |
 | --- | --- |
-| [![双机路线交叉碰撞第三视角](media/demo/dual_robot_collision_third_view_20260725_poster.jpg)](media/demo/dual_robot_collision_third_view_20260725.mp4) | [![双机路线交叉碰撞 Dashboard](media/demo/dual_robot_collision_dashboard_20260725_poster.jpg)](media/demo/dual_robot_collision_dashboard_20260725.mp4) |
+| <a href="media/demo/dual_robot_collision_third_view_20260725.mp4"><img src="media/demo/dual_robot_collision_third_view_20260725_poster.jpg" alt="双机路线交叉碰撞第三视角" width="300"></a> | <a href="media/demo/dual_robot_collision_dashboard_20260725.mp4"><img src="media/demo/dual_robot_collision_dashboard_20260725_poster.jpg" alt="双机路线交叉碰撞 Dashboard" width="300"></a> |
 | [播放 12.4 秒 MP4](media/demo/dual_robot_collision_third_view_20260725.mp4) | [播放 16.3 秒 MP4](media/demo/dual_robot_collision_dashboard_20260725.mp4) |
 
 这两个片段由用户明确绑定到 session
