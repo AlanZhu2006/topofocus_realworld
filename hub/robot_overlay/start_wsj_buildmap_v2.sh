@@ -22,13 +22,18 @@ PATCHED_PERCEPTION_SHA256="${TINYNAV_PERCEPTION_PATCHED_SHA256:-3a695d5210d60ea1
 # pre-deployment Python code.
 MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
 MAP_TIMEOUT_S="${FOCUS_WSJ_MAP_TIMEOUT_S:-12.0}"
-# The 2026-07-25 physical run observed one 2.227 s BuildMap odometry gap
-# while SLAM diagnostics, occupancy, the local trajectory, and the Go2 bridge
-# stayed healthy.  TinyNav's controller independently zeros velocity after
-# 0.8 s without pose and the v2 receiver additionally closes its guarded
-# output after 1.0 s without a fresh trajectory, so this three-second
-# high-level liveness window cannot make the robot drive on stale localization.
+# TinyNav's goal router keeps a strict three-second odometry deadline.  It
+# enters HOLD on a transient gap and the v2 receiver immediately closes its
+# guarded velocity output; the receiver must remain alive slightly longer so
+# the existing bounded router-recovery path can observe odometry returning.
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
+# Observed physical provenance (2026-07-25): WSJ had 2.227 s and 3.278 s
+# visual-odometry gaps while SLAM diagnostics, occupancy, graph alignment, and
+# the Go2 bridge stayed healthy.  Five seconds separates transient recovery
+# from a persistent localization loss.  This is not a stale-motion allowance:
+# the guarded trajectory output closes after 1.0 s and TinyNav/controller
+# watchdogs retain final authority.
+RECEIVER_LOCAL_DATA_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_WSJ_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry
@@ -362,7 +367,7 @@ receiver=(
   --tinynav-map-frame world
   --local-map-frame wsj/world
   --occupancy-topic /semantic_mapping/occupancy_bev
-  --local-data-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"
+  --local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"
   --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"
   --semantic-arrival-radius-m "$SEMANTIC_ARRIVAL_RADIUS_M"
   --no-progress-timeout-s "$NO_PROGRESS_TIMEOUT_S"

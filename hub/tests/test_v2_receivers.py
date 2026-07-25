@@ -862,7 +862,12 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert 'FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0' in wsj
     assert 'FOCUS_WSJ_MAP_TIMEOUT_S:-12.0' in wsj
     assert '--map-timeout-s \\"$MAP_TIMEOUT_S\\"' in wsj
-    assert '--local-data-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"' in wsj
+    assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0' in wsj
+    assert 'FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0' in wsj
+    assert (
+        '--local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"'
+        in wsj
+    )
     assert '--slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"' in wsj
     continuous_stream_loop = wsj[
         wsj.index("for topic in \\\n  /camera/camera/color/camera_info")
