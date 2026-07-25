@@ -330,6 +330,7 @@ class OccupancyGrid2D:
         clearance_cells: int = 1,
         max_distance_m: float,
         start_footprint_override_m: float = 0.0,
+        preferred_heading_rad: float | None = None,
     ) -> tuple[tuple[int, int], ...] | None:
         """Find a bounded traversed path to the nearest clearance-safe seed.
 
@@ -350,6 +351,13 @@ class OccupancyGrid2D:
         Returning the complete escape path is important: a caller must not
         silently start its route at a seed up to a metre away and command a
         straight-line shortcut from the measured robot pose.
+
+        When ``preferred_heading_rad`` is provided, a clearance-safe seed in
+        the measured forward half-plane is preferred over a slightly nearer
+        seed behind the base. This does not admit any additional cell: the
+        complete escape path and every seed retain the same bounded footprint,
+        known-free and clearance checks. If no forward seed exists, the
+        original nearest-seed behavior remains fail-closed downstream.
         """
 
         if clearance_cells < 0:
@@ -359,6 +367,10 @@ class OccupancyGrid2D:
             or max_distance_m < 0
             or not math.isfinite(start_footprint_override_m)
             or start_footprint_override_m < 0
+            or (
+                preferred_heading_rad is not None
+                and not math.isfinite(preferred_heading_rad)
+            )
         ):
             raise ValueError("seed distances must be finite and non-negative")
         start = self.cell(start_x_m, start_y_m)
@@ -409,10 +421,21 @@ class OccupancyGrid2D:
         reached = {start}
         parent: dict[tuple[int, int], tuple[int, int]] = {}
         pending = deque([start])
-        best: tuple[float, int, int] | None = None
+        best_rank: tuple[float, ...] | None = None
+        best_cell: tuple[int, int] | None = None
         max_distance_sq = max_distance_m * max_distance_m
         footprint_distance_sq = (
             start_footprint_override_m * start_footprint_override_m
+        )
+        heading_cos = (
+            None
+            if preferred_heading_rad is None
+            else math.cos(preferred_heading_rad)
+        )
+        heading_sin = (
+            None
+            if preferred_heading_rad is None
+            else math.sin(preferred_heading_rad)
         )
         while pending:
             row, column = pending.popleft()
@@ -427,9 +450,23 @@ class OccupancyGrid2D:
                     row, column, clearance_cells
                 )
             ):
-                candidate = (distance_sq, row, column)
-                if best is None or candidate < best:
-                    best = candidate
+                if heading_cos is None or heading_sin is None:
+                    candidate_rank = (distance_sq, row, column)
+                else:
+                    forward_m = (
+                        (center_x - start_x_m) * heading_cos
+                        + (center_y - start_y_m) * heading_sin
+                    )
+                    candidate_rank = (
+                        0.0 if forward_m >= 0.0 else 1.0,
+                        distance_sq,
+                        -forward_m,
+                        row,
+                        column,
+                    )
+                if best_rank is None or candidate_rank < best_rank:
+                    best_rank = candidate_rank
+                    best_cell = (row, column)
             for candidate_cell in (
                 (row - 1, column),
                 (row + 1, column),
@@ -470,9 +507,9 @@ class OccupancyGrid2D:
                 reached.add(candidate_cell)
                 parent[candidate_cell] = (row, column)
                 pending.append(candidate_cell)
-        if best is None:
+        if best_cell is None:
             return None
-        seed = (best[1], best[2])
+        seed = best_cell
         path = [seed]
         while path[-1] != start:
             path.append(parent[path[-1]])

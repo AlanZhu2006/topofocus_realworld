@@ -285,6 +285,7 @@ def plan_route(
     clearance_cells: int,
     start_snap_radius_m: float = 0.0,
     start_footprint_override_m: float = 0.0,
+    start_yaw_rad: float | None = None,
     allow_partial_progress: bool = False,
     minimum_progress_m: float = 0.10,
 ) -> RoutePlan | None:
@@ -297,6 +298,10 @@ def plan_route(
         or start_snap_radius_m < 0
         or not math.isfinite(start_footprint_override_m)
         or start_footprint_override_m < 0
+        or (
+            start_yaw_rad is not None
+            and not math.isfinite(start_yaw_rad)
+        )
     ):
         raise ValueError(
             "start distances must be finite and non-negative"
@@ -318,6 +323,7 @@ def plan_route(
             clearance_cells=clearance_cells,
             max_distance_m=start_snap_radius_m,
             start_footprint_override_m=start_footprint_override_m,
+            preferred_heading_rad=start_yaw_rad,
         )
         if seed_path is None:
             return None
@@ -898,6 +904,9 @@ def run_ros(
                 start_snap_radius_m=args.start_snap_radius_m,
                 start_footprint_override_m=(
                     args.start_footprint_override_m
+                ),
+                start_yaw_rad=math.atan2(
+                    tracking_T_base[4], tracking_T_base[0]
                 ),
                 allow_partial_progress=goal.target_kind
                 in {"FRONTIER_POINT", "SEMANTIC_REGION"},

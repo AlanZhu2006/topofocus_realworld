@@ -229,6 +229,36 @@ def test_occupancy_can_escape_only_the_measured_blocked_start_footprint():
     assert grid.point_in_component(4.5, 1.5, component)
 
 
+def test_clearance_seed_prefers_forward_over_slightly_nearer_reverse():
+    data = [0] * (11 * 5)
+    data[2 * 11 + 4] = 100
+    grid = OccupancyGrid2D(11, 5, 1.0, 0.0, 0.0, tuple(data))
+
+    nearest = grid.nearest_clearance_seed_path(
+        4.4,
+        2.5,
+        clearance_cells=1,
+        max_distance_m=3.0,
+        start_footprint_override_m=1.1,
+    )
+    forward = grid.nearest_clearance_seed_path(
+        4.4,
+        2.5,
+        clearance_cells=1,
+        max_distance_m=3.0,
+        start_footprint_override_m=1.1,
+        preferred_heading_rad=0.0,
+    )
+
+    assert nearest is not None
+    assert forward is not None
+    assert nearest[-1] == (2, 2)
+    assert forward[-1] == (2, 6)
+    assert all(
+        grid.cell_center(*cell)[0] >= 4.0 for cell in forward
+    )
+
+
 def test_occupancy_arrival_disk_can_touch_reachable_free_space():
     data = [0] * 7
     data[5] = -1

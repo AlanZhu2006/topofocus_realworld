@@ -526,6 +526,33 @@ def test_start_snap_route_does_not_teleport_to_remote_clearance_seed():
     )
 
 
+def test_start_snap_prefers_forward_seed_for_forward_only_controller():
+    router = load_router()
+    data = [0] * (11 * 5)
+    data[2 * 11 + 4] = 100
+    occupancy = grid(data, width=11, height=5)
+
+    plan = router.plan_route(
+        occupancy,
+        start_x=4.4,
+        start_y=2.5,
+        goal_x=9.5,
+        goal_y=2.5,
+        arrival_radius_m=0.1,
+        clearance_cells=1,
+        start_snap_radius_m=3.0,
+        start_footprint_override_m=1.1,
+        start_yaw_rad=0.0,
+    )
+
+    assert plan is not None
+    assert plan.cells[:3] == ((2, 4), (2, 5), (2, 6))
+    lookahead = router.select_lookahead(
+        occupancy, plan, lookahead_m=1.0
+    )
+    assert lookahead[0] > 4.4
+
+
 def test_router_has_no_robot_sdk_or_velocity_output():
     source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
         encoding="utf-8"
