@@ -175,6 +175,10 @@ fresh_topic_once() {
 set +u
 source "$SETUP_FILE"
 set -u
+# The observation sender is read-only and does not own the tracking process.
+# Stop only that high-bandwidth subscriber before creating temporary sensor
+# probes; it is restarted with the requested calibration after the probes pass.
+tmux kill-window -t "$SESSION:hub-sender" >/dev/null 2>&1 || true
 # RGB and processed depth are continuous streams and therefore prove that the
 # calibrated camera/perception epoch is advancing. Keyframe topics are
 # intentionally VOLATILE and event-driven; while the robot is stationary a
@@ -194,13 +198,6 @@ for topic in \
   }
 done
 
-bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
-  --session "$SESSION" \
-  --shared-tracking-calibration "$CALIBRATION_FILE" \
-  --shared-frame-calibration-id "$CALIBRATION_ID" \
-  --transform-version "$TRANSFORM_VERSION" \
-  --hub-url "$HUB_URL"
-
 required_windows=(maploc online-map planning goal-router control)
 missing_windows=()
 for window in "${required_windows[@]}"; do
@@ -218,6 +215,32 @@ elif [[ ${#missing_windows[@]} -ne 0 ]]; then
   echo "Refusing ambiguous partial online stack; missing: ${missing_windows[*]}" >&2
   exit 1
 fi
+
+# On the deployed WSJ ROS domain, adding either the high-bandwidth Hub sender
+# or the Unitree SDK2 participant can delay discovery for a new temporary
+# Image subscriber. Validate the complete sensor/geometry/map contract before
+# either participant exists. Later phases validate the command graph without
+# creating another image subscription.
+"$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
+  --robot-id robot-0 \
+  --mode "$mode" \
+  --sensor-map-only \
+  --frame-id world \
+  --camera-frame camera \
+  --fresh-image-topic /camera/camera/color/image_raw \
+  --fresh-image-topic /slam/depth \
+  --geometry-image-topic /slam/depth \
+  --camera-info-topic /slam/camera_info \
+  --max-occupancy-age-s 12 \
+  --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
+  --timeout-s 35
+
+bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
+  --session "$SESSION" \
+  --shared-tracking-calibration "$CALIBRATION_FILE" \
+  --shared-frame-calibration-id "$CALIBRATION_ID" \
+  --transform-version "$TRANSFORM_VERSION" \
+  --hub-url "$HUB_URL"
 
 # The BuildMap core persists between episodes, so its controller process may
 # predate the checked deployment. Pause first, then replace only the raw
@@ -269,15 +292,9 @@ if tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx v2-receiver; t
     "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
       --robot-id robot-0 \
       --mode debug \
-      --frame-id world \
+      --command-graph-only \
       --camera-frame camera \
-      --fresh-image-topic /camera/camera/color/image_raw \
-      --fresh-image-topic /slam/depth \
-      --geometry-image-topic /slam/depth \
-      --camera-info-topic /slam/camera_info \
-      --max-occupancy-age-s 12 \
-      --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
-      --timeout-s 35
+      --timeout-s 20
     echo "WSJ v2 BuildMap stack is already ready: mode=debug"
     echo "Safety: no Go2 bridge; physical motion is impossible through this stack."
     exit 0
@@ -382,31 +399,22 @@ until [[ -s "$alignment" ]]; do
   sleep 1
 done
 
-# The Unitree SDK2 bridge and ROS 2 coexist in one Python process. On the
-# deployed Go2, starting that participant can delay discovery for newly
-# created high-bandwidth image subscribers even though the existing mapper,
-# sender and controller subscriptions continue normally. Prove every sensor,
-# geometry, map-freshness and non-actuating command-route invariant before the
-# SDK2 participant exists. The post-bridge check below then proves only the
-# one endpoint that the bridge adds.
+# The sensor/map phase already passed before the Hub sender existed. Validate
+# the complete non-actuating command route now, without creating another
+# temporary image subscription. In live mode the chassis subscriber must
+# still be absent until this check passes; the post-bridge check below then
+# proves only the one endpoint that the bridge adds.
 source "$SETUP_FILE"
-pre_bridge_args=()
+pre_bridge_args=(--command-graph-only)
 if [[ "$mode" == live ]]; then
-  pre_bridge_args+=(--pre-bridge-full-check)
+  pre_bridge_args+=(--pre-bridge-command-check)
 fi
 "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   --robot-id robot-0 \
   --mode "$mode" \
   "${pre_bridge_args[@]}" \
-  --frame-id world \
   --camera-frame camera \
-  --fresh-image-topic /camera/camera/color/image_raw \
-  --fresh-image-topic /slam/depth \
-  --geometry-image-topic /slam/depth \
-  --camera-info-topic /slam/camera_info \
-  --max-occupancy-age-s 12 \
-  --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
-  --timeout-s 35
+  --timeout-s 20
 
 if [[ "$mode" == live ]]; then
   tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx go2-bridge && {

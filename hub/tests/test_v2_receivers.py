@@ -213,7 +213,7 @@ def test_data_plane_phase_specific_command_graph_contract():
         pre_bridge,
         robot_id="robot-0",
         mode="live",
-        pre_bridge_full_check=True,
+        pre_bridge_command_check=True,
     )
     with pytest.raises(ValueError, match="guarded chassis subscriber"):
         verifier.validate_command_graph(
@@ -236,18 +236,31 @@ def test_data_plane_phase_specific_command_graph_contract():
     )
 
 
-def test_wsj_live_verification_is_split_around_go2_bridge():
+def test_wsj_verification_is_split_around_sender_and_go2_bridge():
     launcher = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text(
         encoding="utf-8"
     )
-    pre_index = launcher.index("--pre-bridge-full-check")
+    sensor_index = launcher.index("--sensor-map-only")
+    sender_index = launcher.index(
+        'bash "$SCRIPT_DIR/start_wsj_command_observation.sh"'
+    )
+    command_index = launcher.index("--command-graph-only")
+    pre_index = launcher.index("--pre-bridge-command-check")
     bridge_index = launcher.index(
         'tmux new-window -d -t "$SESSION" -n go2-bridge'
     )
     post_index = launcher.index("--post-bridge-command-check")
 
-    assert pre_index < bridge_index < post_index
-    assert "high-bandwidth image subscribers" in launcher
+    assert (
+        sensor_index
+        < sender_index
+        < command_index
+        < pre_index
+        < bridge_index
+        < post_index
+    )
+    assert "high-bandwidth Hub sender" in launcher
+    assert 'tmux kill-window -t "$SESSION:hub-sender"' in launcher
 
 
 def test_calibration_geometry_verifier_is_read_only_and_reuses_contract():

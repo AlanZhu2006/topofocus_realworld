@@ -52,7 +52,7 @@ def validate_command_graph(
     *,
     robot_id: str,
     mode: str,
-    pre_bridge_full_check: bool = False,
+    pre_bridge_command_check: bool = False,
     guarded_only: bool = False,
 ) -> None:
     """Validate the exclusive command route for the requested startup phase."""
@@ -76,7 +76,7 @@ def validate_command_graph(
     expected_guarded_subscriber = (
         None
         if robot_id == "robot-0"
-        and (mode == "debug" or pre_bridge_full_check)
+        and (mode == "debug" or pre_bridge_command_check)
         else (
             "go2_cmd_bridge"
             if robot_id == "robot-0"
@@ -345,7 +345,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         durability=DurabilityPolicy.TRANSIENT_LOCAL,
     )
     subscriptions = []
-    if not args.post_bridge_command_check:
+    message_checks_enabled = not (
+        args.command_graph_only or args.post_bridge_command_check
+    )
+    if message_checks_enabled:
         subscriptions.extend(
             [
                 node.create_subscription(
@@ -368,7 +371,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 ),
             ]
         )
-    if args.platform_status_topic and not args.post_bridge_command_check:
+    if args.platform_status_topic and message_checks_enabled:
         subscriptions.append(
             node.create_subscription(
                 String,
@@ -377,30 +380,27 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 volatile_qos,
             )
         )
-    if not args.post_bridge_command_check:
+    if message_checks_enabled:
+        image_keys_by_topic: dict[str, list[str]] = {}
         for index, topic in enumerate(args.fresh_image_topic):
-            key = f"image_{index}"
+            image_keys_by_topic.setdefault(topic, []).append(f"image_{index}")
+        if args.geometry_image_topic:
+            image_keys_by_topic.setdefault(
+                args.geometry_image_topic, []
+            ).append("geometry_image")
+        for topic, keys in image_keys_by_topic.items():
             subscriptions.append(
                 node.create_subscription(
                     Image,
                     topic,
-                    lambda message, image_key=key: latest.__setitem__(
-                        image_key, message
+                    lambda message, image_keys=tuple(keys): latest.update(
+                        {key: message for key in image_keys}
                     ),
                     volatile_qos,
                 )
             )
-    if args.geometry_image_topic and not args.post_bridge_command_check:
-        subscriptions.extend(
-            [
-                node.create_subscription(
-                    Image,
-                    args.geometry_image_topic,
-                    lambda message: latest.__setitem__(
-                        "geometry_image", message
-                    ),
-                    volatile_qos,
-                ),
+        if args.geometry_image_topic:
+            subscriptions.append(
                 node.create_subscription(
                     CameraInfo,
                     args.camera_info_topic,
@@ -408,9 +408,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                         "camera_info", message
                     ),
                     volatile_qos,
-                ),
-            ]
-        )
+                )
+            )
 
     all_topics = {
         "raw": args.raw_cmd_topic,
@@ -418,11 +417,12 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "target": args.target_topic,
         "poi": args.poi_topic,
     }
-    topics = (
-        {"guarded": args.guarded_cmd_topic}
-        if args.post_bridge_command_check
-        else all_topics
-    )
+    if args.sensor_map_only:
+        topics = {}
+    elif args.post_bridge_command_check:
+        topics = {"guarded": args.guarded_cmd_topic}
+    else:
+        topics = all_topics
 
     def graph() -> dict[str, dict[str, list[str]]]:
         return {
@@ -454,6 +454,49 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     cached_occupancy_motion_m: float | None = None
     using_cached_occupancy = False
     try:
+        if args.command_graph_only:
+            last_graph_error: ValueError | None = None
+            while time.monotonic() < deadline:
+                rclpy.spin_once(node, timeout_sec=0.2)
+                observed_graph = graph()
+                try:
+                    validate_command_graph(
+                        observed_graph,
+                        robot_id=args.robot_id,
+                        mode=args.mode,
+                        pre_bridge_command_check=(
+                            args.pre_bridge_command_check
+                        ),
+                    )
+                except ValueError as error:
+                    last_graph_error = error
+                    continue
+                return {
+                    "schema_version": (
+                        "focus-tinynav-data-plane-verification-v1"
+                    ),
+                    "robot_id": args.robot_id,
+                    "mode": args.mode,
+                    "verification_scope": (
+                        "pre_bridge_command_graph"
+                        if args.pre_bridge_command_check
+                        else "command_graph"
+                    ),
+                    "passed": True,
+                    "robot_commands_issued": False,
+                    "sensor_map_verification_required": True,
+                    "command_graph": observed_graph,
+                }
+            detail = (
+                str(last_graph_error)
+                if last_graph_error is not None
+                else "no resolved command endpoints"
+            )
+            raise TimeoutError(
+                "timed out waiting for the exclusive command route: "
+                f"{detail}"
+            )
+
         if args.post_bridge_command_check:
             last_graph_error: ValueError | None = None
             while time.monotonic() < deadline:
@@ -478,7 +521,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     "verification_scope": "post_bridge_command_graph",
                     "passed": True,
                     "robot_commands_issued": False,
-                    "pre_bridge_full_verification_required": True,
+                    "sensor_map_verification_required": True,
+                    "pre_bridge_command_verification_required": True,
                     "command_graph": observed_graph,
                 }
             detail = (
@@ -503,7 +547,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             # makes healthy streams look absent.  Receive every required
             # volatile sample first; the exclusive command-route graph is
             # still checked before this verifier can pass.
-            observed_graph = graph()
+            if not args.sensor_map_only:
+                observed_graph = graph()
             if args.geometry_image_topic:
                 # A profile reconnect can leave TinyNav publishing new-sized
                 # images with cached old CameraInfo. Fail immediately instead
@@ -559,15 +604,15 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     )
                     if not using_cached_occupancy:
                         continue
-            try:
-                validate_command_graph(
-                    observed_graph,
-                    robot_id=args.robot_id,
-                    mode=args.mode,
-                    pre_bridge_full_check=args.pre_bridge_full_check,
-                )
-            except ValueError:
-                continue
+            if not args.sensor_map_only:
+                try:
+                    validate_command_graph(
+                        observed_graph,
+                        robot_id=args.robot_id,
+                        mode=args.mode,
+                    )
+                except ValueError:
+                    continue
             break
         missing = sorted(required_messages - latest.keys())
         if missing:
@@ -603,12 +648,12 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 f"{args.camera_frame!r}"
             )
 
-        validate_command_graph(
-            observed_graph,
-            robot_id=args.robot_id,
-            mode=args.mode,
-            pre_bridge_full_check=args.pre_bridge_full_check,
-        )
+        if not args.sensor_map_only:
+            validate_command_graph(
+                observed_graph,
+                robot_id=args.robot_id,
+                mode=args.mode,
+            )
 
         occupancy = validate_occupancy(
             latest["occupancy"], frame_id=args.frame_id
@@ -642,9 +687,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             "robot_id": args.robot_id,
             "mode": args.mode,
             "verification_scope": (
-                "pre_bridge_full"
-                if args.pre_bridge_full_check
-                else "full"
+                "sensor_map" if args.sensor_map_only else "full"
             ),
             "passed": True,
             "robot_commands_issued": False,
@@ -655,8 +698,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             "occupancy": occupancy,
             "router": validate_router_status(latest["router"]),
             "fresh_image_topics": list(args.fresh_image_topic),
-            "command_graph": observed_graph,
         }
+        if not args.sensor_map_only:
+            report["command_graph"] = observed_graph
         if args.platform_status_topic:
             report["platform"] = validate_water_status(
                 latest["platform"], expected_live=args.mode == "live"
@@ -680,11 +724,27 @@ def main() -> int:
     parser.add_argument("--robot-id", choices=("robot-0", "robot-1"), required=True)
     parser.add_argument("--mode", choices=("debug", "live"), required=True)
     parser.add_argument(
-        "--pre-bridge-full-check",
+        "--sensor-map-only",
         action="store_true",
         help=(
-            "in WSJ live mode, fully validate sensors/maps and require the "
-            "guarded chassis subscriber to remain absent"
+            "validate odometry, images, geometry, occupancy and router state "
+            "without querying the command graph"
+        ),
+    )
+    parser.add_argument(
+        "--command-graph-only",
+        action="store_true",
+        help=(
+            "validate the full exclusive command graph without creating "
+            "sensor/image subscriptions"
+        ),
+    )
+    parser.add_argument(
+        "--pre-bridge-command-check",
+        action="store_true",
+        help=(
+            "with --command-graph-only in WSJ live mode, require the guarded "
+            "chassis subscriber to remain absent"
         ),
     )
     parser.add_argument(
@@ -692,7 +752,7 @@ def main() -> int:
         action="store_true",
         help=(
             "after the WSJ Go2 bridge starts, validate only its exclusive "
-            "guarded command route; requires a prior full check"
+            "guarded command route; requires prior sensor/map and command checks"
         ),
     )
     parser.add_argument("--frame-id", default="world")
@@ -740,16 +800,27 @@ def main() -> int:
     args = parser.parse_args()
     if args.timeout_s <= 0:
         parser.error("--timeout-s must be positive")
-    if args.pre_bridge_full_check and args.post_bridge_command_check:
-        parser.error(
-            "--pre-bridge-full-check and --post-bridge-command-check "
-            "are mutually exclusive"
+    scope_count = sum(
+        (
+            args.sensor_map_only,
+            args.command_graph_only,
+            args.post_bridge_command_check,
         )
-    if args.pre_bridge_full_check and (
+    )
+    if scope_count > 1:
+        parser.error(
+            "--sensor-map-only, --command-graph-only and "
+            "--post-bridge-command-check are mutually exclusive"
+        )
+    if args.pre_bridge_command_check and not args.command_graph_only:
+        parser.error(
+            "--pre-bridge-command-check requires --command-graph-only"
+        )
+    if args.pre_bridge_command_check and (
         args.robot_id != "robot-0" or args.mode != "live"
     ):
         parser.error(
-            "--pre-bridge-full-check is only valid for robot-0 live mode"
+            "--pre-bridge-command-check is only valid for robot-0 live mode"
         )
     if args.post_bridge_command_check and (
         args.robot_id != "robot-0" or args.mode != "live"
@@ -757,7 +828,7 @@ def main() -> int:
         parser.error(
             "--post-bridge-command-check is only valid for robot-0 live mode"
         )
-    if args.post_bridge_command_check and (
+    if (args.command_graph_only or args.post_bridge_command_check) and (
         args.platform_status_topic
         or args.fresh_image_topic
         or args.geometry_image_topic
@@ -766,8 +837,8 @@ def main() -> int:
         or args.max_cached_occupancy_motion_m > 0
     ):
         parser.error(
-            "--post-bridge-command-check does not accept sensor/map checks; "
-            "run --pre-bridge-full-check first"
+            "command-graph-only checks do not accept sensor/map options; "
+            "run --sensor-map-only first"
         )
     if bool(args.geometry_image_topic) != bool(args.camera_info_topic):
         parser.error(
