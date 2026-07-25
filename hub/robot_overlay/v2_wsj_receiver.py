@@ -2045,9 +2045,29 @@ def main() -> int:
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
                 elif router_recovery_leg_id == active_decision.leg_id:
-                    # Do not manufacture NAVIGATING feedback while the local
-                    # velocity gate is closed for bounded recovery.
-                    pass
+                    # The physical velocity gate is closed during bounded
+                    # online-map recovery, so this must never be reported as
+                    # NAVIGATING.  Still emit fresh ACCEPTED receipts: the Hub
+                    # lease monitor otherwise mistakes the intentionally quiet
+                    # recovery window for a dead receiver before the local
+                    # router's stricter recovery timeout can decide the leg.
+                    if (
+                        time.monotonic() - last_feedback_monotonic >= 0.5
+                    ):
+                        post(
+                            active_decision,
+                            NavigationStatusV2.ACCEPTED,
+                            "LOCAL_ROUTER_RECOVERY_WAIT",
+                            pose,
+                            goal=active_goal,
+                            detail=(
+                                "physical velocity gate is closed while the "
+                                "online map catches up; "
+                                f"router={node.router_state}/"
+                                f"{node.router_reason}"
+                            ),
+                        )
+                        last_feedback_monotonic = time.monotonic()
                 elif not goal_published_this_cycle:
                     remaining_m = max(
                         0.0,

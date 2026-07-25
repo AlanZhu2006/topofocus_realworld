@@ -552,6 +552,12 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     )
     assert "node.router_decision_id is None" not in source
     assert '"control_telemetry"' in source
+    recovery_feedback = source.split(
+        "elif router_recovery_leg_id == active_decision.leg_id:", 1
+    )[1].split("elif not goal_published_this_cycle:", 1)[0]
+    assert "NavigationStatusV2.ACCEPTED" in recovery_feedback
+    assert '"LOCAL_ROUTER_RECOVERY_WAIT"' in recovery_feedback
+    assert "last_feedback_monotonic = time.monotonic()" in recovery_feedback
 
 
 def test_wsj_online_buildmap_mode_is_explicit_and_pause_is_latched():
