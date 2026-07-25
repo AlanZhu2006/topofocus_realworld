@@ -138,6 +138,43 @@ def test_data_plane_verifier_rejects_mixed_source_clock_epochs():
         )
 
 
+def test_data_plane_cached_occupancy_requires_stationary_no_goal_hold():
+    verifier = load_overlay("verify_tinynav_data_plane.py")
+    hold = {"state": "HOLD", "reason": "NO_GOAL", "decision_id": None}
+
+    valid, motion_m = verifier.cached_occupancy_start_is_valid(
+        occupancy_age_s=49.77,
+        maximum_age_s=12.0,
+        anchor_xy=(1.0, 2.0),
+        current_xy=(1.079, 2.0),
+        maximum_motion_m=0.25,
+        router_status=hold,
+    )
+    assert valid is True
+    assert motion_m == pytest.approx(0.079)
+
+    for current_xy, router in (
+        ((1.251, 2.0), hold),
+        (
+            (1.079, 2.0),
+            {
+                "state": "NAVIGATING",
+                "reason": "ONLINE_PATH_READY",
+                "decision_id": "active",
+            },
+        ),
+    ):
+        valid, _ = verifier.cached_occupancy_start_is_valid(
+            occupancy_age_s=49.77,
+            maximum_age_s=12.0,
+            anchor_xy=(1.0, 2.0),
+            current_xy=current_xy,
+            maximum_motion_m=0.25,
+            router_status=router,
+        )
+        assert valid is False
+
+
 def test_calibration_geometry_verifier_is_read_only_and_reuses_contract():
     verifier = (OVERLAY / "verify_ros_geometry_profile.py").read_text(
         encoding="utf-8"
@@ -581,13 +618,26 @@ def test_wsj_launcher_reloads_persistent_goal_router_before_receiver() -> None:
     reload_index = launcher.index(
         'tmux respawn-pane -k -t "$SESSION:goal-router"'
     )
+    controller_reload_index = launcher.index(
+        'tmux respawn-pane -k -t "$SESSION:control"'
+    )
     receiver_index = launcher.index(
         'tmux new-window -d -t "$SESSION" -n v2-receiver'
     )
     bridge_index = launcher.index(
         'tmux new-window -d -t "$SESSION" -n go2-bridge'
     )
-    assert reload_index < receiver_index < bridge_index
+    assert (
+        controller_reload_index
+        < reload_index
+        < receiver_index
+        < bridge_index
+    )
+    assert (
+        "WSJ velocity controller reloaded from the current deployment"
+        in launcher
+    )
+    assert "yunji_tinynav_cmd_vel_control.py" in launcher
     assert "WSJ goal-router reloaded from the current deployment" in launcher
     assert '--start-snap-radius-m \\"$START_SNAP_RADIUS_M\\"' in launcher
     assert (
@@ -663,6 +713,10 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--geometry-image-topic /slam/depth" in wsj
     assert "--camera-info-topic /slam/camera_info" in wsj
     assert "--max-occupancy-age-s 12" in wsj
+    assert (
+        '--max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"'
+        in wsj
+    )
     assert "--geometry-image-topic /slam/depth" in yunji
     assert "--camera-info-topic /slam/camera_info" in yunji
     assert "--max-occupancy-age-s 12" in yunji

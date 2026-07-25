@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SESSION="${FOCUS_WSJ_NAV_SESSION:-tinynav_semantic_nav_auto}"
 SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
+TINYNAV_ROOT="${TINYNAV_ROOT:-/home/nvidia/twork/tinynav}"
 PYTHON_BIN="${TINYNAV_PYTHON:-/home/nvidia/twork/tinynav/.venv/bin/python}"
 TOKEN_FILE="${FOCUS_ROBOT_TOKEN_FILE:-/home/nvidia/focus_sender/.token}"
 CALIBRATION_FILE="${FOCUS_SHARED_CALIBRATION_FILE:-}"
@@ -16,8 +17,9 @@ PATCHED_ROOT="${TINYNAV_PERCEPTION_PATCHED_ROOT:-/home/nvidia/focus_sender/tinyn
 PATCHED_COMMIT="${TINYNAV_PERCEPTION_PATCHED_COMMIT:-29f26bc058886ff450f02cdc0d6e9977e1c57010}"
 PATCHED_PERCEPTION_SHA256="${TINYNAV_PERCEPTION_PATCHED_SHA256:-3a695d5210d60ea1f721549ca7458ba89e7bf32db5178cd1c312c633aef1c3b3}"
 # Keep these values identical to start_tinynav_buildmap_online_nav.sh.  The
-# mapper/planner can remain alive across supervised episodes, but the overlay
-# goal router must be reloaded so it cannot retain pre-deployment Python code.
+# Mapper/planner can remain alive across supervised episodes, but the overlay
+# goal router and velocity wrapper must be reloaded so they cannot retain
+# pre-deployment Python code.
 MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
 MAP_TIMEOUT_S="${FOCUS_WSJ_MAP_TIMEOUT_S:-12.0}"
 # The 2026-07-25 physical run observed one 2.227 s BuildMap odometry gap
@@ -102,6 +104,7 @@ for required in \
   "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   "$SCRIPT_DIR/start_go2_buildmap.sh" \
   "$SCRIPT_DIR/start_tinynav_buildmap_online_nav.sh" \
+  "$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py" \
   "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   "$SCRIPT_DIR/v2_wsj_receiver.py" \
   "$CALIBRATION_FILE" \
@@ -216,6 +219,45 @@ elif [[ ${#missing_windows[@]} -ne 0 ]]; then
   exit 1
 fi
 
+# The BuildMap core persists between episodes, so its controller process may
+# predate the checked deployment. Pause first, then replace only the raw
+# /cmd_vel controller before any receiver or chassis bridge can be created.
+# The latched pause makes the new process publish zero until the v2 receiver
+# explicitly authorizes a fresh trajectory in live mode.
+timeout 5 ros2 topic pub --once \
+  /nav/paused std_msgs/msg/Bool '{data: true}' \
+  >/dev/null 2>&1 || true
+old_control_pid="$(
+  tmux display-message -p -t "$SESSION:control" '#{pane_pid}'
+)"
+tmux respawn-pane -k -t "$SESSION:control" \
+  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\"'"
+new_control_pid="$(
+  tmux display-message -p -t "$SESSION:control" '#{pane_pid}'
+)"
+control_start="$(
+  tmux display-message -p -t "$SESSION:control" '#{pane_start_command}'
+)"
+[[ -n "$new_control_pid" \
+   && "$new_control_pid" != "$old_control_pid" \
+   && "$control_start" == *"yunji_tinynav_cmd_vel_control.py"* ]] || {
+  echo "WSJ velocity controller did not reload from the deployment wrapper." >&2
+  exit 1
+}
+deadline=$((SECONDS + 15))
+until ros2 node list 2>/dev/null | grep -qx /cmd_vel_control_node; do
+  if [[ "$(tmux display-message -p -t "$SESSION:control" '#{pane_dead}')" == 1 ]]; then
+    tmux capture-pane -pt "$SESSION:control" -S -100 >&2 || true
+    exit 1
+  fi
+  (( SECONDS < deadline )) || {
+    echo "Timed out waiting for the reloaded WSJ velocity controller." >&2
+    exit 1
+  }
+  sleep 1
+done
+echo "WSJ velocity controller reloaded from the current deployment: $new_control_pid"
+
 if tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx v2-receiver; then
   if [[ "$mode" == debug ]] \
      && ! tmux list-windows -t "$SESSION" -F '#{window_name}' \
@@ -234,6 +276,7 @@ if tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx v2-receiver; t
       --geometry-image-topic /slam/depth \
       --camera-info-topic /slam/camera_info \
       --max-occupancy-age-s 12 \
+      --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
       --timeout-s 35
     echo "WSJ v2 BuildMap stack is already ready: mode=debug"
     echo "Safety: no Go2 bridge; physical motion is impossible through this stack."
@@ -360,6 +403,7 @@ source "$SETUP_FILE"
   --geometry-image-topic /slam/depth \
   --camera-info-topic /slam/camera_info \
   --max-occupancy-age-s 12 \
+  --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
   --timeout-s 35
 
 startup_complete="true"

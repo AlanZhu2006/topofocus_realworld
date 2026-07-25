@@ -82,7 +82,11 @@ def validate_router_status(message: Any) -> dict[str, object]:
     reason = str(payload.get("reason", ""))
     if not state or not reason:
         raise ValueError("router status lacks state/reason")
-    return {"state": state, "reason": reason}
+    return {
+        "state": state,
+        "reason": reason,
+        "decision_id": payload.get("decision_id"),
+    }
 
 
 def message_stamp_ns(message: Any) -> int:
@@ -112,6 +116,43 @@ def message_lag_s(message: Any, *, reference_message: Any) -> float:
             f"{abs(age_s):.3f}s ahead of the fresh image timestamp"
         )
     return max(0.0, age_s)
+
+
+def planar_position(message: Any) -> tuple[float, float]:
+    position = message.pose.pose.position
+    x_m = float(position.x)
+    y_m = float(position.y)
+    if not all(math.isfinite(value) for value in (x_m, y_m)):
+        raise ValueError("odometry planar position is not finite")
+    return x_m, y_m
+
+
+def cached_occupancy_start_is_valid(
+    *,
+    occupancy_age_s: float,
+    maximum_age_s: float,
+    anchor_xy: tuple[float, float] | None,
+    current_xy: tuple[float, float],
+    maximum_motion_m: float,
+    router_status: dict[str, object],
+) -> tuple[bool, float | None]:
+    """Bridge a sparse keyframe interval only while HOLD remains stationary."""
+
+    if occupancy_age_s <= maximum_age_s:
+        return True, 0.0
+    if anchor_xy is None or maximum_motion_m <= 0.0:
+        return False, None
+    motion_m = math.hypot(
+        current_xy[0] - anchor_xy[0],
+        current_xy[1] - anchor_xy[1],
+    )
+    valid = (
+        motion_m <= maximum_motion_m
+        and router_status.get("state") == "HOLD"
+        and router_status.get("reason") == "NO_GOAL"
+        and router_status.get("decision_id") is None
+    )
+    return valid, motion_m
 
 
 def validate_geometry_contract(
@@ -325,6 +366,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     observed_graph: dict[str, dict[str, list[str]]] = {}
     stale_occupancy_age_s: float | None = None
     occupancy_clock_error: str | None = None
+    occupancy_anchor_stamp_ns: int | None = None
+    occupancy_anchor_xy: tuple[float, float] | None = None
+    cached_occupancy_motion_m: float | None = None
+    using_cached_occupancy = False
     try:
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.2)
@@ -342,6 +387,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 )
             stale_occupancy_age_s = None
             occupancy_clock_error = None
+            cached_occupancy_motion_m = None
+            using_cached_occupancy = False
             if args.max_occupancy_age_s > 0:
                 fresh_reference = max(
                     (
@@ -361,8 +408,29 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     # the new mapper sample, then fail closed at the deadline.
                     occupancy_clock_error = str(error)
                     continue
+                occupancy_stamp_ns = message_stamp_ns(latest["occupancy"])
+                current_xy = planar_position(latest["odom"])
+                if occupancy_stamp_ns != occupancy_anchor_stamp_ns:
+                    occupancy_anchor_stamp_ns = occupancy_stamp_ns
+                    occupancy_anchor_xy = current_xy
                 if stale_occupancy_age_s > args.max_occupancy_age_s:
-                    continue
+                    (
+                        using_cached_occupancy,
+                        cached_occupancy_motion_m,
+                    ) = cached_occupancy_start_is_valid(
+                        occupancy_age_s=stale_occupancy_age_s,
+                        maximum_age_s=args.max_occupancy_age_s,
+                        anchor_xy=occupancy_anchor_xy,
+                        current_xy=current_xy,
+                        maximum_motion_m=(
+                            args.max_cached_occupancy_motion_m
+                        ),
+                        router_status=validate_router_status(
+                            latest["router"]
+                        ),
+                    )
+                    if not using_cached_occupancy:
+                        continue
             if all(
                 observed_graph[key]["publishers"]
                 for key in ("raw", "guarded", "target", "poi")
@@ -384,6 +452,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         if (
             stale_occupancy_age_s is not None
             and stale_occupancy_age_s > args.max_occupancy_age_s
+            and not using_cached_occupancy
         ):
             raise TimeoutError(
                 "occupancy remained stale: "
@@ -483,6 +552,16 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             )
             occupancy["maximum_age_s"] = args.max_occupancy_age_s
             occupancy["age_reference"] = "fresh_image_source_timestamp"
+            occupancy["freshness_policy"] = (
+                "bounded_stationary_cached_map"
+                if using_cached_occupancy
+                else "strict_source_age"
+            )
+            if using_cached_occupancy:
+                occupancy["cached_motion_m"] = cached_occupancy_motion_m
+                occupancy["maximum_cached_motion_m"] = (
+                    args.max_cached_occupancy_motion_m
+                )
         report: dict[str, object] = {
             "schema_version": "focus-tinynav-data-plane-verification-v1",
             "robot_id": args.robot_id,
@@ -548,6 +627,15 @@ def main() -> int:
         default=0.0,
         help="maximum source timestamp age; zero disables this check",
     )
+    parser.add_argument(
+        "--max-cached-occupancy-motion-m",
+        type=float,
+        default=0.0,
+        help=(
+            "allow an older latched grid only while the router reports "
+            "HOLD/NO_GOAL and odometry moves no farther than this distance"
+        ),
+    )
     parser.add_argument("--raw-cmd-topic", default="/cmd_vel")
     parser.add_argument("--guarded-cmd-topic", default="/focus_guarded_cmd_vel")
     parser.add_argument("--target-topic", default="/control/target_pose")
@@ -565,6 +653,18 @@ def main() -> int:
     if args.max_occupancy_age_s > 0 and not args.fresh_image_topic:
         parser.error(
             "--max-occupancy-age-s requires at least one --fresh-image-topic"
+        )
+    if not 0.0 <= args.max_cached_occupancy_motion_m <= 2.0:
+        parser.error(
+            "--max-cached-occupancy-motion-m must be within [0, 2]"
+        )
+    if (
+        args.max_cached_occupancy_motion_m > 0
+        and args.max_occupancy_age_s <= 0
+    ):
+        parser.error(
+            "--max-cached-occupancy-motion-m requires "
+            "--max-occupancy-age-s"
         )
     try:
         report = run(args)
