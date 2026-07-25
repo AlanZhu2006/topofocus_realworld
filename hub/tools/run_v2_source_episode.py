@@ -704,6 +704,13 @@ def freeze_next_round(
                 rejection_log,
                 {"t_ns": time.time_ns(), "error": last_error},
             )
+            # A latched map block is immutable for this map process/session.
+            # Retrying it for the entire synchronization window cannot recover
+            # and used to waste 45 seconds before the same controller HOLD.
+            if "frozen map blocked:" in str(exc):
+                raise RuntimeError(
+                    f"non-recoverable round input: {exc}"
+                ) from exc
             time.sleep(poll_s)
     raise TimeoutError(
         f"no fresh synchronized round input within {timeout_s:.1f}s: {last_error}"

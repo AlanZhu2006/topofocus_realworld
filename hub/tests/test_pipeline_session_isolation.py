@@ -62,6 +62,7 @@ def _pipeline(
     keyframe_config=None,
     ground_guard=False,
     ground_drift_consecutive_frames=3,
+    allow_ground_height_translation_for_2d=False,
     semantic_detector=None,
     semantic_yolo_reinforce_map=True,
     semantic_fusion_mode="max",
@@ -79,6 +80,9 @@ def _pipeline(
         keyframe_config=keyframe_config,
         ground_plane_config=GroundPlaneConfig() if ground_guard else None,
         ground_drift_consecutive_frames=ground_drift_consecutive_frames,
+        allow_ground_height_translation_for_2d=(
+            allow_ground_height_translation_for_2d
+        ),
         semantic_detector=semantic_detector,
         semantic_yolo_reinforce_map=semantic_yolo_reinforce_map,
     )
@@ -312,6 +316,43 @@ def test_ground_guard_recovers_after_one_transient_drift(monkeypatch):
     assert pipeline.ground_drift_streak == 0
     assert segmenter.calls == 1
     assert pipeline.mapper.calls == 1
+
+
+def test_2d_ground_guard_tolerates_pure_world_z_translation(monkeypatch):
+    pipeline, segmenter = _pipeline(
+        "session-a",
+        ground_guard=True,
+        allow_ground_height_translation_for_2d=True,
+    )
+    candidate = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.09,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=0.0,
+        plane_coefficients=(0.0, 0.0, 0.09),
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate", lambda *_args: candidate
+    )
+
+    decision = pipeline.process(_observation(10, "session-a"))
+
+    assert decision.accept
+    assert pipeline.mapping_blocked_reason is None
+    assert pipeline.ground_drift_frames == 0
+    assert pipeline.ground_drift_streak == 0
+    assert pipeline.ground_height_translation_frames == 1
+    assert pipeline.max_ground_height_translation_m == pytest.approx(0.09)
+    assert pipeline.last_ground_reason == "height_translation_tolerated_2d"
+    assert segmenter.calls == 1
+    assert pipeline.mapper.calls == 1
+    assert pipeline.mapper.last_floor_plane == candidate.plane_coefficients
 
 
 def test_ground_guard_no_floor_breaks_consecutive_drift_run(monkeypatch):

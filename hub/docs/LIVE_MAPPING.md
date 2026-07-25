@@ -37,15 +37,23 @@ operator trajectory is reset to the current point when such a latch occurs, so
 the display cannot draw a false connecting line across two coordinate frames.
 
 With RANSAC ground mode, every observation is checked before the keyframe gate
-or RedNet inference. A frame with no accepted floor candidate is skipped. A
-candidate differing from the startup floor by more than 3 degrees or 8 cm is
-also skipped immediately; three consecutive accepted-but-outlying fits latch
-the map and require a fresh calibrated session. Any subsequent in-range fit or
-observation without a valid floor breaks the consecutive run and clears the
-pending streak. This confirmation rule tolerates a single dynamic turning
-frame without ever integrating that frame. An accepted frame's own plane
-coefficients are used for height classification, which prevents a small
-residual floor slope from turning distant carpet into an obstacle.
+or semantic inference. A frame with no accepted floor candidate is skipped.
+By default, a candidate differing from the startup floor by more than 3
+degrees or 8 cm is skipped immediately; three consecutive accepted-but-
+outlying fits latch the map and require a fresh calibrated session.
+
+The real-world dual-map launcher explicitly enables
+`--allow-ground-height-translation-for-2d`. In this mode a height-only world-Z
+translation is recorded but does not latch: the map stores only shared XY and
+each frame is already classified relative to its own accepted floor plane, so
+the same Z translation is applied to both the depth points and their floor and
+cancels exactly. Floor-normal tilt still follows the consecutive fail-closed
+gate, and the independent full-pose jump gate remains active. This distinction
+was added after observed WSJ sequences 26836–26845 translated the fitted floor
+by 8.4–9.4 cm while preserving a 0.49–1.00 degree normal delta and stable
+camera-to-floor height. The previous height latch stopped a valid flat-floor
+2-D map at sequence 26838. These numbers are observed spool evidence, not a
+general sensor specification.
 
 Obstacle geometry uses one frame-level update per cell:
 
@@ -140,7 +148,8 @@ least:
   model checksum and goal-category allowlist;
 - last handled observation sequence, last actually integrated map sequence and
   that keyframe's capture timestamp;
-- ground rejection/drift counters, thresholds and last residuals;
+- ground rejection/drift counters, height-only translation count/maximum,
+  active height policy, thresholds and last residuals;
 - `map_format_version=focus-hub-central-map-v3`.
 
 The snapshot timer no longer rewrites an unchanged map merely because wall

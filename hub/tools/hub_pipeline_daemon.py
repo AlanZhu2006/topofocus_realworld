@@ -136,6 +136,17 @@ def write_camera_snapshot(
         "ground_drift_frames": pipeline.ground_drift_frames,
         "ground_drift_events": pipeline.ground_drift_events,
         "ground_drift_streak": pipeline.ground_drift_streak,
+        "ground_height_translation_frames": (
+            pipeline.ground_height_translation_frames
+        ),
+        "max_ground_height_translation_m": (
+            pipeline.max_ground_height_translation_m
+        ),
+        "ground_height_translation_policy": (
+            "tolerate_for_2d_with_frame_local_floor_plane"
+            if pipeline.allow_ground_height_translation_for_2d
+            else "latch_after_consecutive_frames"
+        ),
         "ground_drift_consecutive_frames": pipeline.ground_drift_consecutive_frames,
         "last_ground_sequence": pipeline.last_ground_sequence,
         "last_ground_reason": pipeline.last_ground_reason,
@@ -424,6 +435,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--allow-ground-height-translation-for-2d",
+        action="store_true",
+        help=(
+            "do not latch on a height-only world-Z floor translation; valid "
+            "only because this daemon maps shared XY and classifies each "
+            "frame relative to its accepted local floor plane (tilt and pose "
+            "jump gates remain fail-closed)"
+        ),
+    )
+    parser.add_argument(
         "--obstacle-fusion-mode",
         choices=("max", "log_odds"),
         default="log_odds",
@@ -687,6 +708,9 @@ def main() -> int:
                     max_ground_height_delta_m=args.max_ground_height_delta_m,
                     ground_drift_consecutive_frames=(
                         args.ground_drift_consecutive_frames
+                    ),
+                    allow_ground_height_translation_for_2d=(
+                        args.allow_ground_height_translation_for_2d
                     ),
                     frame_id=stable[-1].metadata.pose.shared_T_camera.parent_frame,
                     robot_id=args.robot_id,

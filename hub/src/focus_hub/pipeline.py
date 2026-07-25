@@ -112,6 +112,7 @@ class SpoolMappingPipeline:
         max_ground_tilt_delta_deg: float = 3.0,
         max_ground_height_delta_m: float = 0.08,
         ground_drift_consecutive_frames: int = 3,
+        allow_ground_height_translation_for_2d: bool = False,
         frame_id: str = "shared_world",
         robot_id: str | None = None,
         shared_frame_calibration_id: str | None = None,
@@ -148,11 +149,18 @@ class SpoolMappingPipeline:
             or ground_drift_consecutive_frames <= 0
         ):
             raise ValueError("ground_drift_consecutive_frames must be a positive integer")
+        if not isinstance(allow_ground_height_translation_for_2d, bool):
+            raise ValueError(
+                "allow_ground_height_translation_for_2d must be a boolean"
+            )
         self.K_rgb = np.asarray(K_rgb, dtype=np.float64)
         self.ground_plane_config = ground_plane_config
         self.max_ground_tilt_delta_deg = float(max_ground_tilt_delta_deg)
         self.max_ground_height_delta_m = float(max_ground_height_delta_m)
         self.ground_drift_consecutive_frames = ground_drift_consecutive_frames
+        self.allow_ground_height_translation_for_2d = (
+            allow_ground_height_translation_for_2d
+        )
         self.last_camera_xy: tuple[float, float] | None = None
         self.last_camera_T: np.ndarray | None = None
         self.last_robot_xy: tuple[float, float] | None = None
@@ -169,6 +177,8 @@ class SpoolMappingPipeline:
         self.ground_drift_frames = 0
         self.ground_drift_events = 0
         self.ground_drift_streak = 0
+        self.ground_height_translation_frames = 0
+        self.max_ground_height_translation_m = 0.0
         self.last_ground_sequence: int | None = None
         self.last_ground_reason: str | None = None
         self.last_ground_tilt_delta_deg: float | None = None
@@ -378,10 +388,29 @@ class SpoolMappingPipeline:
             height_delta = abs(float(ground_candidate.ground_z_m) - startup_height)
             self.last_ground_tilt_delta_deg = tilt_delta
             self.last_ground_height_delta_m = height_delta
+            tilt_outside_gate = tilt_delta > self.max_ground_tilt_delta_deg
+            height_outside_gate = height_delta > self.max_ground_height_delta_m
             if (
-                tilt_delta > self.max_ground_tilt_delta_deg
-                or height_delta > self.max_ground_height_delta_m
+                self.allow_ground_height_translation_for_2d
+                and height_outside_gate
+                and not tilt_outside_gate
             ):
+                # This mapper stores only shared XY cells and classifies point
+                # heights relative to this frame's accepted floor plane below.
+                # A pure world-Z translation therefore cancels out and cannot
+                # move an obstacle or semantic cell in the 2-D map.  This is
+                # the observed Go2 tracking behavior: the fitted camera-to-floor
+                # height stayed stable while both camera and floor Z translated.
+                # Keep tilt and full pose-jump gates active; this exception is
+                # deliberately invalid for a 3-D map.
+                self.ground_height_translation_frames += 1
+                self.max_ground_height_translation_m = max(
+                    self.max_ground_height_translation_m,
+                    height_delta,
+                )
+                self.ground_drift_streak = 0
+                self.last_ground_reason = "height_translation_tolerated_2d"
+            elif tilt_outside_gate or height_outside_gate:
                 # Do not integrate any outlying frame.  A single fit can be
                 # transiently biased during a turn (RGB-D/pose timing, body
                 # dynamics, or reduced visible floor), so only latch after a
@@ -686,6 +715,12 @@ class SpoolMappingPipeline:
             "ground_drift_frames": self.ground_drift_frames,
             "ground_drift_events": self.ground_drift_events,
             "ground_drift_streak": self.ground_drift_streak,
+            "ground_height_translation_frames": (
+                self.ground_height_translation_frames
+            ),
+            "max_ground_height_translation_m": (
+                self.max_ground_height_translation_m
+            ),
             "mapping_blocked_reason": self.mapping_blocked_reason,
             "mapping_blocked_kind": self.mapping_blocked_kind,
             "transform_version": self.transform_version,
@@ -699,6 +734,11 @@ class SpoolMappingPipeline:
                 "max_tilt_delta_deg": self.max_ground_tilt_delta_deg,
                 "max_height_delta_m": self.max_ground_height_delta_m,
                 "consecutive_frames_to_latch": self.ground_drift_consecutive_frames,
+                "height_translation_policy": (
+                    "tolerate_for_2d_with_frame_local_floor_plane"
+                    if self.allow_ground_height_translation_for_2d
+                    else "latch_after_consecutive_frames"
+                ),
                 "last_sequence": self.last_ground_sequence,
                 "last_reason": self.last_ground_reason,
                 "last_tilt_delta_deg": self.last_ground_tilt_delta_deg,

@@ -12,14 +12,15 @@ TRANSFORM_VERSION="${FOCUS_YUNJI_TRANSFORM_VERSION:-}"
 CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus/tinynav-runtime}"
-# The measured base footprint and requested clearance are both about 0.34 m.
-# A self-occupied online-map start therefore needs roughly their sum before a
-# genuinely clearance-safe seed can exist.  The old 0.35 m snap bound produced
-# an observed zero-cell reachable component.  A live-grid sweep found the
-# first full-clearance seed at about 0.816 m, so the 1.0 m bound admits that
-# measured seed while unknown/occupied cells outside the measured footprint
-# remain impassable.
-REACHABILITY_CLEARANCE_M="${FOCUS_YUNJI_REACHABILITY_CLEARANCE_M:-0.34}"
+# The router uses a square cell-clearance test, while TinyNav's unchanged local
+# planner remains the final footprint/depth authority.  On the 2026-07-25 live
+# Yunji grid, 0.34 m rounded up to seven 5 cm cells and no 15x15 known-free
+# start seed existed within the bounded one-metre escape search.  Six cells
+# (0.30 m; a 0.424 m corner radius) produced a genuinely known-free seed at
+# 0.962 m.  Use that observed router clearance only for graph admission; the
+# local planner still enforces the measured 0.283 m body radius plus its
+# original 0.05 m safety margin before any velocity reaches WATER.
+REACHABILITY_CLEARANCE_M="${FOCUS_YUNJI_REACHABILITY_CLEARANCE_M:-0.30}"
 START_SNAP_RADIUS_M="${FOCUS_YUNJI_START_SNAP_RADIUS_M:-1.0}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_YUNJI_START_FOOTPRINT_OVERRIDE_M:-0.34}"
 # Follow the recovered start-to-seed route closely.  A one-metre rolling

@@ -23,6 +23,15 @@ The next normal onsite entry is
 [`ONECLICK_SESSION_WORKFLOW.md`](ONECLICK_SESSION_WORKFLOW.md). The v2 path has
 reached WATER under supervision but has no official completed scene.
 
+The 2026-07-25 `trial-04-yunji-floor` run added one local-router correction.
+Yunji started close to a wall, and its 5 cm occupancy grid had no known-free
+seed within 1 m when the router rounded 0.34 m up to a seven-cell square
+clearance. The same observed grid had a six-cell (0.30 m) seed 0.962 m away.
+`start_yunji_v2.sh` now uses 0.30 m only for global graph admission. This is
+not a smaller physical collision footprint: TinyNav's local planner still
+enforces the measured 0.283 m body radius plus its unchanged 0.05 m safety
+margin, and WATER retains final stop authority.
+
 ### Historical observed July 22 cutover
 
 The following bullets preserve the original sensor-cutover evidence:

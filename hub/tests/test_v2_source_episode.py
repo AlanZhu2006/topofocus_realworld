@@ -99,6 +99,40 @@ def test_source_round_step_quota_matches_source_clock():
         )
 
 
+def test_freeze_next_round_fails_immediately_for_latched_map(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = load_module()
+    calls = 0
+
+    def blocked(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise ValueError(
+            "robot-0 frozen map blocked: ground plane tilt drift"
+        )
+
+    monkeypatch.setattr(module, "freeze", blocked)
+    rejection_log = tmp_path / "freeze_rejections.jsonl"
+
+    with pytest.raises(RuntimeError, match="non-recoverable round input"):
+        module.freeze_next_round(
+            session_path=tmp_path / "session.json",
+            session=SimpleNamespace(),
+            output=tmp_path / "accepted",
+            minimum_sequences={"robot-0": 1, "robot-1": 1},
+            max_input_age_s=60.0,
+            max_sync_skew_s=5.0,
+            timeout_s=45.0,
+            poll_s=0.01,
+            rejection_log=rejection_log,
+        )
+
+    assert calls == 1
+    assert "frozen map blocked" in rejection_log.read_text(encoding="utf-8")
+
+
 def test_round_inspection_distinguishes_semantic_and_frontier_arrival(
     tmp_path, observation_factory
 ):
