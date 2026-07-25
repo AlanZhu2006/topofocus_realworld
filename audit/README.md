@@ -7,6 +7,10 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`ONECLICK_RELIABILITY_AND_LATENCY_20260725.md`](ONECLICK_RELIABILITY_AND_LATENCY_20260725.md):
+  post-experiment calibration/debug/live/cleanup audit, bounded self-recovery,
+  safe startup parallelism, per-phase timing and the current Yunji
+  synchronization boundary.
 - [`SCENE02_PLANT_PREPARATION_20260725.md`](SCENE02_PLANT_PREPARATION_20260725.md):
   strict no-motion Scene 02 campaign preparation, plant-category path
   verification, five planned episode IDs and fresh-calibration boundary.

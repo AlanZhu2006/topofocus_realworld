@@ -68,9 +68,9 @@ The command performs this sequence:
    confirm that the complete board is visible in both views and press Enter;
 4. captures the first synchronized pair, runs the initial board fit and prints
    `INITIAL_BOARD_FIT_READY`;
-5. asks the operator to move only the board by at least 10 cm or rotate it by
-   at least 5 degrees, then press Enter a second time once the complete board
-   is visible in both views;
+5. asks the operator to move only the board, preferably at least 30 cm
+   sideways without tilting it, then press Enter a second time once the
+   complete board is visible in both views;
 6. captures the holdout and rejects it unless it proves independent board
    movement and cross-camera alignment;
 7. writes the calibration atomically and deploys the same checked bytes to
@@ -135,6 +135,12 @@ an old picture visible. A completely fresh SegFormer map pair is allowed up
 to 90 seconds to produce that first content-verified overview; subsequent
 launches reuse the matching relay and normally pass immediately.
 
+Both release manifests are transferred and checked concurrently. After the map
+processes have been created, GLM readiness, dual-robot read-only startup and
+Foxglove content readiness are also awaited concurrently because none grants
+motion authority and all three must still pass. The launcher prints
+`ONECLICK_TIMING phase=... elapsed_s=...` for the measured startup phases.
+
 Each robot launcher must also pass
 `focus-tinynav-data-plane-verification-v1` before returning ready. The
 verifier receives new odometry, occupancy and router-status messages,
@@ -184,11 +190,13 @@ is not directly reusable.
 
 When those probes pass and both TinyNav cores are warm, the default path:
 
-1. sends/retains a guarded stop and removes any stale receiver/bridge;
+1. reconnects a dead existing SSH/tmux pane in place, proves its remote shell,
+   sends/retains a guarded stop and removes any stale receiver/bridge;
 2. reuses exact session maps, GLM and Foxglove when their identities match;
 3. starts a clean Hub decision epoch with no v2 decision;
 4. arms WSJ and Yunji concurrently while both remain `NO_GOAL/HOLD`;
-5. waits for fresh observations and `ready_for_goal=true` heartbeats.
+5. waits in one bounded gate for both clean-epoch observations and
+   `ready_for_goal=true` heartbeats.
 
 It does not rerun the complete no-motion VLM debug, reinstall Yunji TinyNav,
 rebuild matching maps, or restart a matching Foxglove relay. If the warm
@@ -196,6 +204,12 @@ non-tracking core is incomplete, it automatically prints
 `FULL_DEBUG_RUNTIME_RECOVERY` and uses the slower read-only recovery. The
 optional `--full-preflight` flag forces that recovery path. Neither path can
 bypass a changed tracking epoch.
+
+The exact Git identity is bound to long-lived runtime processes as well as the
+files on disk. A WSJ sender tmux window or Yunji systemd unit from an
+older/unmarked deployment is reloaded once; matching senders remain warm.
+Both senders must advance the Hub sequence, with at most one bounded read-only
+sender restart before startup fails closed.
 
 Only after that potentially slow startup has completed does the launcher enter
 the bounded source-derived episode loop. It freezes an exact synchronized
@@ -219,14 +233,15 @@ preserved as `initial_batch.json` and `route_conflict_guard.json`. This is a
 conservative execution adapter, not a change to source VLM selection and not
 a certification of robot-local obstacle detours.
 
-Yunji's deployment controller also reports when TinyNav's robot-relative
-lookahead requires reverse motion. Because the deployed controller is
-forward-only, the receiver immediately zeros output and rejects that frontier
-leg as `LOCAL_PATH_REVERSE_REQUIRED` instead of rotating toward a backward
-wall-adjacent segment. Explicit frontier path/progress rejections are
-robot-local: that robot transitions to HOLD while a healthy peer retains its
-existing leg. Transform, localization, e-stop, semantic and protocol failures
-remain episode-wide fail-closed conditions.
+Yunji's deployment controller also handles a robot-relative lookahead that
+temporarily falls behind after a local replan. Translation remains exactly
+zero while it turns in one latched direction at no more than `0.35 rad/s`.
+Normal forward tracking must return within 12 seconds; otherwise the receiver
+reports `LOCAL_PATH_REVERSE_REQUIRED` and retains guarded zero output. Explicit
+frontier path/progress rejections are robot-local: that robot transitions to
+HOLD while a healthy peer retains its existing leg. Transform, localization,
+e-stop, semantic and protocol failures remain episode-wide fail-closed
+conditions.
 
 This guard was added after the 2026-07-25 physical run assigned distinct
 frontiers whose shared-frame routes nevertheless intersected. The observed

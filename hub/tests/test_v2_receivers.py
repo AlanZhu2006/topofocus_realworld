@@ -290,7 +290,7 @@ def test_wsj_verification_is_split_around_sender_and_go2_bridge():
         < bridge_index
         < post_index
     )
-    assert "already-established observation sender" in launcher
+    assert "single verifier replaces the former three serial" in launcher
     assert 'tmux kill-window -t "$SESSION:hub-sender"' not in launcher
 
 
@@ -957,12 +957,11 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--camera-info-topic /slam/camera_info" in yunji
     assert "--max-occupancy-age-s 12" in yunji
     assert "--fresh-image-topic /slam/keyframe_depth" not in wsj
-    assert "WSJ calibrated sensor epoch is stale" in wsj
-    assert "Refusing to restart camera/perception after calibration" in wsj
-    assert "--field header" in wsj
-    assert "--qos-reliability best_effort" in wsj
-    assert "--qos-durability volatile" in wsj
-    assert "--qos-depth 1" in wsj
+    assert "fresh_topic_once" not in wsj
+    assert "No full-resolution Image subscriber is created" in wsj
+    assert "ReliabilityPolicy.BEST_EFFORT" in verifier
+    assert "DurabilityPolicy.VOLATILE" in verifier
+    assert "depth=1" in verifier
     assert 'FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0' in wsj
     assert 'FOCUS_WSJ_MAP_TIMEOUT_S:-12.0' in wsj
     assert '--map-timeout-s \\"$MAP_TIMEOUT_S\\"' in wsj
@@ -984,16 +983,18 @@ def test_robot_launchers_require_live_data_plane_verification():
         in wsj
     )
     assert '--slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"' in wsj
-    continuous_stream_loop = wsj[
-        wsj.index("for topic in \\\n  /camera/camera/color/camera_info")
+    sensor_verification = wsj[
+        wsj.index(
+            '"$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py"'
+        )
         : wsj.index('bash "$SCRIPT_DIR/start_wsj_command_observation.sh"')
     ]
-    assert "/camera/camera/color/image_raw" not in continuous_stream_loop
-    assert "--fresh-image-topic /slam/depth" not in continuous_stream_loop
-    assert "--geometry-image-topic /slam/depth" not in continuous_stream_loop
-    assert "/slam/keyframe_depth" not in continuous_stream_loop
-    assert "/slam/keyframe_odom" not in continuous_stream_loop
-    assert "lock the processed-depth geometry" in wsj
+    assert "/camera/camera/color/image_raw" not in sensor_verification
+    assert "--fresh-image-topic /slam/depth" not in sensor_verification
+    assert "--geometry-image-topic /slam/depth" not in sensor_verification
+    assert "/slam/keyframe_depth" not in sensor_verification
+    assert "/slam/keyframe_odom" not in sensor_verification
+    assert "validates geometry, occupancy and router state" in wsj
     assert "fail_closed_on_error" in wsj
     assert "fail_closed_on_error" in yunji
     assert "focus-yunji-water-bridge-live-v1.service" in yunji

@@ -93,6 +93,8 @@ bash hub/scripts/realworld_oneclick.sh \
 # 每次实验必须使用新的 episode ID。下面是 scene02 的第一次：
 # 默认自动走快速复用。看到 FAST_LIVE_REUSE_READY 表示没有重复冷启动；
 # 若 warm core 不完整，脚本会自动显示 FULL_DEBUG_RUNTIME_RECOVERY。
+# 启动阶段会逐项输出 ONECLICK_TIMING；双机版本校验、GLM/预览和可安全
+# 并行的只读恢复不会再串行等待。旧提交的 sender 只重载一次，后续保持热态。
 #
 cd /home/asus/Research/focus_realworld_workspace
 bash hub/scripts/realworld_oneclick.sh \

@@ -13,6 +13,7 @@ BASE_CAMERA_CALIBRATION_FILE="${FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE:-/home/nv
 TRANSFORM_VERSION="${FOCUS_WSJ_TRANSFORM_VERSION:-}"
 CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
+DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
 PATCHED_ROOT="${TINYNAV_PERCEPTION_PATCHED_ROOT:-/home/nvidia/focus_sender/tinynav_imu_fix_worktree_20260721}"
 PATCHED_COMMIT="${TINYNAV_PERCEPTION_PATCHED_COMMIT:-29f26bc058886ff450f02cdc0d6e9977e1c57010}"
 PATCHED_PERCEPTION_SHA256="${TINYNAV_PERCEPTION_PATCHED_SHA256:-3a695d5210d60ea1f721549ca7458ba89e7bf32db5178cd1c312c633aef1c3b3}"
@@ -107,6 +108,10 @@ fi
   echo "FOCUS_SHARED_CALIBRATION_ID must be explicit and filesystem-safe." >&2
   exit 2
 }
+[[ "$DEPLOYMENT_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "FOCUS_DEPLOYMENT_COMMIT must be the explicit 40-character Git commit." >&2
+  exit 2
+}
 [[ "$CALIBRATION_FILE" = /* ]] || {
   echo "FOCUS_SHARED_CALIBRATION_FILE must be an explicit absolute path." >&2
   exit 2
@@ -172,41 +177,9 @@ verify_patched_perception() {
 
 verify_patched_perception
 
-fresh_topic_once() {
-  local topic="$1"
-  # Subscribe only to lightweight per-frame messages here. Creating a new
-  # full-resolution Image subscriber on WSJ's long-lived Fast DDS domain was
-  # observed to report every 848x480 sample lost and to starve TinyNav's
-  # existing visual pipeline. CameraInfo and visual odometry carry the exact
-  # same source timestamps without adding another high-bandwidth reader.
-  timeout -k 2 15 ros2 topic echo --once \
-    --field header \
-    --qos-reliability best_effort \
-    --qos-durability volatile \
-    --qos-depth 1 \
-    "$topic" \
-    >/dev/null 2>&1
-}
-
 set +u
 source "$SETUP_FILE"
 set -u
-# Keep an already-established observation sender alive. Restarting a valid
-# high-bandwidth subscriber needlessly loses its DDS history and can delay the
-# first synchronized keyframe. These lightweight witnesses prove the raw RGB
-# stream, processed stereo/depth block and visual pose are all advancing.
-for topic in \
-  /camera/camera/color/camera_info \
-  /slam/camera_info \
-  /slam/odometry_visual; do
-  fresh_topic_once "$topic" || {
-    echo "WSJ calibrated sensor epoch is stale at $topic." >&2
-    echo "Refusing to restart camera/perception after calibration because that" \
-      "would change the tracking origin; run a new board-calibration session." \
-      >&2
-    exit 1
-  }
-done
 
 required_windows=(maploc online-map planning goal-router control)
 missing_windows=()
@@ -226,11 +199,11 @@ elif [[ ${#missing_windows[@]} -ne 0 ]]; then
   exit 1
 fi
 
-# Validate the complete sensor/geometry/map contract without creating any
-# temporary Image subscription. /slam/camera_info is emitted in the same
-# perception block and with the same stamp as /slam/depth; its dimensions,
-# intrinsics and frame therefore lock the processed-depth geometry while
-# /slam/odometry_visual proves that block's tracking output is current.
+# This single verifier replaces the former three serial `ros2 topic echo`
+# witnesses. It subscribes to those same two CameraInfo streams and visual
+# odometry together, then also validates geometry, occupancy and router state.
+# No full-resolution Image subscriber is created, so the long-lived Fast DDS
+# visual pipeline retains its measured startup behavior.
 "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   --robot-id robot-0 \
   --mode "$mode" \

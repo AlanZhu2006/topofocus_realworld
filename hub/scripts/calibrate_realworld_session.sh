@@ -19,6 +19,7 @@ confirmation=""
 goal_category="chair"
 run_debug="true"
 MIN_BOARD_SPACING_PX="7.0"
+SSH_PROBE_TIMEOUT_S="${FOCUS_SSH_PROBE_TIMEOUT_S:-15}"
 
 usage() {
   cat <<'EOF'
@@ -74,6 +75,10 @@ esac
   echo "Missing Hub Python: $PYTHON_BIN" >&2
   exit 1
 }
+[[ "$SSH_PROBE_TIMEOUT_S" =~ ^[1-9][0-9]*$ ]] || {
+  echo "FOCUS_SSH_PROBE_TIMEOUT_S must be a positive integer." >&2
+  exit 2
+}
 for required in \
   "$HUB_DIR/runtime/tokens.json" \
   "$HUB_DIR/runtime/admin_token" \
@@ -127,6 +132,7 @@ if dirty:
         "hub/, source/, and dependencies/ first."
     )
 PY
+code_commit="$(git -C "$WORKSPACE" rev-parse HEAD)"
 
 probe_ssh_tmux_shell() {
   local target="$1" token line deadline pane_state output
@@ -134,7 +140,7 @@ probe_ssh_tmux_shell() {
   printf -v line 'printf "\\n__%s_SHELL_READY__\\n"' "$token"
   tmux send-keys -t "$target" -l "$line"
   tmux send-keys -t "$target" Enter
-  deadline=$((SECONDS + 30))
+  deadline=$((SECONDS + SSH_PROBE_TIMEOUT_S))
   while (( SECONDS < deadline )); do
     pane_state="$(
       tmux display-message -p -t "$target" \
@@ -148,6 +154,11 @@ probe_ssh_tmux_shell() {
         echo "SSH_TMUX_SHELL_READY: $target"
         return 0
       fi
+    elif [[ "$pane_state" == 1:* ]]; then
+      echo "Existing SSH/tmux shell disconnected during its probe: $target" >&2
+      tmux capture-pane -pJt "$target" -S -30 2>/dev/null \
+        | tail -n 30 >&2 || true
+      return 1
     fi
     sleep 1
   done
@@ -300,13 +311,29 @@ write(final_path, wsj_raw, yunji_final)
 PY
 
 remote_run() {
-  local target="$1" command="$2" token line deadline output rc
-  token="FOCUS_$(date +%s%N)_${RANDOM}"
+  local target="$1" command="$2" token
+  remote_begin "$target" "$command" token
+  remote_finish "$target" "$token"
+}
+
+remote_begin() {
+  local target="$1" command="$2" result_name="$3" run_token line
+  [[ "$result_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
+    echo "Invalid remote token variable: $result_name" >&2
+    return 2
+  }
+  run_token="FOCUS_$(date +%s%N)_${RANDOM}"
   printf -v line \
     'bash -lc %q; rc=$?; echo; echo __%s_RC=$rc' \
-    "$command" "$token"
+    "$command" "$run_token"
   tmux send-keys -t "$target" "$line" Enter
-  deadline=$((SECONDS + 180))
+  printf -v "$result_name" '%s' "$run_token"
+}
+
+remote_finish() {
+  local target="$1" token="$2" timeout_s="${3:-180}"
+  local deadline output rc
+  deadline=$((SECONDS + timeout_s))
   while (( SECONDS < deadline )); do
     output="$(tmux capture-pane -pJt "$target" -S -260 2>/dev/null || true)"
     rc="$(
@@ -324,6 +351,19 @@ remote_run() {
   done
   echo "Remote command timed out on $target" >&2
   return 124
+}
+
+remote_pair() {
+  local wsj_command="$1" yunji_command="$2"
+  local wsj_token yunji_token wsj_rc=0 yunji_rc=0
+  remote_begin "$WSJ_TMUX_TARGET" "$wsj_command" wsj_token
+  remote_begin "$YUNJI_TMUX_TARGET" "$yunji_command" yunji_token
+  remote_finish "$WSJ_TMUX_TARGET" "$wsj_token" || wsj_rc=$?
+  remote_finish "$YUNJI_TMUX_TARGET" "$yunji_token" || yunji_rc=$?
+  if [[ "$wsj_rc" != 0 || "$yunji_rc" != 0 ]]; then
+    echo "Parallel robot operation failed: WSJ=$wsj_rc Yunji=$yunji_rc" >&2
+    return 1
+  fi
 }
 
 remote_queue() {
@@ -361,6 +401,28 @@ verify_remote_release() {
   done < <(printf '%s' "$encoded" | fold -w 1000)
   remote_run "$target" \
     "set +e; base64 -d '$remote_encoded' > '$remote_manifest'; rc=\$?; if [ \"\$rc\" -eq 0 ]; then (cd $quoted_root && sha256sum --quiet -c '$remote_manifest'); rc=\$?; fi; unlink '$remote_encoded'; unlink '$remote_manifest'; exit \"\$rc\""
+}
+
+verify_remote_release_pair() {
+  local wsj_pid yunji_pid wsj_rc=0 yunji_rc=0 started
+  started="$SECONDS"
+  (
+    trap - EXIT INT TERM
+    verify_remote_release "$WSJ_TMUX_TARGET" "$WSJ_ROOT"
+  ) &
+  wsj_pid=$!
+  (
+    trap - EXIT INT TERM
+    verify_remote_release "$YUNJI_TMUX_TARGET" "$YUNJI_ROOT"
+  ) &
+  yunji_pid=$!
+  wait "$wsj_pid" || wsj_rc=$?
+  wait "$yunji_pid" || yunji_rc=$?
+  echo "CALIBRATION_TIMING phase=dual_release_verification elapsed_s=$((SECONDS - started))"
+  if [[ "$wsj_rc" != 0 || "$yunji_rc" != 0 ]]; then
+    echo "Parallel release verification failed: WSJ=$wsj_rc Yunji=$yunji_rc" >&2
+    return 1
+  fi
 }
 
 stop_managed_hub() {
@@ -525,6 +587,28 @@ deploy_calibration() {
     "set -e; base64 -d '$remote_encoded' > '${remote_path}.tmp'; test \"\$(sha256sum '${remote_path}.tmp' | awk '{print \$1}')\" = '$expected'; python3 -m json.tool '${remote_path}.tmp' >/dev/null; chmod 600 '${remote_path}.tmp'; mv '${remote_path}.tmp' '$remote_path'; unlink '$remote_encoded'; test \"\$(sha256sum '$remote_path' | awk '{print \$1}')\" = '$expected'"
 }
 
+deploy_calibration_pair() {
+  local wsj_pid yunji_pid wsj_rc=0 yunji_rc=0 started
+  started="$SECONDS"
+  (
+    trap - EXIT INT TERM
+    deploy_calibration "$WSJ_TMUX_TARGET" "$wsj_remote_calibration"
+  ) &
+  wsj_pid=$!
+  (
+    trap - EXIT INT TERM
+    deploy_calibration "$YUNJI_TMUX_TARGET" "$yunji_remote_calibration"
+  ) &
+  yunji_pid=$!
+  wait "$wsj_pid" || wsj_rc=$?
+  wait "$yunji_pid" || yunji_rc=$?
+  echo "CALIBRATION_TIMING phase=dual_calibration_deploy elapsed_s=$((SECONDS - started))"
+  if [[ "$wsj_rc" != 0 || "$yunji_rc" != 0 ]]; then
+    echo "Parallel calibration deployment failed: WSJ=$wsj_rc Yunji=$yunji_rc" >&2
+    return 1
+  fi
+}
+
 calibration_cleanup_required="false"
 cleanup_calibration_failure() {
   local rc=$?
@@ -545,16 +629,16 @@ cleanup_calibration_failure() {
 trap cleanup_calibration_failure EXIT INT TERM
 
 echo "Verifying byte-identical robot release roots before calibration."
-verify_remote_release "$WSJ_TMUX_TARGET" "$WSJ_ROOT"
-verify_remote_release "$YUNJI_TMUX_TARGET" "$YUNJI_ROOT"
+verify_remote_release_pair
 calibration_cleanup_required="true"
 echo "Starting fail-closed raw calibration observation."
 start_hub_config "$raw_config"
 ensure_calibration_relay
-remote_run "$WSJ_TMUX_TARGET" \
-  "FOCUS_WSJ_ENV_FILE='$WSJ_ENV_FILE' FOCUS_HUB_BASE_URL=http://127.0.0.1:18089 FOCUS_FOXGLOVE_PREVIEW_URL=http://127.0.0.1:18766 bash '$WSJ_ROOT/hub/robot_overlay/start_wsj_calibration_observation.sh' --transform-version '$wsj_raw_transform' --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY"
-remote_run "$YUNJI_TMUX_TARGET" \
+raw_start_s="$SECONDS"
+remote_pair \
+  "FOCUS_WSJ_ENV_FILE='$WSJ_ENV_FILE' FOCUS_HUB_BASE_URL=http://127.0.0.1:18089 FOCUS_FOXGLOVE_PREVIEW_URL=http://127.0.0.1:18766 bash '$WSJ_ROOT/hub/robot_overlay/start_wsj_calibration_observation.sh' --transform-version '$wsj_raw_transform' --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY" \
   "bash '$YUNJI_ROOT/hub/robot_overlay/start_yunji_calibration_observation.sh' --transform-version '$yunji_raw_transform' --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY"
+echo "CALIBRATION_TIMING phase=dual_raw_observation_start elapsed_s=$((SECONDS - raw_start_s))"
 
 echo "Foxglove: ws://$(hostname -I | awk '{print $1}'):8765"
 wait_for_calibration_cameras
@@ -639,15 +723,15 @@ PY
   --output "$calibration_file"
 
 echo "CALIBRATION_HOLDOUT_PASSED: deploying the checked shared transform."
-deploy_calibration "$WSJ_TMUX_TARGET" "$wsj_remote_calibration"
-deploy_calibration "$YUNJI_TMUX_TARGET" "$yunji_remote_calibration"
+deploy_calibration_pair
 
 echo "Switching both robots to calibrated read-only observation."
 start_hub_config "$final_debug_config"
-remote_run "$WSJ_TMUX_TARGET" \
-  "tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; FOCUS_SHARED_CALIBRATION_FILE='$wsj_remote_calibration' FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE='$WSJ_BASE_CAMERA' FOCUS_WSJ_TRANSFORM_VERSION='$wsj_raw_transform' FOCUS_SHARED_CALIBRATION_ID='$calibration_id' bash '$WSJ_ROOT/hub/robot_overlay/start_wsj_buildmap_v2.sh' --mode debug"
-remote_run "$YUNJI_TMUX_TARGET" \
-  "FOCUS_YUNJI_SHARED_CALIBRATION_FILE='$yunji_remote_calibration' FOCUS_YUNJI_BASE_CAMERA_CALIBRATION='$YUNJI_BASE_CAMERA' FOCUS_YUNJI_TRANSFORM_VERSION='$yunji_final_transform' FOCUS_SHARED_CALIBRATION_ID='$calibration_id' bash '$YUNJI_ROOT/hub/robot_overlay/start_yunji_v2.sh' --mode debug"
+debug_start_s="$SECONDS"
+remote_pair \
+  "tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; FOCUS_SHARED_CALIBRATION_FILE='$wsj_remote_calibration' FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE='$WSJ_BASE_CAMERA' FOCUS_WSJ_TRANSFORM_VERSION='$wsj_raw_transform' FOCUS_SHARED_CALIBRATION_ID='$calibration_id' FOCUS_DEPLOYMENT_COMMIT='$code_commit' bash '$WSJ_ROOT/hub/robot_overlay/start_wsj_buildmap_v2.sh' --mode debug" \
+  "FOCUS_YUNJI_SHARED_CALIBRATION_FILE='$yunji_remote_calibration' FOCUS_YUNJI_BASE_CAMERA_CALIBRATION='$YUNJI_BASE_CAMERA' FOCUS_YUNJI_TRANSFORM_VERSION='$yunji_final_transform' FOCUS_SHARED_CALIBRATION_ID='$calibration_id' FOCUS_DEPLOYMENT_COMMIT='$code_commit' bash '$YUNJI_ROOT/hub/robot_overlay/start_yunji_v2.sh' --mode debug"
+echo "CALIBRATION_TIMING phase=dual_calibrated_debug_start elapsed_s=$((SECONDS - debug_start_s))"
 
 deadline=$((SECONDS + 90))
 while true; do
@@ -699,7 +783,7 @@ bash "$HUB_DIR/scripts/start_fresh_dual_maps.sh" \
   --wsj-start-after "$wsj_start_after" \
   --yunji-start-after "$yunji_start_after" \
   --goal-category "$goal_category" \
-  --code-commit "$(git -C "$WORKSPACE" rev-parse HEAD)" \
+  --code-commit "$code_commit" \
   --hub-url "http://127.0.0.1:$HUB_PORT"
 
 "$PYTHON_BIN" "$HUB_DIR/tools/manage_realworld_session.py" create \

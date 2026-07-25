@@ -297,6 +297,8 @@ def test_hub_launcher_does_not_embed_admin_token_value():
     assert 'admin_token="$(cat ' not in source
     assert "--print-generated-tokens" in source
     assert 'chmod 600 "$compact_tokens_file"' in source
+    assert source.count('chmod 600 "$compact_tokens_file"') == 1
+    assert "curl -fsS --max-time 2" in source
 
 
 def test_map_restart_binds_sequence_and_code_contract():
@@ -306,3 +308,89 @@ def test_map_restart_binds_sequence_and_code_contract():
     assert '"start_after_sequence": boundary' in source
     assert '"code_git_commit": code_commit' in source
     assert "existing map session contract mismatch" in source
+
+
+def test_oneclick_recovers_and_probes_the_existing_ssh_panes():
+    source = (SCRIPTS / "realworld_oneclick.sh").read_text()
+
+    assert "ensure_ssh_tmux_shell" in source
+    assert "probe_ssh_tmux_shell" in source
+    assert "FOCUS_SSH_PROBE_TIMEOUT_S:-15" in source
+    assert "tmux respawn-pane -k" in source
+    assert "SSH_TMUX_PANE_RESPAWNED" in source
+    assert "SSH_TMUX_SHELL_READY" in source
+    assert "disconnected during its probe" in source
+    assert source.index("ensure_ssh_tmux_shell") < source.index(
+        "Verifying that both robot release roots match this Git checkout."
+    )
+
+
+def test_oneclick_parallelizes_only_independent_startup_gates():
+    source = (SCRIPTS / "realworld_oneclick.sh").read_text()
+
+    assert "verify_remote_release_pair" in source
+    assert "ensure_local_services_parallel" in source
+    assert "recover_full_readonly_runtime_parallel" in source
+    assert "parallel_full_readonly_runtime" in source
+    assert "ONECLICK_TIMING" in source
+    full = source.index("recover_full_readonly_runtime_parallel()")
+    tracking = source.index("verify_tracking_epoch_continuity()")
+    parallel_body = source[full:tracking]
+    assert "ensure_glm" in parallel_body
+    assert "start_read_only_robots" in parallel_body
+    assert "ensure_foxglove" in parallel_body
+    assert parallel_body.count("wait ") == 3
+    live = source[source.index('if [[ "$mode" == live ]]; then', full) :]
+    assert live.index("arm_live_robots") < live.index("wait_for_live_readiness")
+    assert "FOCUS_EPOCH_NS" in source
+    assert "last_observation_received_at_ns" in source
+    assert "SECONDS + 25" in source
+
+
+def test_calibration_parallelizes_dual_robot_transport_and_startup():
+    source = (SCRIPTS / "calibrate_realworld_session.sh").read_text()
+
+    assert "remote_begin" in source
+    assert "remote_finish" in source
+    assert "remote_pair" in source
+    assert "verify_remote_release_pair" in source
+    assert "deploy_calibration_pair" in source
+    assert "dual_raw_observation_start" in source
+    assert "dual_calibrated_debug_start" in source
+    assert "FOCUS_DEPLOYMENT_COMMIT='$code_commit'" in source
+
+
+def test_runtime_processes_are_bound_to_the_checked_deployment_commit():
+    oneclick = (SCRIPTS / "realworld_oneclick.sh").read_text()
+    calibration = (SCRIPTS / "calibrate_realworld_session.sh").read_text()
+    wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
+    wsj_sender = (OVERLAY / "start_wsj_command_observation.sh").read_text()
+    yunji = (OVERLAY / "start_yunji_v2.sh").read_text()
+
+    assert "One-click requires committed runtime code" in oneclick
+    assert oneclick.count("FOCUS_DEPLOYMENT_COMMIT=%q") == 2
+    assert "FOCUS_DEPLOYMENT_COMMIT='$code_commit'" in calibration
+    assert "FOCUS_DEPLOYMENT_COMMIT must be the explicit" in wsj
+    assert "@focus_deployment_commit" in wsj_sender
+    assert "reloading it once" in wsj_sender
+    assert '--setenv="FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT"' in yunji
+    assert "unit_matches_deployment" in yunji
+    assert "Verified Yunji debug core is from a different deployment" in yunji
+
+
+def test_robot_sender_liveness_is_bounded_without_duplicate_wsj_probes():
+    wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
+    yunji = (OVERLAY / "start_yunji_v2.sh").read_text()
+
+    assert "fresh_topic_once" not in wsj
+    assert "timeout -k 2 15 ros2 topic echo" not in wsj
+    assert "--fresh-camera-info-topic /camera/camera/color/camera_info" in wsj
+    assert "--fresh-camera-info-topic /slam/camera_info" in wsj
+    assert "--odom-topic /slam/odometry_visual" in wsj
+    assert "FOCUS_YUNJI_SENDER_ADVANCE_TIMEOUT_S:-10" in yunji
+    assert "ensure_yunji_sender_advance" in yunji
+    assert "restarting only the read-only sender once" in yunji
+    assert "failed to advance after one bounded read-only restart" in yunji
+    assert yunji.index('ensure_yunji_sender_advance "$sender_baseline"') < (
+        yunji.index('wait "$sender_watchdog_pid"')
+    )

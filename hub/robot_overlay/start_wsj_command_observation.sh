@@ -15,6 +15,7 @@ SHARED_TRACKING_CALIBRATION="${FOCUS_SHARED_CALIBRATION_FILE:-/home/nvidia/.loca
 SHARED_FRAME_CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-shared-board-odin1-20260723-v3}"
 TRANSFORM_VERSION="${FOCUS_WSJ_TRANSFORM_VERSION:-wsj-tinynav-depth-20260723-powercycle-v3}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
+DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
 PREVIEW_URL="${FOCUS_FOXGLOVE_PREVIEW_URL:-http://127.0.0.1:18766}"
 PREVIEW_WINDOW="${FOCUS_WSJ_PREVIEW_WINDOW:-foxglove-preview}"
 COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"
@@ -67,6 +68,10 @@ done
 }
 [[ "$SENDER_ADVANCE_TIMEOUT_S" =~ ^[1-9][0-9]*$ ]] || {
   echo "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S must be a positive integer." >&2
+  exit 2
+}
+[[ "$DEPLOYMENT_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "FOCUS_DEPLOYMENT_COMMIT must be the explicit 40-character Git commit." >&2
   exit 2
 }
 for required in \
@@ -237,6 +242,8 @@ launch_sender() {
   printf -v command_text '%q ' "${command[@]}"
   tmux new-window -d -t "$SESSION" -n hub-sender \
     "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; set -o pipefail; $command_text 2>&1 | tee \"$log\"'"
+  tmux set-option -w -t "$SESSION:hub-sender" \
+    @focus_deployment_commit "$DEPLOYMENT_COMMIT"
 
   deadline=$((SECONDS + 30))
   until pgrep -af \
@@ -291,6 +298,25 @@ if [[ -z "$sender_processes" && "$sender_window" == true ]]; then
   tmux kill-window -t "$SESSION:hub-sender" >/dev/null 2>&1 || true
   sender_window="false"
 fi
+if [[ "$sender_window" == true ]]; then
+  sender_deployment_commit="$(
+    tmux show-options -w -v -t "$SESSION:hub-sender" \
+      @focus_deployment_commit 2>/dev/null || true
+  )"
+  if [[ "$sender_deployment_commit" != "$DEPLOYMENT_COMMIT" ]]; then
+    echo "WSJ read-only sender belongs to deployment ${sender_deployment_commit:-unmarked}; reloading it once for $DEPLOYMENT_COMMIT."
+    stop_tracked_sender
+    sender_window="false"
+    sender_processes="$(
+      pgrep -af 'focus_ros_sender(_rgb)?\.py' 2>/dev/null || true
+    )"
+    [[ -z "$sender_processes" ]] || {
+      echo "An old WSJ observation sender survived deployment reload." >&2
+      printf '%s\n' "$sender_processes" >&2
+      exit 1
+    }
+  fi
+fi
 
 initial_sequence="$(hub_latest_sequence)"
 attempt_baseline="$initial_sequence"
@@ -342,6 +368,7 @@ echo "WSJ command-capable observation metadata is active (NO MOTION PATH)."
 echo "  transform: $TRANSFORM_VERSION"
 echo "  mount:     $BASE_CAMERA_CALIBRATION"
 echo "  shared:    $SHARED_TRACKING_CALIBRATION"
+echo "  deployment: $DEPLOYMENT_COMMIT"
 echo "  Hub sequence: $initial_sequence -> $latest_sequence"
 echo "  read-only sender restarts: $sender_restarts"
 if [[ -n "$metrics" ]]; then

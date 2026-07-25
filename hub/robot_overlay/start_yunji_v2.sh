@@ -11,6 +11,7 @@ FACTORY_CALIBRATION="${FOCUS_ODIN_FACTORY_CALIBRATION:-$SCRIPT_DIR/../config/cal
 TRANSFORM_VERSION="${FOCUS_YUNJI_TRANSFORM_VERSION:-}"
 CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
+DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
 TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus/tinynav-runtime}"
 # The router uses a square cell-clearance test, while TinyNav's unchanged local
 # planner remains the final footprint/depth authority.  On the 2026-07-25 live
@@ -57,6 +58,7 @@ SEMANTIC_ARRIVAL_RADIUS_M="${FOCUS_YUNJI_SEMANTIC_ARRIVAL_RADIUS_M:-0.50}"
 # observation sender keeps the full 800 px RGB-D stream for VLM/semantics.
 LOCAL_DEPTH_WIDTH="${FOCUS_YUNJI_LOCAL_DEPTH_WIDTH:-400}"
 LOCAL_DEPTH_SPLAT_RADIUS="${FOCUS_YUNJI_LOCAL_DEPTH_SPLAT_RADIUS:-0}"
+SENDER_ADVANCE_TIMEOUT_S="${FOCUS_YUNJI_SENDER_ADVANCE_TIMEOUT_S:-10}"
 mode="debug"
 confirmation=""
 reuse_verified_debug_core="false"
@@ -109,6 +111,14 @@ fi
 }
 [[ "$CALIBRATION_ID" =~ ^[A-Za-z0-9_.-]+$ ]] || {
   echo "FOCUS_SHARED_CALIBRATION_ID must be explicit and filesystem-safe." >&2
+  exit 2
+}
+[[ "$DEPLOYMENT_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "FOCUS_DEPLOYMENT_COMMIT must be the explicit 40-character Git commit." >&2
+  exit 2
+}
+[[ "$SENDER_ADVANCE_TIMEOUT_S" =~ ^[1-9][0-9]*$ ]] || {
+  echo "FOCUS_YUNJI_SENDER_ADVANCE_TIMEOUT_S must be a positive integer." >&2
   exit 2
 }
 [[ "$CALIBRATION_FILE" = /* ]] || {
@@ -167,11 +177,73 @@ start_unit() {
     --uid=nyu --gid=nyu \
     --working-directory="$RELEASE_ROOT" \
     --setenv="FOCUS_YUNJI_TINYNAV_RUNTIME=$TINYNAV_RUNTIME" \
+    --setenv="FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT" \
     --setenv="OPENBLAS_NUM_THREADS=1" \
     --setenv="OMP_NUM_THREADS=1" \
     --setenv="MKL_NUM_THREADS=1" \
     --setenv="NUMEXPR_NUM_THREADS=1" \
     "$@" >/dev/null
+}
+
+unit_matches_deployment() {
+  local unit="$1" environment
+  environment="$(
+    systemctl show --property Environment --value "$unit" 2>/dev/null || true
+  )"
+  [[ " $environment " == *" FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT "* ]]
+}
+
+hub_latest_sequence() {
+  local token payload
+  token="$(
+    set +u
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    printf '%s' "${FOCUS_ROBOT_TOKEN:-}"
+  )"
+  [[ -n "$token" ]] || {
+    echo "Yunji environment has no FOCUS_ROBOT_TOKEN." >&2
+    return 1
+  }
+  payload="$(
+    curl -fsS --max-time 5 -H "X-Robot-Token: $token" \
+      "$HUB_URL/v1/robots/robot-1/observations/latest"
+  )"
+  unset token
+  FOCUS_SEQUENCE_JSON="$payload" python3 -c \
+    'import json,os; print(int(json.loads(os.environ["FOCUS_SEQUENCE_JSON"])["last_sequence"]))'
+}
+
+wait_for_hub_sequence_advance() {
+  local baseline="$1" deadline token payload candidate
+  deadline=$((SECONDS + SENDER_ADVANCE_TIMEOUT_S))
+  while (( SECONDS < deadline )); do
+    token="$(
+      set +u
+      # shellcheck disable=SC1090
+      source "$ENV_FILE"
+      printf '%s' "${FOCUS_ROBOT_TOKEN:-}"
+    )"
+    payload="$(
+      curl -fsS --max-time 5 -H "X-Robot-Token: $token" \
+        "$HUB_URL/v1/robots/robot-1/observations/latest" \
+        2>/dev/null || true
+    )"
+    unset token
+    if [[ -n "$payload" ]]; then
+      candidate="$(
+        FOCUS_SEQUENCE_JSON="$payload" python3 -c \
+          'import json,os; print(int(json.loads(os.environ["FOCUS_SEQUENCE_JSON"])["last_sequence"]))' \
+          2>/dev/null || true
+      )"
+      if [[ "$candidate" =~ ^-?[0-9]+$ ]] && (( candidate > baseline )); then
+        latest_sequence="$candidate"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  return 1
 }
 
 start_router() {
@@ -203,6 +275,7 @@ start_controller() {
 # Remove every previous direct-/api/move receiver before creating the new
 # online TinyNav command path.
 for unit in \
+  focus-yunji-calibration-observation-v1.service \
   focus-yunji-v2-readonly-v4.service \
   focus-yunji-v2-runtime.service \
   focus-yunji-v2-debug-v2.service \
@@ -220,8 +293,9 @@ map_output="$state_root/yunji-tinynav-online-map-$stamp"
 mkdir -p "$map_output"
 
 SENDER_UNIT="focus-yunji-command-observation-v2.service"
-if ! systemctl is-active --quiet "$SENDER_UNIT"; then
-  metrics="$state_root/yunji-command-observation-$stamp.json"
+start_yunji_sender() {
+  local metrics
+  metrics="$state_root/yunji-command-observation-$(date -u +%Y%m%dT%H%M%SZ).json"
   start_unit "$SENDER_UNIT" \
     /bin/bash "$SCRIPT_DIR/run_yunji_mapping_observation.sh" \
       --transform-version "$TRANSFORM_VERSION" \
@@ -230,7 +304,47 @@ if ! systemctl is-active --quiet "$SENDER_UNIT"; then
       --command-capable \
       --env "$ENV_FILE" \
       --metrics-out "$metrics"
+}
+
+ensure_yunji_sender_advance() {
+  local baseline="$1" current_sequence
+  if wait_for_hub_sequence_advance "$baseline"; then
+    echo "Yunji observation sequence advanced: $baseline -> $latest_sequence"
+    return 0
+  fi
+  current_sequence="$(hub_latest_sequence)"
+  if (( current_sequence > baseline )); then
+    echo "Yunji observation sequence advanced: $baseline -> $current_sequence"
+    return 0
+  fi
+  echo "Yunji observation sequence did not advance from $baseline; restarting only the read-only sender once." >&2
+  stop_unit "$SENDER_UNIT"
+  start_yunji_sender
+  baseline="$current_sequence"
+  if wait_for_hub_sequence_advance "$baseline"; then
+    echo "Yunji observation sequence advanced after one read-only restart: $baseline -> $latest_sequence"
+    return 0
+  fi
+  current_sequence="$(hub_latest_sequence)"
+  (( current_sequence > baseline )) && return 0
+  echo "Yunji observation sender failed to advance after one bounded read-only restart." >&2
+  return 1
+}
+
+sender_baseline="$(hub_latest_sequence)"
+if systemctl is-active --quiet "$SENDER_UNIT" \
+   && ! unit_matches_deployment "$SENDER_UNIT"; then
+  echo "Yunji read-only sender belongs to an older/unmarked deployment; reloading it once for $DEPLOYMENT_COMMIT."
+  stop_unit "$SENDER_UNIT"
 fi
+if ! systemctl is-active --quiet "$SENDER_UNIT"; then
+  start_yunji_sender
+fi
+(
+  trap - EXIT INT TERM
+  ensure_yunji_sender_advance "$sender_baseline"
+) &
+sender_watchdog_pid=$!
 
 CORE_UNITS=(
   focus-yunji-tinynav-adapter-v1.service
@@ -249,6 +363,10 @@ if [[ "$reuse_verified_debug_core" == true ]]; then
   for unit in "${CORE_UNITS[@]}"; do
     systemctl is-active --quiet "$unit" || {
       echo "Verified Yunji debug core is not active: $unit" >&2
+      exit 1
+    }
+    unit_matches_deployment "$unit" || {
+      echo "Verified Yunji debug core is from a different deployment: $unit" >&2
       exit 1
     }
   done
@@ -309,6 +427,8 @@ else
   start_router
   start_controller
 fi
+
+wait "$sender_watchdog_pid"
 
 bridge_args=(
   /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" bridge
@@ -405,6 +525,7 @@ echo "Yunji online TinyNav stack ready: mode=$mode"
 echo "  alignment: $alignment"
 echo "  online map: $map_output"
 echo "  planner: pinned TinyNav A*/local planner/controller"
+echo "  deployment: $DEPLOYMENT_COMMIT"
 echo "  chassis: guarded /focus_guarded_cmd_vel -> WATER /api/joy_control"
 if [[ "$mode" == debug ]]; then
   echo "Safety: WATER bridge is dry-run; physical motion is impossible through this stack."

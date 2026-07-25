@@ -16,6 +16,8 @@ full_preflight="false"
 session_env_file=""
 live_cleanup_required="false"
 cleanup_started="false"
+SSH_PROBE_TIMEOUT_S="${FOCUS_SSH_PROBE_TIMEOUT_S:-15}"
+oneclick_started="$SECONDS"
 
 usage() {
   cat <<'EOF'
@@ -90,6 +92,19 @@ scene_id="${scene_id:-debug-${goal_category}}"
   echo "Missing Hub Python environment: $PYTHON_BIN" >&2
   exit 1
 }
+[[ "$SSH_PROBE_TIMEOUT_S" =~ ^[1-9][0-9]*$ ]] || {
+  echo "FOCUS_SSH_PROBE_TIMEOUT_S must be a positive integer." >&2
+  exit 2
+}
+runtime_status="$(
+  git -C "$WORKSPACE" status --porcelain --untracked-files=normal \
+    -- hub source dependencies
+)"
+if [[ -n "$runtime_status" ]]; then
+  echo "One-click requires committed runtime code under hub/, source/, and dependencies/:" >&2
+  printf '%s\n' "$runtime_status" >&2
+  exit 1
+fi
 
 mkdir -p "$HUB_DIR/runtime"
 session_env_file="$(mktemp "$HUB_DIR/runtime/.oneclick-session.XXXXXX")"
@@ -126,16 +141,72 @@ for required in \
     exit 1
   }
 done
-for target in "$WSJ_TMUX_TARGET" "$YUNJI_TMUX_TARGET"; do
+
+probe_ssh_tmux_shell() {
+  local target="$1" token line deadline pane_state output
+  token="FOCUS_SSH_PROBE_$(date +%s%N)_${RANDOM}"
+  printf -v line 'printf "\\n__%s_SHELL_READY__\\n"' "$token"
+  tmux send-keys -t "$target" -l "$line"
+  tmux send-keys -t "$target" Enter
+  deadline=$((SECONDS + SSH_PROBE_TIMEOUT_S))
+  while (( SECONDS < deadline )); do
+    pane_state="$(
+      tmux display-message -p -t "$target" \
+        '#{pane_dead}:#{pane_current_command}' 2>/dev/null || true
+    )"
+    if [[ "$pane_state" == 0:ssh ]]; then
+      output="$(
+        tmux capture-pane -pJt "$target" -S -80 2>/dev/null || true
+      )"
+      if grep -Eq "^__${token}_SHELL_READY__[[:space:]]*$" <<<"$output"; then
+        echo "SSH_TMUX_SHELL_READY: $target"
+        return 0
+      fi
+    elif [[ "$pane_state" == 1:* ]]; then
+      echo "Existing SSH/tmux shell disconnected during its probe: $target" >&2
+      tmux capture-pane -pJt "$target" -S -30 2>/dev/null \
+        | tail -n 30 >&2 || true
+      return 1
+    fi
+    sleep 1
+  done
+  echo "Existing SSH/tmux shell did not answer its probe: $target" >&2
+  tmux capture-pane -pJt "$target" -S -30 2>/dev/null \
+    | tail -n 30 >&2 || true
+  return 1
+}
+
+ensure_ssh_tmux_shell() {
+  local target="$1" pane_state start_command
   pane_state="$(
     tmux display-message -p -t "$target" \
       '#{pane_dead}:#{pane_current_command}' 2>/dev/null || true
   )"
-  [[ "$pane_state" == 0:ssh ]] || {
-      echo "Existing SSH/tmux target is unavailable: $target" >&2
-      exit 1
+  [[ -n "$pane_state" ]] || {
+    echo "Existing SSH/tmux target is unavailable: $target" >&2
+    return 1
   }
-done
+  start_command="$(
+    tmux display-message -p -t "$target" \
+      '#{pane_start_command}' 2>/dev/null || true
+  )"
+  [[ "$start_command" == *"ssh "* ]] || {
+    echo "Existing tmux target is not the expected SSH pane: $target" >&2
+    return 1
+  }
+  if [[ "$pane_state" == 1:* ]]; then
+    echo "Respawning disconnected existing SSH/tmux pane: $target"
+    tmux respawn-pane -k -t "$target"
+    echo "SSH_TMUX_PANE_RESPAWNED: $target"
+  elif [[ "$pane_state" != 0:ssh ]]; then
+    echo "Existing SSH/tmux target has unexpected state '$pane_state': $target" >&2
+    return 1
+  fi
+  probe_ssh_tmux_shell "$target"
+}
+
+ensure_ssh_tmux_shell "$WSJ_TMUX_TARGET"
+ensure_ssh_tmux_shell "$YUNJI_TMUX_TARGET"
 
 remote_run() {
   local target="$1" command="$2" token
@@ -233,21 +304,45 @@ verify_remote_release() {
     "set +e; base64 -d '$remote_encoded' > '$remote_manifest'; rc=\$?; if [ \"\$rc\" -eq 0 ]; then (cd $quoted_root && sha256sum --quiet -c '$remote_manifest'); rc=\$?; fi; unlink '$remote_encoded'; unlink '$remote_manifest'; exit \"\$rc\""
 }
 
+verify_remote_release_pair() {
+  local wsj_pid yunji_pid wsj_rc=0 yunji_rc=0 started
+  started="$SECONDS"
+  (
+    trap - EXIT INT TERM
+    verify_remote_release "$WSJ_TMUX_TARGET" "$WSJ_ROOT"
+  ) &
+  wsj_pid=$!
+  (
+    trap - EXIT INT TERM
+    verify_remote_release "$YUNJI_TMUX_TARGET" "$YUNJI_ROOT"
+  ) &
+  yunji_pid=$!
+  wait "$wsj_pid" || wsj_rc=$?
+  wait "$yunji_pid" || yunji_rc=$?
+  echo "ONECLICK_TIMING phase=dual_release_verification elapsed_s=$((SECONDS - started))"
+  if [[ "$wsj_rc" != 0 || "$yunji_rc" != 0 ]]; then
+    echo "Parallel release verification failed: WSJ=$wsj_rc Yunji=$yunji_rc" >&2
+    return 1
+  fi
+}
+
 printf -v WSJ_ENV \
-  'FOCUS_SHARED_CALIBRATION_FILE=%q FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE=%q FOCUS_WSJ_TRANSFORM_VERSION=%q FOCUS_SHARED_CALIBRATION_ID=%q FOCUS_HUB_BASE_URL=%q FOCUS_FOXGLOVE_PREVIEW_URL=%q' \
+  'FOCUS_SHARED_CALIBRATION_FILE=%q FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE=%q FOCUS_WSJ_TRANSFORM_VERSION=%q FOCUS_SHARED_CALIBRATION_ID=%q FOCUS_HUB_BASE_URL=%q FOCUS_FOXGLOVE_PREVIEW_URL=%q FOCUS_DEPLOYMENT_COMMIT=%q' \
   "$FOCUS_WSJ_REMOTE_CALIBRATION" \
   "$FOCUS_WSJ_REMOTE_BASE_CAMERA" \
   "$FOCUS_WSJ_TRANSFORM" \
   "$FOCUS_CALIBRATION_ID" \
   "$FOCUS_WSJ_REMOTE_HUB_URL" \
-  "$FOCUS_WSJ_REMOTE_PREVIEW_URL"
+  "$FOCUS_WSJ_REMOTE_PREVIEW_URL" \
+  "$FOCUS_SESSION_CODE_COMMIT"
 printf -v YUNJI_ENV \
-  'FOCUS_YUNJI_SHARED_CALIBRATION_FILE=%q FOCUS_YUNJI_BASE_CAMERA_CALIBRATION=%q FOCUS_YUNJI_TRANSFORM_VERSION=%q FOCUS_SHARED_CALIBRATION_ID=%q FOCUS_HUB_BASE_URL=%q' \
+  'FOCUS_YUNJI_SHARED_CALIBRATION_FILE=%q FOCUS_YUNJI_BASE_CAMERA_CALIBRATION=%q FOCUS_YUNJI_TRANSFORM_VERSION=%q FOCUS_SHARED_CALIBRATION_ID=%q FOCUS_HUB_BASE_URL=%q FOCUS_DEPLOYMENT_COMMIT=%q' \
   "$FOCUS_YUNJI_REMOTE_CALIBRATION" \
   "$FOCUS_YUNJI_REMOTE_BASE_CAMERA" \
   "$FOCUS_YUNJI_TRANSFORM" \
   "$FOCUS_CALIBRATION_ID" \
-  "$FOCUS_YUNJI_REMOTE_HUB_URL"
+  "$FOCUS_YUNJI_REMOTE_HUB_URL" \
+  "$FOCUS_SESSION_CODE_COMMIT"
 printf -v WSJ_LAUNCHER '%q' \
   "$WSJ_ROOT/hub/robot_overlay/start_wsj_buildmap_v2.sh"
 printf -v YUNJI_LAUNCHER '%q' \
@@ -561,6 +656,67 @@ start_read_only_robots() {
     "for unit in focus-yunji-calibration-observation-v1.service focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service focus-yunji-command-observation-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode debug"
 }
 
+ensure_local_services_parallel() {
+  local glm_pid foxglove_pid glm_rc=0 foxglove_rc=0 started
+  started="$SECONDS"
+  (
+    trap - EXIT INT TERM
+    phase_started="$SECONDS"
+    ensure_glm
+    echo "ONECLICK_TIMING phase=glm_ready elapsed_s=$((SECONDS - phase_started))"
+  ) &
+  glm_pid=$!
+  (
+    trap - EXIT INT TERM
+    phase_started="$SECONDS"
+    ensure_foxglove
+    echo "ONECLICK_TIMING phase=foxglove_ready elapsed_s=$((SECONDS - phase_started))"
+  ) &
+  foxglove_pid=$!
+  wait "$glm_pid" || glm_rc=$?
+  wait "$foxglove_pid" || foxglove_rc=$?
+  echo "ONECLICK_TIMING phase=parallel_local_services elapsed_s=$((SECONDS - started))"
+  if [[ "$glm_rc" != 0 || "$foxglove_rc" != 0 ]]; then
+    echo "Parallel local readiness failed: GLM=$glm_rc Foxglove=$foxglove_rc" >&2
+    return 1
+  fi
+}
+
+recover_full_readonly_runtime_parallel() {
+  local glm_pid robots_pid foxglove_pid
+  local glm_rc=0 robots_rc=0 foxglove_rc=0 started
+  started="$SECONDS"
+  (
+    trap - EXIT INT TERM
+    phase_started="$SECONDS"
+    ensure_glm
+    echo "ONECLICK_TIMING phase=glm_ready elapsed_s=$((SECONDS - phase_started))"
+  ) &
+  glm_pid=$!
+  (
+    trap - EXIT INT TERM
+    phase_started="$SECONDS"
+    start_read_only_robots
+    echo "ONECLICK_TIMING phase=dual_readonly_robots_ready elapsed_s=$((SECONDS - phase_started))"
+  ) &
+  robots_pid=$!
+  (
+    trap - EXIT INT TERM
+    phase_started="$SECONDS"
+    ensure_foxglove
+    echo "ONECLICK_TIMING phase=foxglove_ready elapsed_s=$((SECONDS - phase_started))"
+  ) &
+  foxglove_pid=$!
+  wait "$glm_pid" || glm_rc=$?
+  wait "$robots_pid" || robots_rc=$?
+  wait "$foxglove_pid" || foxglove_rc=$?
+  echo "ONECLICK_TIMING phase=parallel_full_readonly_runtime elapsed_s=$((SECONDS - started))"
+  if [[ "$glm_rc" != 0 || "$robots_rc" != 0 || "$foxglove_rc" != 0 ]]; then
+    echo "Parallel full runtime recovery failed: GLM=$glm_rc robots=$robots_rc Foxglove=$foxglove_rc" >&2
+    return 1
+  fi
+}
+
 verify_tracking_epoch_continuity() {
   local stamp wsj_probe yunji_probe
   [[ "$FOCUS_DEBUG_PASSED_AT_NS" =~ ^[1-9][0-9]*$ ]] || {
@@ -584,7 +740,7 @@ prepare_warm_live_reuse() {
   # This operation cannot move either robot.
   remote_pair \
     "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; for window in maploc online-map planning goal-router control; do tmux list-windows -t tinynav_semantic_nav_auto -F '#{window_name}' | grep -qx \"\$window\" || exit 1; done" \
-    "for unit in focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service focus-yunji-v2-debug-v3.service focus-yunji-v2-live-v3.service focus-yunji-water-bridge-debug-v1.service focus-yunji-water-bridge-live-v1.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; for unit in focus-yunji-odin1-driver.service focus-yunji-tinynav-adapter-v1.service focus-yunji-tinynav-occupancy-v1.service focus-yunji-tinynav-planner-v1.service focus-yunji-tinynav-router-v1.service focus-yunji-tinynav-controller-v1.service; do systemctl is-active --quiet \"\$unit\" || exit 1; done"
+    "for unit in focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service focus-yunji-v2-debug-v3.service focus-yunji-v2-live-v3.service focus-yunji-water-bridge-debug-v1.service focus-yunji-water-bridge-live-v1.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; systemctl is-active --quiet focus-yunji-odin1-driver.service || exit 1; for unit in focus-yunji-tinynav-adapter-v1.service focus-yunji-tinynav-occupancy-v1.service focus-yunji-tinynav-planner-v1.service focus-yunji-tinynav-router-v1.service focus-yunji-tinynav-controller-v1.service; do systemctl is-active --quiet \"\$unit\" || exit 1; environment=\$(systemctl show --property Environment --value \"\$unit\"); [[ \" \$environment \" == *\" FOCUS_DEPLOYMENT_COMMIT=$FOCUS_SESSION_CODE_COMMIT \"* ]] || exit 1; done"
 }
 
 arm_live_robots() {
@@ -595,16 +751,20 @@ arm_live_robots() {
 }
 
 wait_for_live_readiness() {
-  local deadline admin_token
+  local deadline admin_token status
   admin_token="$(<"$FOCUS_ADMIN_TOKEN_FILE")"
-  deadline=$((SECONDS + 60))
-  until FOCUS_HUB_URL="$HUB_URL" \
+  deadline=$((SECONDS + 25))
+  while (( SECONDS < deadline )); do
+    if status="$(
+      FOCUS_HUB_URL="$HUB_URL" \
       FOCUS_ADMIN_TOKEN="$admin_token" \
+      FOCUS_EPOCH_NS="$final_hub_epoch_ns" \
       "$PYTHON_BIN" - <<'PY'
 import json
 import os
 import urllib.request
 
+sequences = []
 for robot_id in ("robot-0", "robot-1"):
     request = urllib.request.Request(
         os.environ["FOCUS_HUB_URL"]
@@ -617,14 +777,24 @@ for robot_id in ("robot-0", "robot-1"):
         raise SystemExit(1)
     if payload.get("health_source") != "heartbeat":
         raise SystemExit(1)
+    if int(payload.get("last_observation_received_at_ns", 0)) < int(
+        os.environ["FOCUS_EPOCH_NS"]
+    ):
+        raise SystemExit(1)
+    sequence = int(payload.get("last_observation_sequence", -1))
+    if sequence < 0:
+        raise SystemExit(1)
+    sequences.append(sequence)
+print(*sequences)
 PY
-  do
-    (( SECONDS < deadline )) || {
-      echo "Timed out waiting for both live robot heartbeats." >&2
-      return 1
-    }
+    )"; then
+      read -r wsj_epoch_sequence yunji_epoch_sequence <<<"$status"
+      return 0
+    fi
     sleep 1
   done
+  echo "Timed out waiting for both live heartbeats and clean-epoch observations." >&2
+  return 1
 }
 
 disarm_live_stack() {
@@ -653,8 +823,7 @@ trap cleanup_on_exit EXIT INT TERM
 
 echo "Session $FOCUS_SESSION_ID: validating the exact committed deployment."
 echo "Verifying that both robot release roots match this Git checkout."
-verify_remote_release "$WSJ_TMUX_TARGET" "$WSJ_ROOT"
-verify_remote_release "$YUNJI_TMUX_TARGET" "$YUNJI_ROOT"
+verify_remote_release_pair
 
 # Once a session has passed strict debug, the live path must prove that the
 # processes owning both odometry origins still predate that debug. A chassis
@@ -671,7 +840,7 @@ fi
 wait_for_hub_epoch() {
   local deadline admin_token status
   admin_token="$(<"$FOCUS_ADMIN_TOKEN_FILE")"
-  deadline=$((SECONDS + 90))
+  deadline=$((SECONDS + 30))
   while (( SECONDS < deadline )); do
     if status="$(
       FOCUS_HUB_URL="$HUB_URL" \
@@ -722,16 +891,19 @@ if [[ "$mode" == live && "$full_preflight" != true ]]; then
 fi
 
 if [[ "$fast_live_reuse" == true ]]; then
+  phase_started="$SECONDS"
   ensure_maps
-  ensure_glm
-  ensure_foxglove
+  echo "ONECLICK_TIMING phase=maps_ready elapsed_s=$((SECONDS - phase_started))"
+  ensure_local_services_parallel
 else
   echo "FULL_DEBUG_RUNTIME_RECOVERY: starting a clean fail-closed Hub epoch."
+  phase_started="$SECONDS"
   restart_hub "$FOCUS_DEBUG_ROBOT_CONFIG" false
+  echo "ONECLICK_TIMING phase=debug_hub_restart elapsed_s=$((SECONDS - phase_started))"
+  phase_started="$SECONDS"
   ensure_maps
-  ensure_glm
-  start_read_only_robots
-  ensure_foxglove
+  echo "ONECLICK_TIMING phase=maps_ready elapsed_s=$((SECONDS - phase_started))"
+  recover_full_readonly_runtime_parallel
 fi
 
 if [[ "$mode" == live ]]; then
@@ -740,17 +912,23 @@ if [[ "$mode" == live ]]; then
   # so both receivers remain in NO_GOAL/HOLD until their verified heartbeats
   # and fresh observations have entered this exact Hub epoch.
   live_cleanup_required="true"
+  phase_started="$SECONDS"
   restart_hub "$FOCUS_LIVE_ROBOT_CONFIG" true
+  echo "ONECLICK_TIMING phase=live_hub_restart elapsed_s=$((SECONDS - phase_started))"
   final_hub_epoch_ns="$(date +%s%N)"
+  phase_started="$SECONDS"
   arm_live_robots
-  wait_for_hub_epoch
+  echo "ONECLICK_TIMING phase=dual_live_arm elapsed_s=$((SECONDS - phase_started))"
+  phase_started="$SECONDS"
   wait_for_live_readiness
+  echo "ONECLICK_TIMING phase=clean_epoch_readiness elapsed_s=$((SECONDS - phase_started))"
   echo "LIVE_RECEIVERS_READY_NO_GOAL: starting continuous source episode."
 else
   final_hub_epoch_ns="$(date +%s%N)"
   wait_for_hub_epoch
 fi
 
+echo "ONECLICK_TIMING phase=pre_episode_total elapsed_s=$((SECONDS - oneclick_started))"
 stamp="$(date +%Y%m%d_%H%M%S_%N)"
 run_dir="$HUB_DIR/runtime/oneclick_${FOCUS_SESSION_ID}_${mode}_${scene_id}_${stamp}"
 mkdir "$run_dir"

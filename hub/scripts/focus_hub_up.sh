@@ -126,7 +126,6 @@ chmod 600 "$tokens_file"
 compact_tokens_file="$state_dir/.robot_tokens_compact.json"
 "$PYTHON_BIN" -c "import json; json.dump(json.load(open('$tokens_file')), open('$compact_tokens_file', 'w'))"
 chmod 600 "$compact_tokens_file"
-chmod 600 "$compact_tokens_file"
 
 if [[ ! -f "$HUB_DIR/runtime/admin_token" ]]; then
   "$PYTHON_BIN" -c "import secrets; print(secrets.token_hex(24))" > "$HUB_DIR/runtime/admin_token"
@@ -137,7 +136,7 @@ chmod 600 "$HUB_DIR/runtime/admin_token"
 wait_for_http() {
   local url="$1" timeout_s="${2:-60}" start
   start="$(date +%s)"
-  until curl -s -o /dev/null -w '' "$url" 2>/dev/null; do
+  until curl -fsS --max-time 2 -o /dev/null "$url" 2>/dev/null; do
     if (( $(date +%s) - start >= timeout_s )); then
       echo "Timed out waiting for $url" >&2
       return 1
