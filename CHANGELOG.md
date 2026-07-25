@@ -16,6 +16,12 @@
   abort: WSJ raw D435i streams were live but calibrated camera/odometry output
   was frozen; no live, GOAL, episode, motion or SR/SPL row was created.
   Record both robots as powered down for charging and calibration as deferred.
+- Commit the three remaining `success_2`/`success_4` source masters
+  byte-for-byte through Git LFS, extending the Scene 01 source-video inventory
+  from 12 to 15 while preserving their unverified runtime-binding boundary.
+- Update the current README metric table to three eligible samples,
+  `SR=3/3=1.0`, mean source-compatible `SPL=0.816269`, independently measured
+  Formal-4 `L≈3.25 m`, and official standard `SPL=1.0`.
 - Record the operator clarification that the manually terminal-annotated
   `trial-05-nearwall-fix` is formal experiment 03; preserve its existing
   `SR=1` and source-compatible `SPL=0.864048038008398`.

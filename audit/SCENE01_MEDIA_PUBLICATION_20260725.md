@@ -104,3 +104,23 @@ failures. See
 [`FAILURE_ATTRIBUTION_PROTOCOL_20260725.md`](FAILURE_ATTRIBUTION_PROTOCOL_20260725.md)
 and
 [`SCENE01_CHAIR_SUCCESS_R5_20260725.md`](SCENE01_CHAIR_SUCCESS_R5_20260725.md).
+
+## Later 2026-07-25 addendum: three unbound candidate masters
+
+The operator requested that every remaining file under `media/` be committed.
+Three additional observed source masters extend the Scene 01 inventory from
+twelve to fifteen files:
+
+| Source master | Bytes | Duration | SHA-256 | Classification |
+| --- | ---: | ---: | --- | --- |
+| `media/video/third_view/experiment_1/experiment_1_success_2.mp4` | 2,403,359 | 18.900000 s | `145c7a334816d845a757ef714f0cbe74a0983ab7b728bf2c05e3e61551a2069e` | observed user-labelled `success_2` third-view candidate; exact runtime binding unverified |
+| `media/video/dashboard/experiment_1/experiment_1_success_2_dashboard.mov` | 17,640,290 | 28.733333 s | `4e060ba8fe006a27113e1c3aa5ea0fddbc9d7e58812959b74ff34a69d492231d` | observed user-labelled `success_2` Dashboard candidate; exact runtime binding unverified |
+| `media/video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov` | 41,979,329 | 67.663000 s | `dd3518091413d7267e50b896364071882321c8a3802fd8c35d8efdb9e7c6a633` | observed user-labelled `success_4` Dashboard candidate; exact formal-experiment-04 binding unverified |
+
+All three masters remain byte-for-byte unchanged and are stored through the
+existing `media/video/**` Git LFS rule. The matching `success_2` names establish
+a candidate third-view/Dashboard pair only. The `success_4` Dashboard filename
+alone does not establish a binding to formal experiment 04, and none of these
+files can belong to formal experiment 05 because that workflow stopped before
+live and produced no episode or motion. No SR/SPL value changes as a result of
+publishing these files.

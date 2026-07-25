@@ -90,6 +90,9 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
   变换不能直接复用。操作者已将两台机器人下电充电并明确暂缓标定，因此
   Formal 5 没有 SR/SPL 行。见
   [第五次预检中止审计](audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md)。
+- `media/` 当前全部文件均已纳入 Git；Scene 01 共 15 个原始视频通过
+  Git LFS 保存。最新三份 `success_2`/`success_4` 主文件保持字节不变并
+  完整记录哈希，但仍缺少精确 runtime 绑定，因此不改变上述指标。
 
 ## 实机直接入口
 
@@ -125,9 +128,9 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
 
 第一个实验场景要求两台机器人从同一实验室起始区域在线建图、协调探索并
 找到白色椅子。当前媒体记录包含两次由操作者命名的 approach failure 和
-两次正常通过；最新第四次正式实验先按 runtime/终点证据归档，尚未把任何
-现场视频事后绑定到该 episode。第五次只完成无运动预检且中止，不是
-episode。媒体列明确标出可用性。
+两次已绑定的正常通过；第四次正式实验作为第三个指标成功样本，先按
+runtime/终点证据归档，尚未把现场视频精确绑定到该 episode。第五次只完成
+无运动预检且中止，不是 episode。媒体列明确标出可用性。
 
 | Run | 结果 | 归因 | SR | Source-compatible SPL | 第三视角 | Foxglove Dashboard | 证据口径 |
 | --- | --- | --- | ---: | ---: | --- | --- | --- |
@@ -135,12 +138,12 @@ episode。媒体列明确标出可用性。
 | Failure 2 | **FAILURE** | 未分类：缺少 runtime 绑定 | 排除 | 排除 | [![Scene 01 failure 2 第三视角](media/demo/scene01_failure_2_third_view_20260725_poster.jpg)](media/demo/scene01_failure_2_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_failure_2_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_approach_failure_2.mp4) | [![Scene 01 failure 2 Dashboard](media/demo/scene01_failure_2_dashboard_20260725_poster.jpg)](media/demo/scene01_failure_2_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_failure_2_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_approach_failure_2.mov) | 用户文件名标记为 `approach_failure_2`；Yunji 向椅子区域推进，但没有被验证为有效自动终点。缺少逐轮决策/控制证据，不能认定为 VLM 失败。 |
 | Formal 3 | **SUCCESS** | 操作者手动终点判定 | `1` | `0.864048` | [![Yunji 驶近目标椅并停止](media/demo/scene01_success_third_view_20260725_poster.jpg)](media/demo/scene01_success_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_success_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_success_3.mp4) | [![成功 run 的 Foxglove Dashboard](media/demo/scene01_success_dashboard_20260725_poster.jpg)](media/demo/scene01_success_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_success_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov) | `20260725-lab17-nearwall-fix / trial-05-nearwall-fix`；Yunji 停在所选 chair 语义落点 `0.321133 m` 内，操作者按 `0.5 m` 真机半径标注第三次正式实验成功。 |
 | Success 2 | **SUCCESS** | 正常通过 | `1` | `0.628399` | [![双机到达白色椅子附近](media/demo/scene01_success_2_third_view_20260725_poster.jpg)](media/demo/scene01_success_2_third_view_20260725.mp4)<br>[H.264](media/demo/scene01_success_2_third_view_20260725.mp4) · [原始 HEVC](media/video/third_view/experiment_1/experiment_1_success_1.mp4) | [![第二次成功 run 的 Foxglove Dashboard](media/demo/scene01_success_2_dashboard_20260725_poster.jpg)](media/demo/scene01_success_2_dashboard_20260725.mp4)<br>[H.264](media/demo/scene01_success_2_dashboard_20260725.mp4) · [原始 MOV](media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov) | `20260725-lab19-scene01-8ca1d52-yunjireboot1-r5 / trial-r5-01`；WSJ 本地规划器自动 `ARRIVED`，停点距 chair 语义目标 `0.406693 m`，正常通过。 |
-| Formal 4 | **SUCCESS** | 自动 `ARRIVED` + 操作者归档 | `1` | `0.956361` | 未绑定现场视频；[终点证据审计](audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md) | 未绑定 Dashboard | `20260725-lab21-wallfix-imudebounce-3a2d953 / trial-wallfix-imudebounce-r1`；Yunji 自动 `LOCAL_PLANNER_ARRIVED`、零速停止，终点 RGB 可见白椅，操作者明确归档为第四次正式实验成功。 |
-| Formal 5 preflight | **NOT STARTED** | WSJ tracking 输出冻结 | 排除 | 排除 | 候选媒体未绑定/提交 | 候选媒体未绑定/提交 | 两次准备均止于严格无运动 debug；无 live、GOAL、episode 或运动，不计 SR/SPL。见[预检中止审计](audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md)。 |
+| Formal 4 | **SUCCESS** | 自动 `ARRIVED` + 操作者归档 | `1` | `0.956361` | 未绑定现场视频；[终点证据审计](audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md) | [候选原始 Dashboard](media/video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov)（文件名标注，未验证绑定） | `20260725-lab21-wallfix-imudebounce-3a2d953 / trial-wallfix-imudebounce-r1`；Yunji 自动 `LOCAL_PLANNER_ARRIVED`、零速停止，终点 RGB 可见白椅，操作者明确归档为第四次正式实验成功。 |
+| Formal 5 preflight | **NOT STARTED** | WSJ tracking 输出冻结 | 排除 | 排除 | 无：实验未开始 | 无：实验未开始 | 两次准备均止于严格无运动 debug；无 live、GOAL、episode 或运动，不计 SR/SPL。见[预检中止审计](audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md)。 |
 
-| 当前计入指标的样本 | Success | SR | Mean source-compatible SPL | Standard SPL |
-| ---: | ---: | ---: | ---: | --- |
-| `3` | `3` | `1.0` | `0.816269` | Formal 4：`1.0`（标准轨 `1/1`） |
+| 当前计入指标的样本 | Success | SR | Mean source-compatible SPL | 独立测量最短可行路径 `L` | Standard SPL |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| `3` | `3` | `1.0` | `0.816269` | Formal 4：`≈3.25 m` | `1.0`（标准轨 `1/1`） |
 
 失败归因采用固定顺序：先检查传感器、标定/融合、地图/定位、传输、
 本地规划控制、硬件/供电和安全中止；这些任一异常都归为工程失败，不能写成
@@ -172,7 +175,7 @@ SPL 为 `1.0`。`L` 比里程计记录的实际路径约长 `0.039778 m`，因�
 该截图保留 Yunji 的绿色轨迹、两台机器人位姿、A–D 前沿及 `chair` 投影。
 底部 `plant` 色块是未经独立验证的模型输出，不作为真实目标或成功证据。
 
-Scene 01 已归档的 12 个原始视频已全部通过 Git LFS 进入仓库：
+Scene 01 已归档的 15 个原始视频已全部通过 Git LFS 进入仓库：
 
 | 记录组 | 第三视角原始文件 | Dashboard 原始文件 | 状态 |
 | --- | --- | --- | --- |
@@ -182,10 +185,12 @@ Scene 01 已归档的 12 个原始视频已全部通过 Git LFS 进入仓库：
 | Failure 2 | [`experiment_1_approach_failure_2.mp4`](media/video/third_view/experiment_1/experiment_1_approach_failure_2.mp4) | [`experiment_1_approach_failure_2.mov`](media/video/dashboard/experiment_1/experiment_1_approach_failure_2.mov) | 用户标注 failure；指标排除 |
 | Formal 3 | [`experiment_1_success_3.mp4`](media/video/third_view/experiment_1/experiment_1_success_3.mp4) | [`experiment_1_success_3_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov) | 操作者手动标注第三次正式实验；0.5 m 真机协议正常通过 |
 | Success 2 | [`experiment_1_success_1.mp4`](media/video/third_view/experiment_1/experiment_1_success_1.mp4) | [`experiment_1_success_1_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov) | 自动 `ARRIVED`；0.5 m 真机协议正常通过 |
+| 未绑定 `success_2` 候选 | [`experiment_1_success_2.mp4`](media/video/third_view/experiment_1/experiment_1_success_2.mp4) | [`experiment_1_success_2_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_success_2_dashboard.mov) | 同名第三视角/Dashboard 候选对；精确 runtime/episode 未验证，不计指标 |
+| 未绑定 `success_4` 候选 | — | [`experiment_1_success_4_dashboard.mov`](media/video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov) | 只有 Dashboard；文件名不能单独建立 Formal 4 runtime 绑定，不计指标 |
 
-工作区另有三份 `success_2`/`success_4` 候选媒体，尚未建立精确 runtime
-绑定，也未提交；本轮文档整理没有移动或修改它们。其字节数、时长和哈希见
-[第五次预检中止审计](audit/FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md)。
+最新三份 `success_2`/`success_4` 候选媒体已经按原始字节提交，但尚未
+建立精确 runtime 绑定。其字节数、时长和 SHA-256 见
+[媒体发布审计](audit/SCENE01_MEDIA_PUBLICATION_20260725.md)。
 
 所有主文件和公开衍生文件的字节数、时长、SHA-256 与事实边界见
 [`media/README.md`](media/README.md) 和

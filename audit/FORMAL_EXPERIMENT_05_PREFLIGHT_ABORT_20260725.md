@@ -111,3 +111,15 @@ Three workspace-only media files remain untouched and unbound:
 | `media/video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov` | 41,979,329 | 67.663 s | `dd3518091413d7267e50b896364071882321c8a3802fd8c35d8efdb9e7c6a633` | observed user-labelled file; exact formal04 runtime binding unverified; not committed |
 
 No file under immutable `source/` or `dependencies/` was changed.
+
+## Media publication addendum — 2026-07-25
+
+The original closeout above correctly recorded the three candidate files as
+workspace-only at that time. The operator subsequently requested that all
+remaining `media/` files be committed, so those exact three masters were added
+through the existing Git LFS rule without changing their bytes.
+
+Their evidence classification is unchanged: exact runtime bindings remain
+unverified. In particular, none is bound to formal experiment 05, which never
+entered live and produced no episode or motion. Publication therefore creates
+no SR/SPL row and does not change the experiment-05 preflight outcome.

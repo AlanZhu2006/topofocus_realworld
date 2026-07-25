@@ -1,7 +1,8 @@
 # Current project status
 
 Snapshot time: **2026-07-25, after formal experiment 05 preparation stopped
-inside strict no-motion debug and both robots were powered down for charging**
+inside strict no-motion debug, both robots were powered down for charging, and
+all current media files were archived**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -378,10 +379,11 @@ At closeout:
 - Route-conflict implementation: `b79879bfc96805aa7e7b63cf3a8ebbfe59679730`
 - Runtime maps, observations, tokens, calibration state and full episode
   directories stay outside Git.
-- The 12 archived original Scene 01 videos are committed through Git LFS under
-  `media/video/`; the largest is 80,244,552 bytes. Three additional
-  workspace-only media candidates remain unbound and uncommitted. Web-playable
-  H.264 derivatives, posters, hashes and classifications for the archived set
-  are committed under `media/demo/`.
+- All 15 original Scene 01 videos are committed through Git LFS under
+  `media/video/`; the largest is 80,244,552 bytes. The three newest
+  `success_2`/`success_4` candidates remain runtime-unbound but are now
+  checksummed and committed byte-for-byte. Web-playable H.264 derivatives,
+  posters, hashes and classifications for the previously published set are
+  committed under `media/demo/`.
 - Physical/runtime facts are labelled observed; algorithm outputs are labelled
   source-derived; causal claims without evidence remain unverified.

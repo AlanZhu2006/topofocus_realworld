@@ -40,6 +40,9 @@ file under its own collection protocol.
 | `video/dashboard/experiment_1/experiment_1_success_3_dashboard.mov` | 80244552 | H.264 High, 2392 × 1080, 30 fps | 125.829000 s | `ad0e99c4ebb56e90a5923af636f0269b118349e3353c05511b3e21c5020fae34` | observed formal-experiment-03 success Dashboard; byte-identical rename from `experiment_1_success_dashboard.mov`; bound to the 0.5 m physical-protocol track |
 | `video/third_view/experiment_1/experiment_1_success_1.mp4` | 8511523 | HEVC Main, 1280 × 720, nominal 30 fps | 74.100000 s | `3d67f19f48601dcd239b950689c391b96231010bc2c6fdea07351f0ff12c8bd6` | observed second success third view bound to `trial-r5-01` |
 | `video/dashboard/experiment_1/experiment_1_success_1_dashboard.mov` | 45502070 | H.264 High, 2392 × 1080, 30 fps | 74.955000 s | `4668756e7d7ad7e2dd18eab85d65de5c8243ef3c9b281afcc6aace1f942291dd` | observed second success Dashboard bound to `trial-r5-01` |
+| `video/third_view/experiment_1/experiment_1_success_2.mp4` | 2403359 | HEVC Main, 1280 × 720, nominal 29.947 fps | 18.900000 s | `145c7a334816d845a757ef714f0cbe74a0983ab7b728bf2c05e3e61551a2069e` | observed user-labelled `success_2` third-view candidate; exact runtime/episode binding unverified |
+| `video/dashboard/experiment_1/experiment_1_success_2_dashboard.mov` | 17640290 | H.264 High, 2392 × 1080, 30 fps | 28.733333 s | `4e060ba8fe006a27113e1c3aa5ea0fddbc9d7e58812959b74ff34a69d492231d` | observed user-labelled `success_2` Dashboard candidate; exact runtime/episode binding unverified |
+| `video/dashboard/experiment_1/experiment_1_success_4_dashboard.mov` | 41979329 | H.264 High, 2392 × 1080, 30 fps | 67.663000 s | `dd3518091413d7267e50b896364071882321c8a3802fd8c35d8efdb9e7c6a633` | observed user-labelled `success_4` Dashboard candidate; exact formal-experiment-04 binding unverified |
 
 The `failure_1`, `failure_2` and `success` labels above come from the
 user-provided filenames and onsite classification. A filename alone does not
@@ -47,6 +50,13 @@ establish a controller reason code, automatic terminal or standard
 metric eligibility. The two approach failures remain excluded from SR/SPL
 until exact runtime evidence is bound. The success record has the separate
 evidence described below.
+
+The three newly committed `success_2`/`success_4` candidates are likewise
+filename-labelled evidence, not episode bindings. The two `success_2` files
+form a same-label third-view/Dashboard candidate pair; the `success_4` file is
+Dashboard-only. All three are committed byte-for-byte through Git LFS and
+remain excluded from metric evidence until an exact runtime association is
+established.
 
 ## Bound Scene 01 successes
 
@@ -66,11 +76,23 @@ The second success masters are bound to session
 `20260725-lab19-scene01-8ca1d52-yunjireboot1-r5`, episode `trial-r5-01`.
 WSJ automatically emitted `LOCAL_PLANNER_ARRIVED` at `0.406693 m` from the
 chair semantic goal. It contributes `SR=1` and source-compatible
-`SPL=0.628398923`. The two recorded physical-protocol samples therefore have
-`SR=2/2=1.0` and mean source-compatible `SPL=0.746223480504199`.
-Standard SPL remains unavailable for both because neither run had a
-pre-surveyed shortest path. Exact provenance is in
+`SPL=0.628398923`. Exact provenance is in
 [`../audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md`](../audit/SCENE01_CHAIR_SUCCESS_R5_20260725.md).
+
+Formal experiment 04,
+`20260725-lab21-wallfix-imudebounce-3a2d953 /
+trial-wallfix-imudebounce-r1`, is bound through runtime and terminal evidence,
+not through any of the three newly committed media candidates. Yunji
+automatically emitted `LOCAL_PLANNER_ARRIVED`; the run contributes `SR=1` and
+source-compatible `SPL=0.956360614325575`. The operator independently measured
+the shortest feasible path as approximately `3.25 m`, giving official
+standard `SPL=1.0`.
+
+The three recorded physical-protocol samples therefore have `SR=3/3=1.0` and
+mean source-compatible `SPL=0.816269191777991`. The surveyed standard track
+contains formal experiment 04 alone: `SR=1/1=1.0`, mean standard `SPL=1.0`.
+Exact provenance is in
+[`../audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md`](../audit/SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md).
 
 ## Bound collision
 

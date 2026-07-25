@@ -30,8 +30,9 @@ current. For the authoritative project state, read
   `LOCAL_PLANNER_ARRIVED`, exact SR/source-compatible SPL and paired
   external/Dashboard media provenance.
 - [`SCENE01_MEDIA_PUBLICATION_20260725.md`](SCENE01_MEDIA_PUBLICATION_20260725.md):
-  initial ten-file publication plus the later second-success addendum,
-  byte hashes, web derivatives and exact runtime-binding boundaries.
+  initial ten-file publication, the later second-success pair and three
+  additional unbound candidate masters, with byte hashes, web derivatives and
+  exact runtime-binding boundaries.
 - [`LAB18_CALIBRATION_ABORT_20260725.md`](LAB18_CALIBRATION_ABORT_20260725.md):
   aborted repeat-2 calibration after the Go2 was moved to charge, the repaired
   cross-launcher release-root mismatch, preserved incomplete runtime
