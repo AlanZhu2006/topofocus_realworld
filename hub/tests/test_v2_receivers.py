@@ -132,9 +132,40 @@ def test_data_plane_verifier_rejects_mixed_source_clock_epochs():
         header=SimpleNamespace(stamp=SimpleNamespace(sec=2, nanosec=0))
     )
 
-    with pytest.raises(ValueError, match="ahead of the fresh image"):
+    with pytest.raises(ValueError, match="ahead of the fresh sensor"):
         verifier.message_lag_s(
             occupancy, reference_message=restarted_depth
+        )
+
+
+def test_data_plane_camera_info_is_a_lightweight_geometry_witness():
+    verifier = load_overlay("verify_tinynav_data_plane.py")
+    camera_info = SimpleNamespace(
+        width=848,
+        height=480,
+        header=SimpleNamespace(
+            frame_id="camera",
+            stamp=SimpleNamespace(sec=12, nanosec=0),
+        ),
+        k=[430.0, 0.0, 423.5, 0.0, 430.0, 239.5, 0.0, 0.0, 1.0],
+    )
+
+    profile = verifier.validate_camera_info_contract(
+        camera_info,
+        expected_frame="camera",
+        expected_width=848,
+        expected_height=480,
+    )
+    assert profile["frame_id"] == "camera"
+    assert profile["width"] == 848
+
+    camera_info.width = 640
+    with pytest.raises(ValueError, match="locked profile"):
+        verifier.validate_camera_info_contract(
+            camera_info,
+            expected_frame="camera",
+            expected_width=848,
+            expected_height=480,
         )
 
 
@@ -259,8 +290,8 @@ def test_wsj_verification_is_split_around_sender_and_go2_bridge():
         < bridge_index
         < post_index
     )
-    assert "high-bandwidth Hub sender" in launcher
-    assert 'tmux kill-window -t "$SESSION:hub-sender"' in launcher
+    assert "already-established observation sender" in launcher
+    assert 'tmux kill-window -t "$SESSION:hub-sender"' not in launcher
 
 
 def test_calibration_geometry_verifier_is_read_only_and_reuses_contract():
@@ -801,11 +832,18 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "focus-tinynav-data-plane-verification-v1" in verifier
     assert "get_publishers_info_by_topic" in verifier
     assert "get_subscriptions_info_by_topic" in verifier
-    assert "--fresh-image-topic" in wsj
+    assert "--fresh-image-topic" not in wsj
     assert "--fresh-image-topic" in yunji
-    assert "--fresh-image-topic /slam/depth" in wsj
-    assert "--geometry-image-topic /slam/depth" in wsj
+    assert (
+        "--fresh-camera-info-topic /camera/camera/color/camera_info"
+        in wsj
+    )
+    assert "--fresh-camera-info-topic /slam/camera_info" in wsj
+    assert "--geometry-image-topic /slam/depth" not in wsj
     assert "--camera-info-topic /slam/camera_info" in wsj
+    assert "--geometry-width 848" in wsj
+    assert "--geometry-height 480" in wsj
+    assert "--odom-topic /slam/odometry_visual" in wsj
     assert "--max-occupancy-age-s 12" in wsj
     assert (
         '--max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"'
@@ -827,12 +865,15 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert '--local-data-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"' in wsj
     assert '--slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"' in wsj
     continuous_stream_loop = wsj[
-        wsj.index("for topic in \\\n  /camera/camera/color/image_raw")
+        wsj.index("for topic in \\\n  /camera/camera/color/camera_info")
         : wsj.index('bash "$SCRIPT_DIR/start_wsj_command_observation.sh"')
     ]
+    assert "/camera/camera/color/image_raw" not in continuous_stream_loop
+    assert "--fresh-image-topic /slam/depth" not in continuous_stream_loop
+    assert "--geometry-image-topic /slam/depth" not in continuous_stream_loop
     assert "/slam/keyframe_depth" not in continuous_stream_loop
     assert "/slam/keyframe_odom" not in continuous_stream_loop
-    assert "strict map-freshness gate" in wsj
+    assert "lock the processed-depth geometry" in wsj
     assert "fail_closed_on_error" in wsj
     assert "fail_closed_on_error" in yunji
     assert "focus-yunji-water-bridge-live-v1.service" in yunji

@@ -158,11 +158,11 @@ verify_patched_perception
 
 fresh_topic_once() {
   local topic="$1"
-  # The RealSense RGB publisher is 848x480@30 Hz.  The ros2 CLI's default
-  # reliable/deep subscription can overflow while deserializing full images
-  # and then time out even though the publisher is healthy.  Subscribe like a
-  # sensor consumer, keep only the newest sample and deserialize/print only
-  # the small header used as freshness evidence.
+  # Subscribe only to lightweight per-frame messages here. Creating a new
+  # full-resolution Image subscriber on WSJ's long-lived Fast DDS domain was
+  # observed to report every 848x480 sample lost and to starve TinyNav's
+  # existing visual pipeline. CameraInfo and visual odometry carry the exact
+  # same source timestamps without adding another high-bandwidth reader.
   timeout -k 2 15 ros2 topic echo --once \
     --field header \
     --qos-reliability best_effort \
@@ -175,20 +175,14 @@ fresh_topic_once() {
 set +u
 source "$SETUP_FILE"
 set -u
-# The observation sender is read-only and does not own the tracking process.
-# Stop only that high-bandwidth subscriber before creating temporary sensor
-# probes; it is restarted with the requested calibration after the probes pass.
-tmux kill-window -t "$SESSION:hub-sender" >/dev/null 2>&1 || true
-# RGB and processed depth are continuous streams and therefore prove that the
-# calibrated camera/perception epoch is advancing. Keyframe topics are
-# intentionally VOLATILE and event-driven; while the robot is stationary a
-# newly-created subscriber can legitimately see no sample before this short
-# startup deadline. The downstream strict map-freshness gate proves that a
-# synchronized keyframe actually arrived, which is stronger than querying the
-# ROS CLI's eventually-consistent graph cache for a publisher endpoint here.
+# Keep an already-established observation sender alive. Restarting a valid
+# high-bandwidth subscriber needlessly loses its DDS history and can delay the
+# first synchronized keyframe. These lightweight witnesses prove the raw RGB
+# stream, processed stereo/depth block and visual pose are all advancing.
 for topic in \
-  /camera/camera/color/image_raw \
-  /slam/depth; do
+  /camera/camera/color/camera_info \
+  /slam/camera_info \
+  /slam/odometry_visual; do
   fresh_topic_once "$topic" || {
     echo "WSJ calibrated sensor epoch is stale at $topic." >&2
     echo "Refusing to restart camera/perception after calibration because that" \
@@ -216,21 +210,23 @@ elif [[ ${#missing_windows[@]} -ne 0 ]]; then
   exit 1
 fi
 
-# On the deployed WSJ ROS domain, adding either the high-bandwidth Hub sender
-# or the Unitree SDK2 participant can delay discovery for a new temporary
-# Image subscriber. Validate the complete sensor/geometry/map contract before
-# either participant exists. Later phases validate the command graph without
-# creating another image subscription.
+# Validate the complete sensor/geometry/map contract without creating any
+# temporary Image subscription. /slam/camera_info is emitted in the same
+# perception block and with the same stamp as /slam/depth; its dimensions,
+# intrinsics and frame therefore lock the processed-depth geometry while
+# /slam/odometry_visual proves that block's tracking output is current.
 "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   --robot-id robot-0 \
   --mode "$mode" \
   --sensor-map-only \
   --frame-id world \
   --camera-frame camera \
-  --fresh-image-topic /camera/camera/color/image_raw \
-  --fresh-image-topic /slam/depth \
-  --geometry-image-topic /slam/depth \
+  --odom-topic /slam/odometry_visual \
+  --fresh-camera-info-topic /camera/camera/color/camera_info \
+  --fresh-camera-info-topic /slam/camera_info \
   --camera-info-topic /slam/camera_info \
+  --geometry-width 848 \
+  --geometry-height 480 \
   --max-occupancy-age-s 12 \
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
   --timeout-s 35
@@ -399,9 +395,9 @@ until [[ -s "$alignment" ]]; do
   sleep 1
 done
 
-# The sensor/map phase already passed before the Hub sender existed. Validate
-# the complete non-actuating command route now, without creating another
-# temporary image subscription. In live mode the chassis subscriber must
+# The lightweight sensor/map phase already passed independently of the Hub
+# sender. Validate the complete non-actuating command route now, without
+# creating an Image subscription. In live mode the chassis subscriber must
 # still be absent until this check passes; the post-bridge check below then
 # proves only the one endpoint that the bridge adds.
 source "$SETUP_FILE"

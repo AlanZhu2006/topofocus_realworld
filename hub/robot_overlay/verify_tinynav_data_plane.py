@@ -172,8 +172,8 @@ def message_lag_s(message: Any, *, reference_message: Any) -> float:
 
     Odin1 ROS messages use a device/boot-relative clock rather than Unix wall
     time. Comparing those stamps with ``time.time_ns()`` makes every current
-    Yunji map look decades old. The occupancy grid and required fresh image
-    are both derived from the same robot sensor stream, so their source-stamp
+    Yunji map look decades old. The occupancy grid and required fresh sensor
+    witness are both derived from the same robot clock, so their source-stamp
     delta is the clock-domain-safe freshness contract.
     """
     stamp_ns = message_stamp_ns(message)
@@ -186,7 +186,7 @@ def message_lag_s(message: Any, *, reference_message: Any) -> float:
     if age_s < -1.0:
         raise ValueError(
             "occupancy timestamp is "
-            f"{abs(age_s):.3f}s ahead of the fresh image timestamp"
+            f"{abs(age_s):.3f}s ahead of the fresh sensor timestamp"
         )
     return max(0.0, age_s)
 
@@ -228,33 +228,30 @@ def cached_occupancy_start_is_valid(
     return valid, motion_m
 
 
-def validate_geometry_contract(
-    image: Any,
+def validate_camera_info_contract(
     camera_info: Any,
     *,
-    expected_frame: str,
+    expected_frame: str = "",
+    expected_width: int = 0,
+    expected_height: int = 0,
 ) -> dict[str, object]:
-    dimensions = (int(image.width), int(image.height))
-    info_dimensions = (int(camera_info.width), int(camera_info.height))
+    dimensions = (int(camera_info.width), int(camera_info.height))
     if dimensions[0] <= 0 or dimensions[1] <= 0:
-        raise ValueError(f"geometry image dimensions are invalid: {dimensions}")
-    if info_dimensions != dimensions:
         raise ValueError(
-            "geometry image/CameraInfo dimensions differ: "
-            f"image={dimensions[0]}x{dimensions[1]}, "
-            f"camera_info={info_dimensions[0]}x{info_dimensions[1]}"
+            f"CameraInfo dimensions are invalid: {dimensions}"
         )
-    frames = {
-        "image": str(image.header.frame_id),
-        "camera_info": str(camera_info.header.frame_id),
-    }
-    invalid_frames = {
-        name: frame for name, frame in frames.items() if frame != expected_frame
-    }
-    if invalid_frames:
+    expected_dimensions = (expected_width, expected_height)
+    if any(expected_dimensions) and dimensions != expected_dimensions:
+        raise ValueError(
+            "CameraInfo dimensions differ from the locked profile: "
+            f"camera_info={dimensions[0]}x{dimensions[1]}, "
+            f"expected={expected_width}x{expected_height}"
+        )
+    frame_id = str(camera_info.header.frame_id)
+    if expected_frame and frame_id != expected_frame:
         raise ValueError(
             f"geometry frame mismatch; expected {expected_frame!r}, "
-            f"got {invalid_frames}"
+            f"got CameraInfo={frame_id!r}"
         )
     intrinsics = tuple(float(value) for value in camera_info.k)
     if len(intrinsics) != 9 or not all(math.isfinite(value) for value in intrinsics):
@@ -270,7 +267,7 @@ def validate_geometry_contract(
     if not (-0.5 <= cy <= dimensions[1] - 0.5):
         raise ValueError(f"CameraInfo cy is outside the image: {cy}")
     return {
-        "frame_id": expected_frame,
+        "frame_id": frame_id,
         "width": dimensions[0],
         "height": dimensions[1],
         "fx": fx,
@@ -278,6 +275,29 @@ def validate_geometry_contract(
         "cx": cx,
         "cy": cy,
     }
+
+
+def validate_geometry_contract(
+    image: Any,
+    camera_info: Any,
+    *,
+    expected_frame: str,
+) -> dict[str, object]:
+    dimensions = (int(image.width), int(image.height))
+    if dimensions[0] <= 0 or dimensions[1] <= 0:
+        raise ValueError(f"geometry image dimensions are invalid: {dimensions}")
+    image_frame = str(image.header.frame_id)
+    if image_frame != expected_frame:
+        raise ValueError(
+            f"geometry frame mismatch; expected {expected_frame!r}, "
+            f"got image={image_frame!r}"
+        )
+    return validate_camera_info_contract(
+        camera_info,
+        expected_frame=expected_frame,
+        expected_width=dimensions[0],
+        expected_height=dimensions[1],
+    )
 
 
 def validate_water_status(
@@ -399,13 +419,22 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     volatile_qos,
                 )
             )
-        if args.geometry_image_topic:
+        camera_info_keys_by_topic: dict[str, list[str]] = {}
+        for index, topic in enumerate(args.fresh_camera_info_topic):
+            camera_info_keys_by_topic.setdefault(topic, []).append(
+                f"fresh_camera_info_{index}"
+            )
+        if args.camera_info_topic:
+            camera_info_keys_by_topic.setdefault(
+                args.camera_info_topic, []
+            ).append("camera_info")
+        for topic, keys in camera_info_keys_by_topic.items():
             subscriptions.append(
                 node.create_subscription(
                     CameraInfo,
-                    args.camera_info_topic,
-                    lambda message: latest.__setitem__(
-                        "camera_info", message
+                    topic,
+                    lambda message, camera_info_keys=tuple(keys): latest.update(
+                        {key: message for key in camera_info_keys}
                     ),
                     volatile_qos,
                 )
@@ -444,8 +473,21 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     required_messages.update(
         f"image_{index}" for index in range(len(args.fresh_image_topic))
     )
+    required_messages.update(
+        f"fresh_camera_info_{index}"
+        for index in range(len(args.fresh_camera_info_topic))
+    )
     if args.geometry_image_topic:
-        required_messages.update(("geometry_image", "camera_info"))
+        required_messages.add("geometry_image")
+    if args.camera_info_topic:
+        required_messages.add("camera_info")
+    fresh_reference_keys = [
+        *(f"image_{index}" for index in range(len(args.fresh_image_topic))),
+        *(
+            f"fresh_camera_info_{index}"
+            for index in range(len(args.fresh_camera_info_topic))
+        ),
+    ]
     observed_graph: dict[str, dict[str, list[str]]] = {}
     stale_occupancy_age_s: float | None = None
     occupancy_clock_error: str | None = None
@@ -558,16 +600,25 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     latest["camera_info"],
                     expected_frame=args.camera_frame,
                 )
+            elif args.camera_info_topic:
+                # WSJ's long-lived Fast DDS domain can drop every sample for a
+                # newly-created full-resolution Image subscriber. TinyNav
+                # publishes this lightweight CameraInfo from the same visual
+                # processing block as /slam/depth, so it is a lossless
+                # per-frame liveness and locked-geometry witness.
+                validate_camera_info_contract(
+                    latest["camera_info"],
+                    expected_frame=args.camera_frame,
+                    expected_width=args.geometry_width,
+                    expected_height=args.geometry_height,
+                )
             stale_occupancy_age_s = None
             occupancy_clock_error = None
             cached_occupancy_motion_m = None
             using_cached_occupancy = False
             if args.max_occupancy_age_s > 0:
                 fresh_reference = max(
-                    (
-                        latest[f"image_{index}"]
-                        for index in range(len(args.fresh_image_topic))
-                    ),
+                    (latest[key] for key in fresh_reference_keys),
                     key=message_stamp_ns,
                 )
                 try:
@@ -660,10 +711,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         )
         if args.max_occupancy_age_s > 0:
             fresh_reference = max(
-                (
-                    latest[f"image_{index}"]
-                    for index in range(len(args.fresh_image_topic))
-                ),
+                (latest[key] for key in fresh_reference_keys),
                 key=message_stamp_ns,
             )
             occupancy["age_s"] = message_lag_s(
@@ -671,7 +719,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 reference_message=fresh_reference,
             )
             occupancy["maximum_age_s"] = args.max_occupancy_age_s
-            occupancy["age_reference"] = "fresh_image_source_timestamp"
+            occupancy["age_reference"] = "fresh_sensor_source_timestamp"
             occupancy["freshness_policy"] = (
                 "bounded_stationary_cached_map"
                 if using_cached_occupancy
@@ -698,6 +746,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             "occupancy": occupancy,
             "router": validate_router_status(latest["router"]),
             "fresh_image_topics": list(args.fresh_image_topic),
+            "fresh_camera_info_topics": list(
+                args.fresh_camera_info_topic
+            ),
         }
         if not args.sensor_map_only:
             report["command_graph"] = observed_graph
@@ -710,6 +761,16 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 latest["geometry_image"],
                 latest["camera_info"],
                 expected_frame=args.camera_frame,
+            )
+        elif args.camera_info_topic:
+            report["geometry"] = validate_camera_info_contract(
+                latest["camera_info"],
+                expected_frame=args.camera_frame,
+                expected_width=args.geometry_width,
+                expected_height=args.geometry_height,
+            )
+            report["geometry"]["verification_source"] = (
+                "fresh_camera_info_profile"
             )
         return report
     finally:
@@ -772,11 +833,32 @@ def main() -> int:
         help="image topic that must deliver a new volatile sample",
     )
     parser.add_argument(
+        "--fresh-camera-info-topic",
+        action="append",
+        default=[],
+        help=(
+            "lightweight CameraInfo topic that must deliver a new volatile "
+            "sample; its source stamp may be used for map freshness"
+        ),
+    )
+    parser.add_argument(
         "--geometry-image-topic",
         default="",
         help="image whose dimensions/frame must match --camera-info-topic",
     )
     parser.add_argument("--camera-info-topic", default="")
+    parser.add_argument(
+        "--geometry-width",
+        type=int,
+        default=0,
+        help="locked CameraInfo width; zero accepts any positive width",
+    )
+    parser.add_argument(
+        "--geometry-height",
+        type=int,
+        default=0,
+        help="locked CameraInfo height; zero accepts any positive height",
+    )
     parser.add_argument(
         "--max-occupancy-age-s",
         type=float,
@@ -831,8 +913,11 @@ def main() -> int:
     if (args.command_graph_only or args.post_bridge_command_check) and (
         args.platform_status_topic
         or args.fresh_image_topic
+        or args.fresh_camera_info_topic
         or args.geometry_image_topic
         or args.camera_info_topic
+        or args.geometry_width != 0
+        or args.geometry_height != 0
         or args.max_occupancy_age_s > 0
         or args.max_cached_occupancy_motion_m > 0
     ):
@@ -840,15 +925,30 @@ def main() -> int:
             "command-graph-only checks do not accept sensor/map options; "
             "run --sensor-map-only first"
         )
-    if bool(args.geometry_image_topic) != bool(args.camera_info_topic):
+    if args.geometry_image_topic and not args.camera_info_topic:
         parser.error(
-            "--geometry-image-topic and --camera-info-topic must be used together"
+            "--geometry-image-topic requires --camera-info-topic"
+        )
+    if bool(args.geometry_width) != bool(args.geometry_height):
+        parser.error(
+            "--geometry-width and --geometry-height must be used together"
+        )
+    if args.geometry_width < 0 or args.geometry_height < 0:
+        parser.error("locked geometry dimensions must not be negative")
+    if (
+        (args.geometry_width or args.geometry_height)
+        and not args.camera_info_topic
+    ):
+        parser.error(
+            "locked geometry dimensions require --camera-info-topic"
         )
     if args.max_occupancy_age_s < 0:
         parser.error("--max-occupancy-age-s must not be negative")
-    if args.max_occupancy_age_s > 0 and not args.fresh_image_topic:
+    if args.max_occupancy_age_s > 0 and not (
+        args.fresh_image_topic or args.fresh_camera_info_topic
+    ):
         parser.error(
-            "--max-occupancy-age-s requires at least one --fresh-image-topic"
+            "--max-occupancy-age-s requires a fresh Image or CameraInfo topic"
         )
     if not 0.0 <= args.max_cached_occupancy_motion_m <= 2.0:
         parser.error(
