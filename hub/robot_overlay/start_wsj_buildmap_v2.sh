@@ -116,6 +116,7 @@ for required in \
   "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   "$SCRIPT_DIR/start_go2_buildmap.sh" \
   "$SCRIPT_DIR/start_tinynav_buildmap_online_nav.sh" \
+  "$SCRIPT_DIR/wsj_perception_entry.py" \
   "$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py" \
   "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   "$SCRIPT_DIR/v2_wsj_receiver.py" \
@@ -147,16 +148,16 @@ verify_patched_perception() {
   }
   pane_start="$(tmux display-message -p -t "$SESSION:perception" '#{pane_start_command}' 2>/dev/null || true)"
   [[ "$pane_start" == *"$PATCHED_ROOT"* \
-     && "$pane_start" == *"tinynav/core/perception_node.py"* ]] || {
-    echo "Refusing stale perception window; it is not the live-tested patched entry point." >&2
+     && "$pane_start" == *"$SCRIPT_DIR/wsj_perception_entry.py"* ]] || {
+    echo "Refusing stale perception window; it is not the bounded deployment entry point." >&2
     return 1
   }
   perception_pid="$(
-    pgrep -f "$PYTHON_BIN -u tinynav/core/perception_node.py" 2>/dev/null \
+    pgrep -f "$PYTHON_BIN -u $SCRIPT_DIR/wsj_perception_entry.py" 2>/dev/null \
       | head -n 1
   )"
   [[ -n "$perception_pid" ]] || {
-    echo "Patched TinyNav perception process is not running." >&2
+    echo "Bounded TinyNav perception process is not running." >&2
     return 1
   }
   perception_cwd="$(readlink -f "/proc/$perception_pid/cwd" 2>/dev/null || true)"

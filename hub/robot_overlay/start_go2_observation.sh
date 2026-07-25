@@ -50,6 +50,7 @@ fi
 
 [[ -f "$SETUP_FILE" ]] || { echo "Missing setup file: $SETUP_FILE" >&2; exit 1; }
 [[ -f "$PATCHED_ROOT/tinynav/core/perception_node.py" ]] || { echo "Missing patched perception tree: $PATCHED_ROOT" >&2; exit 1; }
+[[ -f "$SCRIPT_DIR/wsj_perception_entry.py" ]] || { echo "Missing bounded WSJ perception entry: $SCRIPT_DIR/wsj_perception_entry.py" >&2; exit 1; }
 [[ -x "$PYTHON_BIN" ]] || { echo "Missing TinyNav Python: $PYTHON_BIN" >&2; exit 1; }
 tmux has-session -t "$session" 2>/dev/null && {
   echo "Refusing to replace existing tmux session: $session" >&2
@@ -113,7 +114,7 @@ if [[ "$camera_seen" -ne 1 || "$power_bad" -ne 0 ]]; then
   exit 1
 fi
 
-perception_command="source '$SETUP_FILE'; export PYTHONPATH='$PATCHED_ROOT':\${PYTHONPATH:-}; cd '$PATCHED_ROOT'; set -o pipefail; '$PYTHON_BIN' -u tinynav/core/perception_node.py 2>&1 | tee '$perception_log'"
+perception_command="source '$SETUP_FILE'; export PYTHONPATH='$PATCHED_ROOT':\${PYTHONPATH:-}; cd '$PATCHED_ROOT'; set -o pipefail; '$PYTHON_BIN' -u '$SCRIPT_DIR/wsj_perception_entry.py' 2>&1 | tee '$perception_log'"
 tmux new-window -d -t "$session" -n perception "bash -lc \"$perception_command\""
 
 deadline=$((SECONDS + 60))

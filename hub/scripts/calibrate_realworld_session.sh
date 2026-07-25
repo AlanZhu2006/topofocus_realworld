@@ -455,11 +455,20 @@ capture_pair() {
 
 deploy_calibration() {
   local target="$1" remote_path="$2" encoded expected remote_dir
+  local suffix remote_encoded chunk
   expected="$(sha256sum "$calibration_file" | awk '{print $1}')"
   encoded="$(base64 -w0 "$calibration_file")"
   remote_dir="${remote_path%/*}"
+  suffix="$(date +%s%N)_${RANDOM}"
+  remote_encoded="${remote_path}.focus-${suffix}.b64"
   remote_run "$target" \
-    "install -d -m 700 '$remote_dir'; printf '%s' '$encoded' | base64 -d > '${remote_path}.tmp'; chmod 600 '${remote_path}.tmp'; test \"\$(sha256sum '${remote_path}.tmp' | awk '{print \$1}')\" = '$expected'; mv '${remote_path}.tmp' '$remote_path'"
+    "set -e; install -d -m 700 '$remote_dir'; umask 077; : > '$remote_encoded'"
+  while IFS= read -r chunk || [[ -n "$chunk" ]]; do
+    remote_queue "$target" \
+      "printf '%s' '$chunk' >> '$remote_encoded'"
+  done < <(printf '%s' "$encoded" | fold -w 1000)
+  remote_run "$target" \
+    "set -e; base64 -d '$remote_encoded' > '${remote_path}.tmp'; test \"\$(sha256sum '${remote_path}.tmp' | awk '{print \$1}')\" = '$expected'; python3 -m json.tool '${remote_path}.tmp' >/dev/null; chmod 600 '${remote_path}.tmp'; mv '${remote_path}.tmp' '$remote_path'; unlink '$remote_encoded'; test \"\$(sha256sum '$remote_path' | awk '{print \$1}')\" = '$expected'"
 }
 
 calibration_cleanup_required="false"
