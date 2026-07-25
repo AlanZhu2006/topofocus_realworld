@@ -1703,21 +1703,37 @@ def main() -> int:
                     and router_reason == "NO_KNOWN_FREE_PATH"
                 )
                 if frontier_waiting_for_replan:
-                    # A transiently empty/self-occupied online component is a
-                    # valid real-world equivalent of colliding with a chosen
-                    # exploration action.  Close physical authority but keep
-                    # producing non-NAVIGATING feedback until the immutable
-                    # source's bounded step window requests a new frontier.
-                    # Semantic-region legs are never allowed through this path.
-                    if node.authorized:
-                        node.revoke(pause=False)
-                        emit(
-                            "frontier_no_path_waiting_source_replan",
-                            state=router_state,
-                            reason=router_reason,
-                            decision_id=held_decision.decision_id,
-                            leg_id=held_decision.leg_id,
-                        )
+                    # A frontier without a route must not generate synthetic
+                    # ACCEPTED ticks while the physical gate is closed. Reject
+                    # it explicitly so the Hub can isolate this recoverable
+                    # frontier failure and freeze a fresh source round.
+                    node.revoke()
+                    post(
+                        held_decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_GOAL_UNREACHABLE",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=(
+                            "online router found no known-free path from the "
+                            "measured robot base"
+                        ),
+                        terminal=True,
+                    )
+                    emit(
+                        "frontier_no_path_rejected",
+                        state=router_state,
+                        reason=router_reason,
+                        decision_id=held_decision.decision_id,
+                        leg_id=held_decision.leg_id,
+                    )
+                    active_decision = None
+                    active_goal = None
+                    progress_watchdog.reset()
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
                 elif recoverable_router_hold(
                     router_reason,
                     receiver_runtime_ready=ready,

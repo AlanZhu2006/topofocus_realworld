@@ -303,6 +303,25 @@ class OccupancyGrid2D:
             self.origin_y_m + (row + 0.5) * self.resolution_m,
         )
 
+    def _cell_min_distance_sq(
+        self,
+        row: int,
+        column: int,
+        x_m: float,
+        y_m: float,
+    ) -> float:
+        """Return the squared distance from a point to a grid-cell footprint."""
+
+        if not (0 <= row < self.height and 0 <= column < self.width):
+            raise ValueError("occupancy cell is outside the grid")
+        minimum_x = self.origin_x_m + column * self.resolution_m
+        maximum_x = minimum_x + self.resolution_m
+        minimum_y = self.origin_y_m + row * self.resolution_m
+        maximum_y = minimum_y + self.resolution_m
+        delta_x = max(minimum_x - x_m, 0.0, x_m - maximum_x)
+        delta_y = max(minimum_y - y_m, 0.0, y_m - maximum_y)
+        return delta_x * delta_x + delta_y * delta_y
+
     def nearest_clearance_seed_path(
         self,
         start_x_m: float,
@@ -321,11 +340,12 @@ class OccupancyGrid2D:
         bounded distance.
 
         ``start_footprint_override_m`` additionally permits the search to
-        leave a non-free start through a tightly bounded disk centered on the
-        measured base.  This mirrors the source agent's current-pose
-        traversible override without changing the occupancy grid: the returned
-        seed must still be genuinely known-free with the requested clearance,
-        and no occupied/unknown cell outside the measured footprint is crossed.
+        leave a non-free start through cells intersecting a tightly bounded
+        disk centered on the measured base. This mirrors the source agent's
+        current-pose traversible override without changing the occupancy grid:
+        the returned seed must still be genuinely known-free with the requested
+        clearance, and no occupied/unknown cell wholly outside the measured
+        footprint is crossed.
 
         Returning the complete escape path is important: a caller must not
         silently start its route at a seed up to a metre away and command a
@@ -361,17 +381,22 @@ class OccupancyGrid2D:
                 min(max(raw_column, 0), self.width - 1),
             )
             boundary_x, boundary_y = self.cell_center(*start)
-            boundary_distance_sq = (
+            boundary_center_distance_sq = (
                 (boundary_x - start_x_m) ** 2
                 + (boundary_y - start_y_m) ** 2
             )
+            boundary_footprint_distance_sq = self._cell_min_distance_sq(
+                *start,
+                start_x_m,
+                start_y_m,
+            )
             if (
                 start_footprint_override_m <= 0
-                or boundary_distance_sq
+                or boundary_footprint_distance_sq
                 > start_footprint_override_m
                 * start_footprint_override_m
                 + 1e-12
-                or boundary_distance_sq
+                or boundary_center_distance_sq
                 > max_distance_m * max_distance_m + 1e-12
             ):
                 return None
@@ -432,7 +457,12 @@ class OccupancyGrid2D:
                 if check_distance_sq > max_distance_sq + 1e-12:
                     continue
                 inside_measured_footprint = (
-                    check_distance_sq
+                    self._cell_min_distance_sq(
+                        check_row,
+                        check_column,
+                        start_x_m,
+                        start_y_m,
+                    )
                     <= footprint_distance_sq + 1e-12
                 )
                 if check_value != 0 and not inside_measured_footprint:

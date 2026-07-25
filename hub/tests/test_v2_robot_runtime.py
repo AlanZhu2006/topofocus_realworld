@@ -166,17 +166,40 @@ def test_occupancy_can_enter_a_cropped_grid_only_through_measured_footprint():
         3.5,
         clearance_cells=1,
         start_snap_radius_m=2.0,
-        start_footprint_override_m=0.6,
+        start_footprint_override_m=0.19,
     )
     component = grid.reachable_component(
         -0.2,
         3.5,
         clearance_cells=1,
         start_snap_radius_m=2.0,
-        start_footprint_override_m=0.8,
+        start_footprint_override_m=0.21,
     )
 
     assert grid.point_in_component(1.5, 3.5, component)
+
+
+def test_occupancy_cropped_boundary_uses_cell_footprint_not_cell_center():
+    grid = OccupancyGrid2D(
+        7,
+        7,
+        0.05,
+        -0.175,
+        -0.05,
+        tuple([0] * 49),
+    )
+
+    assert grid.cell(0.0, -0.376) is None
+    component = grid.reachable_component(
+        0.0,
+        -0.376,
+        clearance_cells=1,
+        start_snap_radius_m=0.75,
+        start_footprint_override_m=0.35,
+    )
+
+    assert component
+    assert grid.point_in_component(0.0, 0.025, component)
 
 
 def test_occupancy_can_escape_only_the_measured_blocked_start_footprint():
