@@ -28,7 +28,7 @@ MAP_TIMEOUT_S="${FOCUS_WSJ_MAP_TIMEOUT_S:-12.0}"
 # about 4 Hz but can have a 1.256 s inter-message gap.  Keep the router
 # fail-closed while allowing that measured transient rather than rejecting the
 # first supervised goal at the old 1.0 s default.
-ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
+ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
 # The WSJ forward-looking grid was observed to begin 0.318 m ahead of the
 # measured base after reboot.  Bridge only that bounded camera/base footprint;
 # the selected seed must still be known-free with the requested clearance.

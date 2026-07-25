@@ -272,7 +272,7 @@ def test_wsj_launcher_bridges_one_source_keyframe_plus_one_grid_cell():
     assert '--max-cached-map-motion-m \\"$MAX_CACHED_MAP_MOTION_M\\"' in source
     assert 'FOCUS_WSJ_MAP_TIMEOUT_S:-12.0' in source
     assert '--map-timeout-s \\"$MAP_TIMEOUT_S\\"' in source
-    assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-2.0' in source
+    assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0' in source
     assert '--input-timeout-s \\"$ODOMETRY_INPUT_TIMEOUT_S\\"' in source
     assert 'FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75' in source
     assert 'FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35' in source

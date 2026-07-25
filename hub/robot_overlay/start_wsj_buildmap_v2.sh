@@ -20,13 +20,17 @@ PATCHED_PERCEPTION_SHA256="${TINYNAV_PERCEPTION_PATCHED_SHA256:-3a695d5210d60ea1
 # goal router must be reloaded so it cannot retain pre-deployment Python code.
 MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
 MAP_TIMEOUT_S="${FOCUS_WSJ_MAP_TIMEOUT_S:-12.0}"
-ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
+# The 2026-07-25 physical run observed one 2.227 s BuildMap odometry gap
+# while SLAM diagnostics, occupancy, the local trajectory, and the Go2 bridge
+# stayed healthy.  TinyNav's controller independently zeros velocity after
+# 0.8 s without pose and the v2 receiver additionally closes its guarded
+# output after 1.0 s without a fresh trajectory, so this three-second
+# high-level liveness window cannot make the robot drive on stale localization.
+ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_WSJ_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry
-# input.  Its observed interval can exceed 2 s under live perception load, so
-# keep odometry fail-closed at 2 s while giving only this diagnostic one
-# additional second.
+# input.  Its observed interval can also exceed 2 s under live perception load.
 SLAM_DATA_TIMEOUT_S="${FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0}"
 START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
