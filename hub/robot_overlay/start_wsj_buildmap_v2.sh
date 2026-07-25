@@ -34,6 +34,13 @@ ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
 # the guarded trajectory output closes after 1.0 s and TinyNav/controller
 # watchdogs retain final authority.
 RECEIVER_LOCAL_DATA_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0}"
+# The guarded velocity output is zeroed after one second without a fresh path.
+# A 2026-07-25 physical semantic leg observed a 1.016 s planner publication
+# gap while its router still reported ONLINE_PATH_READY.  Keep the zero-output
+# gate at one second, but allow three seconds for the planner to republish
+# before terminally rejecting the semantic leg.
+TRAJECTORY_STALE_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_STALE_TIMEOUT_S:-1.0}"
+TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-3.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_WSJ_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry
@@ -369,6 +376,8 @@ receiver=(
   --occupancy-topic /semantic_mapping/occupancy_bev
   --local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"
   --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"
+  --trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"
+  --trajectory-recovery-timeout-s "$TRAJECTORY_RECOVERY_TIMEOUT_S"
   --semantic-arrival-radius-m "$SEMANTIC_ARRIVAL_RADIUS_M"
   --no-progress-timeout-s "$NO_PROGRESS_TIMEOUT_S"
   --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"

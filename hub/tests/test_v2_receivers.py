@@ -480,6 +480,59 @@ def test_wsj_tracking_freshness_keeps_odom_deadline_stricter_than_slam():
     )[0] is False
 
 
+def test_wsj_trajectory_gate_stops_before_terminal_recovery_deadline():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    kwargs = {
+        "authority_started_ns": 1_000_000_000,
+        "trajectory_received_ns": 1_100_000_000,
+        "stale_timeout_s": 1.0,
+        "start_grace_s": 1.5,
+        "recovery_timeout_s": 3.0,
+    }
+
+    fresh, failed, age_s, observed = wsj.trajectory_gate_state(
+        now_ns=2_116_000_000,
+        **kwargs,
+    )
+    assert fresh is False
+    assert failed is False
+    assert age_s == pytest.approx(1.016)
+    assert observed is True
+
+    fresh, failed, age_s, observed = wsj.trajectory_gate_state(
+        now_ns=4_101_000_000,
+        **kwargs,
+    )
+    assert fresh is False
+    assert failed is True
+    assert age_s == pytest.approx(3.001)
+    assert observed is True
+
+
+def test_wsj_trajectory_gate_keeps_never_started_path_grace_bounded():
+    wsj = load_overlay("v2_wsj_receiver.py")
+
+    state = wsj.trajectory_gate_state(
+        now_ns=2_400_000_000,
+        authority_started_ns=1_000_000_000,
+        trajectory_received_ns=900_000_000,
+        stale_timeout_s=1.0,
+        start_grace_s=1.5,
+        recovery_timeout_s=3.0,
+    )
+    assert state == (False, False, pytest.approx(1.4), False)
+
+    state = wsj.trajectory_gate_state(
+        now_ns=2_501_000_000,
+        authority_started_ns=1_000_000_000,
+        trajectory_received_ns=900_000_000,
+        stale_timeout_s=1.0,
+        start_grace_s=1.5,
+        recovery_timeout_s=3.0,
+    )
+    assert state == (False, True, pytest.approx(1.501), False)
+
+
 def test_wsj_recovers_only_transient_router_input_lag_with_ready_gate():
     wsj = load_overlay("v2_wsj_receiver.py")
 
@@ -864,8 +917,19 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert '--map-timeout-s \\"$MAP_TIMEOUT_S\\"' in wsj
     assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0' in wsj
     assert 'FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0' in wsj
+    assert 'FOCUS_WSJ_TRAJECTORY_STALE_TIMEOUT_S:-1.0' in wsj
+    assert 'FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-3.0' in wsj
     assert (
         '--local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"'
+        in wsj
+    )
+    assert (
+        '--trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"'
+        in wsj
+    )
+    assert (
+        '--trajectory-recovery-timeout-s '
+        '"$TRAJECTORY_RECOVERY_TIMEOUT_S"'
         in wsj
     )
     assert '--slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"' in wsj

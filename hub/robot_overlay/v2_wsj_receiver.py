@@ -351,6 +351,52 @@ def local_tracking_freshness(
     )
 
 
+def trajectory_gate_state(
+    *,
+    now_ns: int,
+    authority_started_ns: int,
+    trajectory_received_ns: int,
+    stale_timeout_s: float,
+    start_grace_s: float,
+    recovery_timeout_s: float,
+) -> tuple[bool, bool, float, bool]:
+    """Separate immediate velocity gating from terminal planner failure.
+
+    A trajectory older than ``stale_timeout_s`` must close the physical
+    velocity gate.  A previously observed trajectory may nevertheless recover
+    until ``recovery_timeout_s``; only then is the semantic leg terminally
+    rejected.  A leg that never produced a path uses the independent,
+    shorter ``start_grace_s`` deadline.
+    """
+
+    if min(stale_timeout_s, start_grace_s, recovery_timeout_s) <= 0.0:
+        raise ValueError("trajectory timeouts must be positive")
+    if recovery_timeout_s <= stale_timeout_s:
+        raise ValueError(
+            "trajectory recovery timeout must exceed stale timeout"
+        )
+    if authority_started_ns <= 0 or now_ns < authority_started_ns:
+        return False, False, math.inf, False
+    observed_for_authority = (
+        trajectory_received_ns >= authority_started_ns
+    )
+    reference_ns = (
+        trajectory_received_ns
+        if observed_for_authority
+        else authority_started_ns
+    )
+    age_s = max(0.0, (now_ns - reference_ns) / 1e9)
+    gate_fresh = (
+        observed_for_authority and age_s <= stale_timeout_s
+    )
+    terminal_failure = age_s > (
+        recovery_timeout_s
+        if observed_for_authority
+        else start_grace_s
+    )
+    return gate_fresh, terminal_failure, age_s, observed_for_authority
+
+
 class SlamHealthDebouncer:
     """Tolerate one diagnostic interval blip, never a persistent/hard fault."""
 
@@ -618,6 +664,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--trajectory-recovery-timeout-s",
+        type=float,
+        default=3.0,
+        help=(
+            "terminal semantic-leg deadline after a previously observed "
+            "trajectory becomes stale; the physical gate remains governed "
+            "by --trajectory-stale-timeout-s"
+        ),
+    )
+    parser.add_argument(
         "--slam-data-timeout-s",
         type=float,
         default=2.0,
@@ -699,6 +755,7 @@ def main() -> int:
         args.minimum_goal_progress_m,
         args.trajectory_start_grace_s,
         args.trajectory_stale_timeout_s,
+        args.trajectory_recovery_timeout_s,
         args.slam_transient_grace_s,
         args.max_goal_distance_m,
         args.semantic_arrival_radius_m,
@@ -706,6 +763,14 @@ def main() -> int:
         args.max_alignment_yaw_deg,
     ) <= 0:
         parser.error("timeouts, limits and poll interval must be positive")
+    if (
+        args.trajectory_recovery_timeout_s
+        <= args.trajectory_stale_timeout_s
+    ):
+        parser.error(
+            "--trajectory-recovery-timeout-s must exceed "
+            "--trajectory-stale-timeout-s"
+        )
     if (
         args.slam_max_transient_failures < 0
         or args.reachability_clearance_m < 0
@@ -1038,10 +1103,13 @@ def main() -> int:
                 float(message.linear.x),
                 float(message.angular.z),
             )
-            path_fresh = bool(
-                self.trajectory_received_ns >= self.authority_started_ns
-                and now_ns - self.trajectory_received_ns
-                <= int(args.trajectory_stale_timeout_s * 1e9)
+            path_fresh, _, _, _ = trajectory_gate_state(
+                now_ns=now_ns,
+                authority_started_ns=self.authority_started_ns,
+                trajectory_received_ns=self.trajectory_received_ns,
+                stale_timeout_s=args.trajectory_stale_timeout_s,
+                start_grace_s=args.trajectory_start_grace_s,
+                recovery_timeout_s=args.trajectory_recovery_timeout_s,
             )
             if (
                 live
@@ -1062,10 +1130,23 @@ def main() -> int:
         def enforce_gate(self) -> None:
             if not live:
                 return
-            if self.authorized and time.time_ns() >= self.authority_deadline_ns:
+            now_ns = time.time_ns()
+            if self.authorized and now_ns >= self.authority_deadline_ns:
                 self.authorized = False
-            if not self.authorized:
+            path_fresh, _, _, _ = trajectory_gate_state(
+                now_ns=now_ns,
+                authority_started_ns=self.authority_started_ns,
+                trajectory_received_ns=self.trajectory_received_ns,
+                stale_timeout_s=args.trajectory_stale_timeout_s,
+                start_grace_s=args.trajectory_start_grace_s,
+                recovery_timeout_s=args.trajectory_recovery_timeout_s,
+            )
+            if not self.authorized or not path_fresh:
                 self.guarded_publisher.publish(Twist())
+                if self.authorized:
+                    self.latest_guard_reason = (
+                        "trajectory_missing_or_stale"
+                    )
 
         def authorize(self, expires_at_ns: int) -> None:
             if live:
@@ -1943,6 +2024,19 @@ def main() -> int:
                     router_recovery_reason = ""
 
             if active_decision is not None:
+                (
+                    trajectory_fresh,
+                    trajectory_failed,
+                    trajectory_age_s,
+                    trajectory_observed_for_authority,
+                ) = trajectory_gate_state(
+                    now_ns=now_ns,
+                    authority_started_ns=node.authority_started_ns,
+                    trajectory_received_ns=node.trajectory_received_ns,
+                    stale_timeout_s=args.trajectory_stale_timeout_s,
+                    start_grace_s=args.trajectory_start_grace_s,
+                    recovery_timeout_s=args.trajectory_recovery_timeout_s,
+                )
                 if time.time_ns() >= active_decision.expires_at_ns:
                     node.revoke()
                     post(
@@ -1989,28 +2083,13 @@ def main() -> int:
                     and
                     node.authorized
                     and node.authority_started_ns > 0
-                    and (
-                        (
-                            node.trajectory_received_ns
-                            < node.authority_started_ns
-                            and now_ns - node.authority_started_ns
-                            > int(args.trajectory_start_grace_s * 1e9)
-                        )
-                        or (
-                            node.trajectory_received_ns
-                            >= node.authority_started_ns
-                            and now_ns - node.trajectory_received_ns
-                            > int(args.trajectory_stale_timeout_s * 1e9)
-                        )
-                    )
+                    and trajectory_failed
                 ):
                     failed_decision = active_decision
-                    path_age_s = (
-                        None
-                        if node.trajectory_received_ns <= 0
-                        else (
-                            now_ns - node.trajectory_received_ns
-                        ) / 1e9
+                    failure_timeout_s = (
+                        args.trajectory_recovery_timeout_s
+                        if trajectory_observed_for_authority
+                        else args.trajectory_start_grace_s
                     )
                     node.revoke()
                     post(
@@ -2023,7 +2102,8 @@ def main() -> int:
                         detail=(
                             "TinyNav produced no fresh non-empty collision-free "
                             "trajectory; "
-                            f"path_age_s={path_age_s}; "
+                            f"path_age_s={trajectory_age_s:.3f}; "
+                            f"failure_timeout_s={failure_timeout_s:.3f}; "
                             f"router={node.router_state}/{node.router_reason}"
                         ),
                         terminal=True,
@@ -2032,7 +2112,11 @@ def main() -> int:
                         "local_planner_path_stale",
                         decision_id=failed_decision.decision_id,
                         leg_id=failed_decision.leg_id,
-                        path_age_s=path_age_s,
+                        path_age_s=trajectory_age_s,
+                        failure_timeout_s=failure_timeout_s,
+                        trajectory_observed_for_authority=(
+                            trajectory_observed_for_authority
+                        ),
                         router_state=node.router_state,
                         router_reason=node.router_reason,
                         router_waypoint=node.router_waypoint,
@@ -2134,10 +2218,7 @@ def main() -> int:
                     ):
                         planner_active = bool(
                             node.authorized
-                            and node.trajectory_received_ns
-                            >= node.authority_started_ns
-                            and time.time_ns() - node.trajectory_received_ns
-                            <= int(args.trajectory_stale_timeout_s * 1e9)
+                            and trajectory_fresh
                         )
                         emit(
                             "control_telemetry",
