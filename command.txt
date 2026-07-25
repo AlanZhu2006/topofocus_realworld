@@ -80,8 +80,10 @@ bash hub/scripts/realworld_oneclick.sh \
 # 必须先看到同一 Git/current session 的 DEBUG_FULLSTACK_READY。
 # 两台机器人必须已经上电、站立、周围无障碍，并且操作者在旁边。
 # Ctrl-C 会触发底层 fail-closed cleanup。
-# 发布前会保留原始双机 VLM candidate，并运行 0.9 m 路线冲突门控：
-# 冲突时一台 GOAL、另一台 HOLD；共享位姿都不可用时两台 HOLD。
+# 发布前会保留原始双机 VLM candidate，先检查各前沿到达盘内是否存在
+# 满足机体净空的已知自由落脚点，再运行 0.9 m 路线冲突门控：
+# 不安全前沿只 HOLD 对应机器人；路线冲突时一台 GOAL、另一台 HOLD；
+# 共享位姿都不可用时两台 HOLD。
 #
 # 每次实验必须使用新的 episode ID。下面是 scene01 的第一次：
 # 默认自动走快速复用。看到 FAST_LIVE_REUSE_READY 表示没有重复冷启动；

@@ -21,6 +21,7 @@ map aesthetics, detector tuning and large-scale evaluation.
 ```text
 GLM/VLM + source-derived allocation (Hub)
   -> atomic pair of expiring shared_world high-level targets
+  -> frozen-map frontier footprint-clearance guard
   -> real-world shared-route conflict guard (GOAL/HOLD authority only)
      -> robot-0 receiver -> TinyNav POI -> TinyNav planner/controller
         -> raw /cmd_vel -> local lease gate -> guarded /cmd_vel -> Go2 bridge
@@ -36,6 +37,10 @@ unmodified source-derived VLM candidate as evidence. Renewal extends a robot's
 local permission without resending its target. One arrival changes that robot
 to HOLD while the other robot keeps its existing leg. Expiry or loss closes
 only that robot's local output; an explicit scene-level HOLD closes both.
+An active frontier also needs a footprint-clear known-free approach cell
+inside its source arrival disk. A robot-local reverse/no-progress rejection
+holds only that frontier leg and allows a fresh source replan; semantic and
+system-health failures still fail closed at episode scope.
 
 ## What is implemented versus still physical
 
@@ -55,7 +60,9 @@ Implemented and locally tested:
   flag and exact operator-presence phrase;
 - a pre-publication route-conflict guard that serializes intersecting or
   insufficiently separated shared-frame target segments and fails closed when
-  shared poses are unavailable.
+  shared poses are unavailable;
+- a frozen-map frontier approach-clearance guard plus an explicit
+  forward-only reverse-path rejection signal on Yunji.
 
 Completed on physical session `20260725-lab05-yunjireboot4`:
 

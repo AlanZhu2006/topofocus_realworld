@@ -200,7 +200,14 @@ the bounded source-derived episode loop. It freezes an exact synchronized
 map/source pair, advances the persistent `0,24,49,...,499` VLM state, rechecks
 both runtime-readiness records and publishes one atomic pair of 8-second
 expiring v2 high-level targets. Leases renew only while feedback is fresh.
-Before publication, the real-world route guard reads the two frozen
+Before publication, a frontier-clearance guard checks the frozen fused map.
+For every active `FRONTIER_POINT`, at least one known-free cell with the
+robot-specific footprint clearance must exist inside the source's unchanged
+10-cell (`0.50 m`) arrival disk. A failed check holds only that robot and is
+recorded in `frontier_clearance_guard.json`; the unmodified VLM output remains
+in `vlm_candidate_batch.json`.
+
+The subsequent real-world route guard reads the two frozen
 `shared_world` base poses and compares the straight start-to-target segments.
 If their predicted separation is below 0.9 m, or either shared pose is
 unavailable, it reduces physical authority to one deterministic active robot
@@ -210,11 +217,23 @@ preserved as `initial_batch.json` and `route_conflict_guard.json`. This is a
 conservative execution adapter, not a change to source VLM selection and not
 a certification of robot-local obstacle detours.
 
+Yunji's deployment controller also reports when TinyNav's robot-relative
+lookahead requires reverse motion. Because the deployed controller is
+forward-only, the receiver immediately zeros output and rejects that frontier
+leg as `LOCAL_PATH_REVERSE_REQUIRED` instead of rotating toward a backward
+wall-adjacent segment. Explicit frontier path/progress rejections are
+robot-local: that robot transitions to HOLD while a healthy peer retains its
+existing leg. Transform, localization, e-stop, semantic and protocol failures
+remain episode-wide fail-closed conditions.
+
 This guard was added after the 2026-07-25 physical run assigned distinct
 frontiers whose shared-frame routes nevertheless intersected. The observed
 collision, exact pre-fix batch, video/runtime hashes and `0.0 m` geometry
 replay are recorded in
 [`../../audit/DUAL_ROBOT_COLLISION_20260725.md`](../../audit/DUAL_ROBOT_COLLISION_20260725.md).
+The later wall-adjacent frontier evidence and exact clearance replay are
+recorded in
+[`../../audit/YUNJI_WALL_TURN_REJECTION_20260725.md`](../../audit/YUNJI_WALL_TURN_REJECTION_20260725.md).
 
 At each source round boundary both robots must first acknowledge local
 `HOLDING` with zero velocity; only then can the next synchronized input pair be

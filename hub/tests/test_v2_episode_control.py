@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from focus_hub.v2_episode_control import next_coordination_batch
+from focus_hub.v2_episode_control import (
+    next_coordination_batch,
+    recoverable_frontier_failure,
+)
 
 from test_v2_registry import make_batch, ready_registries
 
@@ -42,3 +45,36 @@ def test_empty_active_set_produces_two_holds(observation_factory):
     )
     assert [decision.mode.value for decision in terminal.decisions] == ["HOLD", "HOLD"]
     assert tuple(terminal.decisions[0].coordination.active_robot_ids) == ()
+
+
+def test_only_explicit_frontier_path_failure_is_recoverable(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    batch = make_batch(observations, digests, now=now)
+    frontier = batch.decisions[1]
+
+    assert recoverable_frontier_failure(
+        frontier,
+        {
+            "status": "REJECTED",
+            "reason_code": "LOCAL_PATH_REVERSE_REQUIRED",
+        },
+    )
+    assert recoverable_frontier_failure(
+        frontier,
+        {
+            "status": "REJECTED",
+            "reason_code": "LOCAL_PLANNER_NO_PROGRESS",
+        },
+    )
+    assert not recoverable_frontier_failure(
+        frontier,
+        {"status": "LOCAL_ESTOP", "reason_code": "LOCAL_ESTOP"},
+    )
+    assert not recoverable_frontier_failure(
+        frontier,
+        {"status": "REJECTED", "reason_code": "TRANSFORM_MISMATCH"},
+    )

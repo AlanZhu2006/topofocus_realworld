@@ -621,6 +621,22 @@ def main() -> int:
     parser.add_argument("--pause-topic", default="/nav/paused")
     parser.add_argument("--raw-cmd-topic", default="/cmd_vel")
     parser.add_argument("--guarded-cmd-topic", default="/focus_guarded_cmd_vel")
+    parser.add_argument(
+        "--reverse-required-topic",
+        default="/planning/reverse_required",
+        help=(
+            "local controller status topic declaring that its lookahead "
+            "segment requires reverse motion"
+        ),
+    )
+    parser.add_argument(
+        "--reject-reverse-trajectory",
+        action="store_true",
+        help=(
+            "latch a fresh reverse-required status for the current authority, "
+            "zero output, and reject that leg for a fresh Hub replan"
+        ),
+    )
     parser.add_argument("--poll-s", type=float, default=0.5)
     parser.add_argument("--local-data-timeout-s", type=float, default=2.0)
     parser.add_argument(
@@ -891,6 +907,9 @@ def main() -> int:
             self.trajectory_pose_count = 0
             self.trajectory_first_xy: tuple[float, float] | None = None
             self.trajectory_lookahead_xy: tuple[float, float] | None = None
+            self.reverse_required = False
+            self.reverse_required_received_ns = 0
+            self.reverse_required_for_authority = False
             self.router_status_lock = threading.Lock()
             self.router_status_received_ns = 0
             self.router_state = ""
@@ -944,6 +963,13 @@ def main() -> int:
             self.create_subscription(
                 RosPath, "/planning/trajectory_path", self.on_trajectory, 10
             )
+            if args.reject_reverse_trajectory:
+                self.create_subscription(
+                    Bool,
+                    args.reverse_required_topic,
+                    self.on_reverse_required,
+                    10,
+                )
             self.create_timer(0.05, self.enforce_gate)
             if live:
                 paused = Bool()
@@ -1023,6 +1049,24 @@ def main() -> int:
                 float(lookahead.x),
                 float(lookahead.y),
             )
+
+        def on_reverse_required(self, message: Bool) -> None:
+            received_ns = time.time_ns()
+            self.reverse_required = bool(message.data)
+            self.reverse_required_received_ns = received_ns
+            if (
+                self.reverse_required
+                and self.authorized
+                and self.authority_started_ns > 0
+                and received_ns >= self.authority_started_ns
+            ):
+                # Latch for this authority even if a later planner update
+                # returns to a forward path before the 2 Hz protocol loop
+                # observes it.  A new authority explicitly clears the latch.
+                self.reverse_required_for_authority = True
+                if live:
+                    self.guarded_publisher.publish(Twist())
+                    self.latest_guard_reason = "reverse_trajectory_rejected"
 
         def on_router_status(self, message: String) -> None:
             try:
@@ -1116,6 +1160,7 @@ def main() -> int:
                 and self.authorized
                 and now_ns < self.authority_deadline_ns
                 and path_fresh
+                and not self.reverse_required_for_authority
             ):
                 self.guarded_publisher.publish(message)
                 self.latest_guard_reason = "authorized_fresh_trajectory"
@@ -1141,9 +1186,15 @@ def main() -> int:
                 start_grace_s=args.trajectory_start_grace_s,
                 recovery_timeout_s=args.trajectory_recovery_timeout_s,
             )
-            if not self.authorized or not path_fresh:
+            if (
+                not self.authorized
+                or not path_fresh
+                or self.reverse_required_for_authority
+            ):
                 self.guarded_publisher.publish(Twist())
-                if self.authorized:
+                if self.reverse_required_for_authority:
+                    self.latest_guard_reason = "reverse_trajectory_rejected"
+                elif self.authorized:
                     self.latest_guard_reason = (
                         "trajectory_missing_or_stale"
                     )
@@ -1152,6 +1203,7 @@ def main() -> int:
             if live:
                 if not self.authorized:
                     self.authority_started_ns = time.time_ns()
+                    self.reverse_required_for_authority = False
                 self.authority_deadline_ns = expires_at_ns
                 self.authorized = True
 
@@ -1223,6 +1275,13 @@ def main() -> int:
             occupancy_publishers = self.get_publishers_info_by_topic(
                 args.occupancy_topic
             )
+            reverse_status_publishers = (
+                self.get_publishers_info_by_topic(
+                    args.reverse_required_topic
+                )
+                if args.reject_reverse_trajectory
+                else ()
+            )
             unexpected_raw = [
                 endpoint
                 for endpoint in raw_subscribers
@@ -1243,6 +1302,11 @@ def main() -> int:
                 "online_router_status_publisher": (
                     bool(router_status_publishers)
                     if args.online_buildmap_world
+                    else True
+                ),
+                "reverse_required_status_publisher": (
+                    bool(reverse_status_publishers)
+                    if args.reject_reverse_trajectory
                     else True
                 ),
             }
@@ -2053,6 +2117,45 @@ def main() -> int:
                     router_recovery_leg_id = None
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
+                elif (
+                    args.reject_reverse_trajectory
+                    and node.reverse_required_for_authority
+                ):
+                    failed_decision = active_decision
+                    node.revoke()
+                    post(
+                        failed_decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_PATH_REVERSE_REQUIRED",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=(
+                            "TinyNav control lookahead requires reverse "
+                            "motion, which this forward-only controller rejects"
+                        ),
+                        terminal=True,
+                    )
+                    emit(
+                        "local_path_reverse_required",
+                        decision_id=failed_decision.decision_id,
+                        leg_id=failed_decision.leg_id,
+                        reverse_required_received_ns=(
+                            node.reverse_required_received_ns
+                        ),
+                        trajectory_pose_count=node.trajectory_pose_count,
+                        trajectory_first_xy=node.trajectory_first_xy,
+                        trajectory_lookahead_xy=(
+                            node.trajectory_lookahead_xy
+                        ),
+                        latest_raw_cmd=list(node.latest_raw_cmd),
+                    )
+                    active_decision = None
+                    active_goal = None
+                    progress_watchdog.reset()
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
                 elif node.nav_done:
                     node.nav_done = False
                     node.revoke()
@@ -2240,6 +2343,9 @@ def main() -> int:
                             trajectory_first_xy=node.trajectory_first_xy,
                             trajectory_lookahead_xy=(
                                 node.trajectory_lookahead_xy
+                            ),
+                            reverse_required=(
+                                node.reverse_required_for_authority
                             ),
                             raw_cmd=list(node.latest_raw_cmd),
                             guard_reason=node.latest_guard_reason,

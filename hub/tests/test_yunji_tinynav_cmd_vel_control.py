@@ -1,4 +1,5 @@
 import importlib.util
+import math
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,19 @@ def test_small_intentional_forward_command_reaches_static_friction_floor():
         engage_threshold_mps=0.04,
         minimum_effective_mps=0.10,
     ) == pytest.approx(0.10)
+
+
+def test_reverse_path_segment_is_negative_in_robot_forward_axis():
+    assert MODULE.path_segment_forward_component(
+        (0.90, 0.08),
+        (0.70, 0.08),
+        robot_heading_rad=0.0,
+    ) == pytest.approx(-0.20)
+    assert MODULE.path_segment_forward_component(
+        (0.90, 0.08),
+        (0.90, 0.28),
+        robot_heading_rad=0.5 * math.pi,
+    ) == pytest.approx(0.20)
 
 
 @pytest.mark.parametrize("requested", [-0.2, 0.0, 0.039, 0.1, 0.3])

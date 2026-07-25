@@ -26,6 +26,12 @@ TopoFocus 的真机仓库：一台 GPU Hub 接收机器人观测、构建/融合
   `0.9 m` 保守路线冲突门控：保留原始双机 VLM candidate，但冲突时只放行
   一台，另一台 HOLD。最新真机 run 三轮都观察到该串行化生效：WSJ/Yunji
   不再同时穿越冲突路线。
+- 后续 `trial-reanchor1-r2` 又暴露了不同的问题：Yunji 收到的前沿落点
+  靠墙，0.5 m 到达范围内没有满足机体净空的已知自由栅格，局部路径随后
+  要求倒车，而原 forward-only 控制器会朝该反向段旋转。现在发布前会
+  单独检查前沿落脚净空；运行时遇到反向段会立即封零并只撤销该机器人的
+  前沿腿，另一台继续。原始 VLM candidate 仍完整保留。证据见
+  [Yunji 墙向转动审计](audit/YUNJI_WALL_TURN_REJECTION_20260725.md)。
 - Yunji 正式链路已改为与 WSJ 相同的在线 TinyNav 架构：Odin 提供
   校正深度、位姿和世界点云，TinyNav 负责在线 occupancy、A*、局部规划
   与控制；WATER 只执行经过租约门控的 `/api/joy_control` 速度。该实现

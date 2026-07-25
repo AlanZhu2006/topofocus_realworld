@@ -45,6 +45,7 @@ sys.path.insert(0, str(HUB_DIR / "src"))
 sys.path.insert(0, str(TOOLS_DIR))
 
 from focus_hub.central_mapping import HM3D_CATEGORY_NAMES  # noqa: E402
+from focus_hub.map_snapshot import load_map_snapshot  # noqa: E402
 from focus_hub.models import ObservationMetadata  # noqa: E402
 from focus_hub.realworld_session import (  # noqa: E402
     RealworldSession,
@@ -61,7 +62,13 @@ from focus_hub.source_episode import (  # noqa: E402
     source_decision_round_limit,
 )
 from focus_hub.transport_v2 import DecisionBatchV2  # noqa: E402
-from focus_hub.v2_episode_control import next_coordination_batch  # noqa: E402
+from focus_hub.v2_episode_control import (  # noqa: E402
+    next_coordination_batch,
+    recoverable_frontier_failure,
+)
+from focus_hub.v2_frontier_clearance import (  # noqa: E402
+    apply_frontier_clearance_guard,
+)
 from focus_hub.v2_route_conflict import apply_route_conflict_guard  # noqa: E402
 from focus_hub.v2_scene_batch import build_batch_from_shadow_manifest  # noqa: E402
 from freeze_realworld_inputs import freeze, stable_copy_map  # noqa: E402
@@ -934,6 +941,18 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--robot-0-frontier-clearance-m",
+        type=float,
+        default=0.35,
+        help="WSJ footprint clearance required inside a frontier arrival disk",
+    )
+    parser.add_argument(
+        "--robot-1-frontier-clearance-m",
+        type=float,
+        default=0.34,
+        help="Yunji footprint clearance required inside a frontier arrival disk",
+    )
+    parser.add_argument(
         "--max-rounds",
         type=int,
         default=source_decision_round_limit(),
@@ -981,6 +1000,16 @@ def main() -> int:
     if not 0.5 <= args.route_conflict_min_separation_m <= 5.0:
         raise ValueError(
             "--route-conflict-min-separation-m must be between 0.5 and 5.0"
+        )
+    if not all(
+        math.isfinite(value) and 0.15 <= value <= 0.75
+        for value in (
+            args.robot_0_frontier_clearance_m,
+            args.robot_1_frontier_clearance_m,
+        )
+    ):
+        raise ValueError(
+            "frontier clearance must be finite and within [0.15, 0.75] m"
         )
 
     output = prepare_output(args.output)
@@ -1051,6 +1080,17 @@ def main() -> int:
                     "preserve source-derived VLM allocations; serialize "
                     "physical execution when straight shared-frame route "
                     "corridors overlap or a shared pose is unavailable"
+                ),
+            },
+            "frontier_clearance_guard": {
+                "robot_clearance_m": {
+                    "robot-0": args.robot_0_frontier_clearance_m,
+                    "robot-1": args.robot_1_frontier_clearance_m,
+                },
+                "policy": (
+                    "preserve source/VLM selection in the candidate artifact; "
+                    "withhold physical authority when no known-free "
+                    "footprint-clear cell exists inside its arrival disk"
                 ),
             },
         },
@@ -1250,14 +1290,59 @@ def main() -> int:
                     feedback_counts[robot_id] += 1
             inspection = inspect_round_states(states, current, active)
             if inspection.failures:
-                failed_robot, event = next(iter(inspection.failures.items()))
+                recoverable = {
+                    robot_id: event
+                    for robot_id, event in inspection.failures.items()
+                    if recoverable_frontier_failure(
+                        decisions[robot_id], event
+                    )
+                }
+                terminal = {
+                    robot_id: event
+                    for robot_id, event in inspection.failures.items()
+                    if robot_id not in recoverable
+                }
+                if terminal:
+                    failed_robot, event = next(iter(terminal.items()))
+                    final_states = hold_and_confirm(
+                        f"{failed_robot}_"
+                        f"{str(event.get('status', '')).lower()}_hold"
+                    )
+                    return RoundResult(
+                        "failure",
+                        f"{failed_robot} {event.get('status')}: "
+                        f"{event.get('reason_code')}",
+                        final_states,
+                        {},
+                        round_latest,
+                        feedback_counts,
+                    )
+                failed_frontiers = set(recoverable)
+                active.difference_update(failed_frontiers)
+                emit(
+                    "frontier_failures_isolated",
+                    failed_robot_ids=sorted(failed_frontiers),
+                    failures={
+                        robot_id: {
+                            "status": event.get("status"),
+                            "reason_code": event.get("reason_code"),
+                            "decision_id": event.get("decision_id"),
+                            "leg_id": event.get("leg_id"),
+                        }
+                        for robot_id, event in sorted(recoverable.items())
+                    },
+                    remaining_active_robot_ids=sorted(active),
+                )
+                if active:
+                    transition(active, "frontier_failure_isolation")
+                    continue
                 final_states = hold_and_confirm(
-                    f"{failed_robot}_{str(event.get('status', '')).lower()}_hold"
+                    "all_frontier_failures_replan_hold"
                 )
                 return RoundResult(
-                    "failure",
-                    f"{failed_robot} {event.get('status')}: "
-                    f"{event.get('reason_code')}",
+                    "replan",
+                    "all active frontier legs were locally blocked; "
+                    "continue with a fresh source round",
                     final_states,
                     {},
                     round_latest,
@@ -1440,11 +1525,43 @@ def main() -> int:
                 round_dir / "vlm_candidate_batch.json",
                 built.batch.model_dump(mode="json"),
             )
+            fused_snapshot = load_map_snapshot(
+                shadow_dir / "fused_decision_map.npz"
+            )
+            if fused_snapshot is None:
+                raise RuntimeError("shadow round lacks fused decision map")
+            clearance_guarded_batch, frontier_clearance_guard = (
+                apply_frontier_clearance_guard(
+                    built.batch,
+                    fused_snapshot,
+                    clearance_by_robot_m={
+                        "robot-0": args.robot_0_frontier_clearance_m,
+                        "robot-1": args.robot_1_frontier_clearance_m,
+                    },
+                )
+            )
+            atomic_write_json(
+                round_dir / "frontier_clearance_guard.json",
+                frontier_clearance_guard,
+            )
+            emit(
+                "frontier_clearance_guard_evaluated",
+                status=frontier_clearance_guard["status"],
+                original_active_robot_ids=frontier_clearance_guard[
+                    "original_active_robot_ids"
+                ],
+                effective_active_robot_ids=frontier_clearance_guard[
+                    "effective_active_robot_ids"
+                ],
+                blocked_robot_ids=frontier_clearance_guard[
+                    "blocked_robot_ids"
+                ],
+            )
             shared_positions, pose_provenance, pose_errors = (
                 frozen_shared_robot_positions(accepted)
             )
             guarded_batch, route_guard = apply_route_conflict_guard(
-                built.batch,
+                clearance_guarded_batch,
                 shared_start_xy=shared_positions,
                 minimum_separation_m=args.route_conflict_min_separation_m,
                 priority_index=requested_round,
@@ -1532,6 +1649,12 @@ def main() -> int:
                     round_dir / "vlm_candidate_batch.json",
                     classification=(
                         "source_derived_unmodified_vlm_candidate_batch"
+                    ),
+                ),
+                "frontier_clearance_guard": artifact_record(
+                    round_dir / "frontier_clearance_guard.json",
+                    classification=(
+                        "source_derived_realworld_execution_guard"
                     ),
                 ),
                 "route_conflict_guard": artifact_record(

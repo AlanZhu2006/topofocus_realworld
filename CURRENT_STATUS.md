@@ -1,8 +1,9 @@
 # Current project status
 
 Snapshot time: **2026-07-25, after automatic Scene 01 success
-`trial-r5-01`, the r6 fused-map preflight rejection, and both robots being
-powered down for charging**
+`trial-r5-01`, the r6 fused-map preflight rejection, the later
+`trial-reanchor1-r2` Yunji wall-turn diagnosis, and Yunji's subsequent
+power-cycle**
 
 This is the canonical current-state document. Dated files under `audit/` are
 append-only evidence records; they do not supersede this page.
@@ -47,6 +48,17 @@ separation of `0.0 m` and reduces authority to one robot. This fix is committed
 and locally tested. It is included in the newer calibrated/debugged
 `20260725-lab12` deployment and has now been observed in motion over all three
 rounds of `trial-05-nearwall-fix`.
+
+The later `trial-reanchor1-r2` exposed a separate robot-local frontier
+feasibility problem. Yunji's selected frontier had only `0.10 m` clearance
+and no `0.34 m`-clear approach cell inside its unchanged `0.50 m` arrival
+disk. TinyNav eventually emitted a backward lookahead segment; its
+forward-only controller rotated toward that segment and then timed out with
+`LOCAL_PLANNER_NO_PROGRESS`. The deployment now filters such frontier
+landings before publication, immediately rejects a fresh reverse-required
+trajectory, and isolates that frontier failure so the other robot can
+continue. Exact evidence and replay are in
+[`audit/YUNJI_WALL_TURN_REJECTION_20260725.md`](audit/YUNJI_WALL_TURN_REJECTION_20260725.md).
 
 The old receiver stopped `trial-05-nearwall-fix` with
 `LOCAL_PLANNER_PATH_STALE` because that run still used a `0.15 m` arrival
@@ -221,6 +233,11 @@ full multi-robot trajectory planning.
   deliberately keeps the read-only observation/map core warm.
 - The route-conflict guard is an additional real-world execution adapter, not
   a replacement for robot-local collision avoidance.
+- A second execution adapter now requires a footprint-clear known-free cell
+  inside each frontier arrival disk. A robot-local reverse/no-progress
+  frontier rejection removes only that robot's authority and requests a fresh
+  source round; semantic, transform, localization and e-stop failures remain
+  coordinated fail-closed conditions.
 
 ### Evaluation
 
@@ -279,7 +296,8 @@ At closeout:
   `hub_decisions_published=false`, `planner_or_receiver_contacted=false` and
   `robot_commands_issued=false`;
 - no previous operator motion confirmation remains valid;
-- both robots are powered down and charging;
+- Yunji has been powered back on and its Odin driver is active; WSJ and Yunji
+  live receivers and both chassis bridges are inactive;
 - the r5/r6 shared transform is rejected for the next experiment because the
   fused geometry contradicted the per-robot occupancy evidence;
 - an attempted replacement calibration was cancelled before board
@@ -294,8 +312,10 @@ At closeout:
    and keep them stationary.
 2. Restore the existing WSJ/Yunji SSH/tmux observation paths and verify both
    tracking streams without enabling either chassis command path.
-3. Run a fresh full two-position board calibration with a new session ID; do
-   not reuse r5/r6 alignment.
+3. Yunji's Odin tracking epoch restarted. Use a validated stationary re-anchor
+   only if stationary continuity can be proved from preserved pre/post
+   observations; otherwise run a fresh full two-position board calibration
+   with a new session ID. Do not silently reuse the old epoch.
 4. Let the calibration command build fresh maps and Foxglove views. Before
    live, check each robot marker against both its own map and the other
    robot's map; reject any fused-wall conflict.

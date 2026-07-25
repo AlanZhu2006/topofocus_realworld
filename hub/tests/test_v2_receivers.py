@@ -711,6 +711,10 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert "--trajectory-start-grace-s" in source
     assert "--trajectory-stale-timeout-s" in source
     assert "--semantic-arrival-radius-m" in source
+    assert "--reverse-required-topic" in source
+    assert "--reject-reverse-trajectory" in source
+    assert '"LOCAL_PATH_REVERSE_REQUIRED"' in source
+    assert '"reverse_trajectory_rejected"' in source
     assert '"trajectory_missing_or_stale"' in source
     assert '"LOCAL_PLANNER_PATH_STALE"' in source
     assert 'active_goal.target_kind == "SEMANTIC_REGION"' in source
@@ -837,6 +841,7 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert "cmd_vel_control.py" in component
     assert "--external-odometry-health" in launcher
     assert "--enable-live-tinynav-motion" in launcher
+    assert "--reject-reverse-trajectory" in launcher
     assert "/focus_guarded_cmd_vel" in launcher
     assert "/api/joy_control" in bridge
     assert "/api/accessible_point_query" not in launcher + bridge
