@@ -34,6 +34,13 @@ MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 SLAM_DATA_TIMEOUT_S="${FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0}"
 START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
+# The source semantic mask keeps its radius-10-cell approach region unchanged.
+# On 2026-07-25 the local planner stopped producing a multi-pose trajectory at
+# 0.32 m from the selected approach point, before the source-exact 0.15 m
+# receiver terminal check. Use an explicit 0.50 m physical demo terminal
+# radius; independent surveyed goal-region membership remains authoritative for
+# reported SR/SPL.
+SEMANTIC_ARRIVAL_RADIUS_M="${FOCUS_WSJ_SEMANTIC_ARRIVAL_RADIUS_M:-0.50}"
 mode="debug"
 confirmation=""
 startup_complete="false"
@@ -301,6 +308,7 @@ receiver=(
   --occupancy-topic /semantic_mapping/occupancy_bev
   --local-data-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"
   --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"
+  --semantic-arrival-radius-m "$SEMANTIC_ARRIVAL_RADIUS_M"
   --no-progress-timeout-s "$NO_PROGRESS_TIMEOUT_S"
   --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"
   --start-snap-radius-m 0.75

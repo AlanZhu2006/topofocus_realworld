@@ -90,6 +90,7 @@ def make_adapter(
     output_kind: str = "tinynav_poi",
     shared_T_robot_map=IDENTITY,
     allow_unreachable_semantic_projection: bool = False,
+    semantic_arrival_radius_m: float = 0.15,
 ) -> V2GoalAdapter:
     return V2GoalAdapter(V2GoalAdapterConfig(
         robot_id=robot_id,
@@ -101,6 +102,7 @@ def make_adapter(
         allow_unreachable_semantic_projection=(
             allow_unreachable_semantic_projection
         ),
+        semantic_arrival_radius_m=semantic_arrival_radius_m,
     ))
 
 
@@ -225,6 +227,24 @@ def test_semantic_region_requires_local_reachability_and_preserves_hash(
     # applies to that point; the 0.50 m region dilation must not be added twice.
     assert accepted.local_goal.arrival_radius_m == pytest.approx(0.15)
     assert accepted.local_goal.x < -0.1
+
+
+def test_physical_semantic_arrival_radius_is_explicitly_configurable(
+    observation_factory,
+):
+    adapter = make_adapter(semantic_arrival_radius_m=0.50)
+    health = observation_factory(mapping_only=False, health_ready=True).health
+    decision = make_target_decision(target=semantic_target())
+    accepted = adapter.evaluate(
+        decision,
+        now_ns=10_000_000_002,
+        health=health,
+        current_position_robot_map=(-1.0, 0.0, 0.0),
+        is_local_goal_reachable=lambda x, y: x < -0.1,
+    )
+    assert accepted.action == V2AdapterAction.GOAL
+    assert accepted.local_goal is not None
+    assert accepted.local_goal.arrival_radius_m == pytest.approx(0.50)
 
 
 def test_semantic_goal_is_stable_across_same_leg_lease_renewal(

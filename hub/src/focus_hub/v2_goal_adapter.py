@@ -44,6 +44,9 @@ class V2GoalAdapterConfig:
     local_frame_id: str
     max_goal_distance_m: float = 8.0
     allow_unreachable_semantic_projection: bool = False
+    semantic_arrival_radius_m: float = (
+        SOURCE_FMM_SEMANTIC_STOP_CELLS * 0.05
+    )
 
     def __post_init__(self) -> None:
         if self.output_kind not in {"tinynav_poi", "water_move"}:
@@ -56,6 +59,13 @@ class V2GoalAdapterConfig:
             raise ValueError("local_frame_id is required")
         if not math.isfinite(self.max_goal_distance_m) or self.max_goal_distance_m <= 0:
             raise ValueError("max_goal_distance_m must be finite and positive")
+        if (
+            not math.isfinite(self.semantic_arrival_radius_m)
+            or not 0.10 <= self.semantic_arrival_radius_m <= 2.0
+        ):
+            raise ValueError(
+                "semantic_arrival_radius_m must be within [0.10, 2.0]"
+            )
 
 
 @dataclass(frozen=True)
@@ -339,15 +349,14 @@ class V2GoalAdapter:
             target_kind=target.kind,
             source_region_sha256=target.region.payload_sha256,
             # ``candidates`` is already the source FMM planner's
-            # radius-10-cell dilation of the semantic component.  Reusing
-            # that 0.50 m dilation as a point-goal arrival radius would
-            # dilate the source goal a second time.  The source FMM stop
-            # check is approximately three 5 cm cells from its multi-goal
-            # set, so preserve that final controller tolerance here.
+            # radius-10-cell dilation of the semantic component.  The config
+            # default preserves the source FMM's final three-cell stop
+            # tolerance.  Physical deployments may explicitly select a
+            # larger, provenance-recorded robot-local terminal radius without
+            # changing the transported semantic mask.
             arrival_radius_m=max(
                 MINIMUM_POINT_GOAL_ARRIVAL_RADIUS_M,
-                SOURCE_FMM_SEMANTIC_STOP_CELLS
-                * target.region.resolution_m,
+                self.config.semantic_arrival_radius_m,
             ),
         )
 

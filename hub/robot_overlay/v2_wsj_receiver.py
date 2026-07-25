@@ -639,6 +639,15 @@ def main() -> int:
         help="maximum age of the last passing SLAM report during that blip",
     )
     parser.add_argument("--max-goal-distance-m", type=float, default=8.0)
+    parser.add_argument(
+        "--semantic-arrival-radius-m",
+        type=float,
+        default=0.15,
+        help=(
+            "robot-local terminal radius for a point selected from the "
+            "transported semantic approach region"
+        ),
+    )
     parser.add_argument("--reachability-clearance-m", type=float, default=0.05)
     parser.add_argument("--start-snap-radius-m", type=float, default=0.35)
     parser.add_argument(
@@ -680,6 +689,8 @@ def main() -> int:
         parser.error("--enable-live-go2-motion is valid only for robot-0")
     if args.raw_cmd_topic == args.guarded_cmd_topic:
         parser.error("raw and guarded cmd_vel topics must differ")
+    if not 0.10 <= args.semantic_arrival_radius_m <= 2.0:
+        parser.error("--semantic-arrival-radius-m must be within [0.10, 2.0]")
     if min(
         args.poll_s,
         args.local_data_timeout_s,
@@ -690,6 +701,7 @@ def main() -> int:
         args.trajectory_stale_timeout_s,
         args.slam_transient_grace_s,
         args.max_goal_distance_m,
+        args.semantic_arrival_radius_m,
         args.max_alignment_shift_m,
         args.max_alignment_yaw_deg,
     ) <= 0:
@@ -1258,6 +1270,13 @@ def main() -> int:
                 "status": "observed_measured_artifact",
             },
             "tinynav_occupancy": occupancy_provenance,
+            "semantic_terminal_policy": {
+                "arrival_radius_m": args.semantic_arrival_radius_m,
+                "classification": (
+                    "explicit_robot_local_realworld_execution_tolerance"
+                ),
+                "formal_sr_spl_requires_independent_goal_region": True,
+            },
         },
     )
     atomic_write_json(alignment_output, artifact)
@@ -1278,6 +1297,7 @@ def main() -> int:
             local_frame_id=args.local_map_frame,
             max_goal_distance_m=args.max_goal_distance_m,
             allow_unreachable_semantic_projection=args.online_buildmap_world,
+            semantic_arrival_radius_m=args.semantic_arrival_radius_m,
         )
     )
     path = PathAccumulator()

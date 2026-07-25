@@ -37,6 +37,13 @@ ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_YUNJI_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
 MAP_TIMEOUT_S="${FOCUS_YUNJI_MAP_TIMEOUT_S:-12.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
+# Keep the transported/source-derived semantic approach mask unchanged, but
+# align the physical terminal check with TinyNav's observed short-path limit.
+# In the 2026-07-25 chair run the planner stopped emitting a multi-pose path at
+# 0.32 m from the selected approach point; 0.50 m records that supervised demo
+# terminal tolerance explicitly. Formal SR/SPL still requires the independent
+# surveyed goal-region check.
+SEMANTIC_ARRIVAL_RADIUS_M="${FOCUS_YUNJI_SEMANTIC_ARRIVAL_RADIUS_M:-0.50}"
 # Odin's full 800 px, radius-1 projection performs nine indexed depth
 # reductions per cloud.  After a cold Odin boot this was observed to pin one
 # CPU core for minutes before the first /slam/depth sample, while the same
@@ -313,6 +320,7 @@ receiver_args=(
   --reachability-clearance-m "$REACHABILITY_CLEARANCE_M"
   --start-snap-radius-m "$START_SNAP_RADIUS_M"
   --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"
+  --semantic-arrival-radius-m "$SEMANTIC_ARRIVAL_RADIUS_M"
   --no-progress-timeout-s "$NO_PROGRESS_TIMEOUT_S"
   --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"
   --alignment-output "$alignment"

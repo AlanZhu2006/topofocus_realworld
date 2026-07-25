@@ -275,11 +275,20 @@ find a locally reachable approach is `REJECTED_UNREACHABLE`.
 
 Because the chosen point is already inside the radius-10-cell source arrival
 neighborhood, a point-goal adapter must not apply that 0.50 m dilation a
-second time. The deployed TinyNav adapter uses the source FMM planner's final
-three-cell stop tolerance (0.15 m at 0.05 m/cell) around the selected
-collision-free approach point. Frontier points still use the original
-radius-10-cell, 0.50 m neighborhood because they have not already been
-expanded into candidate cells.
+second time when claiming source-exact behavior. The adapter default therefore
+uses the source FMM planner's final three-cell stop tolerance (0.15 m at
+0.05 m/cell) around the selected collision-free approach point. Frontier
+points still use the original radius-10-cell, 0.50 m neighborhood because they
+have not already been expanded into candidate cells.
+
+The supervised physical launchers explicitly use a 0.50 m robot-local semantic
+terminal radius. This is a provenance-recorded real-world execution tolerance,
+not a change to the transported semantic mask and not independent proof of
+success. It was introduced after the 2026-07-25 chair run observed TinyNav stop
+emitting a multi-pose local trajectory 0.32 m from the selected approach point,
+causing `LOCAL_PLANNER_PATH_STALE` before the 0.15 m check. Formal SR/SPL still
+requires the independently surveyed goal-region and target verification
+described in the evaluation workflow.
 
 ## Lease, ordering and loss behavior
 

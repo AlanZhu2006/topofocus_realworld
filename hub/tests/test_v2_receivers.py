@@ -501,6 +501,7 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert "raw_cmd_has_no_direct_bridge" in source
     assert "--trajectory-start-grace-s" in source
     assert "--trajectory-stale-timeout-s" in source
+    assert "--semantic-arrival-radius-m" in source
     assert '"trajectory_missing_or_stale"' in source
     assert '"LOCAL_PLANNER_PATH_STALE"' in source
     assert 'active_goal.target_kind == "SEMANTIC_REGION"' in source

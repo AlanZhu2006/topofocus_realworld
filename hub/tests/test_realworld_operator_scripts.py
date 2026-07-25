@@ -30,6 +30,10 @@ def test_oneclick_is_session_bound_and_has_no_forensic_bypass():
     assert "both maps must exist or both be absent" in source
     fresh_maps = (SCRIPTS / "start_fresh_dual_maps.sh").read_text()
     assert "--allow-ground-height-translation-for-2d" in fresh_maps
+    wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
+    yunji = (OVERLAY / "start_yunji_v2.sh").read_text()
+    assert "FOCUS_WSJ_SEMANTIC_ARRIVAL_RADIUS_M:-0.50" in wsj
+    assert "FOCUS_YUNJI_SEMANTIC_ARRIVAL_RADIUS_M:-0.50" in yunji
 
 
 def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():
