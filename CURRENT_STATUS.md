@@ -30,25 +30,32 @@ Exact machine-readable metrics, paths, hashes and evidence classes are in
 
 ## Scene 02 formal results
 
-Scene `scene02-plant`, target `plant`, currently contains one archived formal
-episode.
+Scene `scene02-plant`, target `plant`, currently contains two archived formal
+episodes, both failures.
 
 | Episodes | Successes | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `1` | `0` | `0.0` | `0.0` | `0.0` |
+| `2` | `0` | `0.0` | `0.0` | `0.0` |
 
-Formal 01, episode `scene02-plant-recal1-20260728-044959`: Formal 01 failed
-during coordinated execution — one assigned frontier was rejected as locally
+Formal 01, episode `scene02-plant-recal1-20260728-044959`: failed during
+coordinated execution — one assigned frontier was rejected as locally
 unreachable, and the remaining semantic-navigation leg terminated before
-arrival. WSJ travelled `6.104564 m` and Yunji travelled `1.905387 m`; both
-ended in confirmed zero-velocity HOLD. Attribution is `navigation_policy_failure`,
-not a VLM failure — the plant semantic region had already been correctly
-identified and assigned.
+arrival. WSJ travelled `6.104564 m` and Yunji travelled `1.905387 m`.
 
-The complete record is
-[`audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md);
-the machine-readable result is
-[`manifests/scene02_plant_formal_experiment_01_failure_20260728.json`](manifests/scene02_plant_formal_experiment_01_failure_20260728.json).
+Formal 02, episode `formal-03` (session `scene02-plant-20260728-semanticreplan4`):
+failed during coordinated execution — both robots' frontiers were rejected
+as locally unreachable before any plant semantic region was found, and the
+episode timed out waiting for a fresh synchronized round after Yunji's map
+was blocked by ground-plane drift. WSJ travelled `0.208027 m` and Yunji
+travelled `1.488125 m`.
+
+Both are attributed `navigation_policy_failure`, not a VLM failure. Complete
+records:
+[`audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md) /
+[`manifests/scene02_plant_formal_experiment_01_failure_20260728.json`](manifests/scene02_plant_formal_experiment_01_failure_20260728.json)
+and
+[`audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md`](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md) /
+[`manifests/scene02_plant_formal_experiment_02_failure_20260728.json`](manifests/scene02_plant_formal_experiment_02_failure_20260728.json).
 
 ## Published media
 
@@ -59,10 +66,10 @@ the machine-readable result is
   main README.
 - Formal 05 display media covers the run beginning through physical arrival;
   its SR/SPL uses the complete episode report.
-- Scene 02 formal experiment 01's third-view and Dashboard masters are
+- Scene 02 formal experiments 01-02's third-view and Dashboard masters are
   likewise preserved under `media/video/**` through Git LFS, with an H.264
-  pair, terminal-frame posters and ~8 s README preview GIFs under
-  `media/demo/`. See
+  pair and a time-lapsed ~8 s README preview GIF per master under
+  `media/demo/`, matching the Scene 01 naming/encoding convention. See
   [`media/README.md`](media/README.md#scene-02-media).
 
 ## Implementation state

@@ -1,0 +1,139 @@
+{
+  "schema_version": "focus-scene-formal-experiment-v1",
+  "scene_id": "scene02-plant",
+  "target_category": "plant",
+  "formal_index": 2,
+  "result": "FAILURE",
+  "session_id": "scene02-plant-20260728-semanticreplan4",
+  "episode_id": "formal-03",
+  "episode_id_note": "internal episode label; operator designated this attempt as formal experiment 02",
+  "session_git_commit": "d84e5f73a97cf6ce2a17d58eebdab1daf6e14854",
+  "calibration_id": "shared-board-odin1-scene02-plant-20260728-044246-recal2-v1",
+  "classification": {
+    "primary": "navigation_policy_failure",
+    "terminal_reason": "controller_error_TimeoutError_holding",
+    "vlm_failure": false,
+    "official_reason": "Formal 02 failed during coordinated execution: both robots' assigned frontiers were rejected as locally unreachable before any plant semantic region was found, and the episode then timed out waiting for a fresh synchronized round after Robot 1's map was blocked by ground-plane drift.",
+    "basis": "No plant semantic region was ever proposed in either round; every candidate target was a FRONTIER_POINT, and both robots' frontiers were separately rejected LOCAL_GOAL_UNREACHABLE before a map-health block ended the episode"
+  },
+  "metrics": {
+    "success": 0,
+    "sr": 0.0,
+    "source_compatible_spl": 0.0,
+    "standard_spl": 0.0,
+    "standard_shortest_feasible_path_m": null,
+    "standard_shortest_path_status": "not required for this failed episode's zero SPL contribution"
+  },
+  "execution": {
+    "source_rounds_completed": 2,
+    "source_steps": [0, 24],
+    "high_level_batches_published": 11,
+    "automatic_terminal_candidate_complete": false,
+    "official_success_verified": false,
+    "outcome": "controller_error_TimeoutError_holding",
+    "final_velocity_zero_confirmed": {
+      "robot-0": true,
+      "robot-1": true
+    },
+    "robots": {
+      "robot-0": {
+        "name": "WSJ",
+        "actual_path_length_m": 0.20802723005014695,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD"
+      },
+      "robot-1": {
+        "name": "Yunji",
+        "actual_path_length_m": 1.488125453093219,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD"
+      }
+    }
+  },
+  "behavior": [
+    "round 0: robot-0's frontier rejected LOCAL_GOAL_UNREACHABLE and isolated; robot-1 continued alone",
+    "round 1: robot-0's fallback frontier again rejected LOCAL_GOAL_UNREACHABLE; robot-1's own frontier then also rejected LOCAL_GOAL_UNREACHABLE, isolating both robots (all_frontier_failures_replan_hold)",
+    "controller timed out after 45.0s waiting for a fresh synchronized round input: robot-1's map was blocked by ground-plane drift (7 consecutive frames, 5.965s, tilt_delta_deg=3.691, height_delta_m=0.060)",
+    "episode ended controller_error_TimeoutError_holding with both robots HOLDING"
+  ],
+  "vlm_evidence": {
+    "target_found": false,
+    "status": "no plant semantic region was proposed in either completed round; all candidates were FRONTIER_POINT"
+  },
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-semanticreplan4_live_scene02-plant_20260728_054405_113292494/episode_report.json",
+      "size_bytes": 9789,
+      "sha256": "5ae86477a50ea0a9da2f0f9785042f3726dec5ffb235e17d0fb23a7f5ea92a0d",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-semanticreplan4_live_scene02-plant_20260728_054405_113292494/controller_events.jsonl",
+      "size_bytes": 20341,
+      "sha256": "b6106e529379b88fc735985351b3b56607627c0cc13fb1646925fe0274bf0dbe",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene02-plant-20260728-semanticreplan4/session.json",
+      "size_bytes": 4294,
+      "sha256": "77fca1b56ba177bed30d77a2cf13b975a8819fdb883c201f6f23840cc106e165",
+      "classification": "source-derived session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene02-plant-20260728-044246-recal2/shared_frame.json",
+      "size_bytes": 6029,
+      "sha256": "5f95966f2c201467af549fc845d0265e9ea50cd12595c5931082451a647cde07",
+      "classification": "observed and source-derived shared-frame calibration; reused unchanged from formal experiment 01; runtime file ignored by Git"
+    }
+  ],
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_2/experiment_2_failure_2.mp4",
+      "size_bytes": 13267358,
+      "sha256": "16ad3ea2222795c59355f99f72509e4668ec1322e8f2ce61678bc1d3db8f8e34",
+      "duration_s": 99.2,
+      "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene02_formal_02_third_view.mp4",
+      "size_bytes": 10854652,
+      "sha256": "ce16b8130a70f3084f3f5a79243b8f5c07cae36285c1f0f920c8e4bc91689a20",
+      "duration_s": 99.2,
+      "classification": "source-derived H.264 public derivative of the observed external-view master"
+    },
+    {
+      "path": "media/demo/scene02_formal_02_preview.gif",
+      "size_bytes": 10179646,
+      "sha256": "a86d3ffe4440a4763445db193825db9429496d37b5bc89edec10888ec5cb86dd",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to ~8 s (matching the Scene 01 formal-experiment GIF convention)"
+    },
+    {
+      "path": "media/video/dashboard/experiment_2/experiment_2_failure_2_dashboard.mov",
+      "size_bytes": 77734720,
+      "sha256": "340b2ddeb64ff35da9eff5e7b23809d35b569636b45ba3037acd85e5b5d66a68",
+      "duration_s": 113.128,
+      "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene02_formal_02_dashboard.mp4",
+      "size_bytes": 1810405,
+      "sha256": "378597877305a3ac77490fcaa2fedb0e79d3430fa9b1d5f37ce917aae9997bed",
+      "duration_s": 113.067,
+      "classification": "source-derived H.264 public derivative of the observed Dashboard master, scaled to 1280px wide"
+    },
+    {
+      "path": "media/demo/scene02_formal_02_dashboard.gif",
+      "size_bytes": 1930298,
+      "sha256": "5f6c7363c248f4b03e17672d304304755ddcdefc45ccce24026014bcc2187e9d",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to ~8 s (matching the Scene 01 formal-experiment GIF convention)"
+    }
+  ],
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "cleanup_state": "both robots HOLDING with velocity_zero_confirmed=true; Hub GOAL output disabled",
+    "post_episode_motion_authority": false
+  }
+}

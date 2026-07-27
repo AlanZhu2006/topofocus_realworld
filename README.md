@@ -138,22 +138,35 @@ Both robots explore cooperatively toward a plant target.
 
 | Trials | Success | SR | Source-compatible SPL | Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `1` | `0` | `0.0` | `0.0` | `0.0` |
-
-> Formal 01 failed during coordinated execution: one assigned frontier was
-> rejected as locally unreachable, and the remaining semantic-navigation leg
-> terminated before arrival.
+| `2` | `0` | `0.0` | `0.0` | `0.0` |
 
 <table>
   <tr>
-    <td colspan="2" align="center">
+    <td width="50%" align="center">
       <strong>Formal 01 · FAILURE</strong><br>
       <small>Third view</small><br>
       <img src="media/demo/scene02_formal_01_preview.gif" width="440" alt="Formal 01 failure rollout"><br>
       <small>Dashboard</small><br>
       <img src="media/demo/scene02_formal_01_dashboard.gif" width="440" alt="Formal 01 failure dashboard"><br>
+      Formal 01 failed during coordinated execution: one assigned frontier
+      was rejected as locally unreachable, and the remaining
+      semantic-navigation leg terminated before arrival.<br>
       <a href="media/demo/scene02_formal_01_third_view.mp4">Third view</a> ·
       <a href="media/demo/scene02_formal_01_dashboard.mp4">Dashboard</a>
+    </td>
+    <td width="50%" align="center">
+      <strong>Formal 02 · FAILURE</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene02_formal_02_preview.gif" width="440" alt="Formal 02 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene02_formal_02_dashboard.gif" width="440" alt="Formal 02 failure dashboard"><br>
+      Formal 02 failed during coordinated execution: both robots' assigned
+      frontiers were rejected as locally unreachable before any plant
+      semantic region was found, and the episode then timed out waiting for
+      a fresh synchronized round after Robot 1's map was blocked by
+      ground-plane drift.<br>
+      <a href="media/demo/scene02_formal_02_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene02_formal_02_dashboard.mp4">Dashboard</a>
     </td>
   </tr>
 </table>
@@ -163,6 +176,8 @@ Both robots explore cooperatively toward a plant target.
 | Run | Robot 0 path | Robot 1 path |
 | --- | ---: | ---: |
 | Formal 01 | `6.104564 m` | `1.905387 m` |
+| Formal 02 | `0.208027 m` | `1.488125 m` |
 
-[Full failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
-· [Machine-readable result](manifests/scene02_plant_formal_experiment_01_failure_20260728.json)
+[Formal 01 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
+· [Formal 02 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md)
+· [Machine-readable results](manifests/realworld_experiment_progress.json)

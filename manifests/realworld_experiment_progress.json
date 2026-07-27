@@ -54,12 +54,12 @@
       "path": "manifests/scene02_plant_preparation_20260725.json",
       "target_category": "plant",
       "planned_formal_experiments": 5,
-      "recorded_episodes": 1,
+      "recorded_episodes": 2,
       "successes": 0,
-      "metric_status": "one_recorded_failure_zero_successes",
+      "metric_status": "two_recorded_failures_zero_successes",
       "standard_shortest_feasible_path_status": "pending independent Scene 02 measurement",
       "standard_shortest_feasible_path_evidence": "manifests/scene02_plant_shortest_feasible_path_20260725.json",
-      "classification": "formal experiment 01 recorded as a navigation_policy_failure; see attempts_not_in_metric_track and manifests/scene02_plant_formal_experiment_01_failure_20260728.json"
+      "classification": "formal experiments 01-02 both recorded as navigation_policy_failure; see attempts_not_in_metric_track and manifests/scene02_plant_formal_experiment_01_failure_20260728.json / manifests/scene02_plant_formal_experiment_02_failure_20260728.json"
     }
   },
   "attempts_not_in_metric_track": [
@@ -167,6 +167,63 @@
           "size_bytes": 1472856,
           "sha256": "7331e7723e890892422e8f2957e5810cab4acc2edbeb494520f6473a209a5717",
           "duration_s": 99.634,
+          "classification": "source-derived H.264 public derivative, scaled to 1280px wide"
+        }
+      ]
+    },
+    {
+      "record_id": "scene02-plant_formal-experiment-02",
+      "formal_experiment_index": 2,
+      "session_id": "scene02-plant-20260728-semanticreplan4",
+      "session_git_commit": "d84e5f73a97cf6ce2a17d58eebdab1daf6e14854",
+      "scene_id": "scene02-plant",
+      "episode_id": "formal-03",
+      "target_category": "plant",
+      "attribution": "navigation_policy_failure",
+      "reason": "Formal 02 failed during coordinated execution: both robots' assigned frontiers were rejected as locally unreachable before any plant semantic region was found, and the episode then timed out waiting for a fresh synchronized round after Robot 1's map was blocked by ground-plane drift.",
+      "live_started": true,
+      "robot_commands_issued": true,
+      "episode_created": true,
+      "sr_spl_status": "recorded_failure_zero_contribution",
+      "metrics": {
+        "success": 0,
+        "sr": 0.0,
+        "source_compatible_spl": 0.0,
+        "standard_spl": 0.0,
+        "robot_0_actual_path_length_m": 0.20802723005014695,
+        "robot_1_actual_path_length_m": 1.488125453093219
+      },
+      "evidence": {
+        "path": "audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md",
+        "classification": "full record with machine-readable mirror at manifests/scene02_plant_formal_experiment_02_failure_20260728.json"
+      },
+      "media": [
+        {
+          "path": "media/video/third_view/experiment_2/experiment_2_failure_2.mp4",
+          "size_bytes": 13267358,
+          "sha256": "16ad3ea2222795c59355f99f72509e4668ec1322e8f2ce61678bc1d3db8f8e34",
+          "duration_s": 99.2,
+          "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+        },
+        {
+          "path": "media/demo/scene02_formal_02_third_view.mp4",
+          "size_bytes": 10854652,
+          "sha256": "ce16b8130a70f3084f3f5a79243b8f5c07cae36285c1f0f920c8e4bc91689a20",
+          "duration_s": 99.2,
+          "classification": "source-derived H.264 public derivative"
+        },
+        {
+          "path": "media/video/dashboard/experiment_2/experiment_2_failure_2_dashboard.mov",
+          "size_bytes": 77734720,
+          "sha256": "340b2ddeb64ff35da9eff5e7b23809d35b569636b45ba3037acd85e5b5d66a68",
+          "duration_s": 113.128,
+          "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
+        },
+        {
+          "path": "media/demo/scene02_formal_02_dashboard.mp4",
+          "size_bytes": 1810405,
+          "sha256": "378597877305a3ac77490fcaa2fedb0e79d3430fa9b1d5f37ce917aae9997bed",
+          "duration_s": 113.067,
           "classification": "source-derived H.264 public derivative, scaled to 1280px wide"
         }
       ]

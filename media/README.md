@@ -25,18 +25,21 @@ evidence and indexed in
 
 # Scene 02 media
 
-Scene 02 currently contains one archived formal episode, which failed.
-User-provided master videos are byte-preserved under `media/video/**`
-through Git LFS; browser-ready H.264 files and inline GIF previews are
-under `media/demo/`.
+Scene 02 currently contains two archived formal episodes, both of which
+failed. User-provided master videos are byte-preserved under
+`media/video/**` through Git LFS; browser-ready H.264 files and inline GIF
+previews are under `media/demo/`.
 
 | Run | Third-view master | Dashboard master | README previews |
 | --- | --- | --- | --- |
 | Formal 01 · FAILURE | [`experiment_2_failure_1.mp4`](video/third_view/experiment_2/experiment_2_failure_1.mp4) | [`experiment_2_failure_1_dashboard.mov`](video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov) | [Third view](demo/scene02_formal_01_preview.gif) · [Dashboard](demo/scene02_formal_01_dashboard.gif) |
+| Formal 02 · FAILURE | [`experiment_2_failure_2.mp4`](video/third_view/experiment_2/experiment_2_failure_2.mp4) | [`experiment_2_failure_2_dashboard.mov`](video/dashboard/experiment_2/experiment_2_failure_2_dashboard.mov) | [Third view](demo/scene02_formal_02_preview.gif) · [Dashboard](demo/scene02_formal_02_dashboard.gif) |
 
-README previews are an ~8 s excerpt from the end of each master, not the
-complete run. Exact source paths, sizes, durations, SHA-256 values and
-evidence classes are recorded in
-[`scene02_plant_formal_experiment_01_failure_20260728.json`](../manifests/scene02_plant_formal_experiment_01_failure_20260728.json)
-and in
-[`SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](../audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md).
+README previews time-lapse the entire master into an ~8 s / 8 fps loop,
+matching the Scene 01 formal-experiment GIF convention. Exact source paths,
+sizes, durations, SHA-256 values and evidence classes are recorded in
+[`scene02_plant_formal_experiment_01_failure_20260728.json`](../manifests/scene02_plant_formal_experiment_01_failure_20260728.json) /
+[`SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](../audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
+and
+[`scene02_plant_formal_experiment_02_failure_20260728.json`](../manifests/scene02_plant_formal_experiment_02_failure_20260728.json) /
+[`SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md`](../audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md).

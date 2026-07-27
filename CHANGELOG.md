@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Scene 02 formal experiment 01 (2026-07-28)
+### Scene 02 formal experiments 01-02 (2026-07-28)
 
 - Archive Scene 02 formal experiment 01 as `FAILURE` (`Success=0`, `SR=0`,
   both SPL variants zero): one assigned frontier was rejected as locally
@@ -11,10 +11,16 @@
   semantic region was correctly identified and assigned.
 - Apply a local-navigation stale-route recovery timing fix, covered by
   regression tests; not yet re-verified against a live physical run.
-- Publish the user-provided third-view and Dashboard masters byte-for-byte
-  through Git LFS, with H.264 derivatives, posters and README preview GIFs;
-  add a Scene 02 section to the main README and record the attempt in
-  `manifests/realworld_experiment_progress.json`.
+- Archive Scene 02 formal experiment 02 as `FAILURE`: both robots' frontiers
+  were rejected as locally unreachable before any plant semantic region was
+  found, and the episode timed out waiting for a fresh synchronized round
+  after Yunji's map was blocked by ground-plane drift. Attribution is also
+  `navigation_policy_failure`, not VLM.
+- Publish the user-provided third-view and Dashboard masters for both runs
+  byte-for-byte through Git LFS, with H.264 derivatives and time-lapsed
+  README preview GIFs (matching the Scene 01 naming/encoding convention);
+  update the Scene 02 section of the main README and record both attempts
+  in `manifests/realworld_experiment_progress.json`.
 
 ### Calibration reliability (2026-07-27)
 
