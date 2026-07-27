@@ -16,6 +16,7 @@ GOAL_CATEGORY="${FOCUS_YUNJI_GOAL_CATEGORY:-chair}"
 TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus/tinynav-runtime}"
 WATER_HOST="${FOCUS_YUNJI_WATER_HOST:-192.168.10.10}"
 WATER_PORT="${FOCUS_YUNJI_WATER_PORT:-31001}"
+MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
 # The router uses a square cell-clearance test, while TinyNav's unchanged local
 # planner remains the final footprint/depth authority.  On the 2026-07-25 live
 # Yunji grid, 0.34 m rounded up to seven 5 cm cells and no 15x15 known-free
@@ -44,9 +45,9 @@ MAX_PLAN_DURATION_S="${FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50}"
 # Observed physical provenance (2026-07-28): Yunji's healthy online occupancy
 # publisher runs at 0.34-0.35 Hz (2.717-3.049 s intervals). Formal-04 later
 # observed 5.105 s while odometry, SLAM, graph, WATER and the local planner all
-# remained ready. The 5 s physical gate remains unchanged and zeros locally;
-# a 7 s zero-velocity recovery window ends at the router/verifier's existing
-# 12 s terminal bound.
+# remained ready. After 5 s, the exact cached grid is usable only within the
+# same 0.25 m base-displacement bound enforced by the router; beyond it, the
+# physical gate zeros and the seven-second recovery window begins.
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
@@ -360,7 +361,7 @@ start_router() {
       --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
       --input-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S" \
       --map-timeout-s "$MAP_TIMEOUT_S" \
-      --max-cached-map-motion-m 0.25 \
+      --max-cached-map-motion-m "$MAX_CACHED_MAP_MOTION_M" \
       --max-plan-expansions "$MAX_PLAN_EXPANSIONS" \
       --max-plan-duration-s "$MAX_PLAN_DURATION_S"
 }
@@ -543,6 +544,7 @@ receiver_args=(
   --occupancy-topic /semantic_mapping/occupancy_bev
   --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
+  --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
   --external-odometry-health
   --platform-health-topic /focus/water/cmd_bridge_status
   --reject-reverse-trajectory
@@ -597,6 +599,7 @@ bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" verify \
   --geometry-image-topic /slam/depth \
   --camera-info-topic /slam/camera_info \
   --max-occupancy-age-s 12 \
+  --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
   --platform-status-topic /focus/water/cmd_bridge_status \
   --timeout-s 35
 

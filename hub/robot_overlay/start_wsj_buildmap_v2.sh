@@ -42,10 +42,11 @@ ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
 # the guarded trajectory output closes after 1.0 s and TinyNav/controller
 # watchdogs retain final authority.
 RECEIVER_LOCAL_DATA_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0}"
-# Keep the cross-robot occupancy-liveness contract identical. The 20 Hz final
-# velocity gate still zeros immediately after this bound. The zero-velocity
-# recovery window ends at the same 12 s bound already enforced by the TinyNav
-# router and startup verifier; it never authorizes motion on the cached grid.
+# Keep the cross-robot occupancy-liveness contract identical. After this wall
+# deadline, both the receiver's 20 Hz gate and the TinyNav router may use the
+# exact cached grid only until base displacement reaches
+# MAX_CACHED_MAP_MOTION_M. A missing pose anchor fails closed. The separate
+# recovery window applies only after that spatial bound closes the gate.
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
 # The guarded velocity output is zeroed after one second without a fresh path.
@@ -703,6 +704,7 @@ receiver=(
   --local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"
   --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
+  --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
   --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"
   --trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"
   --trajectory-recovery-timeout-s "$TRAJECTORY_RECOVERY_TIMEOUT_S"

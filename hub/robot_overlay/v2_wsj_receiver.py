@@ -56,6 +56,7 @@ from focus_hub.v2_robot_runtime import (  # noqa: E402
     HubV2RobotClient,
     OccupancyGrid2D,
     PathAccumulator,
+    cached_map_valid_for_pose,
     navigation_event,
 )
 
@@ -111,30 +112,26 @@ def recoverable_router_hold(
 
 def occupancy_recovery_eligible(
     *,
-    occupancy_age_s: float,
-    freshness_timeout_s: float,
+    recovery_elapsed_s: float,
     recovery_grace_s: float,
     all_other_health_ready: bool,
+    occupancy_observed: bool,
 ) -> bool:
-    """Allow a bounded zero-velocity wait for occupancy-only jitter.
+    """Allow a bounded zero-velocity wait after the occupancy gate closes.
 
-    The independent 20 Hz physical gate still closes at
-    ``freshness_timeout_s``.  This helper controls only whether that transient
-    local HOLD is immediately promoted to a terminal episode rejection.
+    The independent 20 Hz physical gate has already closed because neither a
+    fresh grid nor the bounded cached-map displacement contract is valid.
+    This helper controls only whether that local HOLD is immediately promoted
+    to a terminal episode rejection.
     """
 
-    if (
-        not math.isfinite(freshness_timeout_s)
-        or freshness_timeout_s <= 0.0
-        or not math.isfinite(recovery_grace_s)
-        or recovery_grace_s <= 0.0
-    ):
-        raise ValueError("occupancy freshness and recovery bounds must be positive")
+    if not math.isfinite(recovery_grace_s) or recovery_grace_s <= 0.0:
+        raise ValueError("occupancy recovery bound must be positive")
     return bool(
         all_other_health_ready
-        and math.isfinite(occupancy_age_s)
-        and freshness_timeout_s < occupancy_age_s
-        <= freshness_timeout_s + recovery_grace_s
+        and occupancy_observed
+        and math.isfinite(recovery_elapsed_s)
+        and 0.0 <= recovery_elapsed_s <= recovery_grace_s
     )
 
 
@@ -494,6 +491,7 @@ def physical_velocity_gate_reason(
     slam_pass: bool,
     occupancy_received_ns: int,
     occupancy_timeout_s: float,
+    cached_occupancy_motion_valid: bool = False,
     platform_required: bool,
     platform_received_ns: int,
     platform_timeout_s: float,
@@ -535,8 +533,11 @@ def physical_velocity_gate_reason(
         return "localization_not_tracking"
     if (
         occupancy_received_ns <= 0
-        or now_ns - occupancy_received_ns
-        > int(occupancy_timeout_s * 1e9)
+        or (
+            now_ns - occupancy_received_ns
+            > int(occupancy_timeout_s * 1e9)
+            and not cached_occupancy_motion_valid
+        )
     ):
         return "occupancy_missing_or_stale"
     if platform_required:
@@ -816,6 +817,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--max-cached-occupancy-motion-m",
+        type=float,
+        default=0.0,
+        help=(
+            "after the wall-clock occupancy deadline, permit the exact cached "
+            "grid only while base displacement from its receipt stays within "
+            "this bound; zero disables cached-map motion"
+        ),
+    )
+    parser.add_argument(
         "--health-gate-timeout-s",
         type=float,
         default=1.5,
@@ -982,6 +993,7 @@ def main() -> int:
         or args.reachability_clearance_m < 0
         or args.start_snap_radius_m < 0
         or args.start_footprint_override_m < 0
+        or not 0.0 <= args.max_cached_occupancy_motion_m <= 2.0
     ):
         parser.error("reachability distances must be non-negative")
     live = bool(
@@ -1076,6 +1088,11 @@ def main() -> int:
             self.odom_received_ns = 0
             self.occupancy: OccupancyGrid2D | None = None
             self.occupancy_received_ns = 0
+            self.occupancy_anchor_received_ns = 0
+            self.occupancy_anchor_tracking_T_camera: (
+                tuple[float, ...] | None
+            ) = None
+            self.occupancy_anchor_base_xy: tuple[float, float] | None = None
             self.slam_pass = False
             self.slam_detail = "slam_metrics_missing"
             self.slam_received_ns = 0
@@ -1113,6 +1130,7 @@ def main() -> int:
             self.authorized = False
             self.motion_health_pass = False
             self.motion_health_evaluated_ns = 0
+            self.cached_occupancy_motion_valid = False
             self.latest_raw_cmd = (0.0, 0.0)
             self.latest_guard_reason = "startup"
             self.poi_publisher = self.create_publisher(String, args.cmd_pois_topic, 10)
@@ -1221,10 +1239,15 @@ def main() -> int:
                 self.occupancy = occupancy_from_message(
                     message, expected_frame=args.tinynav_map_frame
                 )
+                self.occupancy_anchor_tracking_T_camera = (
+                    self.world_T_camera
+                )
                 self.occupancy_received_ns = time.time_ns()
             except ValueError as exc:
                 self.occupancy = None
                 self.occupancy_received_ns = 0
+                self.occupancy_anchor_tracking_T_camera = None
+                self.occupancy_anchor_base_xy = None
                 if live:
                     self.guarded_publisher.publish(Twist())
                     self.latest_guard_reason = "occupancy_invalid"
@@ -1396,6 +1419,9 @@ def main() -> int:
                 slam_pass=self.slam_pass,
                 occupancy_received_ns=self.occupancy_received_ns,
                 occupancy_timeout_s=args.occupancy_data_timeout_s,
+                cached_occupancy_motion_valid=(
+                    self.cached_occupancy_motion_valid
+                ),
                 platform_required=bool(args.platform_health_topic),
                 platform_received_ns=self.platform_received_ns,
                 platform_timeout_s=args.local_data_timeout_s,
@@ -1403,10 +1429,17 @@ def main() -> int:
             )
 
         def update_motion_health(
-            self, *, ready: bool, evaluated_ns: int
+            self,
+            *,
+            ready: bool,
+            evaluated_ns: int,
+            cached_occupancy_motion_valid: bool = False,
         ) -> None:
             self.motion_health_pass = bool(ready)
             self.motion_health_evaluated_ns = evaluated_ns
+            self.cached_occupancy_motion_valid = bool(
+                cached_occupancy_motion_valid
+            )
 
         def enforce_gate(self) -> None:
             if not live:
@@ -1676,6 +1709,7 @@ def main() -> int:
     router_recovery_started_ns = 0
     router_recovery_reason = ""
     occupancy_recovery_leg_id: str | None = None
+    occupancy_recovery_started_ns = 0
     progress_watchdog = GoalProgressWatchdog(
         timeout_s=args.no_progress_timeout_s,
         minimum_improvement_m=args.minimum_goal_progress_m,
@@ -1748,8 +1782,35 @@ def main() -> int:
                 time.sleep(args.poll_s)
                 continue
             path.update(pose[0], pose[1])
+            if (
+                node.occupancy_received_ns > 0
+                and node.occupancy_received_ns
+                != node.occupancy_anchor_received_ns
+            ):
+                # Bind each exact occupancy generation to the base pose seen
+                # by the same receiver. Sparse keyframes may then remain
+                # spatially valid while stationary, but never beyond the
+                # router's independently enforced displacement bound.
+                node.occupancy_anchor_received_ns = (
+                    node.occupancy_received_ns
+                )
+                if node.occupancy_anchor_tracking_T_camera is None:
+                    node.occupancy_anchor_base_xy = None
+                else:
+                    occupancy_anchor_pose = robot_map_base_pose(
+                        tracking_T_map=current_tracking_T_map,
+                        tracking_T_camera=(
+                            node.occupancy_anchor_tracking_T_camera
+                        ),
+                        base_T_camera=base_camera_calibration.matrix,
+                    )
+                    node.occupancy_anchor_base_xy = (
+                        occupancy_anchor_pose[0],
+                        occupancy_anchor_pose[1],
+                    )
             if active_decision is None:
                 occupancy_recovery_leg_id = None
+                occupancy_recovery_started_ns = 0
             now_ns = time.time_ns()
             alignment_shift, alignment_yaw = planar_transform_delta(
                 tracking_T_map, current_tracking_T_map
@@ -1781,9 +1842,31 @@ def main() -> int:
                     (now_ns - node.occupancy_received_ns) / 1e9,
                 )
             )
+            cached_occupancy_motion_valid = False
+            cached_occupancy_motion_m: float | None = None
+            if (
+                node.occupancy is not None
+                and occupancy_age_s > args.occupancy_data_timeout_s
+                and args.max_cached_occupancy_motion_m > 0.0
+            ):
+                (
+                    cached_occupancy_motion_valid,
+                    cached_occupancy_motion_m,
+                ) = cached_map_valid_for_pose(
+                    map_age_s=occupancy_age_s,
+                    map_timeout_s=args.occupancy_data_timeout_s,
+                    map_anchor_base_xy=node.occupancy_anchor_base_xy,
+                    current_base_xy=(pose[0], pose[1]),
+                    max_cached_map_motion_m=(
+                        args.max_cached_occupancy_motion_m
+                    ),
+                )
             occupancy_fresh = bool(
                 node.occupancy is not None
-                and occupancy_age_s <= args.occupancy_data_timeout_s
+                and (
+                    occupancy_age_s <= args.occupancy_data_timeout_s
+                    or cached_occupancy_motion_valid
+                )
             )
             graph_ready, graph_detail = node.planner_graph_ready()
             all_other_health_ready = (
@@ -1795,16 +1878,38 @@ def main() -> int:
                 and node.platform_pass
             )
             ready = all_other_health_ready and occupancy_fresh
-            occupancy_recovery_active = bool(
+            occupancy_recovery_candidate = bool(
                 active_decision is not None
-                and occupancy_recovery_eligible(
-                    occupancy_age_s=occupancy_age_s,
-                    freshness_timeout_s=args.occupancy_data_timeout_s,
-                    recovery_grace_s=args.occupancy_recovery_grace_s,
-                    all_other_health_ready=all_other_health_ready,
-                )
+                and not occupancy_fresh
+                and node.occupancy is not None
+                and all_other_health_ready
             )
-            node.update_motion_health(ready=ready, evaluated_ns=now_ns)
+            if occupancy_recovery_candidate:
+                if (
+                    occupancy_recovery_started_ns <= 0
+                    or occupancy_recovery_leg_id
+                    != active_decision.leg_id
+                ):
+                    occupancy_recovery_started_ns = now_ns
+                occupancy_recovery_elapsed_s = max(
+                    0.0,
+                    (now_ns - occupancy_recovery_started_ns) / 1e9,
+                )
+            else:
+                occupancy_recovery_elapsed_s = math.inf
+            occupancy_recovery_active = occupancy_recovery_eligible(
+                recovery_elapsed_s=occupancy_recovery_elapsed_s,
+                recovery_grace_s=args.occupancy_recovery_grace_s,
+                all_other_health_ready=all_other_health_ready,
+                occupancy_observed=node.occupancy is not None,
+            )
+            node.update_motion_health(
+                ready=ready,
+                evaluated_ns=now_ns,
+                cached_occupancy_motion_valid=(
+                    cached_occupancy_motion_valid
+                ),
+            )
             health = RobotHealth(
                 safety_state=SafetyState.READY if ready else SafetyState.HOLD,
                 localization_state=(
@@ -1826,6 +1931,16 @@ def main() -> int:
                     f"{args.slam_data_timeout_s:.3f}s; "
                     f"occupancy_age={occupancy_age_s:.3f}s/"
                     f"{args.occupancy_data_timeout_s:.3f}s; "
+                    "cached_occupancy_motion="
+                    + (
+                        "not_active"
+                        if cached_occupancy_motion_m is None
+                        else (
+                            f"{cached_occupancy_motion_m:.3f}m/"
+                            f"{args.max_cached_occupancy_motion_m:.3f}m"
+                        )
+                    )
+                    + "; "
                     f"alignment_shift={alignment_shift:.3f}m; "
                     f"alignment_yaw={math.degrees(alignment_yaw):.2f}deg; {graph_detail}; "
                     f"{node.platform_detail}; "
@@ -1851,6 +1966,7 @@ def main() -> int:
                         router_recovery_started_ns = 0
                         router_recovery_reason = ""
                         occupancy_recovery_leg_id = None
+                        occupancy_recovery_started_ns = 0
                     emit("heartbeat_failed_local_hold", error=str(exc)[:500])
                     time.sleep(args.poll_s)
                     continue
@@ -1866,6 +1982,7 @@ def main() -> int:
                     occupancy_age_s=round(occupancy_age_s, 3),
                 )
                 occupancy_recovery_leg_id = None
+                occupancy_recovery_started_ns = 0
                 progress_watchdog.reset()
             if not ready and active_decision is not None:
                 if occupancy_recovery_active:
@@ -1881,6 +1998,15 @@ def main() -> int:
                             occupancy_age_s=round(occupancy_age_s, 3),
                             freshness_timeout_s=(
                                 args.occupancy_data_timeout_s
+                            ),
+                            cached_occupancy_motion_m=(
+                                cached_occupancy_motion_m
+                            ),
+                            max_cached_occupancy_motion_m=(
+                                args.max_cached_occupancy_motion_m
+                            ),
+                            recovery_elapsed_s=round(
+                                occupancy_recovery_elapsed_s, 3
                             ),
                             recovery_grace_s=(
                                 args.occupancy_recovery_grace_s
@@ -1911,6 +2037,15 @@ def main() -> int:
                                 if math.isfinite(occupancy_age_s)
                                 else None
                             ),
+                            "cached_occupancy_motion_valid": (
+                                cached_occupancy_motion_valid
+                            ),
+                            "cached_occupancy_motion_m": (
+                                cached_occupancy_motion_m
+                            ),
+                            "max_cached_occupancy_motion_m": (
+                                args.max_cached_occupancy_motion_m
+                            ),
                             "occupancy_terminal_age_s": (
                                 args.occupancy_data_timeout_s
                                 + args.occupancy_recovery_grace_s
@@ -1934,6 +2069,7 @@ def main() -> int:
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
                     occupancy_recovery_leg_id = None
+                    occupancy_recovery_started_ns = 0
             if not alignment_stable and active_decision is not None:
                 node.revoke()
                 post(
@@ -2594,8 +2730,10 @@ def main() -> int:
                                 "physical velocity gate is closed while "
                                 "waiting for a fresh occupancy publication; "
                                 f"occupancy_age_s={occupancy_age_s:.3f}; "
-                                "terminal_age_s="
-                                f"{args.occupancy_data_timeout_s + args.occupancy_recovery_grace_s:.3f}"
+                                "recovery_elapsed_s="
+                                f"{occupancy_recovery_elapsed_s:.3f}; "
+                                "recovery_grace_s="
+                                f"{args.occupancy_recovery_grace_s:.3f}"
                             ),
                         )
                         last_feedback_monotonic = time.monotonic()
@@ -2746,6 +2884,7 @@ def main() -> int:
             else:
                 progress_watchdog.reset()
                 occupancy_recovery_leg_id = None
+                occupancy_recovery_started_ns = 0
             time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
     except KeyboardInterrupt:
         node.revoke()

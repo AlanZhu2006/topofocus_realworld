@@ -567,6 +567,13 @@ def test_dual_robot_occupancy_liveness_timeout_is_consistent():
         '"$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"'
         in yunji
     )
+    for launcher in (wsj, yunji):
+        assert 'FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25' in launcher
+        assert (
+            '--max-cached-occupancy-motion-m '
+            '"$MAX_CACHED_MAP_MOTION_M"'
+            in launcher
+        )
 
 
 def test_goal_category_reaches_both_persistent_observation_senders():

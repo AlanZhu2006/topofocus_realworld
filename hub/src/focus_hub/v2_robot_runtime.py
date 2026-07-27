@@ -214,6 +214,45 @@ def water_robot_health(
     )
 
 
+def cached_map_valid_for_pose(
+    *,
+    map_age_s: float,
+    map_timeout_s: float,
+    map_anchor_base_xy: tuple[float, float] | None,
+    current_base_xy: tuple[float, float] | None,
+    max_cached_map_motion_m: float,
+) -> tuple[bool, float | None]:
+    """Keep a sparse-keyframe map only within a bounded base displacement.
+
+    TinyNav's occupancy publisher is keyframe-driven, so wall-clock age can
+    grow while a stationary robot and its map remain spatially aligned.  Once
+    the normal age bound is crossed, the cached map remains usable only while
+    the base displacement from that exact occupancy generation stays within
+    the configured motion bound.
+    """
+
+    if not all(
+        math.isfinite(value)
+        for value in (
+            map_age_s,
+            map_timeout_s,
+            max_cached_map_motion_m,
+        )
+    ):
+        raise ValueError("map-age gate contains a non-finite value")
+    if map_age_s < 0 or map_timeout_s <= 0 or max_cached_map_motion_m < 0:
+        raise ValueError("map-age gate values are outside their valid range")
+    if map_age_s <= map_timeout_s:
+        return True, 0.0
+    if map_anchor_base_xy is None or current_base_xy is None:
+        return False, None
+    displacement_m = math.hypot(
+        current_base_xy[0] - map_anchor_base_xy[0],
+        current_base_xy[1] - map_anchor_base_xy[1],
+    )
+    return displacement_m <= max_cached_map_motion_m, displacement_m
+
+
 @dataclass
 class PathAccumulator:
     max_step_m: float = 2.0

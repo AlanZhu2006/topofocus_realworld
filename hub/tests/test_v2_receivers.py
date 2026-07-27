@@ -622,6 +622,16 @@ def test_final_velocity_gate_rechecks_all_health_at_control_rate():
     }
 
     assert wsj.physical_velocity_gate_reason(**base) is None
+    assert (
+        wsj.physical_velocity_gate_reason(
+            **{
+                **base,
+                "occupancy_received_ns": 6_999_999_999,
+                "cached_occupancy_motion_valid": True,
+            }
+        )
+        is None
+    )
     cases = {
         "authorized": (False, "authority_closed"),
         "health_pass": (False, "health_not_ready"),
@@ -652,30 +662,50 @@ def test_final_velocity_gate_rechecks_all_health_at_control_rate():
 def test_occupancy_episode_recovery_is_bounded_after_motion_gate_closes():
     wsj = load_overlay("v2_wsj_receiver.py")
     common = {
-        "freshness_timeout_s": 5.0,
         "recovery_grace_s": 7.0,
         "all_other_health_ready": True,
+        "occupancy_observed": True,
     }
 
-    assert not wsj.occupancy_recovery_eligible(
-        occupancy_age_s=5.0, **common
+    assert wsj.occupancy_recovery_eligible(
+        recovery_elapsed_s=0.0, **common
     )
     assert wsj.occupancy_recovery_eligible(
-        occupancy_age_s=5.105, **common
-    )
-    assert wsj.occupancy_recovery_eligible(
-        occupancy_age_s=12.0, **common
+        recovery_elapsed_s=7.0, **common
     )
     assert not wsj.occupancy_recovery_eligible(
-        occupancy_age_s=12.001, **common
+        recovery_elapsed_s=7.001, **common
     )
     assert not wsj.occupancy_recovery_eligible(
-        occupancy_age_s=5.105,
+        recovery_elapsed_s=0.105,
         **{**common, "all_other_health_ready": False},
     )
     assert not wsj.occupancy_recovery_eligible(
-        occupancy_age_s=float("inf"), **common
+        recovery_elapsed_s=0.105,
+        **{**common, "occupancy_observed": False},
     )
+    assert not wsj.occupancy_recovery_eligible(
+        recovery_elapsed_s=float("inf"), **common
+    )
+
+
+def test_receiver_and_router_share_cached_occupancy_motion_gate():
+    wsj = load_overlay("v2_wsj_receiver.py")
+
+    assert wsj.cached_map_valid_for_pose(
+        map_age_s=17.7,
+        map_timeout_s=5.0,
+        map_anchor_base_xy=(1.0, 2.0),
+        current_base_xy=(1.24, 2.0),
+        max_cached_map_motion_m=0.25,
+    ) == (True, pytest.approx(0.24))
+    assert wsj.cached_map_valid_for_pose(
+        map_age_s=17.7,
+        map_timeout_s=5.0,
+        map_anchor_base_xy=(1.0, 2.0),
+        current_base_xy=(1.26, 2.0),
+        max_cached_map_motion_m=0.25,
+    ) == (False, pytest.approx(0.26))
 
 
 def test_receiver_trajectory_contract_rejects_stale_geometry_inputs():
