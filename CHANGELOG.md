@@ -2,25 +2,18 @@
 
 ## Unreleased
 
-### Scene 02 formal experiment and trajectory recovery (2026-07-28)
+### Scene 02 formal experiment 01 (2026-07-28)
 
-- Archive Scene 02 formal experiment 01 as `FAILURE`, with `Success=0`,
-  `SR=0`, both SPL variants equal to zero, exact dual-robot paths and
-  checksummed runtime/calibration/robot-local evidence.
-- Attribute the terminal result to
-  `execution_engineering_failure/local_planner_trajectory_stale`, not VLM:
-  the frozen source-derived candidate selected the plant semantic region and
-  WSJ retained `NAVIGATING/ONLINE_PATH_READY`.
-- Keep the one-second stale-trajectory physical zero gate unchanged while
-  increasing the bounded terminal republish window from three to five
-  seconds for an already-started semantic leg.
-- Configure that `1.0/5.0 s` contract explicitly and consistently in both
-  WSJ and Yunji launchers; retain the shorter never-started-path grace and all
-  robot-local watchdog, collision, lease and stop/reject authority.
-- Publish the user-provided Scene 02 formal experiment 01 third-view and
-  Dashboard masters byte-for-byte through Git LFS, with H.264 derivatives,
-  terminal-frame posters and ~8 s README preview GIFs; add a Scene 02 section
-  to the main README and record the attempt in
+- Archive Scene 02 formal experiment 01 as `FAILURE` (`Success=0`, `SR=0`,
+  both SPL variants zero): one assigned frontier was rejected as locally
+  unreachable, and the remaining semantic-navigation leg terminated before
+  arrival. Attribution is `navigation_policy_failure`, not VLM — the plant
+  semantic region was correctly identified and assigned.
+- Apply a local-navigation stale-route recovery timing fix, covered by
+  regression tests; not yet re-verified against a live physical run.
+- Publish the user-provided third-view and Dashboard masters byte-for-byte
+  through Git LFS, with H.264 derivatives, posters and README preview GIFs;
+  add a Scene 02 section to the main README and record the attempt in
   `manifests/realworld_experiment_progress.json`.
 
 ### Calibration reliability (2026-07-27)

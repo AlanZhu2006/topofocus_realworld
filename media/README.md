@@ -26,7 +26,7 @@ evidence and indexed in
 # Scene 02 media
 
 Scene 02 currently contains one archived formal episode, which failed
-(`execution_engineering_failure/local_planner_trajectory_stale`). User-provided
+(`navigation_policy_failure`, not a VLM decision failure). User-provided
 master videos are byte-preserved under `media/video/**` through Git LFS;
 browser-ready H.264 files, terminal-frame posters and inline GIF previews are
 under `media/demo/`.

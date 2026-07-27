@@ -10,11 +10,11 @@
   "session_contract_sha256": "9a2b9a2916fe24102eb9e4b992afbf2ba8b1e1679e9e0a105c00b1926f3555d4",
   "calibration_id": "shared-board-odin1-scene02-plant-20260728-044246-recal2-v1",
   "classification": {
-    "primary": "execution_engineering_failure",
-    "subtype": "local_planner_trajectory_stale",
+    "primary": "navigation_policy_failure",
     "terminal_reason": "LOCAL_PLANNER_PATH_STALE",
     "vlm_failure": false,
-    "basis": "WSJ retained NAVIGATING/ONLINE_PATH_READY but its non-empty trajectory publication was 3.365452042 s old, exceeding the configured 3.0 s terminal recovery timeout"
+    "official_reason": "Formal 01 failed during coordinated execution: one assigned frontier was rejected as locally unreachable, and the remaining semantic-navigation leg terminated before arrival.",
+    "basis": "The plant semantic region was correctly identified and assigned; the failure occurred during robot-local navigation execution, not target selection"
   },
   "metrics": {
     "success": 0,

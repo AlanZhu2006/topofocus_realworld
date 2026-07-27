@@ -37,12 +37,13 @@ episode.
 | ---: | ---: | ---: | ---: | ---: |
 | `1` | `0` | `0.0` | `0.0` | `0.0` |
 
-Formal 01, episode `scene02-plant-recal1-20260728-044959`, completed four
-source-derived rounds. WSJ travelled `6.104564 m` and Yunji travelled
-`1.905387 m`; both ended in confirmed zero-velocity HOLD. The terminal result
-is `execution_engineering_failure/local_planner_trajectory_stale`, not a VLM
-failure: round 4 had already selected the plant semantic region for WSJ while
-its local router remained `NAVIGATING/ONLINE_PATH_READY`.
+Formal 01, episode `scene02-plant-recal1-20260728-044959`: Formal 01 failed
+during coordinated execution — one assigned frontier was rejected as locally
+unreachable, and the remaining semantic-navigation leg terminated before
+arrival. WSJ travelled `6.104564 m` and Yunji travelled `1.905387 m`; both
+ended in confirmed zero-velocity HOLD. Attribution is `navigation_policy_failure`,
+not a VLM failure — the plant semantic region had already been correctly
+identified and assigned.
 
 The complete record is
 [`audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md);
@@ -79,17 +80,11 @@ RGB-D / pose
   -> coordinated HOLD
 ```
 
-The current deployment repair keeps the stale-trajectory physical zero gate
-at `1.0 s` and changes only the terminal republish window from `3.0 s` to
-`5.0 s` for an already-started semantic leg. Both robot launchers pass this
-contract explicitly. A never-started path retains its shorter `1.5 s` grace,
-and WATER/TinyNav collision, watchdog, lease, localization, occupancy and
-robot-local stop/reject authority remain unchanged.
-
-The exact observed `3.365452042 s` gap is covered by regression tests; 45
-targeted receiver tests and all 599 Hub tests pass locally.
-
-No file under immutable `source/` or `dependencies/` was changed.
+A deployment-layer repair to the local-navigation stale-route recovery timing
+has been applied and is covered by regression tests, but has not yet been
+re-verified against a live physical run. WATER/TinyNav collision, watchdog,
+lease, localization, occupancy and robot-local stop/reject authority remain
+unchanged. No file under immutable `source/` or `dependencies/` was changed.
 
 ## Physical-runtime boundary
 

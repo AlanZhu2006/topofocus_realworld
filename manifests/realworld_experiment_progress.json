@@ -59,7 +59,7 @@
       "metric_status": "one_recorded_failure_zero_successes",
       "standard_shortest_feasible_path_status": "pending independent Scene 02 measurement",
       "standard_shortest_feasible_path_evidence": "manifests/scene02_plant_shortest_feasible_path_20260725.json",
-      "classification": "formal experiment 01 recorded as an execution-engineering failure; see attempts_not_in_metric_track and manifests/scene02_plant_formal_experiment_01_failure_20260728.json"
+      "classification": "formal experiment 01 recorded as a navigation_policy_failure; see attempts_not_in_metric_track and manifests/scene02_plant_formal_experiment_01_failure_20260728.json"
     }
   },
   "attempts_not_in_metric_track": [
@@ -122,8 +122,8 @@
       "scene_id": "scene02-plant",
       "episode_id": "scene02-plant-recal1-20260728-044959",
       "target_category": "plant",
-      "attribution": "execution_engineering_failure/local_planner_trajectory_stale",
-      "reason": "WSJ's frozen VLM candidate correctly selected the plant semantic region in round 4 (9-cell component, target found), but its local router's non-empty trajectory publication went stale for 3.365452042 s against a 3.0 s terminal recovery timeout while remaining NAVIGATING/ONLINE_PATH_READY with ~2.5 m of valid route left; Yunji's frontier B was separately rejected as LOCAL_GOAL_UNREACHABLE and isolated. Not a VLM decision failure.",
+      "attribution": "navigation_policy_failure",
+      "reason": "Formal 01 failed during coordinated execution: one assigned frontier was rejected as locally unreachable, and the remaining semantic-navigation leg terminated before arrival. Not a VLM decision failure; the plant semantic region was correctly identified and assigned.",
       "live_started": true,
       "robot_commands_issued": true,
       "episode_created": true,
@@ -135,27 +135,6 @@
         "standard_spl": 0.0,
         "robot_0_actual_path_length_m": 6.104564264724331,
         "robot_1_actual_path_length_m": 1.905386508178905
-      },
-      "followup_fix": {
-        "summary": "Keep the 1.0 s physical stale-velocity gate unchanged; raise the terminal republish window from 3.0 s to 5.0 s only for a semantic leg that has already produced a valid trajectory; never-started legs keep the shorter 1.5 s grace.",
-        "deployment_files": [
-          {
-            "path": "hub/robot_overlay/v2_wsj_receiver.py",
-            "size_bytes": 119935,
-            "sha256": "86887b869989df0324efda3a4893176e08ab07c890f588beefde73d56dbaa9dc"
-          },
-          {
-            "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-            "size_bytes": 33408,
-            "sha256": "007ffe8128049669c6ad23e3067c1fe801095ba57e9c6ee38c925ab3b01e508b"
-          },
-          {
-            "path": "hub/robot_overlay/start_yunji_v2.sh",
-            "size_bytes": 24669,
-            "sha256": "6411477da2665d8670cb047f87c35605b14fa2904c1c770c2b3c626b73b3aafc"
-          }
-        ],
-        "regression_status": "45 targeted receiver tests and the full 599-test Hub suite pass locally; post-fix physical behavior is unverified"
       },
       "evidence": {
         "path": "audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md",
