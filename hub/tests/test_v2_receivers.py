@@ -649,6 +649,35 @@ def test_final_velocity_gate_rechecks_all_health_at_control_rate():
         ) == expected
 
 
+def test_occupancy_episode_recovery_is_bounded_after_motion_gate_closes():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    common = {
+        "freshness_timeout_s": 5.0,
+        "recovery_grace_s": 2.0,
+        "all_other_health_ready": True,
+    }
+
+    assert not wsj.occupancy_recovery_eligible(
+        occupancy_age_s=5.0, **common
+    )
+    assert wsj.occupancy_recovery_eligible(
+        occupancy_age_s=5.105, **common
+    )
+    assert wsj.occupancy_recovery_eligible(
+        occupancy_age_s=7.0, **common
+    )
+    assert not wsj.occupancy_recovery_eligible(
+        occupancy_age_s=7.001, **common
+    )
+    assert not wsj.occupancy_recovery_eligible(
+        occupancy_age_s=5.105,
+        **{**common, "all_other_health_ready": False},
+    )
+    assert not wsj.occupancy_recovery_eligible(
+        occupancy_age_s=float("inf"), **common
+    )
+
+
 def test_receiver_trajectory_contract_rejects_stale_geometry_inputs():
     wsj = load_overlay("v2_wsj_receiver.py")
     valid = SimpleNamespace(

@@ -42,12 +42,12 @@ MAP_TIMEOUT_S="${FOCUS_YUNJI_MAP_TIMEOUT_S:-12.0}"
 MAX_PLAN_EXPANSIONS="${FOCUS_TINYNAV_MAX_PLAN_EXPANSIONS:-20000}"
 MAX_PLAN_DURATION_S="${FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50}"
 # Observed physical provenance (2026-07-28): Yunji's healthy online occupancy
-# publisher runs at 0.34-0.35 Hz (2.717-3.049 s intervals) and produced one
-# 3.199 s interval while odometry, SLAM, graph, WATER and the local planner
-# all remained ready. Five seconds covers one normal publication plus bounded
-# scheduling jitter; trajectory and chassis watchdogs retain their tighter
-# independent zero-output authority.
+# publisher runs at 0.34-0.35 Hz (2.717-3.049 s intervals). Formal-04 later
+# observed 5.105 s while odometry, SLAM, graph, WATER and the local planner all
+# remained ready. The 5 s physical gate remains unchanged and zeros locally;
+# a 2 s episode-level recovery window tolerates only that occupancy-only jitter.
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
+RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-2.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # The forward-only planner contains collision-scored zero-linear turns.  The
@@ -541,6 +541,7 @@ receiver_args=(
   --local-map-frame yunji/world
   --occupancy-topic /semantic_mapping/occupancy_bev
   --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
+  --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
   --external-odometry-health
   --platform-health-topic /focus/water/cmd_bridge_status
   --reject-reverse-trajectory

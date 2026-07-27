@@ -544,6 +544,24 @@ def test_dual_robot_occupancy_liveness_timeout_is_consistent():
 
     assert 'FOCUS_WSJ_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0' in wsj
     assert 'FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0' in yunji
+    assert (
+        'FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-2.0'
+        in wsj
+    )
+    assert (
+        'FOCUS_YUNJI_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-2.0'
+        in yunji
+    )
+    assert (
+        '--occupancy-recovery-grace-s '
+        '"$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"'
+        in wsj
+    )
+    assert (
+        '--occupancy-recovery-grace-s '
+        '"$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"'
+        in yunji
+    )
 
 
 def test_goal_category_reaches_both_persistent_observation_senders():

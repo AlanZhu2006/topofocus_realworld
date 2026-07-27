@@ -109,6 +109,35 @@ def recoverable_router_hold(
     )
 
 
+def occupancy_recovery_eligible(
+    *,
+    occupancy_age_s: float,
+    freshness_timeout_s: float,
+    recovery_grace_s: float,
+    all_other_health_ready: bool,
+) -> bool:
+    """Allow a bounded zero-velocity wait for occupancy-only jitter.
+
+    The independent 20 Hz physical gate still closes at
+    ``freshness_timeout_s``.  This helper controls only whether that transient
+    local HOLD is immediately promoted to a terminal episode rejection.
+    """
+
+    if (
+        not math.isfinite(freshness_timeout_s)
+        or freshness_timeout_s <= 0.0
+        or not math.isfinite(recovery_grace_s)
+        or recovery_grace_s <= 0.0
+    ):
+        raise ValueError("occupancy freshness and recovery bounds must be positive")
+    return bool(
+        all_other_health_ready
+        and math.isfinite(occupancy_age_s)
+        and freshness_timeout_s < occupancy_age_s
+        <= freshness_timeout_s + recovery_grace_s
+    )
+
+
 class GoalProgressWatchdog:
     """Bound how long one fixed local goal may make no metric progress."""
 
@@ -778,6 +807,15 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--occupancy-recovery-grace-s",
+        type=float,
+        default=2.0,
+        help=(
+            "maximum zero-velocity recovery window after occupancy freshness "
+            "expires before the active episode leg is terminally rejected"
+        ),
+    )
+    parser.add_argument(
         "--health-gate-timeout-s",
         type=float,
         default=1.5,
@@ -916,6 +954,7 @@ def main() -> int:
         args.poll_s,
         args.local_data_timeout_s,
         args.occupancy_data_timeout_s,
+        args.occupancy_recovery_grace_s,
         args.health_gate_timeout_s,
         args.router_recovery_grace_s,
         args.no_progress_timeout_s,
@@ -1636,6 +1675,7 @@ def main() -> int:
     router_recovery_leg_id: str | None = None
     router_recovery_started_ns = 0
     router_recovery_reason = ""
+    occupancy_recovery_leg_id: str | None = None
     progress_watchdog = GoalProgressWatchdog(
         timeout_s=args.no_progress_timeout_s,
         minimum_improvement_m=args.minimum_goal_progress_m,
@@ -1708,6 +1748,8 @@ def main() -> int:
                 time.sleep(args.poll_s)
                 continue
             path.update(pose[0], pose[1])
+            if active_decision is None:
+                occupancy_recovery_leg_id = None
             now_ns = time.time_ns()
             alignment_shift, alignment_yaw = planar_transform_delta(
                 tracking_T_map, current_tracking_T_map
@@ -1744,14 +1786,23 @@ def main() -> int:
                 and occupancy_age_s <= args.occupancy_data_timeout_s
             )
             graph_ready, graph_detail = node.planner_graph_ready()
-            ready = (
+            all_other_health_ready = (
                 local_fresh
                 and node.slam_pass
                 and alignment_stable
                 and graph_ready
-                and occupancy_fresh
                 and platform_fresh
                 and node.platform_pass
+            )
+            ready = all_other_health_ready and occupancy_fresh
+            occupancy_recovery_active = bool(
+                active_decision is not None
+                and occupancy_recovery_eligible(
+                    occupancy_age_s=occupancy_age_s,
+                    freshness_timeout_s=args.occupancy_data_timeout_s,
+                    recovery_grace_s=args.occupancy_recovery_grace_s,
+                    all_other_health_ready=all_other_health_ready,
+                )
             )
             node.update_motion_health(ready=ready, evaluated_ns=now_ns)
             health = RobotHealth(
@@ -1799,44 +1850,90 @@ def main() -> int:
                         router_recovery_leg_id = None
                         router_recovery_started_ns = 0
                         router_recovery_reason = ""
+                        occupancy_recovery_leg_id = None
                     emit("heartbeat_failed_local_hold", error=str(exc)[:500])
                     time.sleep(args.poll_s)
                     continue
-            if not ready and active_decision is not None:
-                node.revoke()
+            if ready and occupancy_recovery_leg_id is not None:
                 emit(
-                    "health_not_ready_local_hold",
-                    decision_id=active_decision.decision_id,
-                    detail=health.detail,
-                    checks={
-                        "local_fresh": local_fresh,
-                        "slam_pass": node.slam_pass,
-                        "alignment_stable": alignment_stable,
-                        "graph_ready": graph_ready,
-                        "occupancy_fresh": occupancy_fresh,
-                        "occupancy_age_s": (
-                            occupancy_age_s
-                            if math.isfinite(occupancy_age_s)
-                            else None
-                        ),
-                        "platform_fresh": platform_fresh,
-                        "platform_pass": node.platform_pass,
-                    },
+                    "occupancy_recovery_complete",
+                    decision_id=(
+                        None
+                        if active_decision is None
+                        else active_decision.decision_id
+                    ),
+                    leg_id=occupancy_recovery_leg_id,
+                    occupancy_age_s=round(occupancy_age_s, 3),
                 )
-                post(
-                    active_decision,
-                    NavigationStatusV2.REJECTED,
-                    "HEALTH_NOT_READY",
-                    pose,
-                    zero=True,
-                    detail=health.detail,
-                    terminal=True,
-                )
-                active_decision = None
-                active_goal = None
-                router_recovery_leg_id = None
-                router_recovery_started_ns = 0
-                router_recovery_reason = ""
+                occupancy_recovery_leg_id = None
+                progress_watchdog.reset()
+            if not ready and active_decision is not None:
+                if occupancy_recovery_active:
+                    if (
+                        occupancy_recovery_leg_id
+                        != active_decision.leg_id
+                    ):
+                        occupancy_recovery_leg_id = active_decision.leg_id
+                        emit(
+                            "occupancy_stale_recovery_wait",
+                            decision_id=active_decision.decision_id,
+                            leg_id=active_decision.leg_id,
+                            occupancy_age_s=round(occupancy_age_s, 3),
+                            freshness_timeout_s=(
+                                args.occupancy_data_timeout_s
+                            ),
+                            recovery_grace_s=(
+                                args.occupancy_recovery_grace_s
+                            ),
+                            physical_velocity_gate_closed=True,
+                        )
+                else:
+                    failed_decision = active_decision
+                    node.revoke()
+                    reason_code = (
+                        "OCCUPANCY_STALE_TIMEOUT"
+                        if all_other_health_ready and not occupancy_fresh
+                        else "HEALTH_NOT_READY"
+                    )
+                    emit(
+                        "health_not_ready_local_hold",
+                        decision_id=failed_decision.decision_id,
+                        reason_code=reason_code,
+                        detail=health.detail,
+                        checks={
+                            "local_fresh": local_fresh,
+                            "slam_pass": node.slam_pass,
+                            "alignment_stable": alignment_stable,
+                            "graph_ready": graph_ready,
+                            "occupancy_fresh": occupancy_fresh,
+                            "occupancy_age_s": (
+                                occupancy_age_s
+                                if math.isfinite(occupancy_age_s)
+                                else None
+                            ),
+                            "occupancy_terminal_age_s": (
+                                args.occupancy_data_timeout_s
+                                + args.occupancy_recovery_grace_s
+                            ),
+                            "platform_fresh": platform_fresh,
+                            "platform_pass": node.platform_pass,
+                        },
+                    )
+                    post(
+                        failed_decision,
+                        NavigationStatusV2.REJECTED,
+                        reason_code,
+                        pose,
+                        zero=True,
+                        detail=health.detail,
+                        terminal=True,
+                    )
+                    active_decision = None
+                    active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
+                    occupancy_recovery_leg_id = None
             if not alignment_stable and active_decision is not None:
                 node.revoke()
                 post(
@@ -1892,6 +1989,7 @@ def main() -> int:
             if (
                 args.online_buildmap_world
                 and active_decision is not None
+                and occupancy_recovery_leg_id != active_decision.leg_id
                 and router_status_received_ns >= goal_issued_ns
                 and router_state == "HOLD"
                 and (
@@ -2045,6 +2143,28 @@ def main() -> int:
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
                 time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
+                continue
+
+            if (
+                occupancy_recovery_leg_id is not None
+                and active_decision is not None
+                and decision.mode.value == "GOAL"
+                and decision.leg_id == occupancy_recovery_leg_id
+                and decision.decision_id != last_decision_id
+            ):
+                emit(
+                    "occupancy_recovery_decision_deferred",
+                    current_decision_id=active_decision.decision_id,
+                    pending_decision_id=decision.decision_id,
+                    leg_id=decision.leg_id,
+                )
+                time.sleep(
+                    max(
+                        0.0,
+                        args.poll_s
+                        - (time.monotonic() - cycle_started),
+                    )
+                )
                 continue
 
             goal_published_this_cycle = False
@@ -2456,6 +2576,29 @@ def main() -> int:
                     router_recovery_leg_id = None
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
+                elif occupancy_recovery_leg_id == active_decision.leg_id:
+                    # Occupancy freshness has crossed the hard motion bound,
+                    # so the 20 Hz gate is already publishing zero. Preserve
+                    # the high-level leg only for the explicit bounded grace.
+                    if (
+                        time.monotonic() - last_feedback_monotonic >= 0.5
+                    ):
+                        post(
+                            active_decision,
+                            NavigationStatusV2.ACCEPTED,
+                            "LOCAL_OCCUPANCY_RECOVERY_WAIT",
+                            pose,
+                            zero=True,
+                            goal=active_goal,
+                            detail=(
+                                "physical velocity gate is closed while "
+                                "waiting for a fresh occupancy publication; "
+                                f"occupancy_age_s={occupancy_age_s:.3f}; "
+                                "terminal_age_s="
+                                f"{args.occupancy_data_timeout_s + args.occupancy_recovery_grace_s:.3f}"
+                            ),
+                        )
+                        last_feedback_monotonic = time.monotonic()
                 elif router_recovery_leg_id == active_decision.leg_id:
                     # The physical velocity gate is closed during bounded
                     # online-map recovery, so this must never be reported as
@@ -2602,6 +2745,7 @@ def main() -> int:
                         last_feedback_monotonic = time.monotonic()
             else:
                 progress_watchdog.reset()
+                occupancy_recovery_leg_id = None
             time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
     except KeyboardInterrupt:
         node.revoke()
