@@ -1008,12 +1008,21 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     launcher = (
         OVERLAY / "start_wsj_calibration_observation.sh"
     ).read_text(encoding="utf-8")
+    sensor_gate = launcher[
+        : launcher.index("WSJ_CALIBRATION_SENSOR_EPOCH_READY")
+    ]
+    sender_gate = launcher[launcher.index("sender=(") :]
 
     assert 'tmux respawn-pane -k -t "$SESSION:camera"' in launcher
     assert 'tmux respawn-pane -k -t "$SESSION:perception"' in launcher
-    assert "/slam/depth" in launcher
-    assert "/slam/keyframe_depth" in launcher
-    assert "/slam/keyframe_odom" in launcher
+    assert "/slam/depth" in sensor_gate
+    assert "/slam/odometry_visual" in sensor_gate
+    assert "/slam/keyframe_depth" not in sensor_gate
+    assert "/slam/keyframe_odom" not in sensor_gate
+    assert "--depth-topic /slam/keyframe_depth" in sender_gate
+    assert "--pose-topic /slam/keyframe_odom" in sender_gate
+    assert "latest_sequence > initial_sequence" in sender_gate
+    assert "keyframe_tuple_gate=sender_sequence" in launcher
     assert launcher.count("verify_ros_geometry_profile.py") >= 3
     assert "--image-topic /slam/depth" in launcher
     assert "--camera-info-topic /slam/camera_info" in launcher

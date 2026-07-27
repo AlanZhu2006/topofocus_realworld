@@ -360,6 +360,16 @@ def test_calibration_parallelizes_dual_robot_transport_and_startup():
     assert "FOCUS_DEPLOYMENT_COMMIT='$code_commit'" in source
 
 
+def test_remote_timeouts_interrupt_before_fail_closed_cleanup():
+    for script in ("calibrate_realworld_session.sh", "realworld_oneclick.sh"):
+        source = (SCRIPTS / script).read_text()
+        timeout = source.index("Remote command timed out on")
+        interrupt = source.index('tmux send-keys -t "$target" C-c', timeout)
+        marker = source.index("REMOTE_TIMEOUT_INTERRUPTED", interrupt)
+        reconnect = source.index("tmux respawn-pane -k", marker)
+        assert timeout < interrupt < marker < reconnect
+
+
 def test_runtime_processes_are_bound_to_the_checked_deployment_commit():
     oneclick = (SCRIPTS / "realworld_oneclick.sh").read_text()
     calibration = (SCRIPTS / "calibrate_realworld_session.sh").read_text()

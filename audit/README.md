@@ -82,6 +82,9 @@ current. For the authoritative project state, read
 
 ## Current calibration and sensors
 
+- [`WSJ_CALIBRATION_KEYFRAME_GATE_20260727.md`](WSJ_CALIBRATION_KEYFRAME_GATE_20260727.md):
+  observed sparse-keyframe false failure, continuous-health/keyframe-tuple
+  gate separation, and fail-closed remote-timeout recovery.
 - [`YUNJI_ODIN1_BOOT_RECOVERY_20260724.md`](YUNJI_ODIN1_BOOT_RECOVERY_20260724.md):
   observed post-reboot disabled-driver failure, read-only recovery, and the
   calibration-only automatic startup guard.

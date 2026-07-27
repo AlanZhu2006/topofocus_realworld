@@ -230,7 +230,7 @@ remote_begin() {
 
 remote_finish() {
   local target="$1" token="$2" timeout_s="${3:-180}"
-  local deadline output rc
+  local deadline output rc cancel_deadline
   deadline=$((SECONDS + timeout_s))
   while (( SECONDS < deadline )); do
     output="$(tmux capture-pane -pJt "$target" -S -260 2>/dev/null || true)"
@@ -248,6 +248,27 @@ remote_finish() {
     sleep 1
   done
   echo "Remote command timed out on $target" >&2
+  # Make timeout fail closed in the remote shell as well. Otherwise the
+  # foreground launcher remains active and every cleanup command is only
+  # queued behind it, which can turn one bounded failure into another full
+  # timeout.
+  tmux send-keys -t "$target" C-c
+  cancel_deadline=$((SECONDS + 10))
+  while (( SECONDS < cancel_deadline )); do
+    output="$(tmux capture-pane -pJt "$target" -S -260 2>/dev/null || true)"
+    rc="$(
+      sed -n "s/^__${token}_RC=\([0-9][0-9]*\)[[:space:]]*$/\1/p" \
+        <<<"$output" | tail -n 1
+    )"
+    if [[ -n "$rc" ]]; then
+      echo "REMOTE_TIMEOUT_INTERRUPTED: $target rc=$rc" >&2
+      return 124
+    fi
+    sleep 1
+  done
+  echo "Timed-out command did not release $target; respawning its existing SSH pane." >&2
+  tmux respawn-pane -k -t "$target"
+  probe_ssh_tmux_shell "$target" || true
   return 124
 }
 

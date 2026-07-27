@@ -154,8 +154,7 @@ fi
 if [[ "$(tmux display-message -p -t "$SESSION:perception" '#{pane_dead}')" != 0 ]] \
    || [[ "$camera_restarted" == true ]] \
    || ! fresh_topic_once /slam/depth \
-   || ! fresh_topic_once /slam/keyframe_depth \
-   || ! fresh_topic_once /slam/keyframe_odom \
+   || ! fresh_topic_once /slam/odometry_visual \
    || ! "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_ros_geometry_profile.py" \
       --image-topic /slam/depth \
       --camera-info-topic /slam/camera_info \
@@ -166,8 +165,7 @@ if [[ "$(tmux display-message -p -t "$SESSION:perception" '#{pane_dead}')" != 0 
 fi
 
 wait_for_fresh_topic /slam/depth "TinyNav processed depth"
-wait_for_fresh_topic /slam/keyframe_depth "TinyNav keyframe depth"
-wait_for_fresh_topic /slam/keyframe_odom "TinyNav keyframe odometry"
+wait_for_fresh_topic /slam/odometry_visual "TinyNav continuous visual odometry"
 wait_for_fresh_topic /slam/camera_info "TinyNav camera intrinsics"
 wait_for_fresh_topic \
   /camera/camera/infra1/image_rect_raw "RealSense rectified infra1 image"
@@ -181,10 +179,21 @@ wait_for_fresh_topic \
 # frame is not proof that the IMU watermark continues to advance.
 sleep 5
 wait_for_fresh_topic /slam/depth "stable TinyNav processed depth"
-wait_for_fresh_topic /slam/keyframe_odom "stable TinyNav keyframe odometry"
+wait_for_fresh_topic \
+  /slam/odometry_visual "stable TinyNav continuous visual odometry"
 echo "WSJ_CALIBRATION_SENSOR_EPOCH_READY:" \
   "camera_restarted=$camera_restarted" \
-  "perception_restarted=$perception_restarted"
+  "perception_restarted=$perception_restarted" \
+  "keyframe_tuple_gate=sender_sequence"
+
+# `/slam/keyframe_depth` and `/slam/keyframe_odom` are deliberately absent
+# from the continuous sensor-epoch gate above. TinyNav publishes that exact
+# pair only when `keyframe_check(...)` accepts a frame (or its sparse-keyframe
+# timeout expires), so treating either topic as a heartbeat can repeatedly
+# restart a healthy perception process while a stationary robot is waiting
+# for board calibration. The sender below still synchronizes the exact
+# keyframe depth/pose tuple, and the mandatory Hub sequence advance remains
+# the end-to-end proof that a fresh tuple was actually captured.
 
 for legacy_session in focus_wsj_camera_preview_20260723 focus_wsj_mapping; do
   if tmux has-session -t "$legacy_session" 2>/dev/null; then

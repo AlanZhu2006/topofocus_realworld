@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Calibration reliability (2026-07-27)
+
+- Stop treating WSJ's sparse `/slam/keyframe_depth` and
+  `/slam/keyframe_odom` tuple as a continuous sensor heartbeat. Continuous
+  recovery now uses processed depth and visual odometry, while the unchanged
+  synchronized keyframe sender and Hub sequence advance remain mandatory.
+- Interrupt timed-out remote foreground jobs before calibration/one-click
+  cleanup; recover and probe the existing SSH/tmux pane if a job does not
+  release it.
+
 ### Scene 02 plant preparation (2026-07-25)
 
 - Prepare `scene02-plant` as the next five-trial formal campaign without
