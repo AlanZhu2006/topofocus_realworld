@@ -45,6 +45,74 @@ def artifact_identity(path: Path, *, workspace: Path) -> dict[str, object]:
     }
 
 
+def resolve_artifact_identity(
+    identity: object, *, workspace: Path, label: str
+) -> Path:
+    if not isinstance(identity, dict):
+        raise ValueError(f"{label} identity must be an object")
+    raw_path = identity.get("path")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise ValueError(f"{label} identity lacks a path")
+    path = Path(raw_path)
+    resolved = (
+        path.resolve()
+        if path.is_absolute()
+        else (workspace / path).resolve()
+    )
+    if not resolved.is_file():
+        raise FileNotFoundError(resolved)
+    if resolved.stat().st_size != int(identity.get("size_bytes", -1)):
+        raise ValueError(f"{label} artifact size drift")
+    if sha256_file(resolved) != str(identity.get("sha256", "")):
+        raise ValueError(f"{label} artifact hash drift")
+    return resolved
+
+
+def require_independent_board_holdout(payload: dict[str, object]) -> None:
+    holdout = payload.get("holdout_validation")
+    checks = holdout.get("checks") if isinstance(holdout, dict) else None
+    if not isinstance(checks, dict) or not all(
+        checks.get(name) is True
+        for name in (
+            "sync_skew",
+            "board_center_residual",
+            "board_normal_residual",
+            "board_moved_independently",
+        )
+    ):
+        raise ValueError(
+            "source calibration chain lacks an independent moved-board holdout"
+        )
+
+
+def board_source_for(
+    source: dict[str, object],
+    *,
+    source_path: Path,
+    workspace: Path,
+) -> tuple[Path, dict[str, object], bool]:
+    """Resolve and verify the immutable board root of a calibration chain."""
+    try:
+        require_independent_board_holdout(source)
+    except ValueError:
+        board_path = resolve_artifact_identity(
+            source.get("derived_from_board_calibration"),
+            workspace=workspace,
+            label="source board calibration",
+        )
+        board = json.loads(board_path.read_text(encoding="utf-8"))
+        if board.get("passed") is not True:
+            raise ValueError("source board calibration did not pass")
+        require_independent_board_holdout(board)
+        if (
+            board.get("reference_robot") != source.get("reference_robot")
+            or board.get("other_robot") != source.get("other_robot")
+        ):
+            raise ValueError("calibration chain robot identities changed")
+        return board_path, board, True
+    return source_path, source, False
+
+
 def rotation_angle_deg(rotation: np.ndarray) -> float:
     cosine = float(np.clip((np.trace(rotation) - 1.0) / 2.0, -1.0, 1.0))
     return math.degrees(math.acos(cosine))
@@ -217,21 +285,10 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
     source_path = args.source_calibration.resolve()
     source = json.loads(source_path.read_text(encoding="utf-8"))
     if source.get("passed") is not True:
-        raise ValueError("source board calibration did not pass")
-    holdout = source.get("holdout_validation")
-    checks = holdout.get("checks") if isinstance(holdout, dict) else None
-    if not isinstance(checks, dict) or not all(
-        checks.get(name) is True
-        for name in (
-            "sync_skew",
-            "board_center_residual",
-            "board_normal_residual",
-            "board_moved_independently",
-        )
-    ):
-        raise ValueError(
-            "source calibration lacks an independent moved-board holdout"
-        )
+        raise ValueError("source calibration did not pass")
+    board_path, _, chained = board_source_for(
+        source, source_path=source_path, workspace=workspace
+    )
     reference = source.get("calibration_frame", {}).get("reference")
     if not isinstance(reference, dict):
         raise ValueError("source calibration lacks reference epoch identity")
@@ -330,9 +387,17 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
         failed = sorted(name for name, value in checks.items() if not value)
         raise ValueError("stationary re-anchor validation failed: " + ", ".join(failed))
 
-    source_identity = artifact_identity(source_path, workspace=workspace)
-    source_identity["classification"] = (
+    board_identity = artifact_identity(board_path, workspace=workspace)
+    board_identity["classification"] = (
         "observed_board_calibration_with_independent_moved_board_holdout"
+    )
+    immediate_source_identity = artifact_identity(
+        source_path, workspace=workspace
+    )
+    immediate_source_identity["classification"] = (
+        "validated_shared_frame_calibration_chain_input"
+        if chained
+        else "observed_board_calibration_with_independent_moved_board_holdout"
     )
     new_reference = dict(reference)
     if role == "reference":
@@ -404,14 +469,15 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
             if role == "other"
             else source.get("shared_world_from_other_odom")
         ),
-        "derived_from_board_calibration": source_identity,
+        "derived_from_board_calibration": board_identity,
         validation_key: validation,
         "input_provenance": {
             "status": (
                 "operator_observed_stationary_robot_plus_spooled_rgbd_pose_"
                 "samples_and_source_derived_planar_epoch_alignment"
             ),
-            "source_board_calibration": source_identity,
+            "source_board_calibration": board_identity,
+            "immediate_source_calibration": immediate_source_identity,
         },
         "safety": {
             "archived_observations_only": True,
@@ -428,6 +494,19 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
     if role == "reference":
         artifact["shared_world_from_reference_tracking"] = matrix_wire(
             new_transform, child_frame=tracking_child_frame
+        )
+    elif source.get("shared_world_from_reference_tracking") is not None:
+        artifact["shared_world_from_reference_tracking"] = source.get(
+            "shared_world_from_reference_tracking"
+        )
+    if chained:
+        artifact["schema_version"] = 4
+        artifact["derived_from_calibration"] = immediate_source_identity
+        artifact["note"] = (
+            "The robot was operator-confirmed stationary across another "
+            "tracking restart. The new yaw-only transform extends the "
+            "verified calibration chain while retaining the immutable "
+            "moved-board root and the other robot's current transform."
         )
     return artifact
 

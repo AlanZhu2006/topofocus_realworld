@@ -57,12 +57,39 @@ def identity_core(identity: object) -> tuple[object, object, object]:
     )
 
 
+def load_verified_artifact_identity(
+    identity: object, *, workspace: Path, label: str
+) -> dict[str, object]:
+    if not isinstance(identity, dict):
+        raise ValueError(f"{label} identity must be an object")
+    raw_path = identity.get("path")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise ValueError(f"{label} identity lacks a path")
+    path = Path(raw_path)
+    resolved = (
+        path.resolve()
+        if path.is_absolute()
+        else (workspace / path).resolve()
+    )
+    if not resolved.is_file():
+        raise FileNotFoundError(resolved)
+    if resolved.stat().st_size != int(identity.get("size_bytes", -1)):
+        raise ValueError(f"{label} artifact size drift")
+    if sha256_file(resolved) != str(identity.get("sha256", "")):
+        raise ValueError(f"{label} artifact hash drift")
+    payload = json.loads(resolved.read_text(encoding="utf-8"))
+    if payload.get("passed") is not True:
+        raise ValueError(f"{label} artifact did not pass")
+    return payload
+
+
 def require_component(
     payload: dict[str, object],
     *,
     role: str,
     source: dict[str, object],
     source_identity: dict[str, object],
+    workspace: Path,
 ) -> dict[str, object]:
     if payload.get("passed") is not True:
         raise ValueError(f"{role} reanchor did not pass")
@@ -111,23 +138,51 @@ def require_component(
     ):
         raise ValueError("reference calibration frame must be an object")
 
+    immediate_source = source
+    chained_identity = payload.get("derived_from_calibration")
+    if chained_identity is not None:
+        immediate_source = load_verified_artifact_identity(
+            chained_identity,
+            workspace=workspace,
+            label=f"{role} immediate calibration source",
+        )
+        if (
+            immediate_source.get("reference_robot")
+            != source.get("reference_robot")
+            or immediate_source.get("other_robot")
+            != source.get("other_robot")
+        ):
+            raise ValueError(f"{role} calibration chain robot identities differ")
+        immediate_root = immediate_source.get("derived_from_board_calibration")
+        if identity_core(immediate_root) != identity_core(source_identity):
+            raise ValueError(
+                f"{role} immediate calibration has a different board source"
+            )
+    immediate_reference = immediate_source.get("calibration_frame", {})
+    if not isinstance(immediate_reference, dict):
+        raise ValueError(f"{role} immediate calibration frame is invalid")
+    immediate_reference = immediate_reference.get("reference")
+    if not isinstance(immediate_reference, dict):
+        raise ValueError(f"{role} immediate reference frame is invalid")
+
     if role == "reference":
-        expected_old_version = source_reference.get("transform_version")
+        expected_old_version = immediate_reference.get("transform_version")
         emitted_version = component_reference.get("transform_version")
         if (
-            payload.get("transform_version") != source.get("transform_version")
+            payload.get("transform_version")
+            != immediate_source.get("transform_version")
             or payload.get("shared_world_from_other_odom")
-            != source.get("shared_world_from_other_odom")
+            != immediate_source.get("shared_world_from_other_odom")
             or not isinstance(
                 payload.get("shared_world_from_reference_tracking"), dict
             )
         ):
             raise ValueError("reference component changed the other robot alignment")
     else:
-        expected_old_version = source.get("transform_version")
+        expected_old_version = immediate_source.get("transform_version")
         emitted_version = payload.get("transform_version")
         if (
-            component_reference != source_reference
+            component_reference != immediate_reference
             or not isinstance(payload.get("shared_world_from_other_odom"), dict)
         ):
             raise ValueError("other component changed the reference alignment")
@@ -170,13 +225,23 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
         role="reference",
         source=source,
         source_identity=source_identity,
+        workspace=workspace,
     )
     other_validation = require_component(
         other,
         role="other",
         source=source,
         source_identity=source_identity,
+        workspace=workspace,
     )
+    if (
+        other.get("derived_from_calibration") is not None
+        and reference.get("calibration_frame", {}).get("reference")
+        != other.get("calibration_frame", {}).get("reference")
+    ):
+        raise ValueError(
+            "reference and other reanchors do not share the same reference epoch"
+        )
     reference_identity = artifact_identity(
         reference_path,
         workspace=workspace,

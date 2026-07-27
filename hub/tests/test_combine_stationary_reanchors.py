@@ -193,3 +193,92 @@ def test_rejects_components_from_a_different_board_source(tmp_path: Path):
 
     assert result.returncode != 0
     assert "not derived from the named source" in result.stderr
+
+
+def test_combines_a_chained_other_reanchor_with_current_reference(
+    tmp_path: Path,
+):
+    source_path = tmp_path / "source.json"
+    reference_path = tmp_path / "reference.json"
+    current_path = tmp_path / "current-dual.json"
+    other_path = tmp_path / "other-chained.json"
+    output_path = tmp_path / "combined.json"
+    source = write_source(source_path)
+    source_identity = identity(source_path, tmp_path)
+    write_component(
+        reference_path,
+        source=source,
+        source_identity=source_identity,
+        role="reference",
+    )
+    current = {
+        "passed": True,
+        "reference_robot": "robot-0",
+        "other_robot": "robot-1",
+        "transform_version": "other-v2",
+        "calibration_frame": {
+            "reference": {"transform_version": "reference-v2"}
+        },
+        "shared_world_from_other_odom": {"matrix": list(range(16))},
+        "derived_from_board_calibration": source_identity,
+    }
+    current_path.write_text(json.dumps(current))
+    other = {
+        "schema_version": 4,
+        "passed": True,
+        "calibration_method": (
+            "stationary_tracking_epoch_reanchor_of_validated_board_alignment"
+        ),
+        "reference_robot": "robot-0",
+        "other_robot": "robot-1",
+        "shared_frame_calibration_id": "other-v3-calibration",
+        "transform_version": "other-v3",
+        "calibration_frame": current["calibration_frame"],
+        "shared_world_from_other_odom": {
+            "matrix": list(reversed(range(16)))
+        },
+        "derived_from_board_calibration": source_identity,
+        "derived_from_calibration": identity(current_path, tmp_path),
+        "other_reanchor_validation": {
+            "passed": True,
+            "robot_role": "other",
+            "old_transform_version": "other-v2",
+            "new_transform_version": "other-v3",
+        },
+        "safety": {
+            "archived_observations_only": True,
+            "robot_commands_issued": False,
+            "robot_interfaces_used": False,
+        },
+    }
+    other_path.write_text(json.dumps(other))
+
+    result = subprocess.run(
+        [
+            str(PYTHON),
+            str(TOOL),
+            "--workspace",
+            str(tmp_path),
+            "--source-calibration",
+            str(source_path),
+            "--reference-reanchor",
+            str(reference_path),
+            "--other-reanchor",
+            str(other_path),
+            "--new-calibration-id",
+            "dual-v3",
+            "--output",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text())
+    assert payload["shared_frame_calibration_id"] == "dual-v3"
+    assert payload["calibration_frame"]["reference"]["transform_version"] == (
+        "reference-v2"
+    )
+    assert payload["transform_version"] == "other-v3"
