@@ -232,7 +232,10 @@ def test_data_plane_phase_specific_command_graph_contract():
         },
         "target": {
             "publishers": ["/focus_tinynav_buildmap_goal_router"],
-            "subscriptions": ["/planning_node"],
+            "subscriptions": [
+                "/cmd_vel_control_node",
+                "/planning_node",
+            ],
         },
         "poi": {
             "publishers": ["/focus_v2_wsj_receiver"],
@@ -252,6 +255,29 @@ def test_data_plane_phase_specific_command_graph_contract():
             robot_id="robot-0",
             mode="live",
         )
+    for invalid_target_subscribers in (
+        ["/planning_node"],
+        [
+            "/cmd_vel_control_node",
+            "/planning_node",
+            "/unexpected_target_consumer",
+        ],
+    ):
+        invalid_graph = {
+            section: {
+                direction: list(endpoints)
+                for direction, endpoints in routes.items()
+            }
+            for section, routes in pre_bridge.items()
+        }
+        invalid_graph["target"]["subscriptions"] = invalid_target_subscribers
+        with pytest.raises(ValueError, match="TinyNav target subscribers"):
+            verifier.validate_command_graph(
+                invalid_graph,
+                robot_id="robot-0",
+                mode="live",
+                pre_bridge_command_check=True,
+            )
 
     post_bridge = {
         "guarded": {

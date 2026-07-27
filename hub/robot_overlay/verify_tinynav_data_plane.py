@@ -47,6 +47,32 @@ def require_endpoint(
         )
 
 
+def require_endpoint_set(
+    names: list[str],
+    *,
+    description: str,
+    contains_each: tuple[str, ...],
+) -> None:
+    """Require one distinct endpoint for every named route participant."""
+
+    matches = {
+        expected: [name for name in names if expected in name]
+        for expected in contains_each
+    }
+    if (
+        len(names) != len(contains_each)
+        or any(len(found) != 1 for found in matches.values())
+        or any(
+            sum(expected in name for expected in contains_each) != 1
+            for name in names
+        )
+    ):
+        raise ValueError(
+            f"{description} endpoints are not the expected exclusive route: "
+            f"{names}"
+        )
+
+
 def validate_command_graph(
     observed_graph: dict[str, dict[str, list[str]]],
     *,
@@ -103,10 +129,14 @@ def validate_command_graph(
         description="TinyNav target publisher",
         contains="focus_tinynav_buildmap_goal_router",
     )
-    require_endpoint(
+    # The planner consumes the target to score trajectories. The deployment
+    # controller also consumes the same fixed router waypoint so a large-turn
+    # recovery cannot alternate direction when the first path poses jitter.
+    # Require both named subscribers and reject every additional endpoint.
+    require_endpoint_set(
         observed_graph["target"]["subscriptions"],
-        description="TinyNav target subscriber",
-        contains="planning_node",
+        description="TinyNav target subscribers",
+        contains_each=("planning_node", "cmd_vel_control_node"),
     )
     require_endpoint(
         observed_graph["poi"]["publishers"],
