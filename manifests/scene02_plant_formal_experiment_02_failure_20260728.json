@@ -4,17 +4,28 @@
   "target_category": "plant",
   "formal_index": 2,
   "result": "FAILURE",
-  "session_id": "scene02-plant-20260728-semanticreplan4",
-  "episode_id": "formal-03",
-  "episode_id_note": "internal episode label; operator designated this attempt as formal experiment 02",
-  "session_git_commit": "d84e5f73a97cf6ce2a17d58eebdab1daf6e14854",
-  "calibration_id": "shared-board-odin1-scene02-plant-20260728-044246-recal2-v1",
+  "session_id": "scene02-plant-20260728-0720-yunjireanchor1-single2-r4",
+  "episode_id": "yunji-single-02",
+  "episode_id_note": "operator designated this Yunji-only attempt as the replacement official formal experiment 02",
+  "session_git_commit": "dcc8812b027c40fad2716b8a097e45d226d46686",
+  "calibration_id": "shared-board-odin1-scene02-plant-20260728-0720-yunjireanchor1-v1",
+  "replacement": {
+    "operator_designation": "archive this run as an algorithmic exploration failure replacing formal 002",
+    "superseded_session_id": "scene02-plant-20260728-semanticreplan4",
+    "superseded_episode_id": "formal-03",
+    "superseded_archive_commit": "dcc8812b027c40fad2716b8a097e45d226d46686",
+    "provenance_status": "the superseded record remains recoverable at the named Git commit; its media is not evidence for this replacement run"
+  },
   "classification": {
     "primary": "navigation_policy_failure",
-    "terminal_reason": "controller_error_TimeoutError_holding",
-    "vlm_failure": false,
-    "official_reason": "Formal 02 failed during coordinated execution: both robots' assigned frontiers were rejected as locally unreachable before any plant semantic region was found, and the episode then timed out waiting for a fresh synchronized round after Robot 1's map was blocked by ground-plane drift.",
-    "basis": "No plant semantic region was ever proposed in either round; every candidate target was a FRONTIER_POINT, and both robots' frontiers were separately rejected LOCAL_GOAL_UNREACHABLE before a map-health block ended the episode"
+    "subtype": "algorithmic_exploration_failure",
+    "terminal_reason": "failed_cross_round_no_progress_holding",
+    "engineering_failure": false,
+    "strict_vlm_decision_failure": false,
+    "official_reason": "Formal 02 failed at the algorithmic exploration layer: the source-faithful policy never produced a plant semantic arrival, and Yunji travelled 7.425951 m through non-semantic frontier exploration, including an operator-observed branch away from the target, before the two-interval cross-round progress guard stopped the run in HOLD.",
+    "basis": "Strict no-motion debug passed for the exact session and code, fresh synchronized inputs were accepted throughout, all 13 completed rounds recorded target_found=false, no controller engineering error was recorded, and the terminal guard observed two consecutive displacements below 0.05 m.",
+    "operator_observation": "Yunji began exploring in the opposite direction from the plant.",
+    "strict_vlm_note": "The public attribution is algorithmic exploration/navigation-policy failure. It is not promoted to the stricter vlm_decision_failure class because no independent target-region annotation was sealed for this run."
   },
   "metrics": {
     "success": 0,
@@ -25,12 +36,32 @@
     "standard_shortest_path_status": "not required for this failed episode's zero SPL contribution"
   },
   "execution": {
-    "source_rounds_completed": 2,
-    "source_steps": [0, 24],
-    "high_level_batches_published": 11,
+    "scope": "operator-scoped Yunji-only live run; WSJ chassis remained powered off and robot-0 was forced HOLD",
+    "active_robot_ids": [
+      "robot-1"
+    ],
+    "source_rounds_completed": 13,
+    "completed_round_indices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "terminal_preflight_round_index": 13,
+    "terminal_source_step": 324,
+    "high_level_batches_published": 59,
     "automatic_terminal_candidate_complete": false,
     "official_success_verified": false,
-    "outcome": "controller_error_TimeoutError_holding",
+    "outcome": "failed_cross_round_no_progress_holding",
     "final_velocity_zero_confirmed": {
       "robot-0": true,
       "robot-1": true
@@ -38,102 +69,122 @@
     "robots": {
       "robot-0": {
         "name": "WSJ",
-        "actual_path_length_m": 0.20802723005014695,
+        "role": "inactive_hold_chassis_powered_off",
+        "source_reported_odometry_path_length_m": 1.0348577091659679,
+        "path_metric_status": "excluded_from_physical_motion analysis because robot-0 was inactive",
         "final_status": "HOLDING",
         "final_reason": "HUB_HOLD"
       },
       "robot-1": {
         "name": "Yunji",
-        "actual_path_length_m": 1.488125453093219,
+        "role": "only_active_robot",
+        "actual_path_length_m": 7.425951045282793,
         "final_status": "HOLDING",
-        "final_reason": "HUB_HOLD"
+        "final_reason": "HUB_HOLD",
+        "arrival_target_kind": "not_semantic_arrival"
       }
     }
   },
   "behavior": [
-    "round 0: robot-0's frontier rejected LOCAL_GOAL_UNREACHABLE and isolated; robot-1 continued alone",
-    "round 1: robot-0's fallback frontier again rejected LOCAL_GOAL_UNREACHABLE; robot-1's own frontier then also rejected LOCAL_GOAL_UNREACHABLE, isolating both robots (all_frontier_failures_replan_hold)",
-    "controller timed out after 45.0s waiting for a fresh synchronized round input: robot-1's map was blocked by ground-plane drift (7 consecutive frames, 5.965s, tilt_delta_deg=3.691, height_delta_m=0.060)",
-    "episode ended controller_error_TimeoutError_holding with both robots HOLDING"
+    "WSJ remained outside the motion scope and received HOLD throughout.",
+    "Yunji completed 13 source rounds without a plant semantic arrival; every completed round recorded target_found=false.",
+    "Round 7 selected FRONTIER_POINT B at shared-world (-1.551943, -1.833756); the operator observed that this branch led away from the plant, and the continuity guard retained it while measured progress continued.",
+    "Later source frontiers were projected to footprint-clear bounded approaches; local unreachable frontiers were isolated and replanned without terminating the run as an engineering error.",
+    "The final two cross-round displacements were 0.003037 m and 0.002637 m, below the 0.05 m threshold, so the second stagnant interval triggered cross_round_no_progress_hold.",
+    "The episode ended with Yunji and the inactive WSJ in HOLD, velocity_zero_confirmed=true, and Hub GOAL output disabled for both robots."
   ],
   "vlm_evidence": {
     "target_found": false,
-    "status": "no plant semantic region was proposed in either completed round; all candidates were FRONTIER_POINT"
+    "completed_rounds_without_semantic_target": 13,
+    "status": "no completed round produced a plant semantic arrival; active targets remained FRONTIER_POINT exploration targets or their footprint-clear projected approaches",
+    "representative_opposite_direction_frontier": {
+      "round_index": 7,
+      "frontier_id": "B",
+      "frame_id": "shared_world",
+      "x_m": -1.5519433751480154,
+      "y_m": -1.833755919641968,
+      "classification": "source-derived selected frontier joined with observed onsite direction annotation"
+    }
   },
   "runtime_evidence": [
     {
-      "path": "hub/runtime/oneclick_scene02-plant-20260728-semanticreplan4_live_scene02-plant_20260728_054405_113292494/episode_report.json",
-      "size_bytes": 9789,
-      "sha256": "5ae86477a50ea0a9da2f0f9785042f3726dec5ffb235e17d0fb23a7f5ea92a0d",
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-single2-r4_live_scene02-plant_20260728_073321_124117639/episode_report.json",
+      "size_bytes": 9878,
+      "sha256": "635564912651ebde53ada98d133bae6d37894fccf4aa4035eba81ca6e46269a5",
       "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/oneclick_scene02-plant-20260728-semanticreplan4_live_scene02-plant_20260728_054405_113292494/controller_events.jsonl",
-      "size_bytes": 20341,
-      "sha256": "b6106e529379b88fc735985351b3b56607627c0cc13fb1646925fe0274bf0dbe",
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-single2-r4_live_scene02-plant_20260728_073321_124117639/controller_events.jsonl",
+      "size_bytes": 112902,
+      "sha256": "32547ff4a78710eb10c41506b2bfaad209134d131b6d81a1dd9eb08a5130f566",
       "classification": "source-derived controller event log; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/sessions/scene02-plant-20260728-semanticreplan4/session.json",
-      "size_bytes": 4294,
-      "sha256": "77fca1b56ba177bed30d77a2cf13b975a8819fdb883c201f6f23840cc106e165",
-      "classification": "source-derived session identity; runtime file ignored by Git"
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-single2-r4_live_scene02-plant_20260728_073321_124117639/scene_manifest.json",
+      "size_bytes": 86265,
+      "sha256": "101fa70c4b83da7fc1344bd824b4810b437bedbd44b58e5e1a42e59ff8198c58",
+      "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/calibration_sessions/scene02-plant-20260728-044246-recal2/shared_frame.json",
-      "size_bytes": 6029,
-      "sha256": "5f95966f2c201467af549fc845d0265e9ea50cd12595c5931082451a647cde07",
-      "classification": "observed and source-derived shared-frame calibration; reused unchanged from formal experiment 01; runtime file ignored by Git"
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-single2-r4_live_scene02-plant_20260728_073321_124117639/round_07_step_174/initial_batch.json",
+      "size_bytes": 4357,
+      "sha256": "fcbf8dc15df753bf5a2c61aacd6502904233408a3298416e394c2d2a21f2af84",
+      "classification": "source-derived accepted batch containing the representative frontier selected during the operator-observed opposite-direction branch"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-single2-r4_live_scene02-plant_20260728_073321_124117639/round_13_step_324/cross_round_progress_guard.json",
+      "size_bytes": 651,
+      "sha256": "cf31d1d7dd8a9c8725562a02c3fe01cbbdf9bd93d4a07be7ea2d1bbf7becb8b6",
+      "classification": "source-derived terminal two-interval no-progress guard"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-single2-r4_live_scene02-plant_20260728_073321_124117639/round_13_step_324/accepted/accepted_inputs.json",
+      "size_bytes": 9034,
+      "sha256": "b1bb64db25f1084b232f7cb19c0ece8c9697c3c3a2d60fcd6593621c486b1738",
+      "classification": "observed strict synchronized terminal-round input identity"
+    },
+    {
+      "path": "hub/runtime/sessions/scene02-plant-20260728-0720-yunjireanchor1-single2-r4/session.json",
+      "size_bytes": 4456,
+      "sha256": "0b11a923724b60c8604a97203a0ab661799a1430a1b2e169a22c9bb0944b1d55",
+      "classification": "source-derived exact code/calibration/runtime session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene02-plant-20260728-0720-yunjireanchor1/shared_frame.json",
+      "size_bytes": 22423,
+      "sha256": "30a746b251aeca417e13cbfcdb53ff302104489517f56342963b163e3789e622",
+      "classification": "observed and source-derived validated stationary re-anchor calibration; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-single2-r4_debug_scene02-plant-yunji-single-02_20260728_073129_908890152/shadow/shadow_manifest.json",
+      "size_bytes": 20665,
+      "sha256": "41785fbfdafd76447da6d0c54987b4f9522be45399ac2f1e5f3be2c3762616da",
+      "classification": "observed strict no-motion full-stack debug manifest for the exact session and code"
     }
   ],
-  "media": [
-    {
-      "path": "media/video/third_view/experiment_2/experiment_2_failure_2.mp4",
-      "size_bytes": 13267358,
-      "sha256": "16ad3ea2222795c59355f99f72509e4668ec1322e8f2ce61678bc1d3db8f8e34",
-      "duration_s": 99.2,
-      "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+  "media": [],
+  "media_status": "replacement-run third-view and Dashboard media have not yet been bound; pre-replacement Formal 02 media is explicitly excluded from this run",
+  "superseded_record_provenance": {
+    "archive_commit": "dcc8812b027c40fad2716b8a097e45d226d46686",
+    "manifest": {
+      "path": "manifests/scene02_plant_formal_experiment_02_failure_20260728.json",
+      "size_bytes": 6860,
+      "sha256": "e237ad271f31707fa118cc40b252d0a627a785f61aa9e518b99ec7a1f546f33c",
+      "git_blob": "9d799f3d0f9e117bdf4a2a34856b4d69ad81e373"
     },
-    {
-      "path": "media/demo/scene02_formal_02_third_view.mp4",
-      "size_bytes": 10854652,
-      "sha256": "ce16b8130a70f3084f3f5a79243b8f5c07cae36285c1f0f920c8e4bc91689a20",
-      "duration_s": 99.2,
-      "classification": "source-derived H.264 public derivative of the observed external-view master"
+    "audit": {
+      "path": "audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md",
+      "size_bytes": 4307,
+      "sha256": "559adbc304ae21846c76f4f1dcc234456e1021e8d602ffed2d3607b1f485e93c",
+      "git_blob": "848000cca5573599d609c7880c9278ba95ad2d43"
     },
-    {
-      "path": "media/demo/scene02_formal_02_preview.gif",
-      "size_bytes": 10179646,
-      "sha256": "a86d3ffe4440a4763445db193825db9429496d37b5bc89edec10888ec5cb86dd",
-      "duration_s": 8.01,
-      "classification": "source-derived README-embedded preview, entire clip time-lapsed to ~8 s (matching the Scene 01 formal-experiment GIF convention)"
-    },
-    {
-      "path": "media/video/dashboard/experiment_2/experiment_2_failure_2_dashboard.mov",
-      "size_bytes": 77734720,
-      "sha256": "340b2ddeb64ff35da9eff5e7b23809d35b569636b45ba3037acd85e5b5d66a68",
-      "duration_s": 113.128,
-      "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
-    },
-    {
-      "path": "media/demo/scene02_formal_02_dashboard.mp4",
-      "size_bytes": 1810405,
-      "sha256": "378597877305a3ac77490fcaa2fedb0e79d3430fa9b1d5f37ce917aae9997bed",
-      "duration_s": 113.067,
-      "classification": "source-derived H.264 public derivative of the observed Dashboard master, scaled to 1280px wide"
-    },
-    {
-      "path": "media/demo/scene02_formal_02_dashboard.gif",
-      "size_bytes": 1930298,
-      "sha256": "5f6c7363c248f4b03e17672d304304755ddcdefc45ccce24026014bcc2187e9d",
-      "duration_s": 8.01,
-      "classification": "source-derived README-embedded preview, entire clip time-lapsed to ~8 s (matching the Scene 01 formal-experiment GIF convention)"
-    }
-  ],
+    "classification": "superseded official designation preserved in Git history; its runtime and media provenance remain unchanged"
+  },
   "safety": {
     "hub_published_high_level_targets_only": true,
     "robot_local_stop_and_rejection_authority_retained": true,
-    "cleanup_state": "both robots HOLDING with velocity_zero_confirmed=true; Hub GOAL output disabled",
+    "wsj_motion_authority": false,
+    "cleanup_state": "both robots HOLDING with velocity_zero_confirmed=true; Hub GOAL output disabled for robot-0 and robot-1",
     "post_episode_motion_authority": false
   }
 }

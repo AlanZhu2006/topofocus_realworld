@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Scene 02 formal experiment 02 replacement (2026-07-28)
+
+- Replace the previous Formal 02 designation with `yunji-single-02` and
+  archive it as `FAILURE` (`Success=0`, `SR=0`, both SPL variants zero).
+  Yunji travelled `7.425951 m` through 13 completed non-semantic frontier
+  rounds without a plant arrival; an operator-observed branch explored away
+  from the target, and the two-interval progress guard ended the run in
+  `failed_cross_round_no_progress_holding`.
+- Classify the result as
+  `navigation_policy_failure / algorithmic_exploration_failure`, not an
+  engineering-chain failure. Preserve the superseded record's exact commit,
+  file hashes and Git blobs, and exclude its media from the replacement run.
+
 ### Scene 02 formal experiment 03 (2026-07-28)
 
 - Archive Scene 02 formal experiment 03 as `SUCCESS` (`Success=1`, `SR=1`,

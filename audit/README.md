@@ -7,6 +7,10 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md`](SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md):
+  replacement Scene 02 formal experiment 02 algorithmic-exploration failure,
+  exact Yunji path, zero-valued SR/SPL contribution, terminal two-interval
+  progress guard and superseded-record provenance.
 - [`SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md):
   Scene 02 formal experiment 01 failure, exact dual-robot paths, zero-valued
   SR/SPL contribution, VLM/non-VLM attribution and the observed WSJ

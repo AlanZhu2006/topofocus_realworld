@@ -1,7 +1,8 @@
 # Current project status
 
-Snapshot: **2026-07-28, after Scene 02 formal experiment 03 (first Scene 02
-success) archival, joining the two earlier Scene 02 failures.**
+Snapshot: **2026-07-28, after replacing Scene 02 formal experiment 02 with the
+Yunji-only algorithmic-exploration failure and retaining formal experiment 03
+as the first Scene 02 success.**
 
 ## Scene 01 formal results
 
@@ -42,14 +43,17 @@ coordinated execution — one assigned frontier was rejected as locally
 unreachable, and the remaining semantic-navigation leg terminated before
 arrival. WSJ travelled `6.104564 m` and Yunji travelled `1.905387 m`.
 
-Formal 02, episode `formal-03` (session `scene02-plant-20260728-semanticreplan4`):
-failed during coordinated execution — both robots' frontiers were rejected
-as locally unreachable before any plant semantic region was found, and the
-episode timed out waiting for a fresh synchronized round after Yunji's map
-was blocked by ground-plane drift. WSJ travelled `0.208027 m` and Yunji
-travelled `1.488125 m`.
+Formal 02, episode `yunji-single-02` (session
+`scene02-plant-20260728-0720-yunjireanchor1-single2-r4`): an operator-scoped
+Yunji-only run with WSJ powered off and forced `HOLD`. Yunji travelled
+`7.425951 m` through 13 completed non-semantic frontier rounds without a
+plant arrival; the operator observed one branch exploring away from the
+target. Two consecutive sub-`0.05 m` progress intervals then triggered
+`failed_cross_round_no_progress_holding`.
 
-Both failures are attributed `navigation_policy_failure`, not a VLM failure.
+Both failures contribute zero SR/SPL. Formal 02 is specifically attributed
+`navigation_policy_failure / algorithmic_exploration_failure`, not an
+engineering-chain failure.
 
 Formal 03, episode `yunji-single-01` (session
 `scene02-plant-20260728-yunji-single2`): an operator-scoped Yunji-only live
@@ -79,11 +83,10 @@ and
   main README.
 - Formal 05 display media covers the run beginning through physical arrival;
   its SR/SPL uses the complete episode report.
-- Scene 02 formal experiments 01-03's third-view and Dashboard masters are
-  likewise preserved under `media/video/**` through Git LFS, with an H.264
-  pair and a time-lapsed ~8 s README preview GIF per master under
-  `media/demo/`, matching the Scene 01 naming/encoding convention. See
-  [`media/README.md`](media/README.md#scene-02-media).
+- Scene 02's previously published third-view and Dashboard masters remain
+  preserved under `media/video/**` through Git LFS. The old Formal 02 media
+  belongs to the superseded run and is not evidence for the replacement
+  `yunji-single-02`; replacement media has not yet been bound.
 
 ## Implementation state
 
@@ -108,14 +111,15 @@ unchanged. No file under immutable `source/` or `dependencies/` was changed.
 
 ## Physical-runtime boundary
 
-Formal 03's episode was cleaned up with Hub `GOAL=false` for both robots and
-`velocity_zero_confirmed=true`; live motion authority was disabled at
-episode end. Its session (`scene02-plant-20260728-yunji-single2`) was bound
-to commit `6a46316aeb44da080aad7f97ef14e52ee6162d40` and used a
-Yunji-only operator-scoped execution contract — WSJ never held live motion
-authority in that run. A new code-bound session and strict no-motion debug
-are required before the next live run; calibration reuse additionally
-requires unchanged camera mounts and tracking epochs.
+Replacement Formal 02 was cleaned up with Hub `GOAL=false` for both robots
+and `velocity_zero_confirmed=true`; live motion authority was disabled at
+episode end. Session
+`scene02-plant-20260728-0720-yunjireanchor1-single2-r4` was bound to commit
+`dcc8812b027c40fad2716b8a097e45d226d46686` and used a Yunji-only
+operator-scoped execution contract — WSJ never held live motion authority.
+A new code-bound session and strict no-motion debug are required before the
+next live run; calibration reuse additionally requires unchanged camera
+mounts and tracking epochs.
 
 No physical robot command was issued by the archival or code verification
 steps themselves.

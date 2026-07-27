@@ -193,13 +193,14 @@
     {
       "record_id": "scene02-plant_formal-experiment-02",
       "formal_experiment_index": 2,
-      "session_id": "scene02-plant-20260728-semanticreplan4",
-      "session_git_commit": "d84e5f73a97cf6ce2a17d58eebdab1daf6e14854",
+      "session_id": "scene02-plant-20260728-0720-yunjireanchor1-single2-r4",
+      "session_git_commit": "dcc8812b027c40fad2716b8a097e45d226d46686",
       "scene_id": "scene02-plant",
-      "episode_id": "formal-03",
+      "episode_id": "yunji-single-02",
       "target_category": "plant",
       "attribution": "navigation_policy_failure",
-      "reason": "Formal 02 failed during coordinated execution: both robots' assigned frontiers were rejected as locally unreachable before any plant semantic region was found, and the episode then timed out waiting for a fresh synchronized round after Robot 1's map was blocked by ground-plane drift.",
+      "attribution_subtype": "algorithmic_exploration_failure",
+      "reason": "Replacement Formal 02 failed at the algorithmic exploration layer: Yunji completed 13 source rounds and travelled 7.425951 m through non-semantic frontier exploration without a plant semantic arrival; an operator-observed branch led away from the target, and the two-interval cross-round progress guard then ended the run in HOLD.",
       "live_started": true,
       "robot_commands_issued": true,
       "episode_created": true,
@@ -209,43 +210,21 @@
         "sr": 0.0,
         "source_compatible_spl": 0.0,
         "standard_spl": 0.0,
-        "robot_0_actual_path_length_m": 0.20802723005014695,
-        "robot_1_actual_path_length_m": 1.488125453093219
+        "robot_0_path_status": "inactive WSJ odometry excluded from physical motion analysis",
+        "robot_1_actual_path_length_m": 7.425951045282793
       },
       "evidence": {
         "path": "audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md",
         "classification": "full record with machine-readable mirror at manifests/scene02_plant_formal_experiment_02_failure_20260728.json"
       },
-      "media": [
-        {
-          "path": "media/video/third_view/experiment_2/experiment_2_failure_2.mp4",
-          "size_bytes": 13267358,
-          "sha256": "16ad3ea2222795c59355f99f72509e4668ec1322e8f2ce61678bc1d3db8f8e34",
-          "duration_s": 99.2,
-          "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
-        },
-        {
-          "path": "media/demo/scene02_formal_02_third_view.mp4",
-          "size_bytes": 10854652,
-          "sha256": "ce16b8130a70f3084f3f5a79243b8f5c07cae36285c1f0f920c8e4bc91689a20",
-          "duration_s": 99.2,
-          "classification": "source-derived H.264 public derivative"
-        },
-        {
-          "path": "media/video/dashboard/experiment_2/experiment_2_failure_2_dashboard.mov",
-          "size_bytes": 77734720,
-          "sha256": "340b2ddeb64ff35da9eff5e7b23809d35b569636b45ba3037acd85e5b5d66a68",
-          "duration_s": 113.128,
-          "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
-        },
-        {
-          "path": "media/demo/scene02_formal_02_dashboard.mp4",
-          "size_bytes": 1810405,
-          "sha256": "378597877305a3ac77490fcaa2fedb0e79d3430fa9b1d5f37ce917aae9997bed",
-          "duration_s": 113.067,
-          "classification": "source-derived H.264 public derivative, scaled to 1280px wide"
-        }
-      ]
+      "media": [],
+      "media_status": "replacement-run media not yet bound; all pre-replacement Formal 02 media is excluded from this record",
+      "supersedes": {
+        "session_id": "scene02-plant-20260728-semanticreplan4",
+        "episode_id": "formal-03",
+        "archive_commit": "dcc8812b027c40fad2716b8a097e45d226d46686",
+        "classification": "previous official Formal 02 designation retained in Git history and removed from the metric-track identity by operator request"
+      }
     }
   ],
   "episodes": [
