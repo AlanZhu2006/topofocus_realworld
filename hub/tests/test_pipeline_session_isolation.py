@@ -318,6 +318,68 @@ def test_ground_guard_recovers_after_one_transient_drift(monkeypatch):
     assert pipeline.mapper.calls == 1
 
 
+def test_ground_guard_defers_irreversible_latch_while_robot_is_moving(
+    monkeypatch,
+):
+    pipeline, segmenter = _pipeline("session-a", ground_guard=True)
+    stable = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=0.0,
+        plane_coefficients=(0.0, 0.0, 0.0),
+    )
+    drifting = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=8.0,
+        plane_coefficients=(0.15, 0.0, 0.0),
+    )
+    candidates = iter([stable, drifting, drifting, drifting, stable])
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate",
+        lambda *_args: next(candidates),
+    )
+
+    baseline = _observation(10, "session-a")
+    moving_one = _observation(11, "session-a")
+    moving_one.T_shared_camera[0, 3] = 0.15
+    moving_two = _observation(12, "session-a")
+    moving_two.T_shared_camera[0, 3] = 0.30
+    stationary = _observation(13, "session-a")
+    stationary.T_shared_camera[0, 3] = 0.30
+    recovered = _observation(14, "session-a")
+    recovered.T_shared_camera[0, 3] = 0.30
+
+    assert pipeline.process(baseline).accept
+    first = pipeline.process(moving_one)
+    second = pipeline.process(moving_two)
+    pending = pipeline.process(stationary)
+    recovery = pipeline.process(recovered)
+
+    assert first.reason == "ground_drift_motion_deferred"
+    assert second.reason == "ground_drift_motion_deferred"
+    assert pending.reason == "ground_drift_pending"
+    assert recovery.accept
+    assert pipeline.mapping_blocked_reason is None
+    assert pipeline.ground_drift_frames == 3
+    assert pipeline.ground_drift_motion_deferred_frames == 2
+    assert pipeline.ground_drift_events == 0
+    assert pipeline.ground_drift_streak == 0
+    assert segmenter.calls == 2
+    assert pipeline.mapper.calls == 2
+
+
 def test_2d_ground_guard_tolerates_pure_world_z_translation(monkeypatch):
     pipeline, segmenter = _pipeline(
         "session-a",

@@ -28,7 +28,12 @@ from .ground_plane import (
     plane_height_at,
 )
 from .models import ObservationMetadata
-from .pose_gate import KeyframeConfig, KeyframeDecision, KeyframeSelector
+from .pose_gate import (
+    KeyframeConfig,
+    KeyframeDecision,
+    KeyframeSelector,
+    pose_delta,
+)
 from .semantic_yolo import SemanticYoloConfig, reinforce_rednet_prediction
 
 
@@ -112,6 +117,8 @@ class SpoolMappingPipeline:
         max_ground_tilt_delta_deg: float = 3.0,
         max_ground_height_delta_m: float = 0.08,
         ground_drift_consecutive_frames: int = 3,
+        ground_drift_stationary_translation_m: float = 0.03,
+        ground_drift_stationary_rotation_deg: float = 2.0,
         allow_ground_height_translation_for_2d: bool = False,
         frame_id: str = "shared_world",
         robot_id: str | None = None,
@@ -149,6 +156,18 @@ class SpoolMappingPipeline:
             or ground_drift_consecutive_frames <= 0
         ):
             raise ValueError("ground_drift_consecutive_frames must be a positive integer")
+        for value, name in (
+            (
+                ground_drift_stationary_translation_m,
+                "ground_drift_stationary_translation_m",
+            ),
+            (
+                ground_drift_stationary_rotation_deg,
+                "ground_drift_stationary_rotation_deg",
+            ),
+        ):
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be finite and positive")
         if not isinstance(allow_ground_height_translation_for_2d, bool):
             raise ValueError(
                 "allow_ground_height_translation_for_2d must be a boolean"
@@ -158,6 +177,12 @@ class SpoolMappingPipeline:
         self.max_ground_tilt_delta_deg = float(max_ground_tilt_delta_deg)
         self.max_ground_height_delta_m = float(max_ground_height_delta_m)
         self.ground_drift_consecutive_frames = ground_drift_consecutive_frames
+        self.ground_drift_stationary_translation_m = float(
+            ground_drift_stationary_translation_m
+        )
+        self.ground_drift_stationary_rotation_deg = float(
+            ground_drift_stationary_rotation_deg
+        )
         self.allow_ground_height_translation_for_2d = (
             allow_ground_height_translation_for_2d
         )
@@ -177,12 +202,16 @@ class SpoolMappingPipeline:
         self.ground_drift_frames = 0
         self.ground_drift_events = 0
         self.ground_drift_streak = 0
+        self.ground_drift_motion_deferred_frames = 0
         self.ground_height_translation_frames = 0
         self.max_ground_height_translation_m = 0.0
         self.last_ground_sequence: int | None = None
         self.last_ground_reason: str | None = None
         self.last_ground_tilt_delta_deg: float | None = None
         self.last_ground_height_delta_m: float | None = None
+        self.last_ground_pose_translation_m: float | None = None
+        self.last_ground_pose_rotation_deg: float | None = None
+        self.last_ground_pose_moving: bool | None = None
         self.transform_version = expected_transform_version
         self.frame_id = frame_id
         self.robot_id = robot_id
@@ -232,6 +261,9 @@ class SpoolMappingPipeline:
 
         self.observations_seen += 1
         self.last_observation_sequence = observation.sequence
+        previous_robot_T = (
+            None if self.last_robot_T is None else self.last_robot_T.copy()
+        )
         self.last_camera_xy = (
             float(observation.T_shared_camera[0, 3]),
             float(observation.T_shared_camera[1, 3]),
@@ -260,6 +292,24 @@ class SpoolMappingPipeline:
             float(shared_T_robot[0, 3]),
             float(shared_T_robot[1, 3]),
         )
+        if previous_robot_T is None:
+            ground_pose_translation_m = 0.0
+            ground_pose_rotation_deg = 0.0
+            ground_pose_moving = False
+        else:
+            (
+                ground_pose_translation_m,
+                ground_pose_rotation_deg,
+            ) = pose_delta(previous_robot_T, shared_T_robot)
+            ground_pose_moving = (
+                ground_pose_translation_m
+                > self.ground_drift_stationary_translation_m
+                or ground_pose_rotation_deg
+                > self.ground_drift_stationary_rotation_deg
+            )
+        self.last_ground_pose_translation_m = ground_pose_translation_m
+        self.last_ground_pose_rotation_deg = ground_pose_rotation_deg
+        self.last_ground_pose_moving = ground_pose_moving
         # The dashboard camera/pose remains current even when map integration
         # is latched.  Do not extend a trajectory inside a blocked coordinate
         # session: repeatedly appending those poses can draw a convincing but
@@ -413,12 +463,26 @@ class SpoolMappingPipeline:
             elif tilt_outside_gate or height_outside_gate:
                 # Do not integrate any outlying frame.  A single fit can be
                 # transiently biased during a turn (RGB-D/pose timing, body
-                # dynamics, or reduced visible floor), so only latch after a
-                # configurable run of accepted-but-drifting floor fits.  A
-                # subsequent in-range fit proves recovery and resets the run.
+                # dynamics, or reduced visible floor).  Robot odometry is
+                # planar and therefore cannot compensate camera pitch/roll
+                # caused by quadruped gait.  Moving outliers are rejected but
+                # cannot advance the irreversible latch; a true mount or
+                # calibration change remains out of range after the robot
+                # stops and then latches on the configured stationary run.
                 self.ground_drift_frames += 1
-                self.ground_drift_streak += 1
                 self.skipped_non_keyframes += 1
+                if ground_pose_moving:
+                    self.ground_drift_motion_deferred_frames += 1
+                    self.ground_drift_streak = 0
+                    self.last_ground_reason = "drift_deferred_while_moving"
+                    return KeyframeDecision(
+                        False,
+                        "ground_drift_motion_deferred",
+                        ground_pose_translation_m,
+                        ground_pose_rotation_deg,
+                        0.0,
+                    )
+                self.ground_drift_streak += 1
                 if self.ground_drift_streak < self.ground_drift_consecutive_frames:
                     self.last_ground_reason = "drift_pending"
                     return KeyframeDecision(
@@ -715,6 +779,9 @@ class SpoolMappingPipeline:
             "ground_drift_frames": self.ground_drift_frames,
             "ground_drift_events": self.ground_drift_events,
             "ground_drift_streak": self.ground_drift_streak,
+            "ground_drift_motion_deferred_frames": (
+                self.ground_drift_motion_deferred_frames
+            ),
             "ground_height_translation_frames": (
                 self.ground_height_translation_frames
             ),
@@ -734,6 +801,12 @@ class SpoolMappingPipeline:
                 "max_tilt_delta_deg": self.max_ground_tilt_delta_deg,
                 "max_height_delta_m": self.max_ground_height_delta_m,
                 "consecutive_frames_to_latch": self.ground_drift_consecutive_frames,
+                "stationary_translation_threshold_m": (
+                    self.ground_drift_stationary_translation_m
+                ),
+                "stationary_rotation_threshold_deg": (
+                    self.ground_drift_stationary_rotation_deg
+                ),
                 "height_translation_policy": (
                     "tolerate_for_2d_with_frame_local_floor_plane"
                     if self.allow_ground_height_translation_for_2d
@@ -743,6 +816,11 @@ class SpoolMappingPipeline:
                 "last_reason": self.last_ground_reason,
                 "last_tilt_delta_deg": self.last_ground_tilt_delta_deg,
                 "last_height_delta_m": self.last_ground_height_delta_m,
+                "last_pose_translation_m": (
+                    self.last_ground_pose_translation_m
+                ),
+                "last_pose_rotation_deg": self.last_ground_pose_rotation_deg,
+                "last_pose_moving": self.last_ground_pose_moving,
             },
             "obstacle_fusion_mode": self.mapper.config.obstacle_fusion_mode,
             "obstacle_band_m": [

@@ -136,6 +136,9 @@ def write_camera_snapshot(
         "ground_drift_frames": pipeline.ground_drift_frames,
         "ground_drift_events": pipeline.ground_drift_events,
         "ground_drift_streak": pipeline.ground_drift_streak,
+        "ground_drift_motion_deferred_frames": (
+            pipeline.ground_drift_motion_deferred_frames
+        ),
         "ground_height_translation_frames": (
             pipeline.ground_height_translation_frames
         ),
@@ -148,10 +151,21 @@ def write_camera_snapshot(
             else "latch_after_consecutive_frames"
         ),
         "ground_drift_consecutive_frames": pipeline.ground_drift_consecutive_frames,
+        "ground_drift_stationary_translation_m": (
+            pipeline.ground_drift_stationary_translation_m
+        ),
+        "ground_drift_stationary_rotation_deg": (
+            pipeline.ground_drift_stationary_rotation_deg
+        ),
         "last_ground_sequence": pipeline.last_ground_sequence,
         "last_ground_reason": pipeline.last_ground_reason,
         "last_ground_tilt_delta_deg": pipeline.last_ground_tilt_delta_deg,
         "last_ground_height_delta_m": pipeline.last_ground_height_delta_m,
+        "last_ground_pose_translation_m": (
+            pipeline.last_ground_pose_translation_m
+        ),
+        "last_ground_pose_rotation_deg": pipeline.last_ground_pose_rotation_deg,
+        "last_ground_pose_moving": pipeline.last_ground_pose_moving,
         "written_at_ns": time.time_ns(),
         "last_capture_time_ns": last_metadata.capture_time_ns if last_metadata else None,
         "last_sent_time_ns": last_metadata.sent_time_ns if last_metadata else None,
@@ -435,6 +449,24 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--ground-drift-stationary-translation-m",
+        type=float,
+        default=0.03,
+        help=(
+            "a drifting floor fit can advance the irreversible latch only "
+            "when inter-observation robot translation is at or below this value"
+        ),
+    )
+    parser.add_argument(
+        "--ground-drift-stationary-rotation-deg",
+        type=float,
+        default=2.0,
+        help=(
+            "a drifting floor fit can advance the irreversible latch only "
+            "when inter-observation robot rotation is at or below this value"
+        ),
+    )
+    parser.add_argument(
         "--allow-ground-height-translation-for-2d",
         action="store_true",
         help=(
@@ -489,6 +521,10 @@ def main() -> int:
         parser.error("--max-ground-height-delta-m must be positive")
     if args.ground_drift_consecutive_frames <= 0:
         parser.error("--ground-drift-consecutive-frames must be positive")
+    if args.ground_drift_stationary_translation_m <= 0.0:
+        parser.error("--ground-drift-stationary-translation-m must be positive")
+    if args.ground_drift_stationary_rotation_deg <= 0.0:
+        parser.error("--ground-drift-stationary-rotation-deg must be positive")
     if args.semantic_min_hits <= 0:
         parser.error("--semantic-min-hits must be positive")
     if args.semantic_winner_margin_hits < 0:
@@ -709,6 +745,12 @@ def main() -> int:
                     ground_drift_consecutive_frames=(
                         args.ground_drift_consecutive_frames
                     ),
+                    ground_drift_stationary_translation_m=(
+                        args.ground_drift_stationary_translation_m
+                    ),
+                    ground_drift_stationary_rotation_deg=(
+                        args.ground_drift_stationary_rotation_deg
+                    ),
                     allow_ground_height_translation_for_2d=(
                         args.allow_ground_height_translation_for_2d
                     ),
@@ -811,6 +853,22 @@ def main() -> int:
                         latch_after=pipeline.ground_drift_consecutive_frames,
                         tilt_delta_deg=pipeline.last_ground_tilt_delta_deg,
                         height_delta_m=pipeline.last_ground_height_delta_m,
+                    )
+                elif (
+                    keyframe_decision.reason
+                    == "ground_drift_motion_deferred"
+                ):
+                    emit(
+                        "mapping_skipped_motion_ground_drift",
+                        sequence=mapping_observation.sequence,
+                        tilt_delta_deg=pipeline.last_ground_tilt_delta_deg,
+                        height_delta_m=pipeline.last_ground_height_delta_m,
+                        pose_translation_m=(
+                            pipeline.last_ground_pose_translation_m
+                        ),
+                        pose_rotation_deg=(
+                            pipeline.last_ground_pose_rotation_deg
+                        ),
                     )
                 elif keyframe_decision.reason.startswith("ground_"):
                     emit(
