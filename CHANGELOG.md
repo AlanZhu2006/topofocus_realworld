@@ -17,6 +17,11 @@
 - Configure that `1.0/5.0 s` contract explicitly and consistently in both
   WSJ and Yunji launchers; retain the shorter never-started-path grace and all
   robot-local watchdog, collision, lease and stop/reject authority.
+- Publish the user-provided Scene 02 formal experiment 01 third-view and
+  Dashboard masters byte-for-byte through Git LFS, with H.264 derivatives,
+  terminal-frame posters and ~8 s README preview GIFs; add a Scene 02 section
+  to the main README and record the attempt in
+  `manifests/realworld_experiment_progress.json`.
 
 ### Calibration reliability (2026-07-27)
 

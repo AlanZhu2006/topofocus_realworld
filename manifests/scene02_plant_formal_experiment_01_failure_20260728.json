@@ -136,6 +136,62 @@
       "classification": "observed robot-local log verified through the existing WSJ SSH/tmux session; bytes remain on WSJ"
     }
   ],
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_2/experiment_2_failure_1.mp4",
+      "size_bytes": 8098606,
+      "sha256": "66f31368a56f635c47f46755465ef44491a9164101ff28f15fa5ec4d0ad9df5c",
+      "duration_s": 68.766667,
+      "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene02_failure_1_third_view_20260728.mp4",
+      "size_bytes": 5325300,
+      "sha256": "ee718bcac313a559cb95cb383de25c4fb8d7273093234f0c9c1e047d3ca9f798",
+      "duration_s": 68.767,
+      "classification": "source-derived H.264 public derivative of the observed external-view master"
+    },
+    {
+      "path": "media/demo/scene02_failure_1_third_view_20260728_poster.jpg",
+      "size_bytes": 94159,
+      "sha256": "bef80d5e35f6d62e700120a5428fd921d3132564789efcc456e253c91aa5ee1b",
+      "classification": "source-derived terminal still from the observed external-view master"
+    },
+    {
+      "path": "media/demo/scene02_failure_1_third_view_20260728_preview.gif",
+      "size_bytes": 7574396,
+      "sha256": "2c8faa9212d3751080388321a58427c2d4095160fecaa294158c926c3e6ab474",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, last ~8 s of the observed external-view master"
+    },
+    {
+      "path": "media/video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov",
+      "size_bytes": 61809856,
+      "sha256": "76b6a8fcffe98dd430d004291eb84a07a112118cad22c0a16e14b3c9a708c1bd",
+      "duration_s": 99.73,
+      "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene02_failure_1_dashboard_20260728.mp4",
+      "size_bytes": 1472856,
+      "sha256": "7331e7723e890892422e8f2957e5810cab4acc2edbeb494520f6473a209a5717",
+      "duration_s": 99.634,
+      "classification": "source-derived H.264 public derivative of the observed Dashboard master, scaled to 1280px wide"
+    },
+    {
+      "path": "media/demo/scene02_failure_1_dashboard_20260728_poster.jpg",
+      "size_bytes": 64344,
+      "sha256": "f72984e91b9e09e56e67c2b0c9c091633d21f100e04663a6df1be5fedb1f3e82",
+      "classification": "source-derived terminal still from the observed Dashboard master"
+    },
+    {
+      "path": "media/demo/scene02_failure_1_dashboard_20260728_preview.gif",
+      "size_bytes": 1077428,
+      "sha256": "c2d0cd06b0ec7accdd62e26f8e06928bd8e7697f75d5cc47388236cdc9353634",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, last ~8 s of the observed Dashboard master"
+    }
+  ],
   "safety": {
     "hub_published_high_level_targets_only": true,
     "robot_local_stop_and_rejection_authority_retained": true,

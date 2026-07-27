@@ -22,3 +22,22 @@ runtime bindings and derivative identities are recorded in
 Development recordings are retained separately as engineering-process
 evidence and indexed in
 [`SCENE01_ENGINEERING_DEBUG_INDEX_20260725.md`](../audit/SCENE01_ENGINEERING_DEBUG_INDEX_20260725.md).
+
+# Scene 02 media
+
+Scene 02 currently contains one archived formal episode, which failed
+(`execution_engineering_failure/local_planner_trajectory_stale`). User-provided
+master videos are byte-preserved under `media/video/**` through Git LFS;
+browser-ready H.264 files, terminal-frame posters and inline GIF previews are
+under `media/demo/`.
+
+| Run | Third-view master | Dashboard master | README previews |
+| --- | --- | --- | --- |
+| Formal 01 · FAILURE | [`experiment_2_failure_1.mp4`](video/third_view/experiment_2/experiment_2_failure_1.mp4) | [`experiment_2_failure_1_dashboard.mov`](video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov) | [Third view](demo/scene02_failure_1_third_view_20260728_preview.gif) · [Dashboard](demo/scene02_failure_1_dashboard_20260728_preview.gif) |
+
+README previews are an ~8 s excerpt from the end of each master, not the
+complete run. Exact source paths, sizes, durations, SHA-256 values and
+evidence classes are recorded in
+[`scene02_plant_formal_experiment_01_failure_20260728.json`](../manifests/scene02_plant_formal_experiment_01_failure_20260728.json)
+and in
+[`SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](../audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md).

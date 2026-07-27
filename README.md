@@ -131,3 +131,49 @@ displacement `D` as a source-compatible reference.
 · [Machine-readable results](manifests/scene01_chair_formal_experiments_20260725.json)
 · [Media manifest](media/README.md)
 · [Run instructions](hub/docs/ONECLICK_SESSION_WORKFLOW.md)
+
+## Scene 02 · Plant
+
+Both robots explore cooperatively toward a plant target. Formal experiment 01
+failed during coordinated execution: Robot 1's assigned frontier was rejected
+as locally unreachable, and Robot 0's remaining semantic-navigation leg
+terminated before arrival.
+
+| Trials | Success | SR | Source-compatible SPL | Standard SPL |
+| ---: | ---: | ---: | ---: | ---: |
+| `1` | `0` | `0.0` | `0.0` | `0.0` |
+
+<table>
+  <tr>
+    <td colspan="2" align="center">
+      <strong>Formal 01 · FAILURE</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene02_failure_1_third_view_20260728_preview.gif" width="440" alt="Formal 01 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene02_failure_1_dashboard_20260728_preview.gif" width="440" alt="Formal 01 failure dashboard"><br>
+      Robot 1 explores an initial frontier, then HOLDs under route separation
+      while Robot 0 explores; in the final round Robot 0 is assigned the
+      plant semantic region while Robot 1's frontier is rejected as
+      <code>LOCAL_GOAL_UNREACHABLE</code> and isolated. Robot 0 retains a
+      valid route but its local trajectory stream goes stale and the
+      episode fails closed (<code>LOCAL_PLANNER_PATH_STALE</code>) before
+      reaching the target.<br>
+      <a href="media/demo/scene02_failure_1_third_view_20260728.mp4">Third view</a> ·
+      <a href="media/demo/scene02_failure_1_dashboard_20260728.mp4">Dashboard</a>
+    </td>
+  </tr>
+</table>
+
+### Per-run metrics
+
+| Run | Robot 0 path | Robot 1 path | Terminal reason | Attribution |
+| --- | ---: | ---: | --- | --- |
+| Formal 01 | `6.104564 m` | `1.905387 m` | `LOCAL_PLANNER_PATH_STALE` | `execution_engineering_failure` (not a VLM decision failure) |
+
+A minimal deployment-layer fix (both robot launchers pass an explicit
+`1.0 s`/`5.0 s` stale-trajectory contract) has been applied and covered by
+regression tests; it has not yet been re-verified against a live physical
+run.
+
+[Full failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
+· [Machine-readable result](manifests/scene02_plant_formal_experiment_01_failure_20260728.json)

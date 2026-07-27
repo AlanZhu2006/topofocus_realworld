@@ -85,3 +85,26 @@ post-fix physical behavior remains unverified.
 [`scene02_plant_formal_experiment_01_failure_20260728.json`](../manifests/scene02_plant_formal_experiment_01_failure_20260728.json)。
 episode 清理后两台机器人均为 `HOLDING` 且
 `velocity_zero_confirmed=true`，Hub 已恢复 `GOAL=false`。
+
+## 媒体
+
+操作者提供了本次失败 episode 的第三视角与 Dashboard 录屏原始文件，已通过
+Git LFS 按字节原样提交到 `media/video/**`；对应的浏览器可播放 H.264 版本、
+海报截图与内嵌预览 GIF 位于 `media/demo/`。
+
+| 素材 | 字节 | 时长 | SHA-256 | 分类 |
+| --- | ---: | ---: | --- | --- |
+| `media/video/third_view/experiment_2/experiment_2_failure_1.mp4` | 8,098,606 | 68.766667 s | `66f31368a56f635c47f46755465ef44491a9164101ff28f15fa5ec4d0ad9df5c` | observed 用户提供的第三视角原始素材 |
+| `media/demo/scene02_failure_1_third_view_20260728.mp4` | 5,325,300 | 68.767 s | `ee718bcac313a559cb95cb383de25c4fb8d7273093234f0c9c1e047d3ca9f798` | source-derived H.264 公开版本 |
+| `media/demo/scene02_failure_1_third_view_20260728_poster.jpg` | 94,159 | — | `bef80d5e35f6d62e700120a5428fd921d3132564789efcc456e253c91aa5ee1b` | source-derived 终止帧海报 |
+| `media/demo/scene02_failure_1_third_view_20260728_preview.gif` | 7,574,396 | 8.01 s | `2c8faa9212d3751080388321a58427c2d4095160fecaa294158c926c3e6ab474` | source-derived README 内嵌预览（截取自原片最后约 8 秒） |
+| `media/video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov` | 61,809,856 | 99.73 s | `76b6a8fcffe98dd430d004291eb84a07a112118cad22c0a16e14b3c9a708c1bd` | observed 用户提供的 Dashboard 原始素材 |
+| `media/demo/scene02_failure_1_dashboard_20260728.mp4` | 1,472,856 | 99.634 s | `7331e7723e890892422e8f2957e5810cab4acc2edbeb494520f6473a209a5717` | source-derived H.264 公开版本（缩放到 1280px 宽） |
+| `media/demo/scene02_failure_1_dashboard_20260728_poster.jpg` | 64,344 | — | `f72984e91b9e09e56e67c2b0c9c091633d21f100e04663a6df1be5fedb1f3e82` | source-derived 终止帧海报 |
+| `media/demo/scene02_failure_1_dashboard_20260728_preview.gif` | 1,077,428 | 8.01 s | `c2d0cd06b0ec7accdd62e26f8e06928bd8e7697f75d5cc47388236cdc9353634` | source-derived README 内嵌预览（截取自原片最后约 8 秒） |
+
+视频内容与本记录描述的运行时事实（frontier 被拒绝、WSJ 语义导航段落
+在到达前终止）一致，但未独立核实视频时间戳与 episode 时间戳的精确对齐；
+按惯例分类为 observed 而非逐帧验证证据。派生文件使用本机 `ffmpeg`
+（`libx264`，第三视角 CRF 25 原始分辨率，Dashboard CRF 26 缩放至
+1280px 宽），与既有 Scene 01 派生规范一致。

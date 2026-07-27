@@ -58,6 +58,11 @@ the machine-readable result is
   main README.
 - Formal 05 display media covers the run beginning through physical arrival;
   its SR/SPL uses the complete episode report.
+- Scene 02 formal experiment 01's third-view and Dashboard masters are
+  likewise preserved under `media/video/**` through Git LFS, with an H.264
+  pair, terminal-frame posters and ~8 s README preview GIFs under
+  `media/demo/`. See
+  [`media/README.md`](media/README.md#scene-02-media).
 
 ## Implementation state
 
