@@ -70,6 +70,9 @@ from focus_hub.v2_episode_control import (  # noqa: E402
 from focus_hub.v2_frontier_clearance import (  # noqa: E402
     apply_frontier_clearance_guard,
 )
+from focus_hub.v2_goal_continuity import (  # noqa: E402
+    apply_frontier_goal_continuity,
+)
 from focus_hub.v2_route_conflict import apply_route_conflict_guard  # noqa: E402
 from focus_hub.v2_scene_batch import build_batch_from_shadow_manifest  # noqa: E402
 from freeze_realworld_inputs import freeze, stable_copy_map  # noqa: E402
@@ -1340,6 +1343,16 @@ def main() -> int:
                     "toward the same source frontier"
                 ),
             },
+            "goal_continuity_guard": {
+                "minimum_progress_m": args.cross_round_min_progress_m,
+                "policy": (
+                    "apply identically to both robots: retain a safe, "
+                    "unfinished prior frontier only while measured "
+                    "shared-frame progress continues; semantic targets, "
+                    "arrival, stalling, and current-map clearance retain "
+                    "authority to preempt or reject it"
+                ),
+            },
             "cross_round_progress_guard": {
                 "minimum_progress_m": args.cross_round_min_progress_m,
                 "maximum_stagnant_intervals": (
@@ -1363,6 +1376,10 @@ def main() -> int:
             artifact_record(
                 TOOLS_DIR / "freeze_realworld_inputs.py",
                 classification="observed_input_freeze_adapter",
+            ),
+            artifact_record(
+                HUB_DIR / "src/focus_hub/v2_goal_continuity.py",
+                classification="source_derived_realworld_execution_guard",
             ),
             artifact_record(
                 WORKSPACE / "source/Focus_realworld/main.py",
@@ -1389,6 +1406,7 @@ def main() -> int:
     overall_deadline = time.monotonic() + args.max_runtime_s
     previous_shared_positions: dict[str, tuple[float, float]] = {}
     previous_active_robot_ids: set[str] = set()
+    previous_continuity_batch: DecisionBatchV2 | None = None
     stagnant_intervals: dict[str, int] = {}
 
     def emit(event: str, **fields: object) -> None:
@@ -1808,9 +1826,29 @@ def main() -> int:
             shared_positions, pose_provenance, pose_errors = (
                 frozen_shared_robot_positions(accepted)
             )
+            continuity_guarded_batch, goal_continuity_guard = (
+                apply_frontier_goal_continuity(
+                    built.batch,
+                    previous_batch=previous_continuity_batch,
+                    previous_shared_positions=previous_shared_positions,
+                    current_shared_positions=shared_positions,
+                    minimum_progress_m=args.cross_round_min_progress_m,
+                )
+            )
+            atomic_write_json(
+                round_dir / "goal_continuity_guard.json",
+                goal_continuity_guard,
+            )
+            emit(
+                "goal_continuity_guard_evaluated",
+                status=goal_continuity_guard["status"],
+                retained_robot_ids=goal_continuity_guard[
+                    "retained_robot_ids"
+                ],
+            )
             clearance_guarded_batch, frontier_clearance_guard = (
                 apply_frontier_clearance_guard(
-                    built.batch,
+                    continuity_guarded_batch,
                     fused_snapshot,
                     clearance_by_robot_m={
                         "robot-0": args.robot_0_frontier_clearance_m,
@@ -2002,6 +2040,12 @@ def main() -> int:
                         "source_derived_unmodified_vlm_candidate_batch"
                     ),
                 ),
+                "goal_continuity_guard": artifact_record(
+                    round_dir / "goal_continuity_guard.json",
+                    classification=(
+                        "source_derived_realworld_execution_guard"
+                    ),
+                ),
                 "frontier_clearance_guard": artifact_record(
                     round_dir / "frontier_clearance_guard.json",
                     classification=(
@@ -2030,6 +2074,18 @@ def main() -> int:
             rounds.append(round_record)
             atomic_write_json(scene_manifest_path, scene_manifest)
             emit("round_completed", **round_record)
+            previous_continuity_batch = (
+                guarded_batch
+                if (
+                    round_result.status == "replan"
+                    and round_result.reason
+                    == (
+                        f"source-derived {step_quota}-tick round "
+                        "completed"
+                    )
+                )
+                else None
+            )
 
             if round_result.status == "semantic_arrival":
                 for robot_id, event in round_result.semantic_arrivals.items():

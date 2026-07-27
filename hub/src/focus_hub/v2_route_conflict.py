@@ -323,7 +323,8 @@ def apply_route_conflict_guard(
         "routes": routes,
         "pairwise": pairwise,
         "source_fidelity": (
-            "VLM target selection is unchanged and preserved separately; "
+            "the VLM candidate and any upstream continuity override are "
+            "preserved separately; this guard does not retarget a robot and "
             "current detector evidence only chooses which already-guarded "
             "robot moves first when physical concurrency authority must be "
             "reduced"

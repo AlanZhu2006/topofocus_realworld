@@ -1044,8 +1044,10 @@ def apply_frontier_clearance_guard(
             for robot_id in active_ids
         },
         "source_fidelity": (
-            "the exact VLM-selected target remains unchanged in the preserved "
-            "candidate batch; an execution target may be projected only to "
+            "the exact VLM-selected target remains unchanged in its preserved "
+            "candidate artifact; this guard accepts either that target or a "
+            "separately recorded prior-round continuity target as input; an "
+            "execution target may be projected only to "
             "the closest full-footprint-clear endpoint connected through the "
             "robot-local router's configured known-free graph clearance and "
             "producing minimum bounded progress toward the same source "
