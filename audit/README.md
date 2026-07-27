@@ -82,6 +82,9 @@ current. For the authoritative project state, read
 
 ## Current calibration and sensors
 
+- [`YUNJI_WATER_LINK_PREFLIGHT_20260727.md`](YUNJI_WATER_LINK_PREFLIGHT_20260727.md):
+  observed no-carrier failure, fail-fast MAC/profile/TCP recovery and
+  sequence-backed calibration readiness.
 - [`WSJ_CALIBRATION_KEYFRAME_GATE_20260727.md`](WSJ_CALIBRATION_KEYFRAME_GATE_20260727.md):
   observed sparse-keyframe false failure, continuous-health/keyframe-tuple
   gate separation, and fail-closed remote-timeout recovery.

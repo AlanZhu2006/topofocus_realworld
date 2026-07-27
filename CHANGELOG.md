@@ -11,6 +11,10 @@
 - Interrupt timed-out remote foreground jobs before calibration/one-click
   cleanup; recover and probe the existing SSH/tmux pane if a job does not
   release it.
+- Fail immediately when Yunji's NUC-to-WATER Ethernet has no carrier, recover
+  the existing MAC-bound `Yunji-Robot` profile when carrier is present, and
+  require an actual Hub observation sequence advance before calibration
+  reports the Yunji sender ready.
 
 ### Scene 02 plant preparation (2026-07-25)
 

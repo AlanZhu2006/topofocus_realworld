@@ -79,6 +79,7 @@ if [[ "$command_capable" != "true" ]] \
   echo "Refusing mapping-only launch while a v2 receiver is running." >&2
   exit 1
 fi
+bash "$SCRIPT_DIR/ensure_yunji_water_link.sh"
 
 source_setup() {
   local had_nounset=0

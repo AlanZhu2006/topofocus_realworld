@@ -174,8 +174,13 @@ def test_calibration_robot_entries_contain_no_live_motion_flag():
 def test_yunji_calibration_recovers_only_the_readonly_odin_driver():
     launcher = (OVERLAY / "start_yunji_calibration_observation.sh").read_text()
     recovery = (OVERLAY / "prepare_yunji_odin1_calibration_driver.sh").read_text()
+    network = (OVERLAY / "ensure_yunji_water_link.sh").read_text()
 
     assert "prepare_yunji_odin1_calibration_driver.sh" in launcher
+    assert "ensure_yunji_water_link.sh" in launcher
+    assert "initial_sequence" in launcher
+    assert "latest_sequence > initial_sequence" in launcher
+    assert "FOCUS_YUNJI_CALIBRATION_READY_TIMEOUT_S:-30" in launcher
     assert "focus-yunji-odin1-driver.service" in recovery
     assert "verify_odin1.sh" in recovery
     assert "systemctl enable" in recovery
@@ -183,6 +188,20 @@ def test_yunji_calibration_recovers_only_the_readonly_odin_driver():
     assert "/api/move" not in recovery
     assert "/api/joy_control" not in recovery
     assert "water_cmd_vel_bridge" not in recovery
+    assert "YUNJI_WATER_LINK_NO_CARRIER" in network
+    assert "YUNJI_WATER_LINK_READY" in network
+    assert "Yunji-Robot" in network
+    assert "/api/move" not in network
+    assert "/api/joy_control" not in network
+
+
+def test_every_yunji_observation_entry_verifies_the_water_link():
+    for name in (
+        "run_yunji_mapping_observation.sh",
+        "start_yunji_calibration_observation.sh",
+        "start_yunji_v2.sh",
+    ):
+        assert "ensure_yunji_water_link.sh" in (OVERLAY / name).read_text()
 
 
 def test_incomplete_calibration_attempt_is_archived_for_retry():

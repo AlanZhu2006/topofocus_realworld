@@ -130,6 +130,7 @@ fi
   exit 2
 }
 for required in \
+  "$SCRIPT_DIR/ensure_yunji_water_link.sh" \
   "$SCRIPT_DIR/install_yunji_tinynav_runtime.sh" \
   "$SCRIPT_DIR/run_yunji_tinynav_component.sh" \
   "$SCRIPT_DIR/run_yunji_mapping_observation.sh" \
@@ -154,6 +155,7 @@ if pgrep -af 'keyboard.*teleop|yunji_wasd_teleop' >/dev/null 2>&1; then
   echo "Refusing startup while a Yunji manual command process exists." >&2
   exit 1
 fi
+bash "$SCRIPT_DIR/ensure_yunji_water_link.sh"
 
 if [[ "$reuse_verified_debug_core" != true ]]; then
   FOCUS_YUNJI_TINYNAV_RUNTIME="$TINYNAV_RUNTIME" \
