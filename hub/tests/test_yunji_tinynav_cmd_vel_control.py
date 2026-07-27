@@ -287,7 +287,7 @@ def test_measured_rear_left_goal_has_one_stable_positive_turn():
     ) == pytest.approx(0.35)
 
 
-def test_large_turn_latch_uses_hysteresis_and_never_invents_rotation():
+def test_large_turn_latch_uses_hysteresis_only_after_explicit_entry():
     assert MODULE.large_turn_stabilization_required(
         math.radians(76.0),
         recovery_active=False,
@@ -316,6 +316,15 @@ def test_large_turn_latch_uses_hysteresis_and_never_invents_rotation():
         math.radians(40.0),
         recovery_active=True,
         requested_linear_mps=0.1,
+        requested_angular_radps=0.0,
+    )
+    # A transient zero request must not erase a turn that already entered
+    # through a real pinned-controller yaw command. The bounded continuation
+    # path supplies the minimum yaw request until the 35-degree exit.
+    assert MODULE.large_turn_stabilization_required(
+        math.radians(40.0),
+        recovery_active=True,
+        requested_linear_mps=0.0,
         requested_angular_radps=0.0,
     )
 

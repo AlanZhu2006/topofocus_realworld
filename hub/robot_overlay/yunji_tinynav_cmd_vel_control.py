@@ -365,15 +365,18 @@ def large_turn_stabilization_required(
         raise ValueError("stable-turn angular thresholds are invalid")
     if heading_error_rad is None:
         return False
+    if recovery_active:
+        # Do not let one intermittent zero/tiny-reverse lattice sample clear
+        # an active turn while the authoritative path bearing remains
+        # off-axis. The caller preserves the latched direction with the
+        # bounded minimum yaw request; the existing recovery deadline still
+        # rejects a turn that does not converge.
+        return abs(heading_error_rad) >= exit_rad
     if (
         abs(requested_linear_mps) <= 1e-9
         and abs(requested_angular_radps) <= 1e-9
     ):
         return False
-    if recovery_active:
-        # Do not let one intermittent forward lattice sample clear an active
-        # turn while the fixed router waypoint is still far off-axis.
-        return abs(heading_error_rad) >= exit_rad
     return bool(
         abs(requested_linear_mps) <= 1e-9
         and abs(requested_angular_radps) > 1e-9
