@@ -144,6 +144,28 @@ def write_camera_snapshot(
         "ground_drift_motion_deferred_frames": (
             pipeline.ground_drift_motion_deferred_frames
         ),
+        "ground_drift_reference_rebases": (
+            pipeline.ground_drift_reference_rebases
+        ),
+        "ground_reference_plane_coefficients": list(
+            pipeline.ground_reference_plane_coefficients
+        ),
+        "ground_drift_motion_translation_m": (
+            pipeline.ground_drift_motion_translation_m
+        ),
+        "ground_drift_motion_rotation_deg": (
+            pipeline.ground_drift_motion_rotation_deg
+        ),
+        "ground_drift_last_motion_capture_time_ns": (
+            pipeline.ground_drift_last_motion_capture_time_ns
+        ),
+        "last_ground_rebase_sequence": pipeline.last_ground_rebase_sequence,
+        "last_ground_rebase_tilt_delta_deg": (
+            pipeline.last_ground_rebase_tilt_delta_deg
+        ),
+        "last_ground_rebase_height_delta_m": (
+            pipeline.last_ground_rebase_height_delta_m
+        ),
         "ground_height_translation_frames": (
             pipeline.ground_height_translation_frames
         ),
@@ -830,6 +852,23 @@ def main() -> int:
                 t0 = time.perf_counter()
                 keyframe_decision = pipeline.process(mapping_observation)
                 elapsed_ms = (time.perf_counter() - t0) * 1e3
+                if (
+                    pipeline.last_ground_rebase_sequence
+                    == mapping_observation.sequence
+                ):
+                    emit(
+                        "mapping_ground_reference_rebased",
+                        sequence=mapping_observation.sequence,
+                        tilt_delta_deg=(
+                            pipeline.last_ground_rebase_tilt_delta_deg
+                        ),
+                        height_delta_m=(
+                            pipeline.last_ground_rebase_height_delta_m
+                        ),
+                        reference_plane_coefficients=list(
+                            pipeline.ground_reference_plane_coefficients
+                        ),
+                    )
                 if keyframe_decision.accept:
                     frame_ms.append(elapsed_ms)
                     frames_total += 1

@@ -53,6 +53,11 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
         assert str(data["map_format_version"].item()) == "focus-hub-central-map-v3"
         assert str(data["floor_source"].item()) == "caller_provided_unverified"
         np.testing.assert_allclose(data["floor_plane_coefficients"], [0.0, 0.0, 0.0])
+        np.testing.assert_allclose(
+            data["ground_reference_plane_coefficients"],
+            [0.0, 0.0, 0.0],
+        )
+        assert int(data["ground_drift_reference_rebases"]) == 0
         assert str(data["obstacle_fusion_mode"].item()) == "max"
         np.testing.assert_allclose(data["obstacle_band_m"], [0.25, 1.5])
         assert str(data["semantic_fusion_mode"].item()) == "max"
@@ -70,6 +75,7 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
     assert summary["obstacle_band_m"] == [0.25, 1.5]
     assert summary["ground_drift_frames"] == 0
     assert summary["ground_drift_streak"] == 0
+    assert summary["ground_drift_reference_rebases"] == 0
     assert summary["ground_guard"]["consecutive_frames_to_latch"] == 3
     assert summary["ground_guard"]["minimum_duration_s_to_latch"] == 5.0
     assert summary["semantic_mapping"]["pixel_segmenter"]["backend"] == (

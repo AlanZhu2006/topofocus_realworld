@@ -212,6 +212,17 @@ class SpoolMappingPipeline:
         self.ground_drift_streak_start_capture_time_ns: int | None = None
         self.last_ground_drift_duration_s = 0.0
         self.ground_drift_motion_deferred_frames = 0
+        self.ground_drift_reference_rebases = 0
+        self.ground_drift_motion_translation_m = 0.0
+        self.ground_drift_motion_rotation_deg = 0.0
+        self.ground_drift_last_motion_capture_time_ns: int | None = None
+        self.ground_drift_candidate_planes: list[tuple[float, float, float]] = []
+        self.ground_reference_plane_coefficients = tuple(
+            float(value) for value in self.mapper.map.floor_plane_coefficients
+        )
+        self.last_ground_rebase_sequence: int | None = None
+        self.last_ground_rebase_tilt_delta_deg: float | None = None
+        self.last_ground_rebase_height_delta_m: float | None = None
         self.ground_height_translation_frames = 0
         self.max_ground_height_translation_m = 0.0
         self.last_ground_sequence: int | None = None
@@ -249,6 +260,56 @@ class SpoolMappingPipeline:
         self.last_observation_sequence: int | None = None
         self.semantic_vote_frames = 0
         self.semantic_interval_frames_without_vote = 0
+
+    def _reset_ground_drift_confirmation(self) -> None:
+        self.ground_drift_streak = 0
+        self.ground_drift_streak_start_capture_time_ns = None
+        self.last_ground_drift_duration_s = 0.0
+        self.ground_drift_candidate_planes = []
+
+    def _record_ground_drift_motion(
+        self,
+        *,
+        capture_time_ns: int,
+        translation_m: float,
+        rotation_deg: float,
+    ) -> None:
+        previous_ns = self.ground_drift_last_motion_capture_time_ns
+        motion_window_ns = int(self.ground_drift_min_duration_s * 6.0 * 1e9)
+        if (
+            previous_ns is None
+            or capture_time_ns < previous_ns
+            or capture_time_ns - previous_ns > motion_window_ns
+        ):
+            self.ground_drift_motion_translation_m = 0.0
+            self.ground_drift_motion_rotation_deg = 0.0
+        self.ground_drift_motion_translation_m += translation_m
+        self.ground_drift_motion_rotation_deg += rotation_deg
+        self.ground_drift_last_motion_capture_time_ns = capture_time_ns
+
+    def _post_motion_ground_rebase_allowed(
+        self,
+        *,
+        capture_time_ns: int,
+        tilt_delta_deg: float,
+        height_delta_m: float,
+    ) -> bool:
+        last_motion_ns = self.ground_drift_last_motion_capture_time_ns
+        if last_motion_ns is None or capture_time_ns < last_motion_ns:
+            return False
+        motion_age_s = (capture_time_ns - last_motion_ns) / 1e9
+        motion_recent = motion_age_s <= self.ground_drift_min_duration_s * 6.0
+        motion_material = (
+            self.ground_drift_motion_translation_m
+            >= self.ground_drift_stationary_translation_m * 2.0
+            or self.ground_drift_motion_rotation_deg
+            >= self.ground_drift_stationary_rotation_deg * 2.0
+        )
+        bounded_local_plane = (
+            tilt_delta_deg <= self.max_ground_tilt_delta_deg * 2.0
+            and height_delta_m <= self.max_ground_height_delta_m * 2.0
+        )
+        return motion_recent and motion_material and bounded_local_plane
 
     def process(self, observation: SpooledObservation) -> KeyframeDecision:
         observation_version = observation.metadata.pose.transform_version
@@ -401,11 +462,11 @@ class SpoolMappingPipeline:
                 )
 
         # Validate gravity/floor geometry before either the keyframe selector
-        # commits this pose or RedNet spends GPU time.  A frame with no
-        # trustworthy visible floor is skipped.  A fitted plane that moved
-        # materially from the startup consensus latches the session: allowing
-        # it into max-fused semantic layers would make the corruption
-        # irreversible and usually indicates a bad mount/shared transform.
+        # commits this pose or RedNet spends GPU time. A frame with no
+        # trustworthy visible floor is skipped. A persistent same-pose plane
+        # change latches the session; a bounded local plane observed after
+        # motion can become a new reference only after temporal and mutual
+        # consistency checks.
         ground_candidate = None
         if self.ground_plane_config is not None:
             ground_candidate = fit_ground_candidate(
@@ -427,9 +488,7 @@ class SpoolMappingPipeline:
                 # A missing/invalid plane breaks consecutiveness.  It gives
                 # no evidence that drift persists, and the frame is already
                 # excluded from both the pose gate and map integration.
-                self.ground_drift_streak = 0
-                self.ground_drift_streak_start_capture_time_ns = None
-                self.last_ground_drift_duration_s = 0.0
+                self._reset_ground_drift_confirmation()
                 self.skipped_non_keyframes += 1
                 return KeyframeDecision(
                     False,
@@ -439,14 +498,16 @@ class SpoolMappingPipeline:
                     0.0,
                 )
 
-            startup_plane = self.mapper.map.floor_plane_coefficients
+            reference_plane = self.ground_reference_plane_coefficients
             camera_xy = observation.T_shared_camera[:2, 3]
             tilt_delta = plane_angle_deg(
-                startup_plane,
+                reference_plane,
                 ground_candidate.plane_coefficients,
             )
-            startup_height = plane_height_at(startup_plane, camera_xy)
-            height_delta = abs(float(ground_candidate.ground_z_m) - startup_height)
+            reference_height = plane_height_at(reference_plane, camera_xy)
+            height_delta = abs(
+                float(ground_candidate.ground_z_m) - reference_height
+            )
             self.last_ground_tilt_delta_deg = tilt_delta
             self.last_ground_height_delta_m = height_delta
             tilt_outside_gate = tilt_delta > self.max_ground_tilt_delta_deg
@@ -469,9 +530,7 @@ class SpoolMappingPipeline:
                     self.max_ground_height_translation_m,
                     height_delta,
                 )
-                self.ground_drift_streak = 0
-                self.ground_drift_streak_start_capture_time_ns = None
-                self.last_ground_drift_duration_s = 0.0
+                self._reset_ground_drift_confirmation()
                 self.last_ground_reason = "height_translation_tolerated_2d"
             elif tilt_outside_gate or height_outside_gate:
                 # Do not integrate any outlying frame.  A single fit can be
@@ -484,11 +543,15 @@ class SpoolMappingPipeline:
                 # stops and then latches on the configured stationary run.
                 self.ground_drift_frames += 1
                 self.skipped_non_keyframes += 1
+                capture_time_ns = int(observation.metadata.capture_time_ns)
                 if ground_pose_moving:
                     self.ground_drift_motion_deferred_frames += 1
-                    self.ground_drift_streak = 0
-                    self.ground_drift_streak_start_capture_time_ns = None
-                    self.last_ground_drift_duration_s = 0.0
+                    self._record_ground_drift_motion(
+                        capture_time_ns=capture_time_ns,
+                        translation_m=ground_pose_translation_m,
+                        rotation_deg=ground_pose_rotation_deg,
+                    )
+                    self._reset_ground_drift_confirmation()
                     self.last_ground_reason = "drift_deferred_while_moving"
                     return KeyframeDecision(
                         False,
@@ -497,9 +560,38 @@ class SpoolMappingPipeline:
                         ground_pose_rotation_deg,
                         0.0,
                     )
-                capture_time_ns = int(observation.metadata.capture_time_ns)
+                candidate_plane = tuple(
+                    float(value)
+                    for value in ground_candidate.plane_coefficients
+                )
+                if self.ground_drift_candidate_planes:
+                    consensus = tuple(
+                        float(value)
+                        for value in np.median(
+                            np.asarray(self.ground_drift_candidate_planes),
+                            axis=0,
+                        )
+                    )
+                    candidate_spread_tilt_deg = plane_angle_deg(
+                        consensus,
+                        candidate_plane,
+                    )
+                    candidate_spread_height_m = abs(
+                        plane_height_at(consensus, camera_xy)
+                        - float(ground_candidate.ground_z_m)
+                    )
+                    if (
+                        candidate_spread_tilt_deg
+                        > self.max_ground_tilt_delta_deg * 0.5
+                        or candidate_spread_height_m
+                        > self.max_ground_height_delta_m * 0.5
+                    ):
+                        # Unrelated RANSAC modes cannot accumulate into
+                        # persistent drift evidence.
+                        self._reset_ground_drift_confirmation()
                 if self.ground_drift_streak == 0:
                     self.ground_drift_streak_start_capture_time_ns = capture_time_ns
+                self.ground_drift_candidate_planes.append(candidate_plane)
                 self.ground_drift_streak += 1
                 streak_start_ns = self.ground_drift_streak_start_capture_time_ns
                 if streak_start_ns is None or capture_time_ns < streak_start_ns:
@@ -507,6 +599,7 @@ class SpoolMappingPipeline:
                     self.ground_drift_streak = 1
                     self.ground_drift_streak_start_capture_time_ns = capture_time_ns
                     self.last_ground_drift_duration_s = 0.0
+                    self.ground_drift_candidate_planes = [candidate_plane]
                 else:
                     self.last_ground_drift_duration_s = (
                         capture_time_ns - streak_start_ns
@@ -525,21 +618,57 @@ class SpoolMappingPipeline:
                         0.0,
                         0.0,
                     )
-                self.ground_drift_events += 1
-                self.last_ground_reason = "drift_latched"
-                self.mapping_blocked_kind = "ground_drift"
-                self.mapping_blocked_reason = (
-                    "ground plane drift requires a fresh calibrated map session: "
-                    f"sequence={observation.sequence}, "
-                    f"consecutive_frames={self.ground_drift_streak}, "
-                    f"duration_s={self.last_ground_drift_duration_s:.3f}, "
-                    f"tilt_delta_deg={tilt_delta:.3f}, "
-                    f"height_delta_m={height_delta:.3f}"
-                )
-                return KeyframeDecision(False, "ground_drift", 0.0, 0.0, 0.0)
-            self.ground_drift_streak = 0
-            self.ground_drift_streak_start_capture_time_ns = None
-            self.last_ground_drift_duration_s = 0.0
+                if self._post_motion_ground_rebase_allowed(
+                    capture_time_ns=capture_time_ns,
+                    tilt_delta_deg=tilt_delta,
+                    height_delta_m=height_delta,
+                ):
+                    # The startup floor is a local observation, not a global
+                    # calibration invariant. A quadruped can settle at a
+                    # different stable pitch/height after walking, and a new
+                    # floor patch can have a small real slope. Rebase only
+                    # after observed motion plus a bounded, mutually
+                    # consistent, time-confirmed plane. A same-pose change
+                    # still takes the fail-closed latch below.
+                    consensus = np.median(
+                        np.asarray(self.ground_drift_candidate_planes),
+                        axis=0,
+                    )
+                    self.ground_reference_plane_coefficients = tuple(
+                        float(value) for value in consensus
+                    )
+                    self.ground_drift_reference_rebases += 1
+                    self.last_ground_rebase_sequence = observation.sequence
+                    self.last_ground_rebase_tilt_delta_deg = tilt_delta
+                    self.last_ground_rebase_height_delta_m = height_delta
+                    self.ground_drift_motion_translation_m = 0.0
+                    self.ground_drift_motion_rotation_deg = 0.0
+                    self.ground_drift_last_motion_capture_time_ns = None
+                    self._reset_ground_drift_confirmation()
+                    self.last_ground_reason = (
+                        "post_motion_local_plane_rebased"
+                    )
+                else:
+                    self.ground_drift_events += 1
+                    self.last_ground_reason = "drift_latched"
+                    self.mapping_blocked_kind = "ground_drift"
+                    self.mapping_blocked_reason = (
+                        "ground plane drift requires a fresh calibrated map session: "
+                        f"sequence={observation.sequence}, "
+                        f"consecutive_frames={self.ground_drift_streak}, "
+                        f"duration_s={self.last_ground_drift_duration_s:.3f}, "
+                        f"tilt_delta_deg={tilt_delta:.3f}, "
+                        f"height_delta_m={height_delta:.3f}"
+                    )
+                    return KeyframeDecision(
+                        False,
+                        "ground_drift",
+                        0.0,
+                        0.0,
+                        0.0,
+                    )
+            else:
+                self._reset_ground_drift_confirmation()
 
         if self.keyframes is None:
             decision = KeyframeDecision(True, "unfiltered", 0.0, 0.0, 0.0)
@@ -743,6 +872,14 @@ class SpoolMappingPipeline:
                 self.mapper.map.floor_plane_coefficients,
                 dtype=np.float64,
             ),
+            ground_reference_plane_coefficients=np.asarray(
+                self.ground_reference_plane_coefficients,
+                dtype=np.float64,
+            ),
+            ground_drift_reference_rebases=np.asarray(
+                self.ground_drift_reference_rebases,
+                dtype=np.int64,
+            ),
             floor_source=np.asarray(self.floor_source),
             resolution_m=np.array(self.mapper.config.resolution_m),
             frame_id=np.asarray(self.frame_id),
@@ -819,6 +956,9 @@ class SpoolMappingPipeline:
             "ground_drift_motion_deferred_frames": (
                 self.ground_drift_motion_deferred_frames
             ),
+            "ground_drift_reference_rebases": (
+                self.ground_drift_reference_rebases
+            ),
             "ground_height_translation_frames": (
                 self.ground_height_translation_frames
             ),
@@ -844,6 +984,47 @@ class SpoolMappingPipeline:
                 ),
                 "stationary_rotation_threshold_deg": (
                     self.ground_drift_stationary_rotation_deg
+                ),
+                "post_motion_rebase_policy": {
+                    "motion_window_s": self.ground_drift_min_duration_s * 6.0,
+                    "minimum_translation_m": (
+                        self.ground_drift_stationary_translation_m * 2.0
+                    ),
+                    "minimum_rotation_deg": (
+                        self.ground_drift_stationary_rotation_deg * 2.0
+                    ),
+                    "maximum_tilt_delta_deg": (
+                        self.max_ground_tilt_delta_deg * 2.0
+                    ),
+                    "maximum_height_delta_m": (
+                        self.max_ground_height_delta_m * 2.0
+                    ),
+                    "plane_consistency_tolerance_deg": (
+                        self.max_ground_tilt_delta_deg * 0.5
+                    ),
+                    "height_consistency_tolerance_m": (
+                        self.max_ground_height_delta_m * 0.5
+                    ),
+                },
+                "current_reference_plane_coefficients": list(
+                    self.ground_reference_plane_coefficients
+                ),
+                "reference_rebases": self.ground_drift_reference_rebases,
+                "motion_evidence_translation_m": (
+                    self.ground_drift_motion_translation_m
+                ),
+                "motion_evidence_rotation_deg": (
+                    self.ground_drift_motion_rotation_deg
+                ),
+                "last_motion_capture_time_ns": (
+                    self.ground_drift_last_motion_capture_time_ns
+                ),
+                "last_rebase_sequence": self.last_ground_rebase_sequence,
+                "last_rebase_tilt_delta_deg": (
+                    self.last_ground_rebase_tilt_delta_deg
+                ),
+                "last_rebase_height_delta_m": (
+                    self.last_ground_rebase_height_delta_m
                 ),
                 "height_translation_policy": (
                     "tolerate_for_2d_with_frame_local_floor_plane"

@@ -433,6 +433,90 @@ def test_ground_guard_defers_irreversible_latch_while_robot_is_moving(
     assert pipeline.mapper.calls == 2
 
 
+def test_ground_guard_rebases_consistent_local_plane_after_observed_motion(
+    monkeypatch,
+):
+    pipeline, segmenter = _pipeline("session-a", ground_guard=True)
+    stable = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=0.0,
+        plane_coefficients=(0.0, 0.0, 0.0),
+    )
+    locally_tilted = GroundCandidate(
+        accepted=True,
+        ground_z_m=-0.06,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=4.0,
+        plane_coefficients=(0.0, 0.07, -0.06),
+    )
+    # The in-range frame between motion and the confirmed local plane mirrors
+    # the observed Yunji run: fits oscillated around the 3-degree gate, but
+    # that did not erase the fact that the posture change followed motion.
+    candidates = iter(
+        [
+            stable,
+            locally_tilted,
+            stable,
+            locally_tilted,
+            locally_tilted,
+            locally_tilted,
+            locally_tilted,
+        ]
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate",
+        lambda *_args: next(candidates),
+    )
+
+    baseline = _observation(10, "session-a")
+    moving = _observation(11, "session-a")
+    moving.T_shared_camera[0, 3] = 0.15
+    recovered_during_settle = _observation(12, "session-a")
+    recovered_during_settle.T_shared_camera[0, 3] = 0.15
+    stationary = [
+        _observation(sequence, "session-a")
+        for sequence in (13, 15, 18, 19)
+    ]
+    for observation in stationary:
+        observation.T_shared_camera[0, 3] = 0.15
+
+    assert pipeline.process(baseline).accept
+    assert (
+        pipeline.process(moving).reason
+        == "ground_drift_motion_deferred"
+    )
+    assert pipeline.process(recovered_during_settle).accept
+    assert pipeline.process(stationary[0]).reason == "ground_drift_pending"
+    assert pipeline.process(stationary[1]).reason == "ground_drift_pending"
+    rebased = pipeline.process(stationary[2])
+    after = pipeline.process(stationary[3])
+
+    assert rebased.accept
+    assert after.accept
+    assert pipeline.mapping_blocked_reason is None
+    assert pipeline.ground_drift_reference_rebases == 1
+    assert pipeline.ground_drift_events == 0
+    assert pipeline.last_ground_rebase_sequence == 18
+    assert pipeline.last_ground_reason == "accepted"
+    np.testing.assert_allclose(
+        pipeline.ground_reference_plane_coefficients,
+        locally_tilted.plane_coefficients,
+    )
+    assert segmenter.calls == 4
+    assert pipeline.mapper.calls == 4
+
+
 def test_2d_ground_guard_tolerates_pure_world_z_translation(monkeypatch):
     pipeline, segmenter = _pipeline(
         "session-a",
