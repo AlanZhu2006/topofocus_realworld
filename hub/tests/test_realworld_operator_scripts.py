@@ -148,6 +148,9 @@ def test_wsj_formal_observation_preserves_warm_dds_sender_on_startup_stall():
     launcher = (
         OVERLAY / "start_wsj_command_observation.sh"
     ).read_text()
+    calibration = (
+        OVERLAY / "start_wsj_calibration_observation.sh"
+    ).read_text()
 
     assert "wait_for_hub_sequence_advance" in launcher
     assert "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-15" in launcher
@@ -165,6 +168,13 @@ def test_wsj_formal_observation_preserves_warm_dds_sender_on_startup_stall():
     assert "--runtime-command-contract-file" in launcher
     assert "--runtime-command-receipt-file" in launcher
     assert "--park-only" in launcher
+    assert "sender_process_rows()" in launcher
+    assert 'readlink -f "/proc/$pid/exe"' in launcher
+    assert '"${executable##*/}" == python*' in launcher
+    assert 'processes="$(sender_process_rows)"' in launcher
+    assert "runtime_sender_pid()" in calibration
+    assert 'persistent_sender_pid="$(runtime_sender_pid)"' in calibration
+    assert 'current_pid="$(runtime_sender_pid)"' in calibration
     sender = (OVERLAY / "focus_ros_sender.py").read_text()
     assert "preserve this ROS/DDS participant" in sender
     assert "self._reset_session()" in sender

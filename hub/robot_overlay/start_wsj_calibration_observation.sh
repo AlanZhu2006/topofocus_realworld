@@ -137,10 +137,21 @@ FOCUS_HUB_BASE_URL="$HUB_URL" \
 bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   --session "$SESSION" \
   --park-only
-persistent_sender_pid="$(
-  pgrep -f 'focus_ros_sender\.py.*--runtime-command-contract-file' \
-    2>/dev/null | head -n 1
-)"
+runtime_sender_pid() {
+  local pid executable
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    executable="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    [[ "${executable##*/}" == python* ]] || continue
+    printf '%s\n' "$pid"
+    return 0
+  done < <(
+    pgrep -f \
+      'focus_ros_sender\.py.*--runtime-command-contract-file' \
+      2>/dev/null || true
+  )
+}
+persistent_sender_pid="$(runtime_sender_pid)"
 [[ -n "$persistent_sender_pid" ]] || {
   echo "Persistent WSJ sender disappeared after parking." >&2
   exit 1
@@ -244,10 +255,7 @@ wait_for_persistent_sender_tuple() {
   local baseline="$1" deadline current current_pid
   deadline=$((SECONDS + 20))
   while (( SECONDS < deadline )); do
-    current_pid="$(
-      pgrep -f 'focus_ros_sender\.py.*--runtime-command-contract-file' \
-        2>/dev/null | head -n 1
-    )"
+    current_pid="$(runtime_sender_pid)"
     [[ "$current_pid" == "$persistent_sender_pid" ]] || {
       echo "Persistent WSJ sender PID changed during publisher restart." >&2
       return 1

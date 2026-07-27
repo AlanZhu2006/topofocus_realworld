@@ -139,10 +139,22 @@ PROCESS_CONTRACT_SHA256="$(
   } | sha256sum | awk '{print $1}'
 )"
 
+sender_process_rows() {
+  local pid executable
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    executable="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    [[ "${executable##*/}" == python* ]] || continue
+    ps -p "$pid" -o pid=,args=
+  done < <(
+    pgrep -f 'focus_ros_sender(_rgb)?\.py' 2>/dev/null || true
+  )
+}
+
 sender_pid() {
-  pgrep -f \
-    'focus_ros_sender\.py.*--runtime-command-contract-file' \
-    2>/dev/null | head -n 1
+  sender_process_rows \
+    | grep -E -- 'focus_ros_sender\.py.*--runtime-command-contract-file' \
+    | awk 'NR == 1 {print $1}'
 }
 
 stop_tracked_sender() {
@@ -237,7 +249,7 @@ ensure_sender_process() {
       | grep -qx hub-sender; then
     sender_window=true
   fi
-  processes="$(pgrep -af 'focus_ros_sender(_rgb)?\.py' 2>/dev/null || true)"
+  processes="$(sender_process_rows)"
   runtime_processes="$(
     grep -E -- 'focus_ros_sender\.py.*--runtime-command-contract-file' \
       <<<"$processes" || true
