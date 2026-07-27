@@ -300,6 +300,11 @@ def test_yunji_cleanup_requires_explicit_chassis_zero_acknowledgement():
     assert "--send-explicit-zero" in stop
     assert stop.count("--send-explicit-zero") == 2
     assert "YUNJI_EXPLICIT_ZERO_CONFIRMED" in stop
+    assert "yunji_[w]asd_teleop" in stop
+    assert 'kill -TERM "${manual_pids[@]}"' in stop
+    assert stop.index('kill -TERM "${manual_pids[@]}"') < stop.index(
+        "--send-explicit-zero"
+    )
     assert "focus-water-explicit-zero-v1" in bridge
 
 
