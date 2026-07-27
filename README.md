@@ -160,9 +160,9 @@ Both robots explore cooperatively toward a plant target.
 
 ### Per-run metrics
 
-| Run | Robot 0 path | Robot 1 path | Attribution |
-| --- | ---: | ---: | --- |
-| Formal 01 | `6.104564 m` | `1.905387 m` | `navigation_policy_failure` (not a VLM decision failure) |
+| Run | Robot 0 path | Robot 1 path |
+| --- | ---: | ---: |
+| Formal 01 | `6.104564 m` | `1.905387 m` |
 
 [Full failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
 · [Machine-readable result](manifests/scene02_plant_formal_experiment_01_failure_20260728.json)
