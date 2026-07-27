@@ -14,6 +14,8 @@ HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
 GOAL_CATEGORY="${FOCUS_YUNJI_GOAL_CATEGORY:-chair}"
 TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus/tinynav-runtime}"
+WATER_HOST="${FOCUS_YUNJI_WATER_HOST:-192.168.10.10}"
+WATER_PORT="${FOCUS_YUNJI_WATER_PORT:-31001}"
 # The router uses a square cell-clearance test, while TinyNav's unchanged local
 # planner remains the final footprint/depth authority.  On the 2026-07-25 live
 # Yunji grid, 0.34 m rounded up to seven 5 cm cells and no 15x15 known-free
@@ -37,6 +39,9 @@ LOOKAHEAD_M="${FOCUS_YUNJI_LOOKAHEAD_M:-0.35}"
 # WATER bridge independently zeros a stale guarded command after 0.30 s.
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_YUNJI_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
 MAP_TIMEOUT_S="${FOCUS_YUNJI_MAP_TIMEOUT_S:-12.0}"
+MAX_PLAN_EXPANSIONS="${FOCUS_TINYNAV_MAX_PLAN_EXPANSIONS:-20000}"
+MAX_PLAN_DURATION_S="${FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50}"
+RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-3.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # The forward-only planner contains collision-scored zero-linear turns.  The
@@ -104,6 +109,10 @@ if [[ "$reuse_verified_debug_core" == true && "$mode" != live ]]; then
   echo "--reuse-verified-debug-core is valid only for live mode." >&2
   exit 2
 fi
+[[ "$MAX_PLAN_EXPANSIONS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "FOCUS_TINYNAV_MAX_PLAN_EXPANSIONS must be a positive integer." >&2
+  exit 2
+}
 [[ "$TRANSFORM_VERSION" =~ ^[A-Za-z0-9_.-]+$ ]] || {
   echo "FOCUS_YUNJI_TRANSFORM_VERSION must be explicit and filesystem-safe." >&2
   exit 2
@@ -134,6 +143,9 @@ esac
 }
 for required in \
   "$SCRIPT_DIR/ensure_yunji_water_link.sh" \
+  "$SCRIPT_DIR/verify_odin1.sh" \
+  "$SCRIPT_DIR/odin1_driver_headless.launch.py" \
+  "$SCRIPT_DIR/systemd/focus-yunji-odin1-driver.service" \
   "$SCRIPT_DIR/install_yunji_tinynav_runtime.sh" \
   "$SCRIPT_DIR/run_yunji_tinynav_component.sh" \
   "$SCRIPT_DIR/stop_yunji_live_command_path.sh" \
@@ -141,6 +153,7 @@ for required in \
   "$SCRIPT_DIR/odin1_sender.py" \
   "$SCRIPT_DIR/odin1_tinynav_adapter.py" \
   "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
+  "$SCRIPT_DIR/tinynav_source_contract.py" \
   "$SCRIPT_DIR/water_cmd_vel_bridge.py" \
   "$SCRIPT_DIR/v2_wsj_receiver.py" \
   "$ENV_FILE" \
@@ -167,10 +180,55 @@ SENDER_CONTRACT_SHA256="$(
       "$SCRIPT_DIR/run_yunji_mapping_observation.sh"
   } | sha256sum | awk '{print $1}'
 )"
+CORE_CONTRACT_SHA256="$(
+  {
+    printf '%s\0' \
+      "$DEPLOYMENT_COMMIT" \
+      "$TINYNAV_RUNTIME" \
+      "$LOCAL_DEPTH_WIDTH" \
+      "$LOCAL_DEPTH_SPLAT_RADIUS" \
+      "$REACHABILITY_CLEARANCE_M" \
+      "$START_SNAP_RADIUS_M" \
+      "$START_FOOTPRINT_OVERRIDE_M" \
+      "$LOOKAHEAD_M" \
+      "$ODOMETRY_INPUT_TIMEOUT_S" \
+      "$MAP_TIMEOUT_S" \
+      "$MAX_PLAN_EXPANSIONS" \
+      "$MAX_PLAN_DURATION_S" \
+      "$REVERSE_ROTATE_MAX_ANGULAR_RADPS" \
+      "$REVERSE_ROTATE_TIMEOUT_S"
+    sha256sum \
+      "$FACTORY_CALIBRATION" \
+      "$BASE_CAMERA_CALIBRATION" \
+      "$SCRIPT_DIR/odin1_tinynav_adapter.py" \
+      "$SCRIPT_DIR/run_yunji_tinynav_component.sh" \
+      "$SCRIPT_DIR/run_yunji_tinynav_planner.py" \
+      "$SCRIPT_DIR/tinynav_buildmap_goal_router.py" \
+      "$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py"
+  } | sha256sum | awk '{print $1}'
+)"
 systemctl is-active --quiet focus-yunji-odin1-driver.service || {
   echo "Odin driver is not active." >&2
   exit 1
 }
+driver_fragment="$(
+  systemctl show --property FragmentPath --value \
+    focus-yunji-odin1-driver.service
+)"
+[[ -r "$driver_fragment" ]] \
+  && cmp -s \
+    "$SCRIPT_DIR/systemd/focus-yunji-odin1-driver.service" \
+    "$driver_fragment" || {
+  echo "Installed Odin driver unit differs from this deployment." >&2
+  exit 1
+}
+cmp -s \
+  "$SCRIPT_DIR/odin1_driver_headless.launch.py" \
+  /home/nyu/focus_sender_odin1/odin1_driver_headless.launch.py || {
+  echo "Active Odin launch file differs from this deployment." >&2
+  exit 1
+}
+bash "$SCRIPT_DIR/verify_odin1.sh"
 if pgrep -af 'keyboard.*teleop|yunji_wasd_teleop' >/dev/null 2>&1; then
   echo "Refusing startup while a Yunji manual command process exists." >&2
   exit 1
@@ -181,7 +239,6 @@ if [[ "$reuse_verified_debug_core" != true ]]; then
   FOCUS_YUNJI_TINYNAV_RUNTIME="$TINYNAV_RUNTIME" \
     bash "$SCRIPT_DIR/install_yunji_tinynav_runtime.sh"
 fi
-
 stop_unit() {
   local unit="$1"
   sudo -n systemctl stop "$unit" >/dev/null 2>&1 || true
@@ -202,6 +259,7 @@ start_unit() {
     --setenv="FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT" \
     --setenv="FOCUS_YUNJI_GOAL_CATEGORY=$GOAL_CATEGORY" \
     --setenv="FOCUS_YUNJI_SENDER_CONTRACT_SHA256=$SENDER_CONTRACT_SHA256" \
+    --setenv="FOCUS_YUNJI_CORE_CONTRACT_SHA256=$CORE_CONTRACT_SHA256" \
     --setenv="OPENBLAS_NUM_THREADS=1" \
     --setenv="OMP_NUM_THREADS=1" \
     --setenv="MKL_NUM_THREADS=1" \
@@ -209,12 +267,13 @@ start_unit() {
     "$@" >/dev/null
 }
 
-unit_matches_deployment() {
+unit_matches_core_contract() {
   local unit="$1" environment
   environment="$(
     systemctl show --property Environment --value "$unit" 2>/dev/null || true
   )"
-  [[ " $environment " == *" FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT "* ]]
+  [[ " $environment " == *" FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT "* \
+     && " $environment " == *" FOCUS_YUNJI_CORE_CONTRACT_SHA256=$CORE_CONTRACT_SHA256 "* ]]
 }
 
 unit_matches_sender_contract() {
@@ -294,12 +353,17 @@ start_router() {
       --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
       --input-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S" \
       --map-timeout-s "$MAP_TIMEOUT_S" \
-      --max-cached-map-motion-m 0.25
+      --max-cached-map-motion-m 0.25 \
+      --max-plan-expansions "$MAX_PLAN_EXPANSIONS" \
+      --max-plan-duration-s "$MAX_PLAN_DURATION_S"
 }
 
 start_controller() {
   start_unit focus-yunji-tinynav-controller-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" controller \
+      --robot-id robot-1 \
+      --base-camera-frame odin1_camera_optical_frame \
+      --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
       --stabilize-large-turn \
       --rotate-first-max-angular-radps \
         "$REVERSE_ROTATE_MAX_ANGULAR_RADPS" \
@@ -391,51 +455,22 @@ CORE_UNITS=(
 if [[ "$reuse_verified_debug_core" == true ]]; then
   # realworld_oneclick.sh permits this only immediately after the same
   # invocation started and data-plane-verified the debug stack from the
-  # byte-identical release.  Keep Odin -> /slam/depth and the online map alive;
-  # mode switching replaces the receiver and WATER bridge.  Reload the
-  # non-actuating goal router as well so a newly deployed overlay cannot leave
-  # an old Python process resident across a fast live reuse.
+  # byte-identical release. Keep Odin -> /slam/depth and the complete online
+  # navigation core alive; mode switching replaces only the receiver and
+  # chassis bridge. The per-unit contract binds every geometry/timeout argument
+  # as well as the loaded overlay, so restarting router/controller here would
+  # add latency and DDS churn without changing code.
   for unit in "${CORE_UNITS[@]}"; do
     systemctl is-active --quiet "$unit" || {
       echo "Verified Yunji debug core is not active: $unit" >&2
       exit 1
     }
-    unit_matches_deployment "$unit" || {
-      echo "Verified Yunji debug core is from a different deployment: $unit" >&2
+    unit_matches_core_contract "$unit" || {
+      echo "Verified Yunji debug core has a different process contract: $unit" >&2
       exit 1
     }
   done
-  old_router_pid="$(
-    systemctl show --property MainPID --value \
-      focus-yunji-tinynav-router-v1.service
-  )"
-  old_controller_pid="$(
-    systemctl show --property MainPID --value \
-      focus-yunji-tinynav-controller-v1.service
-  )"
-  start_router
-  start_controller
-  new_router_pid="$(
-    systemctl show --property MainPID --value \
-      focus-yunji-tinynav-router-v1.service
-  )"
-  new_controller_pid="$(
-    systemctl show --property MainPID --value \
-      focus-yunji-tinynav-controller-v1.service
-  )"
-  [[ "$new_router_pid" =~ ^[1-9][0-9]*$ \
-      && "$new_router_pid" != "$old_router_pid" ]] || {
-    echo "Yunji goal router did not reload into a new process." >&2
-    exit 1
-  }
-  [[ "$new_controller_pid" =~ ^[1-9][0-9]*$ \
-      && "$new_controller_pid" != "$old_controller_pid" ]] || {
-    echo "Yunji velocity controller did not reload into a new process." >&2
-    exit 1
-  }
-  echo "Reusing the verified Yunji perception/planning core without interrupting /slam/depth."
-  echo "Yunji goal router reloaded from the current deployment: $new_router_pid"
-  echo "Yunji rotate-first controller reloaded from the current deployment: $new_controller_pid"
+  echo "Reusing the verified Yunji perception/planning/router/controller core without process restarts."
 else
   start_unit focus-yunji-tinynav-adapter-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" adapter \
@@ -469,6 +504,8 @@ bridge_args=(
   /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" bridge
   --input-topic /focus_guarded_cmd_vel
   --status-topic /focus/water/cmd_bridge_status
+  --robot-host "$WATER_HOST"
+  --tcp-port "$WATER_PORT"
   --max-linear-mps 0.15
   --max-angular-radps 0.40
 )
@@ -497,6 +534,7 @@ receiver_args=(
   --tinynav-map-frame world
   --local-map-frame yunji/world
   --occupancy-topic /semantic_mapping/occupancy_bev
+  --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --external-odometry-health
   --platform-health-topic /focus/water/cmd_bridge_status
   --reject-reverse-trajectory

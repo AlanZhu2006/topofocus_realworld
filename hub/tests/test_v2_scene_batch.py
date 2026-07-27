@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 from focus_hub.models import ObservationMetadata
 from focus_hub.v2_scene_batch import (
@@ -84,6 +85,8 @@ def prepare_round(
             ),
         ).model_dump(mode="json")
         raw["pose"]["transform_version"] = TRANSFORMS[robot_id]
+        base_x = 0.5 * index
+        raw["pose"]["shared_T_camera"]["matrix"][3] = base_x
         raw["rgb_size_bytes"] = len(rgb)
         raw["depth_size_bytes"] = len(depth)
         raw["rgb_sha256"] = hashlib.sha256(rgb).hexdigest()
@@ -108,7 +111,12 @@ def prepare_round(
             "name": name,
             "source_sequence": sequence,
             "source_capture_time_ns": metadata.capture_time_ns,
-            "robot_xy_m": [float(index), 0.0],
+            "robot_xy_m": [base_x, 0.0],
+            "robot_rc": [12, 12 + 10 * index],
+            "heading_deg_base_forward": 0.0,
+            "robot_pose_source": (
+                "shared_T_camera @ inverse(measured base_T_camera)"
+            ),
             "map_transform_version": TRANSFORMS[robot_id],
             "map_snapshot_sha256": sha256_file(map_path),
             "input_mapping_blocked_reason": None,
@@ -131,12 +139,56 @@ def prepare_round(
         "x_m": 0.0,
         "y_m": 0.0,
     }
+    frontier_a_record = {
+        "frontier_id": "A",
+        "row": 10,
+        "col": 12,
+        "x_m": 0.0,
+        "y_m": -0.1,
+        "size_cells": 30,
+    }
+    frontier_b_record = {
+        "frontier_id": "B",
+        "row": 20,
+        "col": 22,
+        "x_m": 0.5,
+        "y_m": 0.4,
+        "size_cells": 20,
+    }
+    frontier_a = {
+        "kind": "frontier",
+        "target_id": "A",
+        **frontier_a_record,
+        "source_behavior": "sequential frontier removed before next robot",
+    }
     frontier = {
         "kind": "frontier",
         "target_id": "B",
-        "x_m": 2.0,
-        "y_m": 1.0,
+        **frontier_b_record,
+        "source_behavior": "sequential frontier removed before next robot",
     }
+    results[0].update({
+        "allocation_order": 1,
+        "candidate_frontiers": [frontier_a_record, frontier_b_record],
+        "allocated_frontier": frontier_a_record,
+        "choice_probabilities": {"A": 0.8, "B": 0.2},
+        "errors": [],
+        "selected_history_index": None,
+        "exploration_selection_before_target_override": frontier_a,
+        "semantic_goal_override": semantic,
+        "final_shadow_selection": semantic,
+    })
+    results[1].update({
+        "allocation_order": 2,
+        "candidate_frontiers": [frontier_b_record],
+        "allocated_frontier": frontier_b_record,
+        "choice_probabilities": {"B": 1.0},
+        "errors": [],
+        "selected_history_index": None,
+        "exploration_selection_before_target_override": frontier,
+        "semantic_goal_override": None,
+        "final_shadow_selection": frontier,
+    })
     fused_path = tmp_path / "fused_decision_map.npz"
     np.savez_compressed(
         fused_path,
@@ -154,8 +206,32 @@ def prepare_round(
         "status": "complete_shadow_only",
         "goal_category": "chair",
         "shared_frame_calibration_id": CALIBRATION,
+        "resolution_m": 0.05,
+        "fused_origin_xy_m": [-0.625, -0.625],
+        "fused_shape": [17, 25, 25],
+        "glm_server_contract": {
+            "model_id": "cogvlm2-19b-focus-score-contract-v1",
+            "candidate_score_contract": (
+                "sum exact label unspaced+leading-space token mass; "
+                "zero/non-finite mass raises"
+            ),
+            "verification": "observed local /models response",
+        },
         "safety": {"robot_commands_sent": False},
         "source_episode": {"logical_l_step": 24, "next_round_index": 2},
+        "frontiers": [frontier_a_record, frontier_b_record],
+        "remaining_frontiers": [],
+        "vlm_frontier_contract": {
+            "scope": "one shared fused-map A-D set",
+            "label_identity": (
+                "stable across image, prompt, score vector and target"
+            ),
+            "per_robot_view": (
+                "remaining shared candidates in canonical A-D order"
+            ),
+            "allocation": "selected frontier removed before the next robot",
+            "duplicate_physical_frontier_targets": False,
+        },
         "input_artifacts": artifacts,
         "decision_map_artifact": artifact(
             fused_path, "source-derived frozen fused VLM decision map"
@@ -252,3 +328,99 @@ def test_command_metadata_defers_nonfatal_health_to_live_receiver(
         row["code"] for row in built.report["unverified_runtime_checks"]
     ]
     assert unverified_codes.count("RUNTIME_HEALTH_RECHECK_REQUIRED") == 2
+
+
+def test_rejects_frontier_coordinate_drift_between_vlm_and_target(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path,
+        observation_factory,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["final_shadow_selections"]["robot-1"]["x_m"] = 99.0
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="differs across manifest sections"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-trial-1",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+        )
+
+
+def test_rejects_abcd_score_labels_that_do_not_match_candidate_view(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path,
+        observation_factory,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["robots"][1]["choice_probabilities"] = {"A": 1.0}
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="score labels differ"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-trial-1",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+        )
+
+
+def test_rejects_abcd_cell_world_coordinate_mismatch(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path,
+        observation_factory,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["frontiers"][0]["x_m"] = 0.05
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="cell/world coordinates differ"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-trial-1",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+        )
+
+
+def test_rejects_vlm_red_arrow_that_uses_camera_instead_of_base_pose(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path,
+        observation_factory,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["robots"][1]["robot_xy_m"] = [0.6, 0.0]
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="measured base pose"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-trial-1",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+        )

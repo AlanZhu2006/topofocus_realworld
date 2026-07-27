@@ -73,6 +73,8 @@ def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():
     assert "run_glm_offline.sh" in source
     assert "GLM endpoint is live but not owned by a verified GLM tmux." in source
     assert "deadline=$((SECONDS + 90))" in source
+    assert "cogvlm2-19b-focus-score-contract-v1" in source
+    assert source.count("glm_contract_ready") >= 3
 
 
 def test_remote_completion_marker_always_starts_on_a_new_line():
@@ -467,8 +469,42 @@ def test_runtime_processes_are_bound_to_the_checked_deployment_commit():
         OVERLAY / "focus_ros_sender.py"
     ).read_text()
     assert '--setenv="FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT"' in yunji
-    assert "unit_matches_deployment" in yunji
-    assert "Verified Yunji debug core is from a different deployment" in yunji
+    assert "FOCUS_YUNJI_CORE_CONTRACT_SHA256" in yunji
+    assert "unit_matches_core_contract" in yunji
+    assert "Verified Yunji debug core has a different process contract" in yunji
+
+
+def test_warm_live_reuse_avoids_restarting_verified_navigation_core():
+    oneclick = (SCRIPTS / "realworld_oneclick.sh").read_text()
+    wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
+    yunji = (OVERLAY / "start_yunji_v2.sh").read_text()
+
+    assert oneclick.count("--reuse-verified-debug-core") >= 2
+    assert "@focus_component_contract_sha256" in wsj
+    assert "component_contract_matches" in wsj
+    assert (
+        "Reusing verified WSJ planner/controller without DDS participant churn"
+        in wsj
+    )
+    assert "unit_matches_core_contract" in yunji
+    assert (
+        "Reusing the verified Yunji "
+        "perception/planning/router/controller core without process restarts"
+        in yunji
+    )
+
+
+def test_wsj_sender_is_parked_before_any_publisher_recovery():
+    launcher = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
+
+    park = launcher.index("--park-only")
+    recovery = launcher.index("recover_online_map_publisher()")
+    activation = launcher.index(
+        'bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \\\n'
+        '  --session "$SESSION"',
+        park,
+    )
+    assert park < recovery < activation
 
 
 def test_goal_category_reaches_both_persistent_observation_senders():

@@ -13,6 +13,7 @@ from focus_hub.vlm_prompts import (
     parse_frontier_decision,
     patch_frontier_prompt,
     perception_weight_decision,
+    semantic_label_points,
 )
 
 
@@ -38,6 +39,22 @@ def test_judgment_prompt_reflects_perception_pr():
         target="chair", scene_objects="", frontiers_results="", history_results="",
         cur_location=(5, 5), pre_goal_point=None, perception_pr_yes=0.1)
     assert "not worth exploring" in not_worth
+
+
+def test_semantic_label_points_convert_opencv_column_row_order():
+    objects = extract_scene_objects(
+        np.pad(
+            np.ones((1, 40, 40), dtype=np.float32),
+            ((0, 0), (10, 10), (20, 20)),
+        ),
+        ("plant",),
+        min_contour_points=1,
+    )
+    labels = semantic_label_points(objects)
+    assert labels
+    category, row, column = labels[0]
+    first = objects[category][0].polygon_rowcol[0, 0]
+    assert (row, column) == (int(first[1]), int(first[0]))
 
 
 def test_decision_prompt_is_patched_decision_first():

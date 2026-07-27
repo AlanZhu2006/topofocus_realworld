@@ -34,7 +34,11 @@ from focus_hub.directional_memory import DirectionalMemory  # noqa: E402
 from focus_hub.frontiers import extract_frontiers, render_semantic_decision_map  # noqa: E402
 from focus_hub.tinynav_replay import TinyNavReplayReader  # noqa: E402
 from focus_hub.vlm_decision import run_decision_cascade  # noqa: E402
-from focus_hub.vlm_prompts import extract_scene_objects, format_scene_objects_for_prompt  # noqa: E402
+from focus_hub.vlm_prompts import (  # noqa: E402
+    extract_scene_objects,
+    format_scene_objects_for_prompt,
+    semantic_label_points,
+)
 from focus_hub.yolo_detector import YoloDetector  # noqa: E402
 from hub_pipeline_daemon import heading_deg_from_pose  # noqa: E402
 
@@ -98,11 +102,15 @@ def main() -> int:
 
     scene_objects_dict = extract_scene_objects(grid[2:2 + len(HM3D_CATEGORY_NAMES)], HM3D_CATEGORY_NAMES)
     scene_objects_str = format_scene_objects_for_prompt(scene_objects_dict)
+    scene_labels = semantic_label_points(scene_objects_dict)
     print(f"scene objects extracted from the map: {list(scene_objects_dict.keys())}")
 
     judgment_map = render_semantic_decision_map(
-        grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading, history_nodes=[])
-    decision_map = render_semantic_decision_map(grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading)
+        grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading, history_nodes=[],
+        semantic_labels=scene_labels)
+    decision_map = render_semantic_decision_map(
+        grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading,
+        semantic_labels=scene_labels)
 
     memory = DirectionalMemory()
     print(f"\nrunning full cascade against {args.glm_url} ...")

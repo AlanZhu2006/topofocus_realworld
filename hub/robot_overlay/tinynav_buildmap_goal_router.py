@@ -25,6 +25,8 @@ import threading
 import time
 from typing import Any
 
+import numpy as np
+
 
 OVERLAY = Path(__file__).resolve().parent
 HUB_SRC = OVERLAY.parent / "src"
@@ -61,6 +63,28 @@ class RoutePlan:
     start_snap_distance_m: float = 0.0
     reaches_arrival_region: bool = True
     remaining_goal_distance_m: float = 0.0
+    expanded_cells: int = 0
+    partial_termination_reason: str | None = None
+
+
+class PlanningBudgetExceeded(RuntimeError):
+    """A bounded search ended before finding any useful safe progress."""
+
+    def __init__(
+        self,
+        expanded_cells: int,
+        progress_m: float,
+        *,
+        limit_reason: str,
+    ) -> None:
+        self.expanded_cells = expanded_cells
+        self.progress_m = progress_m
+        self.limit_reason = limit_reason
+        super().__init__(
+            "A* planning budget exhausted: "
+            f"reason={limit_reason}, expanded_cells={expanded_cells}, "
+            f"progress_m={progress_m:.3f}"
+        )
 
 
 def planning_arrival_radius_m(
@@ -252,6 +276,15 @@ def is_seamless_lease_renewal(current: OnlineGoal, replacement: OnlineGoal) -> b
     )
 
 
+def is_exact_decision_replay(
+    current: OnlineGoal,
+    replacement: OnlineGoal,
+) -> bool:
+    """A decision ID is immutable; only byte-equivalent semantics may replay."""
+
+    return current == replacement
+
+
 def _heuristic_m(
     grid: OccupancyGrid2D,
     cell: tuple[int, int],
@@ -274,6 +307,89 @@ def _is_arrival_cell(
     return math.hypot(x_m - goal_x, y_m - goal_y) <= arrival_radius_m
 
 
+def _is_known_free_map_edge(
+    grid: OccupancyGrid2D,
+    cell: tuple[int, int],
+    *,
+    goal_x: float,
+    goal_y: float,
+) -> bool:
+    """Return whether unknown/out-of-map space continues toward the goal."""
+
+    row, column = cell
+    current_x, current_y = grid.cell_center(row, column)
+    current_distance = math.hypot(current_x - goal_x, current_y - goal_y)
+    for delta_row, delta_column in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        check_row = row + delta_row
+        check_column = column + delta_column
+        outside = not (
+            0 <= check_row < grid.height
+            and 0 <= check_column < grid.width
+        )
+        unknown = (
+            not outside
+            and grid.data[check_row * grid.width + check_column] < 0
+        )
+        if not outside and not unknown:
+            continue
+        neighbor_x = current_x + delta_column * grid.resolution_m
+        neighbor_y = current_y + delta_row * grid.resolution_m
+        if (
+            math.hypot(neighbor_x - goal_x, neighbor_y - goal_y)
+            < current_distance - 1e-12
+        ):
+            return True
+    return False
+
+
+def clearance_traversability(
+    grid: OccupancyGrid2D,
+    *,
+    clearance_cells: int,
+) -> np.ndarray:
+    """Precompute the exact square-clearance predicate for every grid cell.
+
+    ``OccupancyGrid2D.free_with_clearance`` intentionally performs a direct
+    neighborhood scan. Calling it for every A* neighbor repeats up to 13x13
+    checks per edge on Yunji. An integral image evaluates the same predicate
+    once for the whole grid, after which graph admission is constant time.
+    Unknown and occupied values remain blocked, and the outer clearance band
+    remains invalid exactly as in the original predicate.
+    """
+
+    if clearance_cells < 0:
+        raise ValueError("clearance_cells must be non-negative")
+    free = (
+        np.asarray(grid.data, dtype=np.int16)
+        .reshape(grid.height, grid.width)
+        == 0
+    )
+    if clearance_cells == 0:
+        return free
+    traversable = np.zeros_like(free, dtype=np.bool_)
+    kernel_size = 2 * clearance_cells + 1
+    if grid.height < kernel_size or grid.width < kernel_size:
+        return traversable
+    blocked = np.logical_not(free).astype(np.int32)
+    integral = np.pad(
+        blocked,
+        ((1, 0), (1, 0)),
+        mode="constant",
+        constant_values=0,
+    ).cumsum(axis=0).cumsum(axis=1)
+    blocked_counts = (
+        integral[kernel_size:, kernel_size:]
+        - integral[:-kernel_size, kernel_size:]
+        - integral[kernel_size:, :-kernel_size]
+        + integral[:-kernel_size, :-kernel_size]
+    )
+    traversable[
+        clearance_cells : grid.height - clearance_cells,
+        clearance_cells : grid.width - clearance_cells,
+    ] = blocked_counts == 0
+    return traversable
+
+
 def plan_route(
     grid: OccupancyGrid2D,
     *,
@@ -288,9 +404,12 @@ def plan_route(
     preferred_seed_heading_rad: float | None = None,
     allow_partial_progress: bool = False,
     minimum_progress_m: float = 0.10,
+    max_expansions: int = 20_000,
+    max_planning_duration_s: float = 0.50,
 ) -> RoutePlan | None:
     """A* through known-free cells, optionally ending at an online-map edge."""
 
+    plan_started_monotonic = time.monotonic()
     if clearance_cells < 0:
         raise ValueError("clearance_cells must be non-negative")
     if (
@@ -310,11 +429,36 @@ def plan_route(
         raise ValueError("arrival_radius_m must be finite and positive")
     if not math.isfinite(minimum_progress_m) or minimum_progress_m < 0:
         raise ValueError("minimum_progress_m must be finite and non-negative")
+    if (
+        isinstance(max_expansions, bool)
+        or not isinstance(max_expansions, int)
+        or max_expansions <= 0
+    ):
+        raise ValueError("max_expansions must be a positive integer")
+    if (
+        not math.isfinite(max_planning_duration_s)
+        or max_planning_duration_s <= 0.0
+    ):
+        raise ValueError("max_planning_duration_s must be finite and positive")
+    planning_deadline_monotonic = (
+        plan_started_monotonic + max_planning_duration_s
+    )
+    traversable = clearance_traversability(
+        grid,
+        clearance_cells=clearance_cells,
+    )
+
+    def is_traversable(cell: tuple[int, int]) -> bool:
+        row, column = cell
+        return bool(
+            0 <= row < grid.height
+            and 0 <= column < grid.width
+            and traversable[row, column]
+        )
+
     start = grid.cell(start_x, start_y)
     start_escape_path: tuple[tuple[int, int], ...] = ()
-    if start is None or not grid.free_with_clearance(
-        *start, clearance_cells=clearance_cells
-    ):
+    if start is None or not is_traversable(start):
         if start_snap_radius_m <= 0:
             return None
         seed_path = grid.nearest_clearance_seed_path(
@@ -351,6 +495,9 @@ def plan_route(
         start_center[0] - goal_x, start_center[1] - goal_y
     )
     reaches_arrival_region = False
+    partial_termination_reason: str | None = None
+    expanded_cells = 0
+    search_budget_reason: str | None = None
     directions = (
         (-1, 0, 1.0),
         (1, 0, 1.0),
@@ -366,6 +513,7 @@ def plan_route(
         _score, cost, current = heapq.heappop(frontier)
         if cost > best_cost.get(current, math.inf) + 1e-12:
             continue
+        expanded_cells += 1
         if _is_arrival_cell(
             grid, current, goal_x, goal_y, arrival_radius_m
         ):
@@ -389,24 +537,46 @@ def plan_route(
         ):
             best_partial = current
             best_partial_distance_m = current_distance_m
+        progress_m = (
+            math.hypot(
+                start_center[0] - goal_x,
+                start_center[1] - goal_y,
+            )
+            - current_distance_m
+        )
+        if (
+            allow_partial_progress
+            and current != start
+            and progress_m >= minimum_progress_m
+            and _is_known_free_map_edge(
+                grid,
+                current,
+                goal_x=goal_x,
+                goal_y=goal_y,
+            )
+        ):
+            target = current
+            partial_termination_reason = "known_free_map_edge"
+            break
+        if expanded_cells >= max_expansions:
+            search_budget_reason = "expansion_budget"
+            break
+        if (
+            expanded_cells % 32 == 0
+            and time.monotonic() >= planning_deadline_monotonic
+        ):
+            search_budget_reason = "wall_clock_budget"
+            break
         row, column = current
         for delta_row, delta_column, step_cells in directions:
             candidate = (row + delta_row, column + delta_column)
-            if not grid.free_with_clearance(
-                *candidate, clearance_cells=clearance_cells
-            ):
+            if not is_traversable(candidate):
                 continue
             if delta_row and delta_column:
                 # Never cut diagonally through the corner of an obstacle.
-                if not grid.free_with_clearance(
-                    row + delta_row,
-                    column,
-                    clearance_cells=clearance_cells,
-                ) or not grid.free_with_clearance(
-                    row,
-                    column + delta_column,
-                    clearance_cells=clearance_cells,
-                ):
+                if not is_traversable(
+                    (row + delta_row, column)
+                ) or not is_traversable((row, column + delta_column)):
                     continue
             candidate_cost = cost + step_cells * grid.resolution_m
             if candidate_cost >= best_cost.get(candidate, math.inf) - 1e-12:
@@ -428,8 +598,21 @@ def plan_route(
             or best_partial == start
             or progress_m < minimum_progress_m
         ):
+            if search_budget_reason is not None:
+                raise PlanningBudgetExceeded(
+                    expanded_cells,
+                    progress_m,
+                    limit_reason=search_budget_reason,
+                )
             return None
         target = best_partial
+        partial_termination_reason = (
+            (
+                f"search_{search_budget_reason}"
+                if search_budget_reason is not None
+                else "reachable_component_exhausted"
+            )
+        )
     cells = [target]
     while cells[-1] != start:
         cells.append(parent[cells[-1]])
@@ -458,6 +641,8 @@ def plan_route(
             )
             - arrival_radius_m,
         ),
+        expanded_cells=expanded_cells,
+        partial_termination_reason=partial_termination_reason,
     )
 
 
@@ -678,6 +863,19 @@ def run_ros(
                 self.get_logger().warning(str(exc))
                 return
             if self.goal is not None and self.goal.decision_id == goal.decision_id:
+                current = self.goal
+                if is_exact_decision_replay(current, goal):
+                    self.publish_status("ACCEPTED", "EXACT_DECISION_REPLAY")
+                    return
+                self.clear_target(
+                    "DECISION_ID_MUTATED",
+                    discard_goal=True,
+                    affected_decision_id_override=goal.decision_id,
+                    previous_leg_id=current.leg_id,
+                    received_leg_id=goal.leg_id,
+                    previous_lease_sequence=current.lease_sequence,
+                    received_lease_sequence=goal.lease_sequence,
+                )
                 return
             if self.goal is not None and self.goal.leg_id == goal.leg_id:
                 if not is_seamless_lease_renewal(self.goal, goal):
@@ -911,23 +1109,41 @@ def run_ros(
                 goal.x - base_x,
             )
             plan_started = time.monotonic()
-            plan = plan_route(
-                grid,
-                start_x=base_x,
-                start_y=base_y,
-                goal_x=goal.x,
-                goal_y=goal.y,
-                arrival_radius_m=route_arrival_radius_m,
-                clearance_cells=clearance_cells,
-                start_snap_radius_m=args.start_snap_radius_m,
-                start_footprint_override_m=(
-                    args.start_footprint_override_m
-                ),
-                preferred_seed_heading_rad=seed_heading_rad,
-                allow_partial_progress=goal.target_kind
-                in {"FRONTIER_POINT", "SEMANTIC_REGION"},
-                minimum_progress_m=args.minimum_partial_progress_m,
-            )
+            try:
+                plan = plan_route(
+                    grid,
+                    start_x=base_x,
+                    start_y=base_y,
+                    goal_x=goal.x,
+                    goal_y=goal.y,
+                    arrival_radius_m=route_arrival_radius_m,
+                    clearance_cells=clearance_cells,
+                    start_snap_radius_m=args.start_snap_radius_m,
+                    start_footprint_override_m=(
+                        args.start_footprint_override_m
+                    ),
+                    preferred_seed_heading_rad=seed_heading_rad,
+                    allow_partial_progress=goal.target_kind
+                    in {"FRONTIER_POINT", "SEMANTIC_REGION"},
+                    minimum_progress_m=args.minimum_partial_progress_m,
+                    max_expansions=args.max_plan_expansions,
+                    max_planning_duration_s=(
+                        args.max_plan_duration_s
+                    ),
+                )
+            except PlanningBudgetExceeded as exc:
+                plan_duration_s = time.monotonic() - plan_started
+                self.clear_target(
+                    "PLANNING_BUDGET_EXCEEDED",
+                    discard_goal=False,
+                    plan_duration_s=round(plan_duration_s, 3),
+                    expanded_cells=exc.expanded_cells,
+                    best_progress_m=round(exc.progress_m, 3),
+                    planning_limit_reason=exc.limit_reason,
+                    max_plan_expansions=args.max_plan_expansions,
+                    max_plan_duration_s=args.max_plan_duration_s,
+                )
+                return
             plan_duration_s = time.monotonic() - plan_started
             if plan is None:
                 self.clear_target(
@@ -966,6 +1182,12 @@ def run_ros(
                 start_seed_heading_source="fixed_local_goal_bearing",
                 odom_age_s=round(odom_age_s, 3),
                 plan_duration_s=round(plan_duration_s, 3),
+                expanded_cells=plan.expanded_cells,
+                max_plan_expansions=args.max_plan_expansions,
+                max_plan_duration_s=args.max_plan_duration_s,
+                partial_termination_reason=(
+                    plan.partial_termination_reason
+                ),
                 waypoint=[round(waypoint_x, 3), round(waypoint_y, 3)],
                 arrival_radius_m=round(goal.arrival_radius_m, 3),
                 planning_arrival_radius_m=round(
@@ -1082,6 +1304,24 @@ def main() -> int:
         ),
     )
     parser.add_argument("--plan-period-s", type=float, default=0.5)
+    parser.add_argument(
+        "--max-plan-expansions",
+        type=int,
+        default=20_000,
+        help=(
+            "hard A* work bound per replan; useful partial progress is "
+            "returned at the bound and a non-progressing search fails closed"
+        ),
+    )
+    parser.add_argument(
+        "--max-plan-duration-s",
+        type=float,
+        default=0.50,
+        help=(
+            "hard wall-clock bound per A* replan so controller callbacks "
+            "cannot be starved on slower robot CPUs"
+        ),
+    )
     parser.add_argument("--status-heartbeat-s", type=float, default=1.0)
     args = parser.parse_args()
     if (
@@ -1095,6 +1335,8 @@ def main() -> int:
         or args.map_timeout_s <= 0
         or args.max_cached_map_motion_m < 0
         or args.plan_period_s <= 0
+        or args.max_plan_expansions <= 0
+        or args.max_plan_duration_s <= 0
         or args.status_heartbeat_s <= 0
     ):
         parser.error("distances and timeouts must be positive")

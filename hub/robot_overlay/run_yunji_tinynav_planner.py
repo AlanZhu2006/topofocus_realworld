@@ -22,9 +22,17 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import sys
 
 
-ROBOT_PROFILES = ("yunji-water", "source-default")
+OVERLAY = Path(__file__).resolve().parent
+if str(OVERLAY) not in sys.path:
+    sys.path.insert(0, str(OVERLAY))
+
+from tinynav_source_contract import (  # noqa: E402
+    ROBOT_PROFILES,
+    verify_tinynav_source,
+)
 
 
 def forward_only_predefined_trajectory_vocabularies(
@@ -67,10 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--robot-profile",
         choices=ROBOT_PROFILES,
-        default="yunji-water",
+        required=True,
         help=(
             "apply measured Yunji geometry or retain the pinned source robot "
-            "configuration"
+            "configuration; also selects the exact immutable source contract"
         ),
     )
     parser.add_argument(
@@ -134,11 +142,14 @@ def main() -> int:
     planning_node.generate_predefined_trajectory_vocabularies = (
         forward_only_predefined_trajectory_vocabularies
     )
-    provenance = planner_source_provenance(planning_node.__file__)
+    provenance = verify_tinynav_source(
+        planning_node.__file__,
+        robot_profile=args.robot_profile,
+        component="planner",
+    )
     provenance.update(
         {
-            "schema_version": "focus-forward-only-tinynav-planner-v1",
-            "robot_profile": args.robot_profile,
+            "schema_version": "focus-forward-only-tinynav-planner-v2",
             "adaptation": "source_reverse_vocabulary_removed",
             "forward_lattice_and_esdf_unchanged": True,
         }

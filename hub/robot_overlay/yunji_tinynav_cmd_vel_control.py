@@ -18,17 +18,41 @@ jittering first path segment from changing the turn sign on every replan.  If
 either recovery does not resolve before the bounded deadline, the existing
 receiver rejection remains fail-closed.
 
-Keep the source controller immutable and preserve all of its stale-pose,
-stale-path, depth-stop, turn, acceleration and arrival guards.  This deployment
-subclass is shared by Yunji and WSJ, while rotate-first remains an explicit
-Yunji launcher option.
+Keep the source controller immutable.  The two pinned source histories do not
+have identical guards, so this shared subclass adds the common denominator:
+exact source verification, stale-pose/path stops and a bounded pose-jump
+freeze.  Source-specific depth, turn, acceleration and arrival guards remain
+authoritative where present.  Rotate-first remains an explicit launcher
+option.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import math
+from pathlib import Path
+import sys
 import time
+
+
+OVERLAY = Path(__file__).resolve().parent
+if str(OVERLAY) not in sys.path:
+    sys.path.insert(0, str(OVERLAY))
+HUB_SRC = OVERLAY.parent / "src"
+if str(HUB_SRC) not in sys.path:
+    sys.path.insert(0, str(HUB_SRC))
+
+from focus_hub.base_camera_calibration import (  # noqa: E402
+    load_base_camera_calibration,
+)
+from focus_hub.shadow_coordination import (  # noqa: E402
+    shared_base_pose_from_camera,
+)
+from tinynav_source_contract import (  # noqa: E402
+    ROBOT_PROFILES,
+    verify_tinynav_source,
+)
 
 
 MEANINGFUL_REVERSE_SEGMENT_M = 0.02
@@ -40,6 +64,77 @@ DEFAULT_STABLE_TURN_MIN_TARGET_M = 0.10
 DEFAULT_STABLE_TURN_ENTER_RAD = math.radians(75.0)
 DEFAULT_STABLE_TURN_EXIT_RAD = math.radians(35.0)
 DEFAULT_ROUTER_TARGET_TIMEOUT_S = 2.0
+DEFAULT_CONTROLLER_POSE_TIMEOUT_S = 0.8
+DEFAULT_CONTROLLER_PATH_TIMEOUT_S = 1.0
+DEFAULT_CONTROLLER_POSE_JUMP_M = 0.40
+DEFAULT_CONTROLLER_POSE_JUMP_FREEZE_S = 0.60
+EXPECTED_CONTROLLER_PATH_FRAME = "world"
+
+
+def validate_controller_path_message(
+    message: object,
+    *,
+    expected_frame: str = EXPECTED_CONTROLLER_PATH_FRAME,
+) -> int:
+    """Validate every pose before the immutable controller consumes a path."""
+
+    if message is None:
+        raise ValueError("trajectory message is missing")
+    poses = getattr(message, "poses", None)
+    if poses is None:
+        raise ValueError("trajectory has no poses field")
+    frame_id = str(getattr(getattr(message, "header", None), "frame_id", ""))
+    if frame_id != expected_frame:
+        raise ValueError(
+            f"trajectory frame {frame_id!r} != {expected_frame!r}"
+        )
+    if len(poses) < 2:
+        raise ValueError("trajectory has fewer than two poses")
+    for index, pose_stamped in enumerate(poses):
+        try:
+            pose = pose_stamped.pose
+            position = pose.position
+            orientation = pose.orientation
+            values = (
+                float(position.x),
+                float(position.y),
+                float(position.z),
+                float(orientation.x),
+                float(orientation.y),
+                float(orientation.z),
+                float(orientation.w),
+            )
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"trajectory pose {index} is malformed"
+            ) from exc
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError(
+                f"trajectory pose {index} contains a non-finite value"
+            )
+        quaternion_norm = math.sqrt(sum(value * value for value in values[3:]))
+        if quaternion_norm < 1e-9:
+            raise ValueError(
+                f"trajectory pose {index} has a zero quaternion"
+            )
+    return len(poses)
+
+
+def command_components_finite(message: object) -> bool:
+    """Return whether all six Twist components are finite."""
+
+    try:
+        values = (
+            float(message.linear.x),
+            float(message.linear.y),
+            float(message.linear.z),
+            float(message.angular.x),
+            float(message.angular.y),
+            float(message.angular.z),
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return all(math.isfinite(value) for value in values)
 
 
 def path_segment_forward_component(
@@ -224,6 +319,27 @@ def world_target_heading_error(
     )
 
 
+def select_authoritative_heading_error(
+    *,
+    path_heading_error_rad: float | None,
+    router_heading_error_rad: float | None,
+) -> float | None:
+    """Prefer the collision-scored path; use the router point as fallback."""
+
+    values = (
+        value
+        for value in (path_heading_error_rad, router_heading_error_rad)
+        if value is not None
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("heading errors must be finite")
+    return (
+        path_heading_error_rad
+        if path_heading_error_rad is not None
+        else router_heading_error_rad
+    )
+
+
 def large_turn_stabilization_required(
     heading_error_rad: float | None,
     *,
@@ -262,6 +378,33 @@ def large_turn_stabilization_required(
         abs(requested_linear_mps) <= 1e-9
         and abs(requested_angular_radps) > 1e-9
         and abs(heading_error_rad) >= enter_rad
+    )
+
+
+def path_turn_recovery_required(
+    segment_action: str,
+    heading_error_rad: float | None,
+    *,
+    recovery_active: bool,
+    requested_linear_mps: float,
+    requested_angular_radps: float,
+) -> bool:
+    """Stabilize a turn only when the path does not require reverse."""
+
+    if segment_action not in {
+        "allow",
+        "zero_tiny_reverse",
+        "reject_reverse",
+        "unknown",
+    }:
+        raise ValueError(f"unknown segment action: {segment_action}")
+    if segment_action == "reject_reverse":
+        return False
+    return large_turn_stabilization_required(
+        heading_error_rad,
+        recovery_active=recovery_active,
+        requested_linear_mps=requested_linear_mps,
+        requested_angular_radps=requested_angular_radps,
     )
 
 
@@ -343,8 +486,79 @@ def reverse_recovery_expired(
     return now_monotonic - started_monotonic >= timeout_s
 
 
+def controller_input_guard_reason(
+    *,
+    now_monotonic: float,
+    pose_received_monotonic: float,
+    path_received_monotonic: float,
+    pose_jump_freeze_until_monotonic: float,
+    paused: bool,
+    pose_timeout_s: float = DEFAULT_CONTROLLER_POSE_TIMEOUT_S,
+    path_timeout_s: float = DEFAULT_CONTROLLER_PATH_TIMEOUT_S,
+) -> str | None:
+    """Return the common fail-closed controller guard, if any."""
+
+    values = (
+        now_monotonic,
+        pose_received_monotonic,
+        path_received_monotonic,
+        pose_jump_freeze_until_monotonic,
+        pose_timeout_s,
+        path_timeout_s,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("controller guard timing must be finite")
+    if (
+        now_monotonic < 0.0
+        or pose_received_monotonic < 0.0
+        or path_received_monotonic < 0.0
+        or pose_jump_freeze_until_monotonic < 0.0
+        or pose_timeout_s <= 0.0
+        or path_timeout_s <= 0.0
+    ):
+        raise ValueError("controller guard timing is invalid")
+    if paused:
+        return "navigation_paused"
+    if (
+        pose_received_monotonic <= 0.0
+        or now_monotonic - pose_received_monotonic > pose_timeout_s
+    ):
+        return "pose_missing_or_stale"
+    if now_monotonic < pose_jump_freeze_until_monotonic:
+        return "pose_jump_freeze"
+    if (
+        path_received_monotonic <= 0.0
+        or now_monotonic - path_received_monotonic > path_timeout_s
+    ):
+        return "path_missing_or_stale"
+    return None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--robot-profile",
+        choices=ROBOT_PROFILES,
+        required=True,
+        help="select and verify the exact immutable TinyNav source contract",
+    )
+    parser.add_argument(
+        "--robot-id",
+        choices=("robot-0", "robot-1"),
+        required=True,
+        help="identity required by the measured base-camera artifact",
+    )
+    parser.add_argument(
+        "--base-camera-frame",
+        required=True,
+        help="camera child frame required by the measured mount artifact",
+    )
+    parser.add_argument(
+        "--base-camera-calibration-file",
+        type=Path,
+        required=True,
+        help="measured base_link_T_camera artifact used for control geometry",
+    )
     parser.add_argument(
         "--rotate-first-on-reverse",
         action="store_true",
@@ -372,6 +586,26 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_ROTATE_FIRST_TIMEOUT_S,
     )
+    parser.add_argument(
+        "--pose-timeout-s",
+        type=float,
+        default=DEFAULT_CONTROLLER_POSE_TIMEOUT_S,
+    )
+    parser.add_argument(
+        "--path-timeout-s",
+        type=float,
+        default=DEFAULT_CONTROLLER_PATH_TIMEOUT_S,
+    )
+    parser.add_argument(
+        "--pose-jump-m",
+        type=float,
+        default=DEFAULT_CONTROLLER_POSE_JUMP_M,
+    )
+    parser.add_argument(
+        "--pose-jump-freeze-s",
+        type=float,
+        default=DEFAULT_CONTROLLER_POSE_JUMP_FREEZE_S,
+    )
     return parser
 
 
@@ -393,6 +627,24 @@ def main(args: list[str] | None = None) -> None:
         raise SystemExit(
             "--rotate-first-timeout-s must be finite and positive"
         )
+    common_guard_values = (
+        deployment_args.pose_timeout_s,
+        deployment_args.path_timeout_s,
+        deployment_args.pose_jump_m,
+        deployment_args.pose_jump_freeze_s,
+    )
+    if (
+        not all(math.isfinite(value) for value in common_guard_values)
+        or min(common_guard_values) <= 0.0
+    ):
+        raise SystemExit(
+            "controller pose/path guard limits must be finite and positive"
+        )
+    base_camera_calibration = load_base_camera_calibration(
+        deployment_args.base_camera_calibration_file,
+        expected_robot_id=deployment_args.robot_id,
+        expected_camera_frame=deployment_args.base_camera_frame,
+    )
 
     import numpy as np
     import rclpy
@@ -401,7 +653,38 @@ def main(args: list[str] | None = None) -> None:
     from rclpy.executors import ExternalShutdownException
     from scipy.spatial.transform import Rotation as R
     from std_msgs.msg import Bool
-    from tinynav.platforms.cmd_vel_control import CmdVelControlNode
+    from tinynav.platforms import cmd_vel_control as source_controller
+
+    provenance = verify_tinynav_source(
+        source_controller.__file__,
+        robot_profile=deployment_args.robot_profile,
+        component="controller",
+    )
+    provenance.update(
+        {
+            "schema_version": "focus-tinynav-controller-wrapper-v2",
+            "adaptations": [
+                "linear_engagement_floor",
+                "reverse_segment_fail_closed",
+                "stable_large_turn",
+                "measured_base_pose_for_stable_heading",
+                "common_pose_path_stale_stop",
+                "common_pose_jump_freeze",
+            ],
+            "base_camera_calibration": {
+                "source_path": base_camera_calibration.source_path,
+                "source_size_bytes": (
+                    base_camera_calibration.source_size_bytes
+                ),
+                "source_sha256": base_camera_calibration.source_sha256,
+                "measurement_status": (
+                    base_camera_calibration.measurement_status
+                ),
+            },
+        }
+    )
+    print(json.dumps(provenance, sort_keys=True), flush=True)
+    CmdVelControlNode = source_controller.CmdVelControlNode
 
     class FocusCmdVelControlNode(CmdVelControlNode):
         def __init__(self) -> None:
@@ -410,10 +693,19 @@ def main(args: list[str] | None = None) -> None:
             self._last_focus_reverse_log = 0.0
             self._last_focus_rotate_first_log = 0.0
             self._last_focus_tiny_reverse_log = 0.0
+            self._last_focus_input_guard_log = 0.0
             self._focus_rotation_recovery_started: float | None = None
             self._focus_rotation_turn_direction = 0
             self._focus_router_target_xy: tuple[float, float] | None = None
             self._focus_router_target_received_monotonic = 0.0
+            self._focus_pose_received_monotonic = 0.0
+            self._focus_path_received_monotonic = 0.0
+            self._focus_pose_jump_freeze_until_monotonic = 0.0
+            self._focus_last_pose_xy: tuple[float, float] | None = None
+            self._focus_base_T_camera = np.asarray(
+                base_camera_calibration.matrix,
+                dtype=np.float64,
+            ).reshape(4, 4)
             self._reverse_required_publisher = self.create_publisher(
                 Bool, "/planning/reverse_required", 10
             )
@@ -439,24 +731,113 @@ def main(args: list[str] | None = None) -> None:
             super()._on_paused(message)
             if bool(message.data):
                 self._reset_focus_rotation_recovery()
+                # A path from the previous authority must not become live when
+                # a later lease unpauses the controller.
+                self._focus_path_received_monotonic = 0.0
+
+        def pose_callback(self, message) -> None:
+            try:
+                matrix = self._raw_pose_matrix(message.pose.pose)
+            except (AttributeError, TypeError, ValueError):
+                self._focus_pose_received_monotonic = 0.0
+                self._reset_focus_rotation_recovery()
+                self._publish_focus_guarded_zero("pose_geometry_invalid")
+                return
+            now = time.monotonic()
+            current_base = shared_base_pose_from_camera(
+                matrix,
+                self._focus_base_T_camera,
+            )
+            current_xy = (
+                float(current_base[0, 3]),
+                float(current_base[1, 3]),
+            )
+            if (
+                self._focus_last_pose_xy is not None
+                and math.hypot(
+                    current_xy[0] - self._focus_last_pose_xy[0],
+                    current_xy[1] - self._focus_last_pose_xy[1],
+                )
+                > deployment_args.pose_jump_m
+            ):
+                self._focus_pose_jump_freeze_until_monotonic = max(
+                    self._focus_pose_jump_freeze_until_monotonic,
+                    now + deployment_args.pose_jump_freeze_s,
+                )
+                self._reset_focus_rotation_recovery()
+            try:
+                super().pose_callback(message)
+            except (
+                AttributeError,
+                TypeError,
+                ValueError,
+                np.linalg.LinAlgError,
+            ):
+                self._focus_pose_received_monotonic = 0.0
+                self._reset_focus_rotation_recovery()
+                self._publish_focus_guarded_zero(
+                    "source_pose_callback_failed"
+                )
+                return
+            self._focus_last_pose_xy = current_xy
+            self._focus_pose_received_monotonic = now
+
+        def _publish_focus_guarded_zero(self, reason: str) -> None:
+            self.latest_cmd = Twist()
+            self.prev_cmd = Twist()
+            self.cmd_pub.publish(Twist())
+            now = time.monotonic()
+            if now - self._last_focus_input_guard_log >= 2.0:
+                self.get_logger().warning(
+                    f"Focus TinyNav controller hold: {reason}"
+                )
+                self._last_focus_input_guard_log = now
+
+        def cmd_timer_callback(self) -> None:
+            now = time.monotonic()
+            reason = controller_input_guard_reason(
+                now_monotonic=now,
+                pose_received_monotonic=(
+                    self._focus_pose_received_monotonic
+                ),
+                path_received_monotonic=(
+                    self._focus_path_received_monotonic
+                ),
+                pose_jump_freeze_until_monotonic=(
+                    self._focus_pose_jump_freeze_until_monotonic
+                ),
+                paused=bool(self._paused),
+                pose_timeout_s=deployment_args.pose_timeout_s,
+                path_timeout_s=deployment_args.path_timeout_s,
+            )
+            if reason is not None:
+                self._reset_focus_rotation_recovery()
+                self._reverse_required_publisher.publish(Bool(data=False))
+                self._publish_focus_guarded_zero(reason)
+                return
+            super().cmd_timer_callback()
 
         @staticmethod
         def _raw_pose_matrix(pose) -> np.ndarray:
             quaternion = pose.orientation
-            matrix = np.eye(4, dtype=np.float64)
-            matrix[:3, :3] = R.from_quat(
-                [
-                    float(quaternion.x),
-                    float(quaternion.y),
-                    float(quaternion.z),
-                    float(quaternion.w),
-                ]
-            ).as_matrix()
-            matrix[:3, 3] = [
+            values = (
                 float(pose.position.x),
                 float(pose.position.y),
                 float(pose.position.z),
-            ]
+                float(quaternion.x),
+                float(quaternion.y),
+                float(quaternion.z),
+                float(quaternion.w),
+            )
+            if not all(math.isfinite(value) for value in values):
+                raise ValueError("pose contains a non-finite value")
+            if math.sqrt(sum(value * value for value in values[3:])) < 1e-9:
+                raise ValueError("pose quaternion has zero norm")
+            matrix = np.eye(4, dtype=np.float64)
+            matrix[:3, :3] = R.from_quat(
+                list(values[3:])
+            ).as_matrix()
+            matrix[:3, 3] = list(values[:3])
             return matrix
 
         @classmethod
@@ -486,7 +867,10 @@ def main(args: list[str] | None = None) -> None:
 
         def _stable_path_heading_error(self, message) -> float | None:
             current_camera = self._raw_pose_matrix(self.pose.pose.pose)
-            current_robot = current_camera @ self.T_robot_to_camera
+            current_robot = shared_base_pose_from_camera(
+                current_camera,
+                self._focus_base_T_camera,
+            )
             robot_xy = (
                 float(current_robot[0, 3]),
                 float(current_robot[1, 3]),
@@ -495,63 +879,113 @@ def main(args: list[str] | None = None) -> None:
                 float(current_robot[1, 0]),
                 float(current_robot[0, 0]),
             )
+            path_robot_xy = []
+            for pose_stamped in message.poses:
+                # TinyNav's planner initializes every trajectory at
+                # camera_to_robot_center(T); path translation is therefore
+                # already the robot center. Its orientation remains a camera
+                # orientation and is intentionally ignored for these XY
+                # lookahead bearings.
+                position = pose_stamped.pose.position
+                path_robot_xy.append(
+                    (
+                        float(position.x),
+                        float(position.y),
+                    )
+                )
+            # The collision-scored local path is authoritative.  A router
+            # waypoint may intentionally sit behind the measured base while
+            # the start seed is being repaired; letting that seed override a
+            # valid forward path caused unnecessary full rotations.  Smooth
+            # near-pose jitter with a path lookahead first, and consult the
+            # fixed router waypoint only when the path is too short to define
+            # a meaningful bearing.
+            path_error = stable_path_heading_error(
+                robot_xy,
+                robot_heading_rad=robot_heading_rad,
+                path_xy=path_robot_xy,
+            )
+            router_error = None
             if (
                 self._focus_router_target_xy is not None
                 and time.monotonic()
                 - self._focus_router_target_received_monotonic
                 <= DEFAULT_ROUTER_TARGET_TIMEOUT_S
             ):
-                target_error = world_target_heading_error(
+                router_error = world_target_heading_error(
                     robot_xy,
                     self._focus_router_target_xy,
                     robot_heading_rad=robot_heading_rad,
                 )
-                if target_error is not None:
-                    return target_error
-            path_robot_xy = []
-            for pose_stamped in message.poses:
-                path_robot = (
-                    self._pose_matrix(pose_stamped) @ self.T_robot_to_camera
-                )
-                path_robot_xy.append(
-                    (
-                        float(path_robot[0, 3]),
-                        float(path_robot[1, 3]),
-                    )
-                )
-            return stable_path_heading_error(
-                robot_xy,
-                robot_heading_rad=robot_heading_rad,
-                path_xy=path_robot_xy,
+            return select_authoritative_heading_error(
+                path_heading_error_rad=path_error,
+                router_heading_error_rad=router_error,
             )
 
         def path_callback(self, message) -> None:
+            try:
+                validate_controller_path_message(message)
+            except ValueError as exc:
+                self._focus_path_received_monotonic = 0.0
+                self._reset_focus_rotation_recovery()
+                self._reverse_required_publisher.publish(Bool(data=True))
+                self._publish_focus_guarded_zero(
+                    f"trajectory_contract_invalid:{exc}"
+                )
+                return
+            if self.pose is None:
+                self._focus_path_received_monotonic = 0.0
+                self._reset_focus_rotation_recovery()
+                self._reverse_required_publisher.publish(Bool(data=False))
+                self._publish_focus_guarded_zero("pose_missing_for_path")
+                return
             control_segment_forward_m = None
             stable_heading_error_rad = None
-            if message is not None and len(message.poses) >= 2:
-                try:
-                    control_segment_forward_m = (
-                        self._control_segment_forward_m(message)
-                    )
-                    if self.pose is not None:
-                        stable_heading_error_rad = (
-                            self._stable_path_heading_error(message)
-                        )
-                except (
-                    AttributeError,
-                    TypeError,
-                    ValueError,
-                    np.linalg.LinAlgError,
-                ):
-                    control_segment_forward_m = None
-                    stable_heading_error_rad = None
-            super().path_callback(message)
-            if (
-                message is None
-                or self.pose is None
-                or len(message.poses) < 2
+            geometry_error = False
+            try:
+                control_segment_forward_m = (
+                    self._control_segment_forward_m(message)
+                )
+                stable_heading_error_rad = (
+                    self._stable_path_heading_error(message)
+                )
+            except (
+                AttributeError,
+                TypeError,
+                ValueError,
+                np.linalg.LinAlgError,
             ):
+                geometry_error = True
+            if geometry_error or control_segment_forward_m is None:
+                self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
+                self._reverse_required_publisher.publish(Bool(data=True))
+                self._publish_focus_guarded_zero(
+                    "trajectory_geometry_invalid"
+                )
+                return
+            try:
+                super().path_callback(message)
+            except (
+                AttributeError,
+                TypeError,
+                ValueError,
+                np.linalg.LinAlgError,
+            ):
+                self._focus_path_received_monotonic = 0.0
+                self._reset_focus_rotation_recovery()
+                self._reverse_required_publisher.publish(Bool(data=True))
+                self._publish_focus_guarded_zero(
+                    "source_path_callback_failed"
+                )
+                return
+            if not command_components_finite(self.latest_cmd):
+                self._focus_path_received_monotonic = 0.0
+                self._reset_focus_rotation_recovery()
+                self._reverse_required_publisher.publish(Bool(data=True))
+                self._publish_focus_guarded_zero(
+                    "source_controller_command_nonfinite"
+                )
                 return
             segment_action = classify_forward_component(
                 control_segment_forward_m
@@ -559,6 +993,7 @@ def main(args: list[str] | None = None) -> None:
             requested_linear = float(self.latest_cmd.linear.x)
             requested_angular = float(self.latest_cmd.angular.z)
             now = time.monotonic()
+            self._focus_path_received_monotonic = now
             recovery_active = (
                 self._focus_rotation_recovery_started is not None
             )
@@ -570,7 +1005,8 @@ def main(args: list[str] | None = None) -> None:
             large_turn_recovery_requested = bool(
                 deployment_args.stabilize_large_turn
                 and not self._paused
-                and large_turn_stabilization_required(
+                and path_turn_recovery_required(
+                    segment_action,
                     stable_heading_error_rad,
                     recovery_active=recovery_active,
                     requested_linear_mps=requested_linear,

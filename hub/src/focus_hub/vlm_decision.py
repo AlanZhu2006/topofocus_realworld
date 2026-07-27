@@ -19,12 +19,13 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass, field
+import math
 
 import cv2
 import numpy as np
 
 from .directional_memory import DirectionalMemory
-from .frontiers import Frontier
+from .frontiers import Frontier, validate_frontier_candidates
 from .source_episode import select_history_index
 from .vlm_prompts import (
     build_decision_prompt,
@@ -32,6 +33,8 @@ from .vlm_prompts import (
     build_perception_prompt,
     perception_weight_decision,
 )
+
+GLM_SERVER_MODEL_ID = "cogvlm2-19b-focus-score-contract-v1"
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,40 @@ class FrontierChoice:
     raw_content: str
 
 
+def validate_glm_server_contract(
+    base_url: str,
+    *,
+    timeout_s: float = 5.0,
+) -> dict[str, object]:
+    """Require the Hub launcher whose ABCD scoring is deterministic."""
+
+    import httpx
+
+    response = httpx.get(f"{base_url}/models", timeout=timeout_s)
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise RuntimeError("GLM /models response is malformed")
+    model_ids = [
+        item.get("id")
+        for item in payload["data"]
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    ]
+    if model_ids != [GLM_SERVER_MODEL_ID]:
+        raise RuntimeError(
+            "GLM endpoint does not expose the reviewed fail-closed "
+            f"candidate-score contract: observed={model_ids}"
+        )
+    return {
+        "model_id": GLM_SERVER_MODEL_ID,
+        "candidate_score_contract": (
+            "sum exact label unspaced+leading-space token mass; "
+            "zero/non-finite mass raises"
+        ),
+        "verification": "observed local /models response",
+    }
+
+
 def _call_glm(
     image_bgr: np.ndarray,
     prompt: str,
@@ -49,7 +86,7 @@ def _call_glm(
     *,
     base_url: str,
     timeout_s: float,
-) -> tuple[dict[str, float], str]:
+) -> tuple[dict[str, object], str]:
     """Shared request/parse mechanics for all three stages: encode the
     image, ask for `return_string_probabilities` over `candidates`, return
     (probabilities, raw_text_content).
@@ -79,14 +116,66 @@ def _call_glm(
     with httpx.Client(timeout=timeout_s) as client:
         response = client.post(f"{base_url}/chat/completions", json=payload)
         response.raise_for_status()
-    message = response.json()["choices"][0]["message"]
+    response_payload = response.json()
+    if not isinstance(response_payload, dict):
+        raise RuntimeError("VLM response is not a JSON object")
+    choices = response_payload.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise RuntimeError("VLM response must contain exactly one choice")
+    choice = choices[0]
+    if not isinstance(choice, dict) or not isinstance(choice.get("message"), dict):
+        raise RuntimeError("VLM response choice has no message object")
+    message = choice["message"]
     scores = message.get("scores")
-    content = str(message.get("content", "")).strip()
-    if scores and len(scores) == len(candidates):
-        probabilities = {c: float(s) for c, s in zip(candidates, scores)}
+    raw_content = message.get("content", "")
+    if not isinstance(raw_content, str):
+        raise RuntimeError("VLM response content is not text")
+    content = raw_content.strip()
+    if isinstance(scores, list) and len(scores) == len(candidates):
+        probabilities = {
+            candidate: score
+            for candidate, score in zip(candidates, scores, strict=True)
+        }
     else:
         probabilities = {}
     return probabilities, content
+
+
+def _require_candidate_scores(
+    probabilities: dict[str, object],
+    candidates: list[str],
+    *,
+    stage: str,
+) -> dict[str, float]:
+    """Validate and normalize the source server's candidate score vector."""
+
+    if not candidates or len(set(candidates)) != len(candidates):
+        raise ValueError(f"{stage} candidates must be non-empty and unique")
+    if set(probabilities) != set(candidates):
+        raise RuntimeError(
+            f"{stage} VLM score labels differ from requested candidates: "
+            f"requested={candidates}, returned={list(probabilities)}"
+        )
+    ordered: list[float] = []
+    for candidate in candidates:
+        value = probabilities[candidate]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0.0
+        ):
+            raise RuntimeError(
+                f"{stage} VLM returned an invalid score for {candidate!r}"
+            )
+        ordered.append(float(value))
+    total = math.fsum(ordered)
+    if not math.isfinite(total) or total <= 0.0:
+        raise RuntimeError(f"{stage} VLM score vector has no positive mass")
+    return {
+        candidate: score / total
+        for candidate, score in zip(candidates, ordered, strict=True)
+    }
 
 
 # =============================================================================
@@ -108,10 +197,12 @@ def choose_scene_worth_exploring_glm(
     """
     prompt = build_perception_prompt(target, detections)
     probabilities, content = _call_glm(rgb_bgr, prompt, ["Yes", "No"], base_url=base_url, timeout_s=timeout_s)
-    if probabilities:
-        rel = (probabilities.get("Yes", 0.0), probabilities.get("No", 0.0))
-    else:
-        rel = (0.5, 0.5)
+    probabilities = _require_candidate_scores(
+        probabilities,
+        ["Yes", "No"],
+        stage="Perception",
+    )
+    rel = (probabilities["Yes"], probabilities["No"])
     weighted = perception_weight_decision(rel, content)
     if weighted == "Neither":
         return rel
@@ -144,10 +235,12 @@ def choose_explore_or_revisit_glm(
         perception_pr_yes=perception_pr_yes,
     )
     probabilities, content = _call_glm(sem_map_bgr, prompt, ["Yes", "No"], base_url=base_url, timeout_s=timeout_s)
-    if probabilities:
-        rel = (probabilities.get("Yes", 0.0), probabilities.get("No", 0.0))
-    else:
-        rel = (0.5, 0.5)
+    probabilities = _require_candidate_scores(
+        probabilities,
+        ["Yes", "No"],
+        stage="Judgment",
+    )
+    rel = (probabilities["Yes"], probabilities["No"])
     weighted = perception_weight_decision(rel, content)
     if weighted == "Neither":
         return rel
@@ -172,7 +265,7 @@ def choose_frontier_glm(
 ) -> FrontierChoice:
     if not frontiers:
         raise ValueError("no frontier candidates to choose from")
-    letters = [f.frontier_id for f in frontiers]
+    letters = list(validate_frontier_candidates(frontiers))
     frontiers_results = "".join(f"{f.frontier_id}: [Coordinates: ({f.row}, {f.col})]\n" for f in frontiers)
     prompt = build_decision_prompt(
         scene_information=scene_information, scene_objects=scene_objects,
@@ -180,10 +273,12 @@ def choose_frontier_glm(
         cur_location=cur_location, pre_goal_point=pre_goal_point, valid_candidates=letters,
     )
     probabilities, content = _call_glm(bev_bgr, prompt, letters, base_url=base_url, timeout_s=timeout_s)
-    if probabilities:
-        chosen_letter = max(probabilities, key=probabilities.get)
-    else:
-        chosen_letter = content if content in letters else letters[0]
+    probabilities = _require_candidate_scores(
+        probabilities,
+        letters,
+        stage="Decision",
+    )
+    chosen_letter = max(letters, key=probabilities.__getitem__)
     chosen = next(f for f in frontiers if f.frontier_id == chosen_letter)
     return FrontierChoice(frontier=chosen, source="glm-4v", probabilities=probabilities, raw_content=content)
 
@@ -234,6 +329,7 @@ def run_decision_cascade(
     timeout_s: float = 120.0,
     history_candidate_indices: list[int] | None = None,
     history_candidate_scores: dict[int, float] | None = None,
+    fail_fast: bool = False,
 ) -> CascadeResult:
     """Full Perception -> Judgment -> gate -> Decision cascade, ported from
     the block in `main.py` immediately following the two VLM calls (the
@@ -253,6 +349,8 @@ def run_decision_cascade(
             rgb_bgr, target=target, detections=detections, base_url=base_url, timeout_s=timeout_s)
     except Exception as exc:  # noqa: BLE001 - one bad VLM call must not kill the cycle
         result.errors.append(f"perception: {exc}")
+        if fail_fast:
+            return result
         result.perception_pr = (0.5, 0.5)
 
     # ``main.py`` registers/increments the shared node before constructing
@@ -292,6 +390,8 @@ def run_decision_cascade(
             perception_pr_yes=result.perception_pr[0], base_url=base_url, timeout_s=timeout_s)
     except Exception as exc:  # noqa: BLE001
         result.errors.append(f"judgment: {exc}")
+        if fail_fast:
+            return result
         result.judgment_pr = (0.5, 0.5)
 
     angle_score = result.perception_pr[0] * 2 + result.judgment_pr[0]

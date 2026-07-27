@@ -45,13 +45,17 @@ def test_forward_only_vocabulary_rejects_invalid_timing(duration, dt):
 
 
 def test_planner_profiles_are_explicit():
-    default = MODULE.build_parser().parse_args([])
+    yunji = MODULE.build_parser().parse_args(
+        ["--robot-profile", "yunji-water"]
+    )
     source = MODULE.build_parser().parse_args(
         ["--robot-profile", "source-default"]
     )
 
-    assert default.robot_profile == "yunji-water"
+    assert yunji.robot_profile == "yunji-water"
     assert source.robot_profile == "source-default"
+    with pytest.raises(SystemExit):
+        MODULE.build_parser().parse_args([])
 
 
 def test_planner_source_provenance_is_observed(tmp_path):

@@ -253,6 +253,52 @@ def quaternion_pose_matrix(pose: Any) -> tuple[float, ...]:
     )
 
 
+def trajectory_message_summary(
+    message: Any, *, expected_frame: str
+) -> tuple[int, tuple[float, float], tuple[float, float]]:
+    """Validate a complete local trajectory before refreshing its lease."""
+
+    frame_id = str(getattr(getattr(message, "header", None), "frame_id", ""))
+    if frame_id != expected_frame:
+        raise ValueError(
+            f"trajectory frame {frame_id!r} != {expected_frame!r}"
+        )
+    poses = getattr(message, "poses", None)
+    if poses is None or len(poses) < 2:
+        raise ValueError("trajectory must contain at least two poses")
+    for index, pose_stamped in enumerate(poses):
+        try:
+            quaternion_pose_matrix(pose_stamped.pose)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"trajectory pose {index} is invalid: {exc}"
+            ) from exc
+    first = poses[0].pose.position
+    lookahead = poses[1].pose.position
+    return (
+        len(poses),
+        (float(first.x), float(first.y)),
+        (float(lookahead.x), float(lookahead.y)),
+    )
+
+
+def twist_components_finite(message: Any) -> bool:
+    """Validate all Twist axes at the final robot-local command boundary."""
+
+    try:
+        values = (
+            float(message.linear.x),
+            float(message.linear.y),
+            float(message.linear.z),
+            float(message.angular.x),
+            float(message.angular.y),
+            float(message.angular.z),
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return all(math.isfinite(value) for value in values)
+
+
 def transform_message_matrix(message: Any) -> tuple[float, ...]:
     transform = message.transform
     pose = type("Pose", (), {})()
@@ -400,6 +446,84 @@ def trajectory_gate_state(
         else start_grace_s
     )
     return gate_fresh, terminal_failure, age_s, observed_for_authority
+
+
+def physical_velocity_gate_reason(
+    *,
+    now_ns: int,
+    authorized: bool,
+    authority_deadline_ns: int,
+    trajectory_fresh: bool,
+    reverse_required: bool,
+    health_pass: bool,
+    health_evaluated_ns: int,
+    health_timeout_s: float,
+    odom_received_ns: int,
+    slam_received_ns: int,
+    odom_timeout_s: float,
+    slam_timeout_s: float,
+    slam_pass: bool,
+    occupancy_received_ns: int,
+    occupancy_timeout_s: float,
+    platform_required: bool,
+    platform_received_ns: int,
+    platform_timeout_s: float,
+    platform_pass: bool,
+) -> str | None:
+    """Evaluate every final velocity-authority input at control rate."""
+
+    if now_ns <= 0:
+        raise ValueError("now_ns must be positive")
+    if min(
+        health_timeout_s,
+        odom_timeout_s,
+        slam_timeout_s,
+        occupancy_timeout_s,
+        platform_timeout_s,
+    ) <= 0.0:
+        raise ValueError("physical velocity gate timeouts must be positive")
+    if not authorized:
+        return "authority_closed"
+    if authority_deadline_ns <= 0 or now_ns >= authority_deadline_ns:
+        return "authority_expired"
+    if not health_pass:
+        return "health_not_ready"
+    if (
+        health_evaluated_ns <= 0
+        or now_ns - health_evaluated_ns > int(health_timeout_s * 1e9)
+    ):
+        return "health_evaluation_stale"
+    local_fresh, _, _ = local_tracking_freshness(
+        now_ns=now_ns,
+        odom_received_ns=odom_received_ns,
+        slam_received_ns=slam_received_ns,
+        odom_timeout_s=odom_timeout_s,
+        slam_timeout_s=slam_timeout_s,
+    )
+    if not local_fresh:
+        return "local_tracking_stale"
+    if not slam_pass:
+        return "localization_not_tracking"
+    if (
+        occupancy_received_ns <= 0
+        or now_ns - occupancy_received_ns
+        > int(occupancy_timeout_s * 1e9)
+    ):
+        return "occupancy_missing_or_stale"
+    if platform_required:
+        if (
+            platform_received_ns <= 0
+            or now_ns - platform_received_ns
+            > int(platform_timeout_s * 1e9)
+        ):
+            return "platform_health_stale"
+        if not platform_pass:
+            return "platform_health_not_ready"
+    if reverse_required:
+        return "reverse_trajectory_rejected"
+    if not trajectory_fresh:
+        return "trajectory_missing_or_stale"
+    return None
 
 
 class SlamHealthDebouncer:
@@ -645,6 +769,24 @@ def main() -> int:
     parser.add_argument("--poll-s", type=float, default=0.5)
     parser.add_argument("--local-data-timeout-s", type=float, default=2.0)
     parser.add_argument(
+        "--occupancy-data-timeout-s",
+        type=float,
+        default=3.0,
+        help=(
+            "close the final velocity gate if the local collision/reachability "
+            "map stops publishing"
+        ),
+    )
+    parser.add_argument(
+        "--health-gate-timeout-s",
+        type=float,
+        default=1.5,
+        help=(
+            "close the 20 Hz physical velocity gate if the independent "
+            "receiver health loop stops evaluating"
+        ),
+    )
+    parser.add_argument(
         "--router-recovery-grace-s",
         type=float,
         default=12.0,
@@ -758,6 +900,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.local_data_timeout_s <= 0.0:
         parser.error("--local-data-timeout-s must be positive")
+    if args.occupancy_data_timeout_s <= 0.0:
+        parser.error("--occupancy-data-timeout-s must be positive")
     if args.slam_data_timeout_s <= 0.0:
         parser.error("--slam-data-timeout-s must be positive")
     if args.robot_id not in LIVE_CONFIRMATIONS:
@@ -771,6 +915,8 @@ def main() -> int:
     if min(
         args.poll_s,
         args.local_data_timeout_s,
+        args.occupancy_data_timeout_s,
+        args.health_gate_timeout_s,
         args.router_recovery_grace_s,
         args.no_progress_timeout_s,
         args.minimum_goal_progress_m,
@@ -926,6 +1072,8 @@ def main() -> int:
             self.authority_deadline_ns = 0
             self.authority_started_ns = 0
             self.authorized = False
+            self.motion_health_pass = False
+            self.motion_health_evaluated_ns = 0
             self.latest_raw_cmd = (0.0, 0.0)
             self.latest_guard_reason = "startup"
             self.poi_publisher = self.create_publisher(String, args.cmd_pois_topic, 10)
@@ -1036,6 +1184,11 @@ def main() -> int:
                 )
                 self.occupancy_received_ns = time.time_ns()
             except ValueError as exc:
+                self.occupancy = None
+                self.occupancy_received_ns = 0
+                if live:
+                    self.guarded_publisher.publish(Twist())
+                    self.latest_guard_reason = "occupancy_invalid"
                 emit("occupancy_rejected", error=str(exc))
 
         def on_nav_done(self, message: Bool) -> None:
@@ -1043,17 +1196,29 @@ def main() -> int:
                 self.nav_done = True
 
         def on_trajectory(self, message: RosPath) -> None:
-            if len(message.poses) < 2:
+            try:
+                (
+                    pose_count,
+                    first_xy,
+                    lookahead_xy,
+                ) = trajectory_message_summary(
+                    message,
+                    expected_frame=args.tinynav_map_frame,
+                )
+            except ValueError as exc:
+                self.trajectory_received_ns = 0
+                self.trajectory_pose_count = 0
+                self.trajectory_first_xy = None
+                self.trajectory_lookahead_xy = None
+                if live:
+                    self.guarded_publisher.publish(Twist())
+                    self.latest_guard_reason = "trajectory_invalid"
+                emit("trajectory_rejected", error=str(exc))
                 return
             self.trajectory_received_ns = time.time_ns()
-            self.trajectory_pose_count = len(message.poses)
-            first = message.poses[0].pose.position
-            lookahead = message.poses[1].pose.position
-            self.trajectory_first_xy = (float(first.x), float(first.y))
-            self.trajectory_lookahead_xy = (
-                float(lookahead.x),
-                float(lookahead.y),
-            )
+            self.trajectory_pose_count = pose_count
+            self.trajectory_first_xy = first_xy
+            self.trajectory_lookahead_xy = lookahead_xy
 
         def on_reverse_required(self, message: Bool) -> None:
             received_ns = time.time_ns()
@@ -1148,10 +1313,26 @@ def main() -> int:
         def on_raw_cmd(self, message: Twist) -> None:
             now_ns = time.time_ns()
             self.raw_cmd_received_ns = now_ns
+            if not twist_components_finite(message):
+                self.latest_raw_cmd = (0.0, 0.0)
+                if live:
+                    self.guarded_publisher.publish(Twist())
+                self.latest_guard_reason = "raw_command_nonfinite"
+                emit("raw_command_rejected", reason="nonfinite_twist")
+                return
             self.latest_raw_cmd = (
                 float(message.linear.x),
                 float(message.angular.z),
             )
+            reason = self.velocity_gate_reason(now_ns)
+            if live and reason is None:
+                self.guarded_publisher.publish(message)
+                self.latest_guard_reason = "authorized_all_gates_ready"
+            elif live:
+                self.guarded_publisher.publish(Twist())
+                self.latest_guard_reason = reason or "authority_closed"
+
+        def velocity_gate_reason(self, now_ns: int) -> str | None:
             path_fresh, _, _, _ = trajectory_gate_state(
                 now_ns=now_ns,
                 authority_started_ns=self.authority_started_ns,
@@ -1160,22 +1341,33 @@ def main() -> int:
                 start_grace_s=args.trajectory_start_grace_s,
                 recovery_timeout_s=args.trajectory_recovery_timeout_s,
             )
-            if (
-                live
-                and self.authorized
-                and now_ns < self.authority_deadline_ns
-                and path_fresh
-                and not self.reverse_required_for_authority
-            ):
-                self.guarded_publisher.publish(message)
-                self.latest_guard_reason = "authorized_fresh_trajectory"
-            elif live:
-                self.guarded_publisher.publish(Twist())
-                self.latest_guard_reason = (
-                    "trajectory_missing_or_stale"
-                    if self.authorized
-                    else "authority_closed"
-                )
+            return physical_velocity_gate_reason(
+                now_ns=now_ns,
+                authorized=self.authorized,
+                authority_deadline_ns=self.authority_deadline_ns,
+                trajectory_fresh=path_fresh,
+                reverse_required=self.reverse_required_for_authority,
+                health_pass=self.motion_health_pass,
+                health_evaluated_ns=self.motion_health_evaluated_ns,
+                health_timeout_s=args.health_gate_timeout_s,
+                odom_received_ns=self.odom_received_ns,
+                slam_received_ns=self.slam_received_ns,
+                odom_timeout_s=args.local_data_timeout_s,
+                slam_timeout_s=args.slam_data_timeout_s,
+                slam_pass=self.slam_pass,
+                occupancy_received_ns=self.occupancy_received_ns,
+                occupancy_timeout_s=args.occupancy_data_timeout_s,
+                platform_required=bool(args.platform_health_topic),
+                platform_received_ns=self.platform_received_ns,
+                platform_timeout_s=args.local_data_timeout_s,
+                platform_pass=self.platform_pass,
+            )
+
+        def update_motion_health(
+            self, *, ready: bool, evaluated_ns: int
+        ) -> None:
+            self.motion_health_pass = bool(ready)
+            self.motion_health_evaluated_ns = evaluated_ns
 
         def enforce_gate(self) -> None:
             if not live:
@@ -1183,26 +1375,10 @@ def main() -> int:
             now_ns = time.time_ns()
             if self.authorized and now_ns >= self.authority_deadline_ns:
                 self.authorized = False
-            path_fresh, _, _, _ = trajectory_gate_state(
-                now_ns=now_ns,
-                authority_started_ns=self.authority_started_ns,
-                trajectory_received_ns=self.trajectory_received_ns,
-                stale_timeout_s=args.trajectory_stale_timeout_s,
-                start_grace_s=args.trajectory_start_grace_s,
-                recovery_timeout_s=args.trajectory_recovery_timeout_s,
-            )
-            if (
-                not self.authorized
-                or not path_fresh
-                or self.reverse_required_for_authority
-            ):
+            reason = self.velocity_gate_reason(now_ns)
+            if reason is not None:
                 self.guarded_publisher.publish(Twist())
-                if self.reverse_required_for_authority:
-                    self.latest_guard_reason = "reverse_trajectory_rejected"
-                elif self.authorized:
-                    self.latest_guard_reason = (
-                        "trajectory_missing_or_stale"
-                    )
+                self.latest_guard_reason = reason
 
         def authorize(self, expires_at_ns: int) -> None:
             if live:
@@ -1521,6 +1697,9 @@ def main() -> int:
                 pose = current_pose()
                 current_tracking_T_map = node.tracking_T_map()
             except Exception as exc:  # noqa: BLE001
+                node.update_motion_health(
+                    ready=False, evaluated_ns=time.time_ns()
+                )
                 if active_decision is not None:
                     node.revoke()
                     active_decision = None
@@ -1552,16 +1731,29 @@ def main() -> int:
                     <= int(args.local_data_timeout_s * 1e9)
                 )
             )
+            occupancy_age_s = (
+                math.inf
+                if node.occupancy_received_ns <= 0
+                else max(
+                    0.0,
+                    (now_ns - node.occupancy_received_ns) / 1e9,
+                )
+            )
+            occupancy_fresh = bool(
+                node.occupancy is not None
+                and occupancy_age_s <= args.occupancy_data_timeout_s
+            )
             graph_ready, graph_detail = node.planner_graph_ready()
             ready = (
                 local_fresh
                 and node.slam_pass
                 and alignment_stable
                 and graph_ready
-                and node.occupancy is not None
+                and occupancy_fresh
                 and platform_fresh
                 and node.platform_pass
             )
+            node.update_motion_health(ready=ready, evaluated_ns=now_ns)
             health = RobotHealth(
                 safety_state=SafetyState.READY if ready else SafetyState.HOLD,
                 localization_state=(
@@ -1570,7 +1762,9 @@ def main() -> int:
                     else LocalizationState.LOST
                 ),
                 estop_engaged=node.platform_estop,
-                collision_avoidance_ready=bool(node.occupancy is not None and graph_ready),
+                collision_avoidance_ready=bool(
+                    occupancy_fresh and graph_ready
+                ),
                 motor_controller_ready=bool(
                     graph_ready and platform_fresh and node.platform_pass
                 ),
@@ -1579,6 +1773,8 @@ def main() -> int:
                     f"{args.local_data_timeout_s:.3f}s; "
                     f"slam_age={slam_age_s:.3f}s/"
                     f"{args.slam_data_timeout_s:.3f}s; "
+                    f"occupancy_age={occupancy_age_s:.3f}s/"
+                    f"{args.occupancy_data_timeout_s:.3f}s; "
                     f"alignment_shift={alignment_shift:.3f}m; "
                     f"alignment_yaw={math.degrees(alignment_yaw):.2f}deg; {graph_detail}; "
                     f"{node.platform_detail}; "
@@ -1593,6 +1789,9 @@ def main() -> int:
                 try:
                     hub.post_heartbeat(health)
                 except Exception as exc:  # noqa: BLE001 - lost health link revokes motion
+                    node.update_motion_health(
+                        ready=False, evaluated_ns=time.time_ns()
+                    )
                     if active_decision is not None:
                         node.revoke()
                         active_decision = None
@@ -1614,7 +1813,12 @@ def main() -> int:
                         "slam_pass": node.slam_pass,
                         "alignment_stable": alignment_stable,
                         "graph_ready": graph_ready,
-                        "occupancy_present": node.occupancy is not None,
+                        "occupancy_fresh": occupancy_fresh,
+                        "occupancy_age_s": (
+                            occupancy_age_s
+                            if math.isfinite(occupancy_age_s)
+                            else None
+                        ),
                         "platform_fresh": platform_fresh,
                         "platform_pass": node.platform_pass,
                     },

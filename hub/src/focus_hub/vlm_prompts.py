@@ -312,6 +312,28 @@ def format_scene_objects_for_prompt(scene_objects: dict[str, list[SceneObject]])
     return "\n".join(lines) + "\n"
 
 
+def semantic_label_points(
+    scene_objects: dict[str, list[SceneObject]],
+) -> list[tuple[str, int, int]]:
+    """Return ``(category, row, col)`` labels for the rendered VLM maps.
+
+    OpenCV contour points are stored as ``(column, row)``.  Centralizing the
+    conversion keeps the prompt polygons and image annotations tied to the
+    same extracted objects.
+    """
+
+    labels: list[tuple[str, int, int]] = []
+    for category, objects in scene_objects.items():
+        for item in objects:
+            points = np.asarray(item.polygon_rowcol)
+            if points.ndim != 3 or points.shape[1:] != (1, 2) or not points.size:
+                raise ValueError(f"semantic polygon for {category!r} is malformed")
+            column = int(points[0, 0, 0])
+            row = int(points[0, 0, 1])
+            labels.append((category, row, column))
+    return labels
+
+
 # =============================================================================
 # Stage 3: Decision VLM — verbatim from SystemPrompt.py, then patched
 # decision-first (see patch_frontier_prompt below).

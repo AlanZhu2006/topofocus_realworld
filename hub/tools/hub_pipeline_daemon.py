@@ -49,7 +49,11 @@ from focus_hub.pose_gate import (  # noqa: E402
 from focus_hub.semantic_yolo import SemanticYoloConfig  # noqa: E402
 from focus_hub.segformer_ade20k import SegformerAde20kSegmenter  # noqa: E402
 from focus_hub.vlm_decision import choose_frontier_fallback, choose_frontier_glm, run_decision_cascade  # noqa: E402
-from focus_hub.vlm_prompts import extract_scene_objects, format_scene_objects_for_prompt  # noqa: E402
+from focus_hub.vlm_prompts import (  # noqa: E402
+    extract_scene_objects,
+    format_scene_objects_for_prompt,
+    semantic_label_points,
+)
 from focus_hub.yolo_detector import YoloDetector  # noqa: E402
 
 
@@ -921,6 +925,7 @@ def main() -> int:
                     try:
                         scene_objects_dict = extract_scene_objects(grid[2:2 + len(HM3D_CATEGORY_NAMES)], HM3D_CATEGORY_NAMES)
                         scene_objects_str = format_scene_objects_for_prompt(scene_objects_dict)
+                        scene_labels = semantic_label_points(scene_objects_dict)
                         detections = yolo.detect(pipeline.last_rgb_bgr) if yolo else {}
                         heading = (
                             heading_deg_from_base_pose(pipeline.last_robot_T)
@@ -929,9 +934,11 @@ def main() -> int:
                         )
                         judgment_map = render_semantic_decision_map(
                             grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading,
-                            history_nodes=memory.history_nodes)
+                            history_nodes=memory.history_nodes,
+                            semantic_labels=scene_labels)
                         decision_map = render_semantic_decision_map(
-                            grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading)
+                            grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading,
+                            semantic_labels=scene_labels)
                         cascade = run_decision_cascade(
                             rgb_bgr=pipeline.last_rgb_bgr, judgment_map_bgr=judgment_map,
                             decision_map_bgr=decision_map, frontiers=frontiers,

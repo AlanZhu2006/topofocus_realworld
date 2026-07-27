@@ -17,6 +17,12 @@ DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
 PATCHED_ROOT="${TINYNAV_PERCEPTION_PATCHED_ROOT:-/home/nvidia/focus_sender/tinynav_imu_fix_worktree_20260721}"
 PATCHED_COMMIT="${TINYNAV_PERCEPTION_PATCHED_COMMIT:-29f26bc058886ff450f02cdc0d6e9977e1c57010}"
 PATCHED_PERCEPTION_SHA256="${TINYNAV_PERCEPTION_PATCHED_SHA256:-3a695d5210d60ea1f721549ca7458ba89e7bf32db5178cd1c312c633aef1c3b3}"
+GO2_BRIDGE_SOURCE="/home/nvidia/twork/tinynav/tool/go2_cmd_bridge.py"
+GO2_BRIDGE_SOURCE_SIZE=11678
+GO2_BRIDGE_SOURCE_SHA256="8b81107f89ed4013529f325f75a80b39295e828a67e2e1d87c432d860f19ebb2"
+GO2_BRIDGE_RUNNER="/home/nvidia/twork/tinynav/scripts/run_go2_cmd_bridge.sh"
+GO2_BRIDGE_RUNNER_SIZE=3514
+GO2_BRIDGE_RUNNER_SHA256="f0d06edb8d1ac59b497aac77b099927d415baf63700a6cd73d240cbd0d7b9c21"
 # Keep these values identical to start_tinynav_buildmap_online_nav.sh.  The
 # Mapper/planner can remain alive across supervised episodes, but the overlay
 # goal router and velocity wrapper must be reloaded so they cannot retain
@@ -35,6 +41,7 @@ ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
 # the guarded trajectory output closes after 1.0 s and TinyNav/controller
 # watchdogs retain final authority.
 RECEIVER_LOCAL_DATA_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0}"
+RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_TIMEOUT_S:-3.0}"
 # The guarded velocity output is zeroed after one second without a fresh path.
 # A 2026-07-25 physical semantic leg observed a 1.016 s planner publication
 # gap while its router still reported ONLINE_PATH_READY.  Keep the zero-output
@@ -59,8 +66,11 @@ SEMANTIC_ARRIVAL_RADIUS_M="${FOCUS_WSJ_SEMANTIC_ARRIVAL_RADIUS_M:-0.50}"
 # Plan 0.15 m inside that unchanged terminal radius. Formal-05 otherwise
 # selected 0.4507-0.4952 m boundary cells and oscillated before crossing it.
 SEMANTIC_TERMINAL_PLANNING_MARGIN_M="${FOCUS_WSJ_SEMANTIC_TERMINAL_PLANNING_MARGIN_M:-0.15}"
+MAX_PLAN_EXPANSIONS="${FOCUS_TINYNAV_MAX_PLAN_EXPANSIONS:-20000}"
+MAX_PLAN_DURATION_S="${FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50}"
 mode="debug"
 confirmation=""
+reuse_verified_debug_core="false"
 startup_complete="false"
 
 fail_closed_on_error() {
@@ -84,9 +94,13 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) mode="$2"; shift 2 ;;
     --operator-confirmation) confirmation="$2"; shift 2 ;;
+    --reuse-verified-debug-core)
+      reuse_verified_debug_core="true"
+      shift
+      ;;
     --session) SESSION="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: $0 --mode debug|live [--operator-confirmation OPERATOR_PRESENT_AND_WSJ_CLEAR]"
+      echo "Usage: $0 --mode debug|live [--operator-confirmation OPERATOR_PRESENT_AND_WSJ_CLEAR] [--reuse-verified-debug-core]"
       exit 0
       ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
@@ -100,6 +114,14 @@ if [[ "$mode" == live && "$confirmation" != OPERATOR_PRESENT_AND_WSJ_CLEAR ]]; t
   echo "Live WSJ mode requires OPERATOR_PRESENT_AND_WSJ_CLEAR." >&2
   exit 2
 fi
+if [[ "$reuse_verified_debug_core" == true && "$mode" != live ]]; then
+  echo "--reuse-verified-debug-core is valid only for live mode." >&2
+  exit 2
+fi
+[[ "$MAX_PLAN_EXPANSIONS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "FOCUS_TINYNAV_MAX_PLAN_EXPANSIONS must be a positive integer." >&2
+  exit 2
+}
 [[ "$TRANSFORM_VERSION" =~ ^[A-Za-z0-9_.-]+$ ]] || {
   echo "FOCUS_WSJ_TRANSFORM_VERSION must be explicit and filesystem-safe." >&2
   exit 2
@@ -125,15 +147,42 @@ for required in \
   "$SCRIPT_DIR/start_go2_buildmap.sh" \
   "$SCRIPT_DIR/start_tinynav_buildmap_online_nav.sh" \
   "$SCRIPT_DIR/wsj_perception_entry.py" \
+  "$SCRIPT_DIR/tinynav_source_contract.py" \
   "$SCRIPT_DIR/run_yunji_tinynav_planner.py" \
   "$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py" \
   "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   "$SCRIPT_DIR/v2_wsj_receiver.py" \
   "$CALIBRATION_FILE" \
   "$BASE_CAMERA_CALIBRATION_FILE" \
-  "$TOKEN_FILE"; do
+  "$TOKEN_FILE" \
+  "$GO2_BRIDGE_SOURCE" \
+  "$GO2_BRIDGE_RUNNER"; do
   [[ -r "$required" ]] || { echo "Missing required file: $required" >&2; exit 1; }
 done
+
+verify_file_contract() {
+  local path="$1" expected_size="$2" expected_sha256="$3"
+  local actual_size actual_sha256
+  actual_size="$(stat -c %s "$path")"
+  actual_sha256="$(sha256sum "$path" | awk '{print $1}')"
+  [[ "$actual_size" == "$expected_size" \
+      && "$actual_sha256" == "$expected_sha256" ]] || {
+    echo "Runtime dependency contract mismatch: $path" >&2
+    echo "expected size=$expected_size sha256=$expected_sha256" >&2
+    echo "actual   size=$actual_size sha256=$actual_sha256" >&2
+    return 1
+  }
+}
+
+verify_file_contract \
+  "$GO2_BRIDGE_SOURCE" "$GO2_BRIDGE_SOURCE_SIZE" \
+  "$GO2_BRIDGE_SOURCE_SHA256"
+verify_file_contract \
+  "$GO2_BRIDGE_RUNNER" "$GO2_BRIDGE_RUNNER_SIZE" \
+  "$GO2_BRIDGE_RUNNER_SHA256"
+BASE_CAMERA_CALIBRATION_SHA256="$(
+  sha256sum "$BASE_CAMERA_CALIBRATION_FILE" | awk '{print $1}'
+)"
 
 verify_patched_perception() {
   local actual_commit actual_sha perception_pid perception_cwd pane_start
@@ -199,6 +248,56 @@ elif [[ ${#missing_windows[@]} -ne 0 ]]; then
   echo "Refusing ambiguous partial online stack; missing: ${missing_windows[*]}" >&2
   exit 1
 fi
+
+# Keep the formal DDS subscriber alive before any bounded publisher recovery.
+# Parking only removes its Hub upload contract; it cannot publish a target or
+# velocity.  The checked calibration contract is hot-loaded after the complete
+# sensor/map graph has passed.
+bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
+  --park-only \
+  --session "$SESSION"
+
+component_contract_sha256() {
+  local command="$1"
+  printf '%s\0%s\0%s\0' \
+    "$DEPLOYMENT_COMMIT" "$command" \
+    "$BASE_CAMERA_CALIBRATION_SHA256" \
+    | sha256sum | awk '{print $1}'
+}
+
+mark_component_contract() {
+  local window="$1" command="$2"
+  tmux set-option -w -t "$SESSION:$window" \
+    @focus_deployment_commit "$DEPLOYMENT_COMMIT"
+  tmux set-option -w -t "$SESSION:$window" \
+    @focus_component_contract_sha256 \
+    "$(component_contract_sha256 "$command")"
+}
+
+component_contract_matches() {
+  local window="$1" command="$2" required_text="$3"
+  local pane_dead pane_start deployment contract
+  pane_dead="$(
+    tmux display-message -p -t "$SESSION:$window" '#{pane_dead}' \
+      2>/dev/null || true
+  )"
+  pane_start="$(
+    tmux display-message -p -t "$SESSION:$window" '#{pane_start_command}' \
+      2>/dev/null || true
+  )"
+  deployment="$(
+    tmux show-options -w -v -t "$SESSION:$window" \
+      @focus_deployment_commit 2>/dev/null || true
+  )"
+  contract="$(
+    tmux show-options -w -v -t "$SESSION:$window" \
+      @focus_component_contract_sha256 2>/dev/null || true
+  )"
+  [[ "$pane_dead" == 0 \
+     && "$pane_start" == *"$required_text"* \
+     && "$deployment" == "$DEPLOYMENT_COMMIT" \
+     && "$contract" == "$(component_contract_sha256 "$command")" ]]
+}
 
 sensor_map_verifier=(
   "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py"
@@ -326,6 +425,22 @@ bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   --transform-version "$TRANSFORM_VERSION" \
   --hub-url "$HUB_URL"
 
+planning_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/run_yunji_tinynav_planner.py\" --robot-profile source-default'"
+control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --robot-profile source-default --robot-id robot-0 --base-camera-frame camera --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --stabilize-large-turn --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
+
+if [[ "$reuse_verified_debug_core" == true ]]; then
+  component_contract_matches \
+    planning "$planning_command" "run_yunji_tinynav_planner.py" || {
+    echo "WSJ warm planner does not match the verified deployment contract." >&2
+    exit 1
+  }
+  component_contract_matches \
+    control "$control_command" "yunji_tinynav_cmd_vel_control.py" || {
+    echo "WSJ warm controller does not match the verified deployment contract." >&2
+    exit 1
+  }
+  echo "Reusing verified WSJ planner/controller without DDS participant churn."
+else
 # The persistent source planner includes a fixed reverse vocabulary that both
 # deployed chassis paths reject. Replace it with the forward-only deployment
 # wrapper while the chassis bridge is absent and navigation is paused.
@@ -335,7 +450,6 @@ timeout 5 ros2 topic pub --once \
 old_planning_pid="$(
   tmux display-message -p -t "$SESSION:planning" '#{pane_pid}'
 )"
-planning_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/run_yunji_tinynav_planner.py\" --robot-profile source-default'"
 tmux set-option -w -t "$SESSION:planning" remain-on-exit on
 tmux send-keys -t "$SESSION:planning" C-c
 deadline=$((SECONDS + 15))
@@ -397,6 +511,7 @@ until planner_graph="$(
   }
   sleep 1
 done
+mark_component_contract planning "$planning_command"
 echo "WSJ forward-only planner reloaded from the current deployment: $new_planning_pid"
 
 # The BuildMap core persists between episodes, so its controller process may
@@ -413,7 +528,6 @@ timeout 5 ros2 topic pub --once \
 old_control_pid="$(
   tmux display-message -p -t "$SESSION:control" '#{pane_pid}'
 )"
-control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --stabilize-large-turn --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
 tmux set-option -w -t "$SESSION:control" remain-on-exit on
 tmux send-keys -t "$SESSION:control" C-c
 deadline=$((SECONDS + 15))
@@ -454,7 +568,8 @@ control_start="$(
 )"
 [[ -n "$new_control_pid" \
    && "$new_control_pid" != "$old_control_pid" \
-   && "$control_start" == *"yunji_tinynav_cmd_vel_control.py"* ]] || {
+   && "$control_start" == *"yunji_tinynav_cmd_vel_control.py"* \
+   && "$control_start" == *"--robot-profile source-default"* ]] || {
   echo "WSJ velocity controller did not reload from the deployment wrapper." >&2
   exit 1
 }
@@ -477,7 +592,9 @@ until controller_graph="$(
   }
   sleep 1
 done
+mark_component_contract control "$control_command"
 echo "WSJ velocity controller reloaded from the current deployment: $new_control_pid"
+fi
 
 if tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx v2-receiver; then
   if [[ "$mode" == debug ]] \
@@ -514,38 +631,46 @@ if [[ "$mode" == live ]] \
   exit 1
 fi
 
-# A BuildMap session intentionally survives between experiments.  Its Python
-# goal-router process therefore may predate a newly deployed overlay even when
-# the files on disk are byte-identical.  Reload only that non-actuating process
-# before creating a receiver or bridge.  The replacement starts with no goal
-# and publishes HOLD; the persistent mapper and TinyNav planner are untouched.
-old_goal_router_pid="$(
-  tmux display-message -p -t "$SESSION:goal-router" '#{pane_pid}'
-)"
-tmux respawn-pane -k -t "$SESSION:goal-router" \
-  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id world --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\"'"
-new_goal_router_pid="$(
-  tmux display-message -p -t "$SESSION:goal-router" '#{pane_pid}'
-)"
-[[ -n "$new_goal_router_pid" \
-   && "$new_goal_router_pid" != "$old_goal_router_pid" ]] || {
-  echo "WSJ goal-router did not reload into a new process." >&2
-  exit 1
-}
-deadline=$((SECONDS + 15))
-until ros2 node list 2>/dev/null \
-  | grep -qx /focus_tinynav_buildmap_goal_router; do
-  if [[ "$(tmux display-message -p -t "$SESSION:goal-router" '#{pane_dead}')" == 1 ]]; then
-    tmux capture-pane -pt "$SESSION:goal-router" -S -100 >&2 || true
-    exit 1
-  fi
-  (( SECONDS < deadline )) || {
-    echo "Timed out waiting for the reloaded WSJ goal-router." >&2
+goal_router_command="bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id world --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\" --max-plan-expansions \"$MAX_PLAN_EXPANSIONS\" --max-plan-duration-s \"$MAX_PLAN_DURATION_S\"'"
+if [[ "$reuse_verified_debug_core" == true ]]; then
+  component_contract_matches \
+    goal-router "$goal_router_command" "tinynav_buildmap_goal_router.py" || {
+    echo "WSJ warm goal router does not match the verified deployment contract." >&2
     exit 1
   }
-  sleep 1
-done
-echo "WSJ goal-router reloaded from the current deployment: $new_goal_router_pid"
+  echo "Reusing verified WSJ goal router without a process restart."
+else
+  # A BuildMap session intentionally survives between deployments. Replace the
+  # router only when establishing a new verified core; a debug->live mode
+  # switch reuses the exact marked process and avoids needless DDS churn.
+  old_goal_router_pid="$(
+    tmux display-message -p -t "$SESSION:goal-router" '#{pane_pid}'
+  )"
+  tmux respawn-pane -k -t "$SESSION:goal-router" "$goal_router_command"
+  new_goal_router_pid="$(
+    tmux display-message -p -t "$SESSION:goal-router" '#{pane_pid}'
+  )"
+  [[ -n "$new_goal_router_pid" \
+     && "$new_goal_router_pid" != "$old_goal_router_pid" ]] || {
+    echo "WSJ goal-router did not reload into a new process." >&2
+    exit 1
+  }
+  deadline=$((SECONDS + 15))
+  until ros2 node list 2>/dev/null \
+    | grep -qx /focus_tinynav_buildmap_goal_router; do
+    if [[ "$(tmux display-message -p -t "$SESSION:goal-router" '#{pane_dead}')" == 1 ]]; then
+      tmux capture-pane -pt "$SESSION:goal-router" -S -100 >&2 || true
+      exit 1
+    fi
+    (( SECONDS < deadline )) || {
+      echo "Timed out waiting for the reloaded WSJ goal-router." >&2
+      exit 1
+    }
+    sleep 1
+  done
+  mark_component_contract goal-router "$goal_router_command"
+  echo "WSJ goal-router reloaded from the current deployment: $new_goal_router_pid"
+fi
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 alignment="/home/nvidia/.local/state/topofocus/wsj-v2-buildmap-${mode}-${stamp}.json"
@@ -565,6 +690,7 @@ receiver=(
   --local-map-frame wsj/world
   --occupancy-topic /semantic_mapping/occupancy_bev
   --local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"
+  --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"
   --trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"
   --trajectory-recovery-timeout-s "$TRAJECTORY_RECOVERY_TIMEOUT_S"
@@ -622,16 +748,13 @@ if [[ "$mode" == live ]]; then
     echo "Refusing to replace existing Go2 bridge window." >&2
     exit 1
   }
-  # Observed remote-dependency provenance, 2026-07-27:
-  # /home/nvidia/twork/tinynav/tool/go2_cmd_bridge.py, 11678 bytes,
-  # sha256=8b81107f89ed4013529f325f75a80b39295e828a67e2e1d87c432d860f19ebb2.
-  # /home/nvidia/twork/tinynav/scripts/run_go2_cmd_bridge.sh, 3514 bytes,
-  # sha256=f0d06edb8d1ac59b497aac77b099927d415baf63700a6cd73d240cbd0d7b9c21.
+  # Both remote dependencies were checked against the observed 2026-07-27
+  # size/SHA-256 contracts before any ROS command path was created.
   # Fresh guarded zero messages therefore keep a bounded zero Move instead of
   # repeatedly calling StopMove during short planner gaps. A dead receiver
   # still triggers the bridge's independent cmd_vel timeout and StopMove.
   tmux new-window -d -t "$SESSION" -n go2-bridge \
-    "bash -lc 'set -o pipefail; export GO2_CMD_TOPIC=/focus_guarded_cmd_vel GO2_MAX_VX=0.20 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.50 GO2_MIN_CMD_V=0.15 GO2_MIN_CMD_W=0.30 GO2_REMOTE_PRIORITY=true GO2_SEND_ZERO_WHEN_IDLE=true GO2_LOG_COMMANDS=true GO2_LOG_INTERVAL_SEC=0.2; bash /home/nvidia/twork/tinynav/scripts/run_go2_cmd_bridge.sh 2>&1 | tee \"$bridge_log\"'"
+    "bash -lc 'set -o pipefail; export GO2_CMD_TOPIC=/focus_guarded_cmd_vel GO2_MAX_VX=0.20 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.50 GO2_MIN_CMD_V=0.15 GO2_MIN_CMD_W=0.30 GO2_REMOTE_PRIORITY=true GO2_SEND_ZERO_WHEN_IDLE=true GO2_LOG_COMMANDS=true GO2_LOG_INTERVAL_SEC=0.2; bash \"$GO2_BRIDGE_RUNNER\" 2>&1 | tee \"$bridge_log\"'"
   echo "WSJ Go2 bridge command log: $bridge_log"
   "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
     --robot-id robot-0 \

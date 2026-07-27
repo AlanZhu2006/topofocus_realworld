@@ -20,7 +20,15 @@ import numpy as np
 
 from .map_snapshot import MapSnapshot, load_map_snapshot
 from .models import ObservationMetadata
+from .shadow_coordination import (
+    heading_deg_from_base_pose,
+    shared_base_pose_from_camera,
+)
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
+from .vlm_decision import GLM_SERVER_MODEL_ID
+
+
+_FRONTIER_LABELS = ("A", "B", "C", "D")
 
 
 @dataclass(frozen=True)
@@ -278,6 +286,454 @@ def _frontier_target(
     }
 
 
+def _validated_frontier_record(
+    raw: object,
+    *,
+    context: str,
+) -> dict[str, object]:
+    if not isinstance(raw, dict):
+        raise ValueError(f"{context} frontier record is not an object")
+    frontier_id = raw.get("frontier_id")
+    row = raw.get("row")
+    col = raw.get("col")
+    size_cells = raw.get("size_cells")
+    x_m = raw.get("x_m")
+    y_m = raw.get("y_m")
+    if frontier_id not in _FRONTIER_LABELS:
+        raise ValueError(f"{context} frontier label is not in A-D")
+    for name, value in (("row", row), ("col", col), ("size_cells", size_cells)):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < (1 if name == "size_cells" else 0)
+        ):
+            raise ValueError(f"{context} frontier {name} is invalid")
+    for name, value in (("x_m", x_m), ("y_m", y_m)):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError(f"{context} frontier {name} is invalid")
+    return {
+        "frontier_id": str(frontier_id),
+        "row": int(row),
+        "col": int(col),
+        "x_m": float(x_m),
+        "y_m": float(y_m),
+        "size_cells": int(size_cells),
+    }
+
+
+def _validated_frontier_list(
+    raw: object,
+    *,
+    context: str,
+    require_prefix: bool = False,
+) -> list[dict[str, object]]:
+    if not isinstance(raw, list):
+        raise ValueError(f"{context} frontier list is malformed")
+    if len(raw) > len(_FRONTIER_LABELS):
+        raise ValueError(f"{context} has more than four frontier candidates")
+    records = [
+        _validated_frontier_record(item, context=context)
+        for item in raw
+    ]
+    labels = tuple(str(item["frontier_id"]) for item in records)
+    if len(set(labels)) != len(labels):
+        raise ValueError(f"{context} repeats a frontier label")
+    canonical = tuple(
+        label for label in _FRONTIER_LABELS if label in set(labels)
+    )
+    if labels != canonical:
+        raise ValueError(f"{context} does not preserve canonical A-D order")
+    if require_prefix and labels != _FRONTIER_LABELS[: len(labels)]:
+        raise ValueError(f"{context} is not a contiguous A-D prefix")
+    return records
+
+
+def _fused_grid_geometry(
+    manifest: dict[str, Any],
+) -> tuple[tuple[float, float], float, tuple[int, int]]:
+    raw_origin = manifest.get("fused_origin_xy_m")
+    raw_resolution = manifest.get("resolution_m")
+    raw_shape = manifest.get("fused_shape")
+    if (
+        not isinstance(raw_origin, list)
+        or len(raw_origin) != 2
+        or not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            for value in raw_origin
+        )
+        or isinstance(raw_resolution, bool)
+        or not isinstance(raw_resolution, (int, float))
+        or not math.isfinite(float(raw_resolution))
+        or float(raw_resolution) <= 0.0
+        or not isinstance(raw_shape, list)
+        or len(raw_shape) != 3
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value <= 0
+            for value in raw_shape
+        )
+    ):
+        raise ValueError("VLM manifest has malformed fused-grid geometry")
+    return (
+        (float(raw_origin[0]), float(raw_origin[1])),
+        float(raw_resolution),
+        (int(raw_shape[1]), int(raw_shape[2])),
+    )
+
+
+def _validate_frontier_grid_binding(
+    frontiers: list[dict[str, object]],
+    *,
+    origin_xy_m: tuple[float, float],
+    resolution_m: float,
+    shape_hw: tuple[int, int],
+) -> None:
+    """Prove every A-D marker cell and world target are the same point."""
+
+    height, width = shape_hw
+    for frontier in frontiers:
+        row = int(frontier["row"])
+        col = int(frontier["col"])
+        if not 0 <= row < height or not 0 <= col < width:
+            raise ValueError(
+                f"VLM frontier {frontier['frontier_id']} is outside fused grid"
+            )
+        expected_x = origin_xy_m[0] + (col + 0.5) * resolution_m
+        expected_y = origin_xy_m[1] + (row + 0.5) * resolution_m
+        if not math.isclose(
+            float(frontier["x_m"]),
+            expected_x,
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ) or not math.isclose(
+            float(frontier["y_m"]),
+            expected_y,
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            raise ValueError(
+                f"VLM frontier {frontier['frontier_id']} cell/world "
+                "coordinates differ"
+            )
+
+
+def _validate_robot_pose_binding(
+    manifest: dict[str, Any],
+    result: dict[str, Any],
+    metadata: ObservationMetadata,
+) -> None:
+    """Bind the VLM red arrow and target bearing to measured base_link."""
+
+    if metadata.base_T_camera is None:
+        return
+    shared_camera = np.asarray(
+        metadata.pose.shared_T_camera.matrix, dtype=np.float64
+    ).reshape(4, 4)
+    base_camera = np.asarray(
+        metadata.base_T_camera.matrix, dtype=np.float64
+    ).reshape(4, 4)
+    shared_base = shared_base_pose_from_camera(shared_camera, base_camera)
+    expected_xy = (
+        float(shared_base[0, 3]),
+        float(shared_base[1, 3]),
+    )
+    raw_xy = result.get("robot_xy_m")
+    if (
+        not isinstance(raw_xy, list)
+        or len(raw_xy) != 2
+        or not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            for value in raw_xy
+        )
+        or not np.allclose(
+            np.asarray(raw_xy, dtype=np.float64),
+            np.asarray(expected_xy),
+            rtol=0.0,
+            atol=1e-9,
+        )
+    ):
+        raise ValueError(
+            f"{metadata.robot_id} VLM position is not the measured base pose"
+        )
+    if result.get("robot_pose_source") != (
+        "shared_T_camera @ inverse(measured base_T_camera)"
+    ):
+        raise ValueError(f"{metadata.robot_id} VLM base-pose source is invalid")
+    raw_heading = result.get("heading_deg_base_forward")
+    if (
+        isinstance(raw_heading, bool)
+        or not isinstance(raw_heading, (int, float))
+        or not math.isfinite(float(raw_heading))
+    ):
+        raise ValueError(f"{metadata.robot_id} VLM base heading is invalid")
+    expected_heading = heading_deg_from_base_pose(shared_base)
+    heading_error = (
+        float(raw_heading) - expected_heading + 180.0
+    ) % 360.0 - 180.0
+    if abs(heading_error) > 1e-9:
+        raise ValueError(
+            f"{metadata.robot_id} VLM heading is not the measured base yaw"
+        )
+
+    origin, resolution, shape_hw = _fused_grid_geometry(manifest)
+    expected_rc = (
+        math.floor((expected_xy[1] - origin[1]) / resolution),
+        math.floor((expected_xy[0] - origin[0]) / resolution),
+    )
+    raw_rc = result.get("robot_rc")
+    if (
+        not isinstance(raw_rc, list)
+        or len(raw_rc) != 2
+        or any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in raw_rc
+        )
+        or tuple(raw_rc) != expected_rc
+        or not (
+            0 <= expected_rc[0] < shape_hw[0]
+            and 0 <= expected_rc[1] < shape_hw[1]
+        )
+    ):
+        raise ValueError(
+            f"{metadata.robot_id} VLM map cell is not the measured base cell"
+        )
+
+
+def _frontier_record_matches(
+    left: dict[str, object],
+    right: dict[str, object],
+) -> bool:
+    return (
+        left["frontier_id"] == right["frontier_id"]
+        and left["row"] == right["row"]
+        and left["col"] == right["col"]
+        and left["size_cells"] == right["size_cells"]
+        and math.isclose(
+            float(left["x_m"]),
+            float(right["x_m"]),
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+        and math.isclose(
+            float(left["y_m"]),
+            float(right["y_m"]),
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+    )
+
+
+def _validate_vlm_selection_bindings(
+    manifest: dict[str, Any],
+    robot_results_raw: list[dict[str, Any]],
+    selections: dict[str, Any],
+) -> None:
+    """Prove the VLM image/prompt/score/selection ABCD mapping end to end."""
+
+    glm_contract = manifest.get("glm_server_contract")
+    if (
+        not isinstance(glm_contract, dict)
+        or glm_contract.get("model_id") != GLM_SERVER_MODEL_ID
+        or glm_contract.get("candidate_score_contract")
+        != (
+            "sum exact label unspaced+leading-space token mass; "
+            "zero/non-finite mass raises"
+        )
+        or glm_contract.get("verification")
+        != "observed local /models response"
+    ):
+        raise ValueError(
+            "shadow manifest lacks the reviewed GLM candidate-score contract"
+        )
+    contract = manifest.get("vlm_frontier_contract")
+    if not isinstance(contract, dict):
+        raise ValueError("shadow manifest lacks the VLM frontier contract")
+    if (
+        contract.get("scope") != "one shared fused-map A-D set"
+        or contract.get("label_identity")
+        != "stable across image, prompt, score vector and target"
+        or contract.get("per_robot_view")
+        != "remaining shared candidates in canonical A-D order"
+        or contract.get("allocation")
+        != "selected frontier removed before the next robot"
+        or contract.get("duplicate_physical_frontier_targets") is not False
+    ):
+        raise ValueError("shadow manifest has an unsupported VLM frontier contract")
+
+    shared = _validated_frontier_list(
+        manifest.get("frontiers"),
+        context="shared VLM",
+        require_prefix=True,
+    )
+    origin_xy_m, resolution_m, shape_hw = _fused_grid_geometry(manifest)
+    _validate_frontier_grid_binding(
+        shared,
+        origin_xy_m=origin_xy_m,
+        resolution_m=resolution_m,
+        shape_hw=shape_hw,
+    )
+    remaining = {
+        str(record["frontier_id"]): record
+        for record in shared
+    }
+    expected_orders = list(range(1, len(robot_results_raw) + 1))
+    actual_orders = [record.get("allocation_order") for record in robot_results_raw]
+    if actual_orders != expected_orders:
+        raise ValueError("VLM robot allocation order is missing or ambiguous")
+
+    for result in robot_results_raw:
+        robot_id = str(result.get("robot_id", ""))
+        errors = result.get("errors")
+        if not isinstance(errors, list) or errors:
+            raise ValueError(f"{robot_id} has an incomplete VLM cascade")
+        candidates = _validated_frontier_list(
+            result.get("candidate_frontiers"),
+            context=f"{robot_id} candidate",
+        )
+        expected_candidates = list(remaining.values())
+        if len(candidates) != len(expected_candidates) or any(
+            not _frontier_record_matches(actual, expected)
+            for actual, expected in zip(
+                candidates,
+                expected_candidates,
+                strict=True,
+            )
+        ):
+            raise ValueError(
+                f"{robot_id} VLM candidates do not match the remaining shared ABCD set"
+            )
+
+        allocated_raw = result.get("allocated_frontier")
+        probabilities = result.get("choice_probabilities")
+        if not isinstance(probabilities, dict):
+            raise ValueError(f"{robot_id} VLM choice probabilities are malformed")
+        allocated: dict[str, object] | None = None
+        if allocated_raw is not None:
+            allocated = _validated_frontier_record(
+                allocated_raw,
+                context=f"{robot_id} allocated",
+            )
+            candidate_by_id = {
+                str(item["frontier_id"]): item for item in candidates
+            }
+            candidate = candidate_by_id.get(str(allocated["frontier_id"]))
+            if candidate is None or not _frontier_record_matches(
+                allocated,
+                candidate,
+            ):
+                raise ValueError(
+                    f"{robot_id} allocated frontier is outside its ABCD candidates"
+                )
+            if set(probabilities) != set(candidate_by_id):
+                raise ValueError(
+                    f"{robot_id} VLM score labels differ from its ABCD candidates"
+                )
+            score_values: list[float] = []
+            for label in candidate_by_id:
+                value = probabilities[label]
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    or float(value) < 0.0
+                ):
+                    raise ValueError(
+                        f"{robot_id} VLM score for {label} is invalid"
+                    )
+                score_values.append(float(value))
+            if not math.isclose(
+                math.fsum(score_values),
+                1.0,
+                rel_tol=0.0,
+                abs_tol=1e-6,
+            ):
+                raise ValueError(
+                    f"{robot_id} VLM scores are not a normalized candidate vector"
+                )
+            chosen_label = max(
+                candidate_by_id,
+                key=lambda label: float(probabilities[label]),
+            )
+            if chosen_label != allocated["frontier_id"]:
+                raise ValueError(
+                    f"{robot_id} allocated frontier differs from score argmax"
+                )
+            del remaining[str(allocated["frontier_id"])]
+        elif probabilities:
+            raise ValueError(
+                f"{robot_id} has VLM choice scores but no allocated frontier"
+            )
+
+        selection = selections.get(robot_id)
+        if result.get("final_shadow_selection") != selection:
+            raise ValueError(
+                f"{robot_id} final VLM selection differs across manifest sections"
+            )
+        if selection is None:
+            continue
+        if not isinstance(selection, dict):
+            raise ValueError(f"{robot_id} final VLM selection is malformed")
+        kind = selection.get("kind")
+        if kind == "frontier":
+            if allocated is None:
+                raise ValueError(
+                    f"{robot_id} frontier target has no score-selected ABCD source"
+                )
+            selected_record = _validated_frontier_record(
+                selection,
+                context=f"{robot_id} selected",
+            )
+            if (
+                selection.get("target_id") != selected_record["frontier_id"]
+                or not _frontier_record_matches(selected_record, allocated)
+                or result.get("exploration_selection_before_target_override")
+                != selection
+            ):
+                raise ValueError(
+                    f"{robot_id} frontier target is not bound to its ABCD choice"
+                )
+        elif kind == "semantic_goal":
+            if result.get("semantic_goal_override") != selection:
+                raise ValueError(
+                    f"{robot_id} semantic target differs across VLM result fields"
+                )
+        elif kind == "history":
+            if (
+                result.get("exploration_selection_before_target_override")
+                != selection
+                or selection.get("history_index")
+                != result.get("selected_history_index")
+            ):
+                raise ValueError(
+                    f"{robot_id} history target differs from the source gate choice"
+                )
+        else:
+            raise ValueError(f"{robot_id} has unsupported VLM selection kind")
+
+    recorded_remaining = _validated_frontier_list(
+        manifest.get("remaining_frontiers"),
+        context="remaining VLM",
+    )
+    if len(recorded_remaining) != len(remaining) or any(
+        not _frontier_record_matches(actual, expected)
+        for actual, expected in zip(
+            recorded_remaining,
+            remaining.values(),
+            strict=True,
+        )
+    ):
+        raise ValueError("remaining VLM frontier set does not match allocations")
+
+
 def build_batch_from_shadow_manifest(
     manifest_path: Path | str,
     registry_state_path: Path | str,
@@ -313,6 +769,14 @@ def build_batch_from_shadow_manifest(
     }
     if len(robot_results) != 2:
         raise ValueError("shadow manifest robot IDs are not unique")
+    selections_raw = manifest.get("final_shadow_selections", {})
+    if not isinstance(selections_raw, dict):
+        raise ValueError("final_shadow_selections is malformed")
+    _validate_vlm_selection_bindings(
+        manifest,
+        robot_results_raw,
+        selections_raw,
+    )
     robot_ids = tuple(record["robot_id"] for record in robot_results_raw)
     registry_entries = _registry_entries(registry_state)
     if set(robot_ids) != set(registry_entries):
@@ -352,6 +816,12 @@ def build_batch_from_shadow_manifest(
         metadata, identity = _observation_identity(metadata_path, rgb_path, depth_path)
         if metadata.robot_id != robot_id or metadata.sequence != sequence:
             raise ValueError(f"{robot_id} frozen metadata identity mismatch")
+        if metadata.object_goal.category != manifest.get("goal_category"):
+            raise ValueError(
+                f"{robot_id} frozen observation goal category differs "
+                "from the VLM round"
+            )
+        _validate_robot_pose_binding(manifest, result, metadata)
         expected_transform = str(result["map_transform_version"])
         snapshot = _validate_snapshot(
             map_path,
@@ -471,9 +941,6 @@ def build_batch_from_shadow_manifest(
             "detail": f"cross-robot capture skew is {capture_skew_ns / 1e9:.3f}s",
         })
 
-    selections_raw = manifest.get("final_shadow_selections", {})
-    if not isinstance(selections_raw, dict):
-        raise ValueError("final_shadow_selections is malformed")
     active_robot_ids = tuple(
         robot_id for robot_id in robot_ids if robot_id in selections_raw
     )

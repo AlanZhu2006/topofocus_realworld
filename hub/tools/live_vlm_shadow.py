@@ -49,11 +49,12 @@ from focus_hub.models import Decision, ObservationMetadata  # noqa: E402
 from focus_hub.shadow_coordination import (  # noqa: E402
     SHADOW_SCHEMA_VERSION,
     build_shadow_target_payload,
-    collapse_detection_records,
     filter_semantic_categories,
-    heading_deg_from_camera_pose,
+    heading_deg_from_base_pose,
     sha256_file,
+    shared_base_pose_from_camera,
     validate_shadow_input_timing,
+    validated_yolo_source,
     world_to_cell,
 )
 from focus_hub.source_episode import (  # noqa: E402
@@ -62,10 +63,14 @@ from focus_hub.source_episode import (  # noqa: E402
     SourceEpisodeState,
     extract_source_goal_component,
 )
-from focus_hub.vlm_decision import run_decision_cascade  # noqa: E402
+from focus_hub.vlm_decision import (  # noqa: E402
+    run_decision_cascade,
+    validate_glm_server_contract,
+)
 from focus_hub.vlm_prompts import (  # noqa: E402
     extract_scene_objects,
     format_scene_objects_for_prompt,
+    semantic_label_points,
 )
 
 
@@ -88,7 +93,21 @@ class RobotContext:
     rgb_bgr: np.ndarray
     detections: dict[str, float]
     T_shared_camera: np.ndarray
+    T_shared_base: np.ndarray
+    yolo_model_provenance: dict[str, object]
     artifacts: list[dict[str, object]]
+
+
+def require_complete_cascade_result(
+    cascade: object, *, robot_id: str
+) -> None:
+    """Fail a strict round instead of disguising a VLM fallback as success."""
+
+    errors = tuple(str(item) for item in getattr(cascade, "errors", ()))
+    if errors:
+        raise RuntimeError(
+            f"{robot_id} VLM cascade was incomplete: " + "; ".join(errors)
+        )
 
 
 def parse_robot_spec(value: str) -> RobotSpec:
@@ -144,6 +163,7 @@ def load_context(
     output: Path,
     *,
     allow_blocked_shadow_input: bool,
+    expected_goal_category: str,
 ) -> RobotContext:
     input_dir = output / "inputs" / spec.name
     artifacts: list[dict[str, object]] = []
@@ -181,15 +201,12 @@ def load_context(
     if live_status.get("transform_version") != snapshot.transform_version:
         raise RuntimeError(f"{spec.name} status/snapshot transform mismatch")
 
-    semantic_mapping = map_summary.get("semantic_mapping", {})
-    if not isinstance(semantic_mapping, dict):
-        raise RuntimeError(f"{spec.name} map summary lacks semantic mapping status")
-    yolo_status = semantic_mapping.get("yolo_reinforcement", {})
-    if not isinstance(yolo_status, dict) or not yolo_status.get("enabled"):
-        raise RuntimeError(f"{spec.name} map has no enabled YOLO evidence")
-    source_sequence = int(yolo_status.get("last_sequence", -1))
-    if source_sequence < 0:
-        raise RuntimeError(f"{spec.name} map has no YOLO source sequence")
+    try:
+        source_sequence, detections, yolo_model_provenance = (
+            validated_yolo_source(map_summary)
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(f"{spec.name} {exc}") from exc
 
     source_dir = spool / spec.robot_id / f"{source_sequence:020d}"
     metadata_copy = input_dir / f"source_{source_sequence}_metadata.json"
@@ -222,16 +239,51 @@ def load_context(
         raise RuntimeError(f"{spec.name} source metadata identity mismatch")
     if metadata.pose.transform_version != snapshot.transform_version:
         raise RuntimeError(f"{spec.name} source/snapshot transform mismatch")
+    if metadata.object_goal.category != expected_goal_category:
+        raise RuntimeError(
+            f"{spec.name} source goal category "
+            f"{metadata.object_goal.category!r} is not "
+            f"{expected_goal_category!r}"
+        )
+    if metadata.base_T_camera is None:
+        raise RuntimeError(
+            f"{spec.name} source lacks measured base_T_camera; "
+            "the VLM base pose cannot be reconstructed"
+        )
+    expected_rgb_suffix = ".jpg" if metadata.rgb_encoding == "jpeg" else ".png"
+    if rgb_copy.suffix.lower() != expected_rgb_suffix:
+        raise RuntimeError(f"{spec.name} RGB encoding/path mismatch")
+    for payload_path, expected_size, expected_sha, label in (
+        (
+            rgb_copy,
+            metadata.rgb_size_bytes,
+            metadata.rgb_sha256,
+            "RGB",
+        ),
+        (
+            depth_copy,
+            metadata.depth_size_bytes,
+            metadata.depth_sha256,
+            "depth",
+        ),
+    ):
+        if payload_path.stat().st_size != expected_size:
+            raise RuntimeError(f"{spec.name} {label} byte count mismatch")
+        if sha256_file(payload_path) != expected_sha:
+            raise RuntimeError(f"{spec.name} {label} SHA-256 mismatch")
     rgb_bgr = cv2.imread(str(rgb_copy), cv2.IMREAD_COLOR)
     if rgb_bgr is None:
         raise RuntimeError(f"failed to decode {rgb_copy}")
     T_shared_camera = np.asarray(
         metadata.pose.shared_T_camera.matrix, dtype=np.float64
     ).reshape(4, 4)
-    detections_raw = yolo_status.get("last_detections", [])
-    if not isinstance(detections_raw, list):
-        raise RuntimeError(f"{spec.name} persisted YOLO detections are malformed")
-    detections = collapse_detection_records(detections_raw)
+    base_T_camera = np.asarray(
+        metadata.base_T_camera.matrix, dtype=np.float64
+    ).reshape(4, 4)
+    T_shared_base = shared_base_pose_from_camera(
+        T_shared_camera,
+        base_T_camera,
+    )
 
     return RobotContext(
         spec=spec,
@@ -244,6 +296,8 @@ def load_context(
         rgb_bgr=rgb_bgr,
         detections=detections,
         T_shared_camera=T_shared_camera,
+        T_shared_base=T_shared_base,
+        yolo_model_provenance=yolo_model_provenance,
         artifacts=artifacts,
     )
 
@@ -323,6 +377,14 @@ def main() -> int:
         help="bind this run to the immutable portion of that session manifest",
     )
     parser.add_argument("--vlm-timeout-s", type=float, default=300.0)
+    parser.add_argument(
+        "--require-complete-vlm",
+        action="store_true",
+        help=(
+            "fail the round if any Perception/Judgment/Decision request "
+            "falls back after an error"
+        ),
+    )
     parser.add_argument(
         "--early-episode-steps",
         type=int,
@@ -534,6 +596,7 @@ def main() -> int:
             spool,
             output,
             allow_blocked_shadow_input=args.allow_blocked_shadow_input,
+            expected_goal_category=args.goal_category,
         )
         for spec in specs
     ]
@@ -646,10 +709,12 @@ def main() -> int:
             "hpc_behavior": "random map point",
             "real_robot_adapter": "HOLD; random physical goal suppressed",
         }
-    scene_objects = format_scene_objects_for_prompt(extract_scene_objects(
+    extracted_scene_objects = extract_scene_objects(
         decision_grid[2 : 2 + len(HM3D_CATEGORY_NAMES)],
         HM3D_CATEGORY_NAMES,
-    ))
+    )
+    scene_objects = format_scene_objects_for_prompt(extracted_scene_objects)
+    scene_labels = semantic_label_points(extracted_scene_objects)
     semantic_goal_records: dict[str, dict[str, object] | None] = {}
     for context in contexts:
         component = semantic_goals[context.spec.robot_id]
@@ -675,12 +740,23 @@ def main() -> int:
         "hidden_untrusted_semantic_cells": hidden_semantic_counts,
         "decision_map_artifact": decision_map_artifact,
         "frontiers": [frontier_record(frontier) for frontier in frontiers],
+        "vlm_frontier_contract": {
+            "scope": "one shared fused-map A-D set",
+            "label_identity": "stable across image, prompt, score vector and target",
+            "per_robot_view": "remaining shared candidates in canonical A-D order",
+            "allocation": "selected frontier removed before the next robot",
+            "duplicate_physical_frontier_targets": False,
+        },
         "scene_objects_for_vlm": scene_objects,
         "source_semantic_goals": semantic_goal_records,
         "input_timing": timing,
         "input_artifacts": [
             artifact for context in contexts for artifact in context.artifacts
         ],
+        "yolo_model_provenance": {
+            context.spec.robot_id: context.yolo_model_provenance
+            for context in contexts
+        },
     })
     atomic_write_json(manifest_path, manifest)
 
@@ -707,6 +783,20 @@ def main() -> int:
         }, indent=2, sort_keys=True))
         return 0
 
+    try:
+        glm_server_contract = validate_glm_server_contract(args.glm_url)
+    except Exception as exc:
+        manifest.update(
+            {
+                "status": "failed_glm_server_contract",
+                "glm_server_contract_error": f"{type(exc).__name__}: {exc}",
+            }
+        )
+        atomic_write_json(manifest_path, manifest)
+        raise
+    manifest["glm_server_contract"] = glm_server_contract
+    atomic_write_json(manifest_path, manifest)
+
     remaining = list(frontiers)
     robot_results: list[dict[str, object]] = []
     allocations: dict[str, Frontier] = {}
@@ -715,19 +805,17 @@ def main() -> int:
     remaining_history_indices: list[int] | None = None
     remaining_history_scores: dict[int, float] | None = None
     for index, context in enumerate(contexts, start=1):
-        # Upstream assigns both robots its sole frontier when only one exists.
-        # Preserve that behavior in a persistent source episode; the legacy
-        # one-shot path retains its stricter distinct-frontier requirement.
-        frontier_reused = bool(
-            scene_state is not None
-            and len(frontiers) == 1
-            and not remaining
-        )
-        decision_frontiers = list(frontiers if frontier_reused else remaining)
+        # ABCD belongs to the shared fused map, not independently to each
+        # robot.  Each robot receives the still-unallocated stable subset.  The
+        # simulator source reuses a sole frontier, but duplicate physical
+        # targets can make two robots converge on one point, so the real-world
+        # coordination adapter holds the later robot instead.
+        frontier_reused = False
+        decision_frontiers = list(remaining)
         candidate_frontiers = list(decision_frontiers)
         robot_xy = (
-            float(context.T_shared_camera[0, 3]),
-            float(context.T_shared_camera[1, 3]),
+            float(context.T_shared_base[0, 3]),
+            float(context.T_shared_base[1, 3]),
         )
         robot_rc = world_to_cell(
             robot_xy,
@@ -735,7 +823,7 @@ def main() -> int:
             resolution_m,
             decision_grid.shape[1:],
         )
-        heading_deg = heading_deg_from_camera_pose(context.T_shared_camera)
+        heading_deg = heading_deg_from_base_pose(context.T_shared_base)
         memory = shared_memory if shared_memory is not None else DirectionalMemory()
         pre_goal_point = (
             None
@@ -750,6 +838,7 @@ def main() -> int:
             heading_deg,
             history_nodes=memory.history_nodes,
             pre_goal_rc=pre_goal_point,
+            semantic_labels=scene_labels,
         )
         decision_map = render_semantic_decision_map(
             decision_grid,
@@ -758,6 +847,7 @@ def main() -> int:
             robot_rc,
             heading_deg,
             pre_goal_rc=pre_goal_point,
+            semantic_labels=scene_labels,
         )
         judgment_path = output / f"{context.spec.name}_judgment_map.jpg"
         decision_path = output / f"{context.spec.name}_decision_map.jpg"
@@ -785,27 +875,38 @@ def main() -> int:
             timeout_s=args.vlm_timeout_s,
             history_candidate_indices=remaining_history_indices,
             history_candidate_scores=remaining_history_scores,
+            fail_fast=args.require_complete_vlm,
         )
         elapsed_s = time.perf_counter() - call_started
+        if args.require_complete_vlm:
+            try:
+                require_complete_cascade_result(
+                    cascade, robot_id=context.spec.robot_id
+                )
+            except RuntimeError as exc:
+                manifest.update(
+                    {
+                        "status": "failed_incomplete_vlm",
+                        "failed_robot_id": context.spec.robot_id,
+                        "vlm_errors": list(cascade.errors),
+                    }
+                )
+                atomic_write_json(manifest_path, manifest)
+                raise
         chosen = cascade.frontier_choice.frontier if cascade.frontier_choice else None
         exploration_selection: dict[str, object] | None = None
         if chosen is not None:
             if all(item.frontier_id != chosen.frontier_id for item in decision_frontiers):
                 raise RuntimeError("VLM returned a frontier outside its candidate set")
             allocations[context.spec.robot_id] = chosen
-            if not frontier_reused:
-                remaining = [
-                    item for item in remaining if item.frontier_id != chosen.frontier_id
-                ]
+            remaining = [
+                item for item in remaining if item.frontier_id != chosen.frontier_id
+            ]
             exploration_selection = {
                 "kind": "frontier",
                 "target_id": chosen.frontier_id,
                 **frontier_record(chosen),
-                "source_behavior": (
-                    "sole frontier reused across robots"
-                    if frontier_reused
-                    else "sequential frontier removed before next robot"
-                ),
+                "source_behavior": "sequential frontier removed before next robot",
             }
         if scene_state is not None and remaining_history_indices is None:
             # This is the source's shared ``history_nodes_copy`` snapshot,
@@ -868,7 +969,10 @@ def main() -> int:
             "source_capture_time_ns": context.metadata.capture_time_ns,
             "robot_xy_m": list(robot_xy),
             "robot_rc": list(robot_rc),
-            "heading_deg_camera_forward_approximation": heading_deg,
+            "heading_deg_base_forward": heading_deg,
+            "robot_pose_source": (
+                "shared_T_camera @ inverse(measured base_T_camera)"
+            ),
             "detections": context.detections,
             "candidate_frontiers": [
                 frontier_record(frontier)
@@ -980,8 +1084,8 @@ def main() -> int:
                 })
                 continue
             robot_xy = (
-                float(context.T_shared_camera[0, 3]),
-                float(context.T_shared_camera[1, 3]),
+                float(context.T_shared_base[0, 3]),
+                float(context.T_shared_base[1, 3]),
             )
             yaw_rad = math.atan2(
                 float(selection["y_m"]) - robot_xy[1],

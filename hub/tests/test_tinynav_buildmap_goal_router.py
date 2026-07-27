@@ -172,6 +172,50 @@ def test_same_leg_lease_renewal_must_be_newer_and_target_stable():
     assert not router.is_seamless_lease_renewal(current, old_sequence)
 
 
+def test_decision_id_is_immutable_and_only_exact_replay_is_accepted():
+    router = load_router()
+    current = router.parse_goal_payload(goal_payload(), now_ns=1_000_000_000)
+
+    assert router.is_exact_decision_replay(current, current)
+
+    mutated_payload = json.loads(goal_payload())
+    mutated_payload["0"]["position"][0] += 0.01
+    mutated = router.parse_goal_payload(
+        json.dumps(mutated_payload), now_ns=1_000_000_000
+    )
+    assert not router.is_exact_decision_replay(current, mutated)
+
+    source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"DECISION_ID_MUTATED"' in source
+    assert '"EXACT_DECISION_REPLAY"' in source
+
+
+def test_precomputed_clearance_mask_matches_original_cell_predicate():
+    router = load_router()
+    data = [0] * (8 * 7)
+    data[2 * 8 + 3] = 100
+    data[5 * 8 + 6] = -1
+    occupancy = grid(data, width=8, height=7)
+
+    for clearance_cells in (0, 1, 2):
+        traversable = router.clearance_traversability(
+            occupancy,
+            clearance_cells=clearance_cells,
+        )
+        assert traversable.shape == (occupancy.height, occupancy.width)
+        for row in range(occupancy.height):
+            for column in range(occupancy.width):
+                assert bool(traversable[row, column]) is (
+                    occupancy.free_with_clearance(
+                        row,
+                        column,
+                        clearance_cells=clearance_cells,
+                    )
+                )
+
+
 def test_a_star_uses_known_free_gap_and_never_crosses_unknown():
     router = load_router()
     data = [0] * (7 * 5)
@@ -241,10 +285,94 @@ def test_frontier_route_can_make_partial_progress_without_crossing_unknown():
     assert plan.reaches_arrival_region is False
     assert plan.target_cell == (0, 3)
     assert plan.remaining_goal_distance_m == pytest.approx(2.5)
+    assert plan.partial_termination_reason == "known_free_map_edge"
+    assert plan.expanded_cells == 4
     assert all(
         occupancy.data[row * occupancy.width + column] == 0
         for row, column in plan.cells
     )
+
+
+def test_a_star_search_budget_returns_progress_or_fails_closed():
+    router = load_router()
+    occupancy = grid([0] * 100, width=10, height=10)
+
+    with pytest.raises(router.PlanningBudgetExceeded) as caught:
+        router.plan_route(
+            occupancy,
+            start_x=0.5,
+            start_y=5.5,
+            goal_x=20.5,
+            goal_y=5.5,
+            arrival_radius_m=0.1,
+            clearance_cells=0,
+            max_expansions=2,
+        )
+    assert caught.value.expanded_cells == 2
+    assert caught.value.limit_reason == "expansion_budget"
+
+    partial = router.plan_route(
+        occupancy,
+        start_x=0.5,
+        start_y=5.5,
+        goal_x=20.5,
+        goal_y=5.5,
+        arrival_radius_m=0.1,
+        clearance_cells=0,
+        allow_partial_progress=True,
+        minimum_progress_m=0.1,
+        max_expansions=2,
+    )
+    assert partial is not None
+    assert partial.target_cell == (5, 1)
+    assert partial.partial_termination_reason == "search_expansion_budget"
+    assert partial.expanded_cells == 2
+
+    with pytest.raises(ValueError, match="positive integer"):
+        router.plan_route(
+            occupancy,
+            start_x=0.5,
+            start_y=5.5,
+            goal_x=20.5,
+            goal_y=5.5,
+            arrival_radius_m=0.1,
+            clearance_cells=0,
+            max_expansions=1.5,
+        )
+    with pytest.raises(ValueError, match="finite and positive"):
+        router.plan_route(
+            occupancy,
+            start_x=0.5,
+            start_y=5.5,
+            goal_x=20.5,
+            goal_y=5.5,
+            arrival_radius_m=0.1,
+            clearance_cells=0,
+            max_planning_duration_s=0.0,
+        )
+
+
+def test_a_star_has_a_hardware_independent_wall_clock_bound(monkeypatch):
+    router = load_router()
+    occupancy = grid([0] * 100, width=10, height=10)
+    timestamps = iter((10.0, 10.6))
+    monkeypatch.setattr(router.time, "monotonic", lambda: next(timestamps))
+
+    with pytest.raises(router.PlanningBudgetExceeded) as caught:
+        router.plan_route(
+            occupancy,
+            start_x=0.5,
+            start_y=5.5,
+            goal_x=20.5,
+            goal_y=5.5,
+            arrival_radius_m=0.1,
+            clearance_cells=0,
+            max_expansions=1_000,
+            max_planning_duration_s=0.5,
+        )
+
+    assert caught.value.expanded_cells == 32
+    assert caught.value.limit_reason == "wall_clock_budget"
 
 
 def test_partial_route_requires_actual_progress():
@@ -348,6 +476,16 @@ def test_wsj_launcher_bridges_one_source_keyframe_plus_one_grid_cell():
         '--semantic-terminal-planning-margin-m '
         '\\"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\\"'
     ) in source
+    assert "FOCUS_TINYNAV_MAX_PLAN_EXPANSIONS:-20000" in source
+    assert "FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50" in source
+    assert (
+        '--max-plan-expansions \\"$MAX_PLAN_EXPANSIONS\\"'
+        in source
+    )
+    assert (
+        '--max-plan-duration-s \\"$MAX_PLAN_DURATION_S\\"'
+        in source
+    )
     assert '"--alternate-size",' in online_mapping
     assert '"640x480",' in online_mapping
     assert '"keyframe.pose_jump_rotation_deg": 35.0' in online_mapping
@@ -378,6 +516,20 @@ def test_router_default_map_deadline_matches_verified_data_plane():
         'parser.add_argument("--map-timeout-s", type=float, default=12.0)'
         in source
     )
+    assert 'default=20_000' in source
+
+
+def test_both_robot_launchers_share_the_same_planning_work_bound():
+    for name in (
+        "start_tinynav_buildmap_online_nav.sh",
+        "start_wsj_buildmap_v2.sh",
+        "start_yunji_v2.sh",
+    ):
+        source = (OVERLAY / name).read_text(encoding="utf-8")
+        assert "FOCUS_TINYNAV_MAX_PLAN_EXPANSIONS:-20000" in source
+        assert "FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50" in source
+        assert "--max-plan-expansions" in source
+        assert "--max-plan-duration-s" in source
 
 
 def test_router_paths_carry_current_measured_orientation():
@@ -606,6 +758,12 @@ def test_wsj_launcher_uses_forward_only_planner_and_rejects_reverse():
     for source in (initial, reload):
         assert "run_yunji_tinynav_planner.py" in source
         assert "--robot-profile source-default" in source
+        assert "--robot-id robot-0" in source
+        assert "--base-camera-frame camera" in source
+        assert (
+            '--base-camera-calibration-file \\"$BASE_CAMERA_CALIBRATION_FILE\\"'
+            in source
+        )
         assert "--rotate-first-on-reverse" not in source
         assert "--stabilize-large-turn" in source
         assert "--rotate-first-max-angular-radps 0.35" in source

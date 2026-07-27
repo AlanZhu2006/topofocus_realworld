@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import httpx
 
 from focus_hub import vlm_decision as vd
 from focus_hub.directional_memory import DirectionalMemory
@@ -26,6 +27,27 @@ def _patch_call_glm(monkeypatch, responses):
     return calls
 
 
+def test_glm_server_contract_requires_fail_closed_model_card(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": vd.GLM_SERVER_MODEL_ID}]}
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: Response())
+    contract = vd.validate_glm_server_contract("http://127.0.0.1:31511/v1")
+    assert contract["model_id"] == vd.GLM_SERVER_MODEL_ID
+
+    class WrongResponse(Response):
+        def json(self):
+            return {"data": [{"id": "cogvlm2-19b"}]}
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: WrongResponse())
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        vd.validate_glm_server_contract("http://127.0.0.1:31511/v1")
+
+
 def test_choose_scene_worth_exploring_glm_uses_weighted_decision(monkeypatch):
     _patch_call_glm(monkeypatch, [({"Yes": 0.8, "No": 0.2}, "Yes")])
     result = vd.choose_scene_worth_exploring_glm(
@@ -33,11 +55,11 @@ def test_choose_scene_worth_exploring_glm_uses_weighted_decision(monkeypatch):
     assert result[0] > result[1]
 
 
-def test_choose_scene_worth_exploring_glm_no_scores_falls_back_neutral(monkeypatch):
+def test_choose_scene_worth_exploring_glm_rejects_missing_scores(monkeypatch):
     _patch_call_glm(monkeypatch, [({}, "garbage")])
-    result = vd.choose_scene_worth_exploring_glm(
-        _IMG, target="chair", detections=None, base_url="http://x")
-    assert result == (0.5, 0.5)
+    with pytest.raises(RuntimeError, match="Perception.*score labels"):
+        vd.choose_scene_worth_exploring_glm(
+            _IMG, target="chair", detections=None, base_url="http://x")
 
 
 def test_choose_frontier_glm_picks_argmax_probability(monkeypatch):
@@ -48,11 +70,42 @@ def test_choose_frontier_glm_picks_argmax_probability(monkeypatch):
     assert choice.source == "glm-4v"
 
 
-def test_choose_frontier_glm_no_scores_falls_back_to_content_or_first(monkeypatch):
+def test_choose_frontier_glm_rejects_missing_scores_even_with_valid_text(
+    monkeypatch,
+):
     _patch_call_glm(monkeypatch, [({}, "C")])
     frontiers = [_frontier("A"), _frontier("B"), _frontier("C")]
-    choice = vd.choose_frontier_glm(_IMG, frontiers, base_url="http://x", goal_category="chair")
-    assert choice.frontier.frontier_id == "C"
+    with pytest.raises(RuntimeError, match="Decision.*score labels"):
+        vd.choose_frontier_glm(
+            _IMG,
+            frontiers,
+            base_url="http://x",
+            goal_category="chair",
+        )
+
+
+def test_choose_frontier_glm_rejects_nonfinite_scores(monkeypatch):
+    _patch_call_glm(monkeypatch, [({"A": float("nan"), "B": 1.0}, "B")])
+    with pytest.raises(RuntimeError, match="invalid score"):
+        vd.choose_frontier_glm(
+            _IMG,
+            [_frontier("A"), _frontier("B")],
+            base_url="http://x",
+            goal_category="chair",
+        )
+
+
+def test_choose_frontier_glm_rejects_boolean_scores_before_numeric_coercion(
+    monkeypatch,
+):
+    _patch_call_glm(monkeypatch, [({"A": True, "B": 0.0}, "A")])
+    with pytest.raises(RuntimeError, match="invalid score"):
+        vd.choose_frontier_glm(
+            _IMG,
+            [_frontier("A"), _frontier("B")],
+            base_url="http://x",
+            goal_category="chair",
+        )
 
 
 def test_choose_frontier_glm_raises_on_no_frontiers():
@@ -212,3 +265,36 @@ def test_run_decision_cascade_stage_error_is_recorded_not_raised(monkeypatch):
     assert any("perception" in e for e in result.errors)
     assert any("judgment" in e for e in result.errors)
     assert any("decision" in e for e in result.errors)
+
+
+def test_strict_cascade_fails_fast_after_first_vlm_error(monkeypatch):
+    calls = 0
+
+    def fake(image, prompt, candidates, *, base_url, timeout_s):
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("server unreachable")
+
+    monkeypatch.setattr(vd, "_call_glm", fake)
+    result = vd.run_decision_cascade(
+        rgb_bgr=_IMG,
+        judgment_map_bgr=_IMG,
+        decision_map_bgr=_IMG,
+        frontiers=[_frontier("A")],
+        target="chair",
+        detections=None,
+        scene_objects="",
+        cur_location_rc=(5, 5),
+        heading_deg=0.0,
+        pre_goal_point=None,
+        step=10,
+        early_episode_step_threshold=125,
+        memory=DirectionalMemory(),
+        base_url="http://x",
+        fail_fast=True,
+    )
+
+    assert calls == 1
+    assert result.errors == ["perception: server unreachable"]
+    assert result.judgment_pr is None
+    assert result.frontier_choice is None

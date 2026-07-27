@@ -22,6 +22,7 @@ from pydantic import Field, field_validator, model_validator
 
 from .map_snapshot import load_map_snapshot
 from .models import ROBOT_ID_PATTERN, SHA256_PATTERN, StrictModel
+from .shadow_coordination import validated_yolo_source
 
 
 SESSION_SCHEMA_VERSION = "focus-realworld-session-v1"
@@ -594,15 +595,10 @@ def validate_map_contracts(
                 f"{robot.robot_id} map has not advanced beyond its session "
                 f"boundary {robot.map_start_after_sequence}"
             )
-        semantic_mapping = summary.get("semantic_mapping")
-        yolo = (
-            semantic_mapping.get("yolo_reinforcement")
-            if isinstance(semantic_mapping, dict)
-            else None
-        )
-        if not isinstance(yolo, dict) or yolo.get("enabled") is not True:
-            raise ValueError(f"{robot.robot_id} map has no enabled YOLO evidence")
-        yolo_sequence = int(yolo.get("last_sequence", -1))
+        try:
+            yolo_sequence, _, _ = validated_yolo_source(summary)
+        except RuntimeError as exc:
+            raise ValueError(f"{robot.robot_id} {exc}") from exc
         if yolo_sequence <= robot.map_start_after_sequence:
             raise ValueError(
                 f"{robot.robot_id} YOLO evidence predates the session boundary"

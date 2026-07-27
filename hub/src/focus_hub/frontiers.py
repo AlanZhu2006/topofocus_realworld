@@ -8,10 +8,14 @@ annotates at most four candidates for the VLM to choose from).
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import cv2
 import numpy as np
 from scipy import ndimage
+
+
+FRONTIER_LABELS = ("A", "B", "C", "D")
 
 
 @dataclass(frozen=True)
@@ -22,6 +26,62 @@ class Frontier:
     x_m: float
     y_m: float
     size_cells: int
+
+
+def validate_frontier_candidates(
+    frontiers: list[Frontier],
+    *,
+    require_prefix: bool = False,
+) -> tuple[str, ...]:
+    """Validate the shared A-D identity used by image, prompt and target.
+
+    A per-robot candidate view may be a stable subset after an earlier robot's
+    choice was removed (for example ``("A", "C", "D")``).  The initially
+    extracted shared set must be the contiguous prefix starting at A.
+    """
+
+    if len(frontiers) > len(FRONTIER_LABELS):
+        raise ValueError("VLM frontier candidates are limited to A-D")
+    labels = tuple(frontier.frontier_id for frontier in frontiers)
+    if len(set(labels)) != len(labels):
+        raise ValueError("VLM frontier candidate labels must be unique")
+    if any(label not in FRONTIER_LABELS for label in labels):
+        raise ValueError("VLM frontier candidate labels must be in A-D")
+    canonical = tuple(
+        label for label in FRONTIER_LABELS if label in set(labels)
+    )
+    if labels != canonical:
+        raise ValueError("VLM frontier candidates must retain canonical A-D order")
+    if require_prefix and labels != FRONTIER_LABELS[: len(labels)]:
+        raise ValueError("the shared frontier set must be a contiguous A-D prefix")
+    for frontier in frontiers:
+        if (
+            isinstance(frontier.row, bool)
+            or isinstance(frontier.col, bool)
+            or not isinstance(frontier.row, int)
+            or not isinstance(frontier.col, int)
+            or frontier.row < 0
+            or frontier.col < 0
+        ):
+            raise ValueError(
+                f"frontier {frontier.frontier_id} has an invalid grid cell"
+            )
+        if (
+            not math.isfinite(float(frontier.x_m))
+            or not math.isfinite(float(frontier.y_m))
+        ):
+            raise ValueError(
+                f"frontier {frontier.frontier_id} has non-finite coordinates"
+            )
+        if (
+            isinstance(frontier.size_cells, bool)
+            or not isinstance(frontier.size_cells, int)
+            or frontier.size_cells <= 0
+        ):
+            raise ValueError(
+                f"frontier {frontier.frontier_id} has an invalid cluster size"
+            )
+    return labels
 
 
 def extract_frontiers(
@@ -67,6 +127,7 @@ def extract_frontiers(
                 size_cells=size,
             )
         )
+    validate_frontier_candidates(frontiers, require_prefix=True)
     return frontiers
 
 
@@ -89,6 +150,7 @@ def render_annotated_bev(
     as an inverted-V). Fixed by flipping the row coordinate BEFORE drawing
     instead of flipping the finished canvas after.
     """
+    validate_frontier_candidates(frontiers)
     obstacle = grid[0] > 0.5
     explored = grid[1] > 0.5
     h, w = obstacle.shape
@@ -144,6 +206,7 @@ def render_semantic_decision_map(
     *,
     history_nodes: list[tuple[int, int]] | None = None,
     pre_goal_rc: tuple[int, int] | None = None,
+    semantic_labels: list[tuple[str, int, int]] | None = None,
     scale: int = 2,
 ) -> np.ndarray:
     """Ported from `Decision_Generation_Vis` (main.py), adapted to this
@@ -159,6 +222,7 @@ def render_semantic_decision_map(
     a blue dot for the previous goal point. Per-category background
     coloring uses a substitute palette — see `_category_palette`.
     """
+    validate_frontier_candidates(frontiers)
     obstacle = grid[0] > 0.5
     explored = grid[1] > 0.5
     cat = grid[2:2 + len(category_names)]
@@ -196,6 +260,29 @@ def render_semantic_decision_map(
             label = letters[i] if i < len(letters) else "?"
             cv2.putText(image, label, (center[0] + 5 * scale, center[1] + 5 * scale),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5 * scale, (0, 255, 0), max(1, scale))
+
+    # Upstream writes each semantic category name at the first point of every
+    # extracted polygon on both the Judgment and Decision maps.  Without these
+    # labels our substitute category palette has no legend and therefore drops
+    # source information that the VLM relies on.
+    if semantic_labels:
+        for category, row, col in semantic_labels:
+            if (
+                not category
+                or not 0 <= row < h
+                or not 0 <= col < w
+            ):
+                raise ValueError("semantic map label is malformed or out of bounds")
+            cv2.putText(
+                image,
+                category,
+                to_px(row, col),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5 * scale,
+                (0, 0, 0),
+                max(1, scale),
+                cv2.LINE_AA,
+            )
 
     if robot_rc is not None:
         center = to_px(*robot_rc)

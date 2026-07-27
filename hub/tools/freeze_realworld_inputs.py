@@ -43,6 +43,7 @@ from focus_hub.realworld_session import (  # noqa: E402
     session_contract_sha256,
     validate_session,
 )
+from focus_hub.shadow_coordination import validated_yolo_source  # noqa: E402
 from manage_realworld_session import resolve_session_argument  # noqa: E402
 
 
@@ -219,15 +220,12 @@ def validate_frozen_robot(
             f"{robot_id} map/summary snapshot generation is absent or mismatched"
         )
 
-    semantic = summary.get("semantic_mapping")
-    yolo = (
-        semantic.get("yolo_reinforcement")
-        if isinstance(semantic, dict)
-        else None
-    )
-    if not isinstance(yolo, dict) or yolo.get("enabled") is not True:
-        raise ValueError(f"{robot_id} has no enabled YOLO evidence")
-    sequence = int(yolo.get("last_sequence", -1))
+    try:
+        sequence, detections, yolo_model_provenance = (
+            validated_yolo_source(summary)
+        )
+    except RuntimeError as exc:
+        raise ValueError(f"{robot_id} {exc}") from exc
     if sequence <= robot.map_start_after_sequence:
         raise ValueError(f"{robot_id} source sequence predates this session")
     if sequence < minimum_source_sequence:
@@ -244,6 +242,10 @@ def validate_frozen_robot(
         raise ValueError(f"{robot_id} source observation identity mismatch")
     if metadata.pose.transform_version != robot.transform_version:
         raise ValueError(f"{robot_id} source observation transform mismatch")
+    if metadata.object_goal.category != session.runtime.map_goal_category:
+        raise ValueError(
+            f"{robot_id} source goal category differs from the session"
+        )
     if metadata.mapping_only or metadata.base_T_camera is None:
         raise ValueError(f"{robot_id} source observation is not command-capable")
     mapping_health = mapping_health_classification(robot_id, metadata)
@@ -267,6 +269,17 @@ def validate_frozen_robot(
         if sha256_file(path) != expected_hash:
             raise ValueError(f"source payload hash mismatch: {path}")
 
+    map_sequence = summary.get("last_sequence")
+    if (
+        isinstance(map_sequence, bool)
+        or not isinstance(map_sequence, int)
+        or map_sequence <= robot.map_start_after_sequence
+        or map_sequence > sequence
+    ):
+        raise ValueError(
+            f"{robot_id} has no valid integrated BEV generation for this session"
+        )
+
     record = {
         "robot_id": robot_id,
         "name": robot.name,
@@ -280,22 +293,15 @@ def validate_frozen_robot(
         "source_capture_time_ns": metadata.capture_time_ns,
         "source_age_s": age_s,
         "perception_source_sequence": sequence,
-        "map_last_integrated_sequence": (
-            None
-            if summary.get("last_observation_sequence") is None
-            else int(summary["last_observation_sequence"])
-        ),
-        "perception_map_sequence_gap": (
-            None
-            if summary.get("last_observation_sequence") is None
-            else sequence - int(summary["last_observation_sequence"])
-        ),
+        "map_last_integrated_sequence": map_sequence,
+        "perception_map_sequence_gap": sequence - map_sequence,
         "perception_map_relationship": (
             "same_observation"
-            if int(summary.get("last_observation_sequence", sequence))
-            == sequence
+            if map_sequence == sequence
             else "current_stage1_with_last_geometry_accepted_bev"
         ),
+        "yolo_detection_count": len(detections),
+        "yolo_model_provenance": yolo_model_provenance,
         "source_mapping_health": {
             "classification": mapping_health,
             "command_ready": metadata.health.ready_for_goal(),

@@ -112,17 +112,156 @@ def heading_deg_from_camera_pose(T_shared_camera: np.ndarray) -> float:
     return math.degrees(math.atan2(float(forward_xy[1]), float(forward_xy[0])))
 
 
+def shared_base_pose_from_camera(
+    T_shared_camera: np.ndarray,
+    base_T_camera: np.ndarray,
+) -> np.ndarray:
+    """Recover the robot base pose used by the source navigation policy.
+
+    The transported pose is for the optical camera, while the source policy's
+    red arrow, current location and target bearing are all defined at the
+    agent/base pose.  Using camera translation and optical +Z as a substitute
+    shifts the prompt position by the camera mount and can rotate its heading
+    by roughly 90 degrees.  The measured mount makes the exact base pose
+    available:
+
+    ``shared_T_base = shared_T_camera @ inverse(base_T_camera)``.
+    """
+
+    shared_camera = np.asarray(T_shared_camera, dtype=np.float64)
+    base_camera = np.asarray(base_T_camera, dtype=np.float64)
+    for value, name in (
+        (shared_camera, "T_shared_camera"),
+        (base_camera, "base_T_camera"),
+    ):
+        if value.shape != (4, 4) or not np.all(np.isfinite(value)):
+            raise ValueError(f"{name} must be a finite 4x4 matrix")
+        if not np.allclose(
+            value[3],
+            np.asarray((0.0, 0.0, 0.0, 1.0)),
+            rtol=0.0,
+            atol=1e-5,
+        ):
+            raise ValueError(f"{name} is not a homogeneous rigid transform")
+    shared_base = shared_camera @ np.linalg.inv(base_camera)
+    if not np.all(np.isfinite(shared_base)):
+        raise ValueError("recovered shared_T_base is non-finite")
+    return shared_base
+
+
+def heading_deg_from_base_pose(T_shared_base: np.ndarray) -> float:
+    """Return shared-world yaw of the base's forward (+X) axis."""
+
+    transform = np.asarray(T_shared_base, dtype=np.float64)
+    if transform.shape != (4, 4) or not np.all(np.isfinite(transform)):
+        raise ValueError("T_shared_base must be a finite 4x4 matrix")
+    forward_xy = transform[:2, 0]
+    if float(np.linalg.norm(forward_xy)) < 1e-9:
+        raise ValueError("T_shared_base has no finite planar forward axis")
+    return math.degrees(math.atan2(float(forward_xy[1]), float(forward_xy[0])))
+
+
 def collapse_detection_records(records: list[dict[str, object]]) -> dict[str, float]:
-    """Convert persisted YOLO boxes to upstream's class->max confidence map."""
+    """Convert persisted YOLO boxes to upstream's class->confidence map.
+
+    ``main.py`` constructs this dictionary with a comprehension, so the last
+    box for a repeated class wins.  Reject malformed evidence rather than
+    silently turning a detector/runtime error into ``No Detections``.
+    """
 
     collapsed: dict[str, float] = {}
-    for record in records:
-        class_name = str(record.get("class_name", ""))
-        confidence = float(record.get("confidence", float("nan")))
-        if not class_name or not math.isfinite(confidence):
-            continue
-        collapsed[class_name] = max(collapsed.get(class_name, 0.0), confidence)
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            raise ValueError(f"YOLO detection {index} is not an object")
+        raw_class_name = record.get("class_name")
+        raw_confidence = record.get("confidence")
+        if not isinstance(raw_class_name, str) or not raw_class_name.strip():
+            raise ValueError(f"YOLO detection {index} has no class name")
+        if (
+            isinstance(raw_confidence, bool)
+            or not isinstance(raw_confidence, (int, float))
+            or not math.isfinite(float(raw_confidence))
+            or not 0.0 <= float(raw_confidence) <= 1.0
+        ):
+            raise ValueError(f"YOLO detection {index} has invalid confidence")
+        class_name = raw_class_name.strip()
+        collapsed[class_name] = float(raw_confidence)
     return collapsed
+
+
+def validated_yolo_source(
+    map_summary: dict[str, object],
+) -> tuple[int, dict[str, float], dict[str, object]]:
+    """Bind Stage-1 RGB and YOLO evidence to one exact current observation."""
+
+    semantic_mapping = map_summary.get("semantic_mapping")
+    if not isinstance(semantic_mapping, dict):
+        raise RuntimeError("map summary lacks semantic mapping status")
+    yolo_status = semantic_mapping.get("yolo_reinforcement")
+    if not isinstance(yolo_status, dict) or yolo_status.get("enabled") is not True:
+        raise RuntimeError("map has no enabled YOLO evidence")
+    expected_contract = {
+        "method": "yolov10_image_detections_for_perception_vlm_only",
+        "status": "model_inference_unverified_stage1_only",
+        "inference_policy": "every_current_observation_for_stage1",
+        "map_reinforcement_enabled": False,
+    }
+    for field, expected in expected_contract.items():
+        if yolo_status.get(field) != expected:
+            raise RuntimeError(
+                f"YOLO Stage-1 contract mismatch for {field}: "
+                f"expected={expected!r}, observed={yolo_status.get(field)!r}"
+            )
+    if yolo_status.get("last_error") not in {None, ""}:
+        raise RuntimeError(
+            f"latest YOLO inference failed: {yolo_status.get('last_error')}"
+        )
+    source_sequence = yolo_status.get("last_sequence")
+    last_observation_sequence = map_summary.get("last_observation_sequence")
+    if (
+        isinstance(source_sequence, bool)
+        or not isinstance(source_sequence, int)
+        or source_sequence < 0
+    ):
+        raise RuntimeError("map has no valid YOLO source sequence")
+    if (
+        isinstance(last_observation_sequence, bool)
+        or not isinstance(last_observation_sequence, int)
+        or last_observation_sequence != source_sequence
+    ):
+        raise RuntimeError(
+            "YOLO evidence is not bound to the map daemon's latest "
+            "observation"
+        )
+    frames_inferred = yolo_status.get("frames_inferred")
+    if (
+        isinstance(frames_inferred, bool)
+        or not isinstance(frames_inferred, int)
+        or frames_inferred <= 0
+    ):
+        raise RuntimeError("YOLO status has no completed inference")
+    provenance = yolo_status.get("model_provenance")
+    if not isinstance(provenance, dict):
+        raise RuntimeError("YOLO status has no model provenance")
+    source_path = provenance.get("source_path")
+    size_bytes = provenance.get("size_bytes")
+    sha256 = provenance.get("sha256")
+    if (
+        not isinstance(source_path, str)
+        or not source_path
+        or isinstance(size_bytes, bool)
+        or not isinstance(size_bytes, int)
+        or size_bytes <= 0
+        or not isinstance(sha256, str)
+        or len(sha256) != 64
+        or any(character not in "0123456789abcdef" for character in sha256.lower())
+    ):
+        raise RuntimeError("YOLO model provenance is malformed")
+    detections_raw = yolo_status.get("last_detections")
+    if not isinstance(detections_raw, list):
+        raise RuntimeError("persisted YOLO detections are malformed")
+    detections = collapse_detection_records(detections_raw)
+    return source_sequence, detections, dict(provenance)
 
 
 def validate_shadow_input_timing(

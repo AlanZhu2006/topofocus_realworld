@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from focus_hub.frontiers import (
     Frontier,
     extract_frontiers,
     render_annotated_bev,
     render_semantic_decision_map,
+    validate_frontier_candidates,
 )
 
 
@@ -92,3 +94,44 @@ def test_extract_frontiers_finds_boundary_between_explored_and_unknown():
     frontiers = extract_frontiers(grid, (0.0, 0.0), 0.05, min_cluster_cells=5)
     assert len(frontiers) >= 1
     assert all(f.frontier_id in "ABCD" for f in frontiers)
+
+
+def test_frontier_candidate_contract_accepts_stable_subset_only():
+    candidates = [
+        Frontier("A", 1, 2, 0.1, 0.2, 20),
+        Frontier("C", 3, 4, 0.3, 0.4, 10),
+    ]
+    assert validate_frontier_candidates(candidates) == ("A", "C")
+    with pytest.raises(ValueError, match="canonical A-D order"):
+        validate_frontier_candidates(list(reversed(candidates)))
+    with pytest.raises(ValueError, match="contiguous A-D prefix"):
+        validate_frontier_candidates(candidates, require_prefix=True)
+
+
+def test_semantic_labels_are_drawn_at_world_consistent_map_positions():
+    grid = _grid()
+    scale = 4
+    col = 20
+
+    def black_centroid(row: int) -> tuple[float, float]:
+        image = render_semantic_decision_map(
+            grid,
+            tuple(f"cat{i}" for i in range(15)),
+            [],
+            robot_rc=None,
+            heading_deg=None,
+            semantic_labels=[("plant", row, col)],
+            scale=scale,
+        )
+        black = np.all(
+            image == np.asarray([0, 0, 0], dtype=np.uint8),
+            axis=2,
+        )
+        ys, xs = np.nonzero(black)
+        return float(ys.mean()), float(xs.mean())
+
+    low_row_y, low_row_x = black_centroid(20)
+    high_row_y, high_row_x = black_centroid(40)
+    assert high_row_y < low_row_y
+    assert np.isclose(low_row_y - high_row_y, 20 * scale)
+    assert np.isclose(low_row_x, high_row_x)

@@ -8,7 +8,9 @@ from focus_hub.shadow_coordination import (
     build_shadow_target_payload,
     collapse_detection_records,
     filter_semantic_categories,
+    heading_deg_from_base_pose,
     heading_deg_from_camera_pose,
+    shared_base_pose_from_camera,
     validate_shadow_input_timing,
     validate_shadow_target_payload,
     world_to_cell,
@@ -61,14 +63,50 @@ def test_shadow_geometry_helpers_are_frame_consistent():
         world_to_cell((10.0, 10.0), (-1.0, -2.0), 0.05, (40, 40))
 
 
-def test_detection_records_collapse_duplicate_classes_to_max_confidence():
+def test_detection_records_match_upstream_last_duplicate_wins():
     records = [
         {"class_name": "chair", "confidence": 0.4},
         {"class_name": "chair", "confidence": 0.8},
+        {"class_name": "chair", "confidence": 0.6},
         {"class_name": "tv", "confidence": 0.5},
     ]
 
-    assert collapse_detection_records(records) == {"chair": 0.8, "tv": 0.5}
+    assert collapse_detection_records(records) == {"chair": 0.6, "tv": 0.5}
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"class_name": "", "confidence": 0.5},
+        {"class_name": "chair", "confidence": float("nan")},
+        {"class_name": "chair", "confidence": 1.1},
+        {"class_name": "chair", "confidence": True},
+    ],
+)
+def test_detection_records_reject_malformed_evidence(record):
+    with pytest.raises(ValueError, match="YOLO detection"):
+        collapse_detection_records([record])
+
+
+def test_camera_pose_and_measured_mount_recover_base_position_and_heading():
+    yaw = np.deg2rad(90.0)
+    shared_base = np.asarray(
+        [
+            [np.cos(yaw), -np.sin(yaw), 0.0, 2.0],
+            [np.sin(yaw), np.cos(yaw), 0.0, 3.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    base_camera = np.eye(4)
+    base_camera[:3, 3] = (0.4, 0.1, 0.5)
+    shared_camera = shared_base @ base_camera
+
+    recovered = shared_base_pose_from_camera(shared_camera, base_camera)
+
+    np.testing.assert_allclose(recovered, shared_base, rtol=0.0, atol=1e-12)
+    assert recovered[:2, 3] == pytest.approx((2.0, 3.0))
+    assert heading_deg_from_base_pose(recovered) == pytest.approx(90.0)
 
 
 def test_shadow_input_timing_accepts_fresh_synchronized_sources():

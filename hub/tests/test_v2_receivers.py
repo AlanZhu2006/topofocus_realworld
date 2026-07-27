@@ -297,9 +297,14 @@ def test_wsj_verification_is_split_around_sender_and_go2_bridge():
     launcher = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text(
         encoding="utf-8"
     )
+    park_index = launcher.index(
+        'bash "$SCRIPT_DIR/start_wsj_command_observation.sh"'
+    )
+    park_only_index = launcher.index("--park-only", park_index)
     sensor_index = launcher.index("--sensor-map-only")
     sender_index = launcher.index(
-        'bash "$SCRIPT_DIR/start_wsj_command_observation.sh"'
+        'bash "$SCRIPT_DIR/start_wsj_command_observation.sh"',
+        sensor_index,
     )
     command_index = launcher.index("--command-graph-only")
     pre_index = launcher.index("--pre-bridge-command-check")
@@ -309,7 +314,9 @@ def test_wsj_verification_is_split_around_sender_and_go2_bridge():
     post_index = launcher.index("--post-bridge-command-check")
 
     assert (
-        sensor_index
+        park_index
+        < park_only_index
+        < sensor_index
         < sender_index
         < command_index
         < pre_index
@@ -588,6 +595,91 @@ def test_wsj_trajectory_gate_keeps_never_started_path_grace_bounded():
         recovery_timeout_s=3.0,
     )
     assert state == (False, True, pytest.approx(1.501), False)
+
+
+def test_final_velocity_gate_rechecks_all_health_at_control_rate():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    base = {
+        "now_ns": 10_000_000_000,
+        "authorized": True,
+        "authority_deadline_ns": 11_000_000_000,
+        "trajectory_fresh": True,
+        "reverse_required": False,
+        "health_pass": True,
+        "health_evaluated_ns": 9_500_000_000,
+        "health_timeout_s": 1.5,
+        "odom_received_ns": 9_800_000_000,
+        "slam_received_ns": 9_000_000_000,
+        "odom_timeout_s": 2.0,
+        "slam_timeout_s": 3.0,
+        "slam_pass": True,
+        "occupancy_received_ns": 9_700_000_000,
+        "occupancy_timeout_s": 3.0,
+        "platform_required": True,
+        "platform_received_ns": 9_800_000_000,
+        "platform_timeout_s": 2.0,
+        "platform_pass": True,
+    }
+
+    assert wsj.physical_velocity_gate_reason(**base) is None
+    cases = {
+        "authorized": (False, "authority_closed"),
+        "health_pass": (False, "health_not_ready"),
+        "health_evaluated_ns": (
+            8_499_999_999,
+            "health_evaluation_stale",
+        ),
+        "odom_received_ns": (7_999_999_999, "local_tracking_stale"),
+        "slam_pass": (False, "localization_not_tracking"),
+        "occupancy_received_ns": (
+            6_999_999_999,
+            "occupancy_missing_or_stale",
+        ),
+        "platform_received_ns": (
+            7_999_999_999,
+            "platform_health_stale",
+        ),
+        "platform_pass": (False, "platform_health_not_ready"),
+        "reverse_required": (True, "reverse_trajectory_rejected"),
+        "trajectory_fresh": (False, "trajectory_missing_or_stale"),
+    }
+    for field, (value, expected) in cases.items():
+        assert wsj.physical_velocity_gate_reason(
+            **{**base, field: value}
+        ) == expected
+
+
+def test_receiver_trajectory_contract_rejects_stale_geometry_inputs():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    valid = SimpleNamespace(
+        header=SimpleNamespace(frame_id="world"),
+        poses=[
+            SimpleNamespace(pose=pose(x=0.0, y=0.0)),
+            SimpleNamespace(pose=pose(x=0.2, y=0.0)),
+        ],
+    )
+
+    assert wsj.trajectory_message_summary(
+        valid, expected_frame="world"
+    ) == (2, (0.0, 0.0), (0.2, 0.0))
+    valid.header.frame_id = "map"
+    with pytest.raises(ValueError, match="frame"):
+        wsj.trajectory_message_summary(valid, expected_frame="world")
+    valid.header.frame_id = "world"
+    valid.poses[1].pose.position.x = float("nan")
+    with pytest.raises(ValueError, match="non-finite"):
+        wsj.trajectory_message_summary(valid, expected_frame="world")
+
+
+def test_receiver_rejects_nonfinite_raw_twist():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    message = SimpleNamespace(
+        linear=SimpleNamespace(x=0.1, y=0.0, z=0.0),
+        angular=SimpleNamespace(x=0.0, y=0.0, z=-0.2),
+    )
+    assert wsj.twist_components_finite(message)
+    message.angular.z = float("inf")
+    assert not wsj.twist_components_finite(message)
 
 
 def test_wsj_recovers_only_transient_router_input_lag_with_ready_gate():
@@ -958,8 +1050,9 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
         '--start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"'
     ) == 2
     assert "--reuse-verified-debug-core" in launcher
-    assert "without interrupting /slam/depth" in launcher
+    assert "without process restarts" in launcher
     assert 'systemctl is-active --quiet "$unit"' in launcher
+    assert "unit_matches_core_contract" in launcher
     reuse_branch = launcher[
         launcher.index('if [[ "$reuse_verified_debug_core" == true ]]')
         : launcher.index(
@@ -967,13 +1060,9 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
             launcher.index('if [[ "$reuse_verified_debug_core" == true ]]'),
         )
     ]
-    assert "start_router" in reuse_branch
-    assert "start_controller" in reuse_branch
-    assert "Yunji goal router reloaded from the current deployment" in reuse_branch
-    assert (
-        "Yunji rotate-first controller reloaded from the current deployment"
-        in reuse_branch
-    )
+    assert "start_router" not in reuse_branch
+    assert "start_controller" not in reuse_branch
+    assert "unit_matches_core_contract" in reuse_branch
     assert '--setenv="OPENBLAS_NUM_THREADS=1"' in launcher
     assert '--setenv="OMP_NUM_THREADS=1"' in launcher
     assert '--setenv="MKL_NUM_THREADS=1"' in launcher

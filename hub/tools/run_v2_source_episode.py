@@ -844,6 +844,7 @@ def run_shadow_round(
             str(max_sync_skew_s),
             "--publish-hold",
             "--write-foxglove-targets",
+            "--require-complete-vlm",
         ]
     )
     for category in HM3D_CATEGORY_NAMES:

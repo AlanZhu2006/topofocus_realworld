@@ -78,10 +78,28 @@ def build_inputs(
             {
                 **common,
                 "snapshot_id": "robot-0:10:test",
+                "last_observation_sequence": observation.sequence,
+                "last_sequence": observation.sequence,
                 "semantic_mapping": {
                     "yolo_reinforcement": {
                         "enabled": True,
+                        "method": (
+                            "yolov10_image_detections_for_perception_vlm_only"
+                        ),
+                        "status": "model_inference_unverified_stage1_only",
+                        "map_reinforcement_enabled": False,
+                        "inference_policy": (
+                            "every_current_observation_for_stage1"
+                        ),
+                        "frames_inferred": 1,
                         "last_sequence": observation.sequence,
+                        "last_error": None,
+                        "last_detections": [],
+                        "model_provenance": {
+                            "source_path": "/models/yolov10m.pt",
+                            "size_bytes": 123,
+                            "sha256": "b" * 64,
+                        },
                     }
                 },
             }
@@ -146,8 +164,8 @@ def test_frozen_input_requires_current_epoch_and_strict_mapping_metadata(
 
     assert record["source_sequence"] == 10
     assert record["perception_source_sequence"] == 10
-    assert record["map_last_integrated_sequence"] is None
-    assert record["perception_map_sequence_gap"] is None
+    assert record["map_last_integrated_sequence"] == 10
+    assert record["perception_map_sequence_gap"] == 0
     assert record["perception_map_relationship"] == "same_observation"
     assert snapshot.transform_version == "calib-test-v1"
     assert metadata.mapping_only is False
@@ -168,7 +186,7 @@ def test_frozen_input_records_current_perception_over_last_accepted_bev(
     session, frozen, spool = build_inputs(tmp_path, observation)
     summary_path = frozen / "map_summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    summary["last_observation_sequence"] = 8
+    summary["last_sequence"] = 8
     summary_path.write_text(json.dumps(summary), encoding="utf-8")
 
     record, _, _ = module.validate_frozen_robot(
@@ -344,4 +362,36 @@ def test_frozen_input_rejects_source_before_clean_hub_epoch(
             now_ns=now_ns,
             max_input_age_s=1.0,
             minimum_source_sequence=11,
+        )
+
+
+def test_frozen_input_rejects_latest_yolo_failure(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now_ns = 100_000_000_000
+    observation = observation_factory(
+        sequence=10,
+        now_ns=now_ns,
+        mapping_only=False,
+        health_ready=True,
+    )
+    session, frozen, spool = build_inputs(tmp_path, observation)
+    summary_path = frozen / "map_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["semantic_mapping"]["yolo_reinforcement"]["last_error"] = (
+        "RuntimeError: detector failed"
+    )
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="latest YOLO inference failed"):
+        module.validate_frozen_robot(
+            session,
+            "robot-0",
+            frozen,
+            tmp_path / "accepted/wsj",
+            spool,
+            now_ns=now_ns,
+            max_input_age_s=1.0,
+            minimum_source_sequence=10,
         )

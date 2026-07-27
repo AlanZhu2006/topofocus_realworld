@@ -1,6 +1,7 @@
 import importlib.util
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +18,99 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+
+
+def _deployment_args(
+    robot_profile: str = "source-default",
+) -> list[str]:
+    return [
+        "--robot-profile",
+        robot_profile,
+        "--robot-id",
+        "robot-0",
+        "--base-camera-frame",
+        "camera",
+        "--base-camera-calibration-file",
+        "/tmp/measured-base-camera.json",
+    ]
+
+
+def _pose_stamped(
+    x: float,
+    y: float,
+    *,
+    quaternion: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0),
+):
+    return SimpleNamespace(
+        pose=SimpleNamespace(
+            position=SimpleNamespace(x=x, y=y, z=0.0),
+            orientation=SimpleNamespace(
+                x=quaternion[0],
+                y=quaternion[1],
+                z=quaternion[2],
+                w=quaternion[3],
+            ),
+        )
+    )
+
+
+def _path(*poses, frame_id: str = "world"):
+    return SimpleNamespace(
+        header=SimpleNamespace(frame_id=frame_id),
+        poses=list(poses),
+    )
+
+
+def _twist(*, linear_x: float = 0.0, angular_z: float = 0.0):
+    return SimpleNamespace(
+        linear=SimpleNamespace(x=linear_x, y=0.0, z=0.0),
+        angular=SimpleNamespace(x=0.0, y=0.0, z=angular_z),
+    )
+
+
+def test_controller_path_contract_accepts_only_finite_world_geometry():
+    valid = _path(_pose_stamped(0.0, 0.0), _pose_stamped(0.2, 0.0))
+    assert MODULE.validate_controller_path_message(valid) == 2
+
+    with pytest.raises(ValueError, match="frame"):
+        MODULE.validate_controller_path_message(
+            _path(
+                _pose_stamped(0.0, 0.0),
+                _pose_stamped(0.2, 0.0),
+                frame_id="map",
+            )
+        )
+    with pytest.raises(ValueError, match="fewer than two"):
+        MODULE.validate_controller_path_message(
+            _path(_pose_stamped(0.0, 0.0))
+        )
+    with pytest.raises(ValueError, match="non-finite"):
+        MODULE.validate_controller_path_message(
+            _path(
+                _pose_stamped(0.0, 0.0),
+                _pose_stamped(float("nan"), 0.0),
+            )
+        )
+    with pytest.raises(ValueError, match="zero quaternion"):
+        MODULE.validate_controller_path_message(
+            _path(
+                _pose_stamped(0.0, 0.0),
+                _pose_stamped(
+                    0.2,
+                    0.0,
+                    quaternion=(0.0, 0.0, 0.0, 0.0),
+                ),
+            )
+        )
+
+
+def test_controller_rejects_nonfinite_twist_components():
+    assert MODULE.command_components_finite(
+        _twist(linear_x=0.1, angular_z=-0.2)
+    )
+    assert not MODULE.command_components_finite(
+        _twist(linear_x=float("nan"))
+    )
 
 
 def test_small_intentional_forward_command_reaches_static_friction_floor():
@@ -143,7 +237,7 @@ def test_stable_path_heading_ignores_near_pose_replan_jitter():
     assert right == pytest.approx(0.5 * math.pi)
 
 
-def test_router_target_heading_overrides_reverse_trajectory_bearing():
+def test_collision_scored_path_heading_overrides_conflicting_router_seed():
     target_error = MODULE.world_target_heading_error(
         (2.8755, -6.0557),
         (3.225, -6.175),
@@ -162,6 +256,14 @@ def test_router_target_heading_overrides_reverse_trajectory_bearing():
     assert math.degrees(target_error) == pytest.approx(-50.8, abs=0.3)
     assert reverse_path_error is not None
     assert abs(math.degrees(reverse_path_error)) == pytest.approx(180.0)
+    assert MODULE.select_authoritative_heading_error(
+        path_heading_error_rad=reverse_path_error,
+        router_heading_error_rad=target_error,
+    ) == reverse_path_error
+    assert MODULE.select_authoritative_heading_error(
+        path_heading_error_rad=None,
+        router_heading_error_rad=target_error,
+    ) == target_error
 
 
 def test_measured_rear_left_goal_has_one_stable_positive_turn():
@@ -215,6 +317,23 @@ def test_large_turn_latch_uses_hysteresis_and_never_invents_rotation():
         recovery_active=True,
         requested_linear_mps=0.1,
         requested_angular_radps=0.0,
+    )
+
+
+def test_reverse_segment_cannot_enter_generic_large_turn_recovery():
+    assert not MODULE.path_turn_recovery_required(
+        "reject_reverse",
+        math.pi,
+        recovery_active=False,
+        requested_linear_mps=0.0,
+        requested_angular_radps=0.7,
+    )
+    assert MODULE.path_turn_recovery_required(
+        "allow",
+        math.radians(90.0),
+        recovery_active=False,
+        requested_linear_mps=0.0,
+        requested_angular_radps=0.7,
     )
 
 
@@ -272,9 +391,12 @@ def test_tiny_reverse_continuation_requires_latched_direction():
 
 
 def test_rotate_first_is_explicitly_opt_in():
-    defaults = MODULE.build_parser().parse_args([])
+    defaults = MODULE.build_parser().parse_args(
+        _deployment_args("yunji-water")
+    )
     enabled = MODULE.build_parser().parse_args(
-        [
+        _deployment_args()
+        + [
             "--rotate-first-on-reverse",
             "--stabilize-large-turn",
             "--rotate-first-max-angular-radps",
@@ -290,6 +412,42 @@ def test_rotate_first_is_explicitly_opt_in():
     assert enabled.stabilize_large_turn is True
     assert enabled.rotate_first_max_angular_radps == pytest.approx(0.30)
     assert enabled.rotate_first_timeout_s == pytest.approx(8.0)
+
+
+def test_controller_profile_is_required_and_common_guards_are_enabled():
+    with pytest.raises(SystemExit):
+        MODULE.build_parser().parse_args([])
+    parsed = MODULE.build_parser().parse_args(_deployment_args())
+
+    assert parsed.pose_timeout_s == pytest.approx(0.8)
+    assert parsed.path_timeout_s == pytest.approx(1.0)
+    assert parsed.pose_jump_m == pytest.approx(0.4)
+    assert parsed.pose_jump_freeze_s == pytest.approx(0.6)
+    assert parsed.robot_id == "robot-0"
+    assert parsed.base_camera_frame == "camera"
+
+
+def test_common_controller_input_guard_fails_closed():
+    base = {
+        "now_monotonic": 10.0,
+        "pose_received_monotonic": 9.7,
+        "path_received_monotonic": 9.6,
+        "pose_jump_freeze_until_monotonic": 0.0,
+        "paused": False,
+    }
+    assert MODULE.controller_input_guard_reason(**base) is None
+    assert MODULE.controller_input_guard_reason(
+        **{**base, "paused": True}
+    ) == "navigation_paused"
+    assert MODULE.controller_input_guard_reason(
+        **{**base, "pose_received_monotonic": 9.19}
+    ) == "pose_missing_or_stale"
+    assert MODULE.controller_input_guard_reason(
+        **{**base, "pose_jump_freeze_until_monotonic": 10.1}
+    ) == "pose_jump_freeze"
+    assert MODULE.controller_input_guard_reason(
+        **{**base, "path_received_monotonic": 8.99}
+    ) == "path_missing_or_stale"
 
 
 @pytest.mark.parametrize("requested", [-0.2, 0.0, 0.039, 0.1, 0.3])
