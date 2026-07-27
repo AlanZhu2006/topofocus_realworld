@@ -825,6 +825,37 @@ def test_wsj_live_bridge_uses_observed_effective_command_floors() -> None:
     assert "--start-footprint-override-m 0.35" in launcher
 
 
+def test_wsj_stale_occupancy_recovery_is_publisher_last_and_no_bridge() -> None:
+    launcher = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text(
+        encoding="utf-8"
+    )
+    recovery = launcher.split("recover_online_map_publisher() {", 1)[1]
+    recovery = recovery.split("\n}\n", 1)[0]
+
+    assert "go2-bridge" in recovery
+    assert "Refusing online-map recovery while a live command path exists." in (
+        recovery
+    )
+    assert "/nav/paused" in recovery
+    assert "/focus_guarded_cmd_vel" in recovery
+    assert 'tmux send-keys -t "$SESSION:online-map" C-c' in recovery
+    assert 'tmux respawn-pane -t "$SESSION:online-map"' in recovery
+    assert 'tmux respawn-pane -k -t "$SESSION:online-map"' not in recovery
+    assert (
+        recovery.index("C-c")
+        < recovery.index("respawn-pane")
+        < recovery.index("occupancy_mapper_node")
+    )
+    fast_probe = launcher.index(
+        '"${sensor_map_verifier[@]}" --timeout-s 8'
+    )
+    recovery_call = launcher.index("\n  recover_online_map_publisher\n")
+    full_probe = launcher.index(
+        '"${sensor_map_verifier[@]}" --timeout-s 35'
+    )
+    assert fast_probe < recovery_call < full_probe
+
+
 def test_wsj_launcher_reloads_persistent_goal_router_before_receiver() -> None:
     launcher = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text(
         encoding="utf-8"

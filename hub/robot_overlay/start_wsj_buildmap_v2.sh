@@ -199,26 +199,124 @@ elif [[ ${#missing_windows[@]} -ne 0 ]]; then
   exit 1
 fi
 
+sensor_map_verifier=(
+  "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py"
+  --robot-id robot-0
+  --mode "$mode"
+  --sensor-map-only
+  --frame-id world
+  --camera-frame camera
+  --odom-topic /slam/odometry_visual
+  --fresh-camera-info-topic /camera/camera/color/camera_info
+  --fresh-camera-info-topic /slam/camera_info
+  --camera-info-topic /slam/camera_info
+  --geometry-width 848
+  --geometry-height 480
+  --max-occupancy-age-s 12
+  --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
+)
+
+recover_online_map_publisher() {
+  local pane_start old_pid new_pid deadline graph
+  if tmux list-windows -t "$SESSION" -F '#{window_name}' \
+      | grep -qx go2-bridge \
+     || pgrep -af 'v2_wsj_receiver\.py.*--enable-live-go2-motion' \
+        >/dev/null 2>&1; then
+    echo "Refusing online-map recovery while a live command path exists." >&2
+    return 1
+  fi
+  pane_start="$(
+    tmux display-message -p -t "$SESSION:online-map" \
+      '#{pane_start_command}' 2>/dev/null || true
+  )"
+  [[ "$pane_start" == *"$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py"* ]] || {
+    echo "Refusing to restart an unrecognized online-map publisher." >&2
+    return 1
+  }
+
+  # Fast DDS was observed to retain an alive publisher process while new
+  # subscribers saw no /semantic_mapping/occupancy_bev endpoint. Restart only
+  # this non-actuating publisher, after every subscriber already exists. The
+  # pause/zero witnesses and absent Go2 bridge keep the chassis path closed.
+  timeout 5 ros2 topic pub --once \
+    /nav/paused std_msgs/msg/Bool '{data: true}' \
+    >/dev/null 2>&1 || true
+  timeout 5 ros2 topic pub --once \
+    /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' \
+    >/dev/null 2>&1 || true
+  old_pid="$(
+    tmux display-message -p -t "$SESSION:online-map" '#{pane_pid}'
+  )"
+  tmux set-option -w -t "$SESSION:online-map" remain-on-exit on
+  tmux send-keys -t "$SESSION:online-map" C-c
+  deadline=$((SECONDS + 20))
+  until [[ "$(tmux display-message -p -t "$SESSION:online-map" \
+      '#{pane_dead}' 2>/dev/null || true)" == 1 ]]; do
+    (( SECONDS < deadline )) || {
+      echo "WSJ online-map publisher did not stop cleanly." >&2
+      return 1
+    }
+    sleep 1
+  done
+
+  deadline=$((SECONDS + 20))
+  while graph="$(
+      timeout 5 ros2 topic info /semantic_mapping/occupancy_bev -v \
+        2>/dev/null || true
+    )" \
+    && grep -q 'Endpoint type: PUBLISHER' <<<"$graph"; do
+    (( SECONDS < deadline )) || {
+      echo "Old WSJ occupancy publisher remained in DDS after shutdown." >&2
+      return 1
+    }
+    sleep 1
+  done
+
+  tmux respawn-pane -t "$SESSION:online-map"
+  tmux set-option -w -t "$SESSION:online-map" remain-on-exit off
+  new_pid="$(
+    tmux display-message -p -t "$SESSION:online-map" '#{pane_pid}'
+  )"
+  [[ -n "$new_pid" && "$new_pid" != "$old_pid" ]] || {
+    echo "WSJ online-map publisher did not restart in a new process." >&2
+    return 1
+  }
+  deadline=$((SECONDS + 30))
+  until graph="$(
+      timeout 5 ros2 topic info /semantic_mapping/occupancy_bev -v \
+        2>/dev/null || true
+    )" \
+    && grep -Eq '^Publisher count: 1[[:space:]]*$' <<<"$graph" \
+    && grep -Eq '^Node name: occupancy_mapper_node[[:space:]]*$' \
+      <<<"$graph" \
+    && ! grep -q '_NODE_.*_UNKNOWN_' <<<"$graph"; do
+    if [[ "$(tmux display-message -p -t "$SESSION:online-map" \
+        '#{pane_dead}')" == 1 ]]; then
+      tmux capture-pane -pt "$SESSION:online-map" -S -100 >&2 || true
+      return 1
+    fi
+    (( SECONDS < deadline )) || {
+      echo "Timed out waiting for the restarted WSJ occupancy publisher." >&2
+      printf '%s\n' "$graph" >&2
+      return 1
+    }
+    sleep 1
+  done
+  echo "WSJ online-map publisher recovered publisher-last: $new_pid"
+}
+
 # This single verifier replaces the former three serial `ros2 topic echo`
 # witnesses. It subscribes to those same two CameraInfo streams and visual
 # odometry together, then also validates geometry, occupancy and router state.
 # No full-resolution Image subscriber is created, so the long-lived Fast DDS
-# visual pipeline retains its measured startup behavior.
-"$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
-  --robot-id robot-0 \
-  --mode "$mode" \
-  --sensor-map-only \
-  --frame-id world \
-  --camera-frame camera \
-  --odom-topic /slam/odometry_visual \
-  --fresh-camera-info-topic /camera/camera/color/camera_info \
-  --fresh-camera-info-topic /slam/camera_info \
-  --camera-info-topic /slam/camera_info \
-  --geometry-width 848 \
-  --geometry-height 480 \
-  --max-occupancy-age-s 12 \
-  --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
-  --timeout-s 35
+# visual pipeline retains its measured startup behavior. A short failed probe
+# triggers one bounded publisher-last recovery; the full check remains
+# authoritative and still fails closed on every other sensor/map defect.
+if ! "${sensor_map_verifier[@]}" --timeout-s 8; then
+  echo "WSJ sensor/map fast probe failed; attempting one publisher-last recovery." >&2
+  recover_online_map_publisher
+fi
+"${sensor_map_verifier[@]}" --timeout-s 35
 
 bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   --session "$SESSION" \
