@@ -1077,6 +1077,24 @@ def parse_args() -> argparse.Namespace:
         help="Yunji footprint clearance required inside a frontier arrival disk",
     )
     parser.add_argument(
+        "--robot-0-frontier-path-clearance-m",
+        type=float,
+        default=0.05,
+        help=(
+            "WSJ known-free graph clearance used only to reach a fully "
+            "footprint-clear projected endpoint; matches its local router"
+        ),
+    )
+    parser.add_argument(
+        "--robot-1-frontier-path-clearance-m",
+        type=float,
+        default=0.30,
+        help=(
+            "Yunji known-free graph clearance used only to reach a fully "
+            "footprint-clear projected endpoint; matches its local router"
+        ),
+    )
+    parser.add_argument(
         "--robot-0-frontier-start-snap-radius-m",
         type=float,
         default=0.75,
@@ -1183,6 +1201,24 @@ def main() -> int:
             "frontier clearance must be finite and within [0.15, 0.75] m"
         )
     if not all(
+        math.isfinite(path_clearance)
+        and 0.0 < path_clearance <= endpoint_clearance
+        for path_clearance, endpoint_clearance in (
+            (
+                args.robot_0_frontier_path_clearance_m,
+                args.robot_0_frontier_clearance_m,
+            ),
+            (
+                args.robot_1_frontier_path_clearance_m,
+                args.robot_1_frontier_clearance_m,
+            ),
+        )
+    ):
+        raise ValueError(
+            "frontier path clearance must be positive and no greater than "
+            "the matching endpoint footprint clearance"
+        )
+    if not all(
         math.isfinite(snap_radius)
         and clearance <= snap_radius <= 2.0
         for clearance, snap_radius in (
@@ -1277,6 +1313,14 @@ def main() -> int:
                 "robot_clearance_m": {
                     "robot-0": args.robot_0_frontier_clearance_m,
                     "robot-1": args.robot_1_frontier_clearance_m,
+                },
+                "robot_path_clearance_m": {
+                    "robot-0": (
+                        args.robot_0_frontier_path_clearance_m
+                    ),
+                    "robot-1": (
+                        args.robot_1_frontier_path_clearance_m
+                    ),
                 },
                 "robot_start_seed_snap_radius_m": {
                     "robot-0": (
@@ -1788,6 +1832,14 @@ def main() -> int:
                     bounded_approach_projection_by_robot={
                         "robot-0": True,
                         "robot-1": True,
+                    },
+                    projection_path_clearance_by_robot_m={
+                        "robot-0": (
+                            args.robot_0_frontier_path_clearance_m
+                        ),
+                        "robot-1": (
+                            args.robot_1_frontier_path_clearance_m
+                        ),
                     },
                 )
             )

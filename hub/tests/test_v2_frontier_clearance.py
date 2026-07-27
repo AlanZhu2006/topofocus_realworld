@@ -371,6 +371,117 @@ def test_start_connected_safe_partial_progress_can_exceed_one_clearance(
     assert [item.mode.value for item in guarded.decisions] == ["GOAL", "GOAL"]
 
 
+def test_unknown_boundary_frontier_projects_to_start_connected_safe_cell(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (3.0, 3.0),
+            # Immediately outside the known-free corridor: this is the normal
+            # representation of a free/unknown frontier centroid.
+            "robot-1": (0.225, 2.525),
+        },
+    )
+    execution = narrow_corridor_snapshot(
+        transform_version="robot-execution-v1"
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        robot_xy_by_robot={
+            "robot-0": (3.0, 2.0),
+            "robot-1": (3.0, 2.525),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+        bounded_approach_projection_by_robot={
+            "robot-0": True,
+            "robot-1": True,
+        },
+    )
+
+    check = report["checks"]["robot-1"]
+    assert check["target_in_bounds"] is True
+    assert check["target_known_free"] is False
+    assert check["target_reachable_known_free"] is False
+    assert check["direct_approach_passed"] is False
+    assert check["projected_approach_passed"] is True
+    assert check["pass_mode"] == "start_connected_safe_partial_progress"
+    assert check["reachable_footprint_clear_cell_count"] > 0
+    assert check["projected_source_progress_m"] > 0.25
+    assert report["blocked_robot_ids"] == []
+    assert [item.mode.value for item in guarded.decisions] == ["GOAL", "GOAL"]
+
+
+def test_projection_uses_router_clearance_and_keeps_endpoint_footprint_clear(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            # Unknown target beyond the main room. The robot starts in the
+            # narrow observed stem and must reach a full-clearance endpoint.
+            "robot-0": (4.525, 2.525),
+            "robot-1": (3.0, 3.0),
+        },
+    )
+    execution = narrow_corridor_snapshot(
+        transform_version="robot-execution-v1"
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        robot_xy_by_robot={
+            "robot-0": (0.275, 2.525),
+            "robot-1": (3.0, 2.0),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+        bounded_approach_projection_by_robot={
+            "robot-0": True,
+            "robot-1": True,
+        },
+        projection_path_clearance_by_robot_m={
+            "robot-0": 0.05,
+            "robot-1": 0.30,
+        },
+    )
+
+    check = report["checks"]["robot-0"]
+    assert check["target_known_free"] is False
+    assert check["projection_path_clearance_m"] == 0.05
+    assert check["required_clearance_m"] == 0.35
+    assert check["projection_start_seed_within_limit"] is True
+    assert check["reachable_footprint_clear_cell_count"] > 0
+    assert check["projected_approach_passed"] is True
+    assert check["pass_mode"] == "bounded_safe_approach_projection"
+    assert report["blocked_robot_ids"] == []
+    assert guarded.decisions[0].mode.value == "GOAL"
+
+
 def test_safe_partial_progress_holds_when_robot_is_already_at_boundary(
     observation_factory,
 ):
@@ -468,7 +579,7 @@ def test_rejected_frontiers_use_one_clear_source_remaining_frontier(
     assert report["fallback_checks"]["robot-0"][0][
         "required_clearance_m"
     ] == 0.35
-    assert report["fallback_checks"]["robot-1"] == []
+    assert report["fallback_checks"]["robot-1"][0]["passed"] is True
     assert [item.mode.value for item in guarded.decisions] == ["GOAL", "HOLD"]
     target = guarded.decisions[0].target
     assert target is not None
@@ -508,6 +619,76 @@ def test_rejected_frontiers_still_hold_when_fallback_is_unsafe(
     assert report["fallback_assignments"] == []
     assert report["fallback_checks"]["robot-0"][0]["passed"] is False
     assert [item.mode.value for item in guarded.decisions] == ["HOLD", "GOAL"]
+
+
+def test_fallback_matching_maximizes_safe_active_robots(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (1.0, 1.0),
+            "robot-1": (1.0, 1.0),
+        },
+    )
+    robot_0_free = np.ones((100, 100), dtype=bool)
+    robot_0_free[10:30, 10:30] = False
+    robot_1_free = np.zeros((100, 100), dtype=bool)
+    robot_1_free[35:70, 35:70] = True
+    robot_0_map = snapshot_from_free_mask(
+        robot_0_free,
+        transform_version="robot-0-transform-v1",
+    )
+    robot_1_map = snapshot_from_free_mask(
+        robot_1_free,
+        transform_version="robot-1-transform-v1",
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        robot_0_map,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        fallback_frontiers=[
+            {"frontier_id": "A", "x_m": 3.0, "y_m": 3.0},
+            {"frontier_id": "C", "x_m": 4.0, "y_m": 4.0},
+        ],
+        robot_xy_by_robot={
+            "robot-0": (2.5, 2.5),
+            "robot-1": (2.5, 2.5),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": robot_0_map,
+            "robot-1": robot_1_map,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+    )
+
+    assert report["blocked_robot_ids"] == []
+    assert report["fallback_assignments"] == [
+        {
+            "robot_id": "robot-0",
+            "rejected_frontier_id": "frontier-0",
+            "fallback_frontier_id": "C",
+            "source_rank": 1,
+        },
+        {
+            "robot_id": "robot-1",
+            "rejected_frontier_id": "frontier-1",
+            "fallback_frontier_id": "A",
+            "source_rank": 0,
+        },
+    ]
+    assert [item.mode.value for item in guarded.decisions] == ["GOAL", "GOAL"]
+    assert [
+        item.target.frontier_id if item.target is not None else None
+        for item in guarded.decisions
+    ] == ["C", "A"]
 
 
 def test_clear_frontiers_ignore_fallback_candidates(observation_factory):

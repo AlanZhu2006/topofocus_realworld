@@ -379,6 +379,16 @@ def test_router_default_map_deadline_matches_verified_data_plane():
     )
 
 
+def test_router_paths_carry_current_measured_orientation():
+    source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "pose.pose.orientation = odom.pose.pose.orientation" in source
+    assert "self.publish_route(plan, grid, odom)" in source
+    assert "pose.pose.orientation.w = 1.0" not in source
+
+
 def test_a_star_can_use_bounded_known_free_start_seed():
     router = load_router()
     occupancy = grid([0] * 100, width=10, height=10)

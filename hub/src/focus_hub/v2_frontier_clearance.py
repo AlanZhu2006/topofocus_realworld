@@ -150,12 +150,24 @@ def _frontier_report(
     robot_xy_m: tuple[float, float] | None = None,
     maximum_seed_distance_m: float | None = None,
     allow_bounded_approach_projection: bool = False,
+    projection_path_clearance_m: float | None = None,
 ) -> dict[str, object]:
     target = decision.target
     if target is None or target.kind != "FRONTIER_POINT":
         raise ValueError("frontier report requires a frontier decision")
     if not math.isfinite(clearance_m) or clearance_m <= 0.0:
         raise ValueError("frontier clearance must be positive and finite")
+    if projection_path_clearance_m is None:
+        projection_path_clearance_m = clearance_m
+    if (
+        not math.isfinite(projection_path_clearance_m)
+        or projection_path_clearance_m <= 0.0
+        or projection_path_clearance_m > clearance_m
+    ):
+        raise ValueError(
+            "projection path clearance must be positive and no greater than "
+            "the endpoint footprint clearance"
+        )
     if robot_xy_m is not None and (
         maximum_seed_distance_m is None
         or not math.isfinite(maximum_seed_distance_m)
@@ -272,29 +284,45 @@ def _frontier_report(
         allow_bounded_approach_projection
         and approach_count == 0
         and robot_xy_m is not None
-        and target_known_free
-        and target_reachable_known_free
+        and in_bounds
     ):
-        reachable_safe, safe_reachability = _reachable_known_free(
+        # A source frontier normally lies on a known-free/unknown boundary, so
+        # its centroid is not required to be a known-free cell.  Reachability
+        # follows the same independently configured graph clearance as the
+        # robot-local router, while the projected endpoint must still satisfy
+        # the full measured footprint clearance.  The local planner and depth
+        # stop retain final authority over every intermediate motion.
+        path_traversable = (
+            known_free
+            & (
+                clearance_field_m + 1e-12
+                >= projection_path_clearance_m
+            )
+        )
+        reachable_path, path_reachability = _reachable_known_free(
             snapshot,
-            safe,
+            path_traversable,
             robot_xy_m=robot_xy_m,
             maximum_seed_distance_m=float(maximum_seed_distance_m),
             connectivity=4,
         )
+        reachable_safe = (
+            reachable_path
+            & (clearance_field_m + 1e-12 >= clearance_m)
+        )
         projection_reachability = {
-            "projection_start_seed_cell_rc": safe_reachability[
+            "projection_start_seed_cell_rc": path_reachability[
                 "start_seed_cell_rc"
             ],
-            "projection_start_seed_distance_m": safe_reachability[
+            "projection_start_seed_distance_m": path_reachability[
                 "start_seed_distance_m"
             ],
-            "projection_start_seed_within_limit": safe_reachability[
+            "projection_start_seed_within_limit": path_reachability[
                 "start_seed_within_limit"
             ],
-            "reachable_footprint_clear_cell_count": safe_reachability[
-                "reachable_known_free_cell_count"
-            ],
+            "reachable_footprint_clear_cell_count": int(
+                np.count_nonzero(reachable_safe)
+            ),
         }
         safe_rows, safe_columns = np.nonzero(reachable_safe)
         if safe_rows.size:
@@ -373,6 +401,7 @@ def _frontier_report(
         "bounded_approach_projection_enabled": (
             allow_bounded_approach_projection
         ),
+        "projection_path_clearance_m": projection_path_clearance_m,
         "projected_approach_passed": projected_approach_passed,
         "projected_target_xy_m": projected_target_xy_m,
         "projected_approach_cell_rc": projected_approach_cell_rc,
@@ -588,6 +617,7 @@ def apply_frontier_clearance_guard(
     execution_snapshots_by_robot: Mapping[str, MapSnapshot] | None = None,
     start_seed_snap_radius_by_robot_m: Mapping[str, float] | None = None,
     bounded_approach_projection_by_robot: Mapping[str, bool] | None = None,
+    projection_path_clearance_by_robot_m: Mapping[str, float] | None = None,
 ) -> tuple[DecisionBatchV2, dict[str, object]]:
     """Reallocate rejected frontier legs once, then hold any still unsafe.
 
@@ -608,6 +638,9 @@ def apply_frontier_clearance_guard(
     use_robot_execution_maps = execution_snapshots_by_robot is not None
     seed_snap_radii = start_seed_snap_radius_by_robot_m or {}
     projection_policy = bounded_approach_projection_by_robot or {}
+    projection_path_clearances = (
+        projection_path_clearance_by_robot_m or {}
+    )
 
     def execution_snapshot(robot_id: str) -> MapSnapshot:
         if execution_snapshots_by_robot is None:
@@ -651,6 +684,23 @@ def apply_frontier_clearance_guard(
         ):
             raise ValueError(
                 f"missing positive start seed snap radius for {robot_id}"
+            )
+        return float(raw)
+
+    def projection_path_clearance(robot_id: str) -> float:
+        endpoint_clearance = float(clearance_by_robot_m[robot_id])
+        raw = projection_path_clearances.get(
+            robot_id, endpoint_clearance
+        )
+        if (
+            isinstance(raw, bool)
+            or not isinstance(raw, (int, float))
+            or not math.isfinite(float(raw))
+            or not 0.0 < float(raw) <= endpoint_clearance
+        ):
+            raise ValueError(
+                "projection path clearance must be positive and no greater "
+                f"than endpoint clearance for {robot_id}"
             )
         return float(raw)
 
@@ -718,6 +768,9 @@ def apply_frontier_clearance_guard(
             allow_bounded_approach_projection=bool(
                 projection_policy.get(decision.robot_id, False)
             ),
+            projection_path_clearance_m=projection_path_clearance(
+                decision.robot_id
+            ),
         )
         checks[decision.robot_id] = check
         if check["passed"] is True:
@@ -736,9 +789,23 @@ def apply_frontier_clearance_guard(
         fallback_frontiers,
         selected_frontier_ids=selected_frontier_ids,
     )
-    available = list(candidates)
     fallback_checks: dict[str, list[dict[str, object]]] = {}
     assignments: list[dict[str, object]] = []
+    fallback_options: dict[
+        str,
+        list[
+            tuple[
+                dict[str, object],
+                HighLevelDecisionV2,
+                dict[str, object],
+            ]
+        ],
+    ] = {}
+    rejected_decisions = [
+        decision
+        for decision in batch.decisions
+        if decision.robot_id in rejected
+    ]
     for decision in batch.decisions:
         if decision.robot_id not in rejected:
             continue
@@ -754,9 +821,17 @@ def apply_frontier_clearance_guard(
             )
         ):
             fallback_checks[decision.robot_id] = []
+            fallback_options[decision.robot_id] = []
             continue
         robot_reports: list[dict[str, object]] = []
-        for candidate in tuple(available):
+        robot_options: list[
+            tuple[
+                dict[str, object],
+                HighLevelDecisionV2,
+                dict[str, object],
+            ]
+        ] = []
+        for candidate in candidates:
             replacement = _fallback_decision(
                 decision,
                 frontier=candidate,
@@ -775,29 +850,103 @@ def apply_frontier_clearance_guard(
                 allow_bounded_approach_projection=bool(
                     projection_policy.get(decision.robot_id, False)
                 ),
+                projection_path_clearance_m=projection_path_clearance(
+                    decision.robot_id
+                ),
             )
             report["source_rank"] = candidate["source_rank"]
             robot_reports.append(report)
             if report["passed"] is True:
-                replacement = maybe_project(
-                    replacement,
-                    report,
-                    source="source_ranked_fallback_frontier",
+                robot_options.append(
+                    (candidate, replacement, report)
                 )
-                replacements[decision.robot_id] = replacement
-                available.remove(candidate)
-                assignments.append(
-                    {
-                        "robot_id": decision.robot_id,
-                        "rejected_frontier_id": checks[
-                            decision.robot_id
-                        ]["frontier_id"],
-                        "fallback_frontier_id": candidate["frontier_id"],
-                        "source_rank": candidate["source_rank"],
-                    }
-                )
-                break
         fallback_checks[decision.robot_id] = robot_reports
+        fallback_options[decision.robot_id] = robot_options
+
+    # A source-ranked greedy pass can consume the only safe frontier of the
+    # next robot even when the first robot has another valid fallback.  Choose
+    # the deterministic maximum-cardinality matching first, then minimize the
+    # total source rank and finally preserve robot order as a tie-break.  The
+    # candidate set is tiny (two robots in the real-world contract), and every
+    # selected edge has independently passed the unchanged physical guard.
+    best_matching: dict[
+        str,
+        tuple[
+            dict[str, object],
+            HighLevelDecisionV2,
+            dict[str, object],
+        ],
+    ] = {}
+    best_key: tuple[object, ...] | None = None
+
+    def search_matching(
+        index: int,
+        used_frontiers: set[str],
+        current: dict[
+            str,
+            tuple[
+                dict[str, object],
+                HighLevelDecisionV2,
+                dict[str, object],
+            ],
+        ],
+    ) -> None:
+        nonlocal best_matching, best_key
+        if index >= len(rejected_decisions):
+            sentinel = len(candidates) + 1
+            ranks = tuple(
+                int(current[decision.robot_id][0]["source_rank"])
+                if decision.robot_id in current
+                else sentinel
+                for decision in rejected_decisions
+            )
+            key: tuple[object, ...] = (
+                -len(current),
+                sum(
+                    int(option[0]["source_rank"])
+                    for option in current.values()
+                ),
+                ranks,
+            )
+            if best_key is None or key < best_key:
+                best_key = key
+                best_matching = dict(current)
+            return
+
+        decision = rejected_decisions[index]
+        search_matching(index + 1, used_frontiers, current)
+        for option in fallback_options.get(decision.robot_id, []):
+            frontier_id = str(option[0]["frontier_id"])
+            if frontier_id in used_frontiers:
+                continue
+            used_frontiers.add(frontier_id)
+            current[decision.robot_id] = option
+            search_matching(index + 1, used_frontiers, current)
+            del current[decision.robot_id]
+            used_frontiers.remove(frontier_id)
+
+    search_matching(0, set(), {})
+    for decision in rejected_decisions:
+        option = best_matching.get(decision.robot_id)
+        if option is None:
+            continue
+        candidate, replacement, report = option
+        replacement = maybe_project(
+            replacement,
+            report,
+            source="source_ranked_fallback_frontier",
+        )
+        replacements[decision.robot_id] = replacement
+        assignments.append(
+            {
+                "robot_id": decision.robot_id,
+                "rejected_frontier_id": checks[
+                    decision.robot_id
+                ]["frontier_id"],
+                "fallback_frontier_id": candidate["frontier_id"],
+                "source_rank": candidate["source_rank"],
+            }
+        )
 
     held = rejected - replacements.keys()
     guarded = (
@@ -867,6 +1016,10 @@ def apply_frontier_clearance_guard(
             robot_id: start_seed_snap_radius(robot_id)
             for robot_id in active_ids
         },
+        "projection_path_clearance_by_robot_m": {
+            robot_id: projection_path_clearance(robot_id)
+            for robot_id in active_ids
+        },
         "map_contract": {
             "frame_id": snapshot.frame_id,
             "resolution_m": snapshot.resolution_m,
@@ -893,8 +1046,10 @@ def apply_frontier_clearance_guard(
         "source_fidelity": (
             "the exact VLM-selected target remains unchanged in the preserved "
             "candidate batch; an execution target may be projected only to "
-            "the closest start-connected footprint-clear cell that produces "
-            "minimum bounded progress toward the same source frontier; any "
+            "the closest full-footprint-clear endpoint connected through the "
+            "robot-local router's configured known-free graph clearance and "
+            "producing minimum bounded progress toward the same source "
+            "frontier; any "
             "execution fallback is an unused frontier from the same frozen "
             "source manifest and must independently pass the same physical-"
             "clearance guard"

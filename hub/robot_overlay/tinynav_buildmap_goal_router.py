@@ -748,7 +748,10 @@ def run_ros(
                     )
 
         def publish_route(
-            self, plan: RoutePlan, grid: OccupancyGrid2D
+            self,
+            plan: RoutePlan,
+            grid: OccupancyGrid2D,
+            odom: Odometry,
         ) -> None:
             message = RosPath()
             message.header.stamp = self.get_clock().now().to_msg()
@@ -759,7 +762,14 @@ def run_ros(
                 pose.header = message.header
                 pose.pose.position.x = x_m
                 pose.pose.position.y = y_m
-                pose.pose.orientation.w = 1.0
+                # The pinned TinyNav controller interprets the relative path
+                # translation in pose[0]'s orientation.  Identity
+                # quaternions therefore make world -X look like reverse even
+                # after the robot has turned.  Each freshly replanned local
+                # route uses the current measured camera orientation so its
+                # forward component and heading error are in the live base
+                # frame and can converge after rotate-first recovery.
+                pose.pose.orientation = odom.pose.pose.orientation
                 message.poses.append(pose)
             self.path_publisher.publish(message)
 
@@ -923,7 +933,7 @@ def run_ros(
             waypoint_x, waypoint_y = select_lookahead(
                 grid, plan, lookahead_m=args.lookahead_m
             )
-            self.publish_route(plan, grid)
+            self.publish_route(plan, grid, odom)
             self.publish_target(waypoint_x, waypoint_y, odom)
             self.publish_progress(plan)
             self.publish_status(
