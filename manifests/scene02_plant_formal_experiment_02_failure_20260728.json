@@ -162,8 +162,51 @@
       "classification": "observed strict no-motion full-stack debug manifest for the exact session and code"
     }
   ],
-  "media": [],
-  "media_status": "replacement-run third-view and Dashboard media have not yet been bound; pre-replacement Formal 02 media is explicitly excluded from this run",
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_2/experiment_2_failure_2.mp4",
+      "size_bytes": 12550671,
+      "sha256": "127a65d81bed9352382b73563330c435d7c7dda68207934f80b14ca380cfafe9",
+      "duration_s": 165.733333,
+      "classification": "observed user-provided external-view master for the replacement run; committed byte-for-byte through Git LFS under media/video (overwrites the superseded Formal 02 filename)"
+    },
+    {
+      "path": "media/demo/scene02_formal_02_third_view.mp4",
+      "size_bytes": 9616058,
+      "sha256": "3a33e72481459242a128d7a7a533fce74d13e8cd7b36aa8f7a53dc75ddf9c56c",
+      "duration_s": 165.734,
+      "classification": "source-derived H.264 public derivative of the observed external-view master"
+    },
+    {
+      "path": "media/demo/scene02_formal_02_preview.gif",
+      "size_bytes": 9932601,
+      "sha256": "dae0245815c99dee15d6055845889f9dca1e8e2e2ca86a2bfbc652ae4e2aaf9c",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to ~8 s (matching the Scene 01 formal-experiment GIF convention)"
+    },
+    {
+      "path": "media/video/dashboard/experiment_2/experiment_2_failure_2_dashboard.mov",
+      "size_bytes": 208455462,
+      "sha256": "38f1a6f188031d3e4c8e7149503eaca3a9712227fcbc59d20e36638435415f73",
+      "duration_s": 318.3,
+      "classification": "observed user-provided Dashboard master for the replacement run; committed byte-for-byte through Git LFS under media/video (overwrites the superseded Formal 02 filename)"
+    },
+    {
+      "path": "media/demo/scene02_formal_02_dashboard.mp4",
+      "size_bytes": 3976530,
+      "sha256": "e47b1c571feba9b11888c66d8a425c0f6a2814ceff7703f089637966b043ffc0",
+      "duration_s": 318.234,
+      "classification": "source-derived H.264 public derivative of the observed Dashboard master, scaled to 1280px wide"
+    },
+    {
+      "path": "media/demo/scene02_formal_02_dashboard.gif",
+      "size_bytes": 2048793,
+      "sha256": "ef24524b63fa271b085064a49ad03d680e21b42b00a360902e44d642a3f8bdca",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to ~8 s (matching the Scene 01 formal-experiment GIF convention)"
+    }
+  ],
+  "media_status": "replacement-run third-view and Dashboard masters, derivatives and README presentation all published; pre-replacement Formal 02 media is explicitly excluded from this run",
   "superseded_record_provenance": {
     "archive_commit": "dcc8812b027c40fad2716b8a097e45d226d46686",
     "manifest": {
