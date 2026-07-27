@@ -146,8 +146,15 @@ def test_wsj_formal_observation_self_heals_one_sync_startup_stall():
     ).read_text()
 
     assert "wait_for_hub_sequence_advance" in launcher
-    assert "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-30" in launcher
-    assert "observed to need 17 s" in launcher
+    assert "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-15" in launcher
+    assert "--depth-topic /slam/depth" in launcher
+    assert "--pose-topic /slam/odometry_visual" in launcher
+    assert "--latest-rgb-for-depth" in launcher
+    assert (
+        'FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S:-0.05'
+        in launcher
+    )
+    assert '--latest-rgb-max-skew-s "$LATEST_RGB_MAX_SKEW_S"' in launcher
     assert "for attempt in 0 1" in launcher
     assert "restart only this read-only process" in launcher
     assert "failed to advance after one bounded read-only restart" in launcher

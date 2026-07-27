@@ -15,10 +15,11 @@
   the existing MAC-bound `Yunji-Robot` profile when carrier is present, and
   require an actual Hub observation sequence advance before calibration
   reports the Yunji sender ready.
-- Allow WSJ's stationary command-observation synchronizer 30 seconds for its
-  first end-to-end keyframe upload after an observed 17-second startup,
-  avoiding a needless restart immediately before the healthy tuple arrives;
-  successful startup still returns as soon as the Hub sequence advances.
+- Decouple WSJ's formal observation sender from motion-selected keyframes:
+  synchronize continuous depth/intrinsics/visual odometry, cache the latest
+  color frame behind a strict `50 ms` skew gate, retain calibrated
+  RGB-to-depth reprojection, and restore the bounded startup gate to
+  `15 seconds`.
 
 ### Scene 02 plant preparation (2026-07-25)
 

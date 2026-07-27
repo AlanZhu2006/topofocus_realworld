@@ -780,12 +780,37 @@ class FocusRosSender(Node):
             self.get_logger().info(
                 f"heartbeat thread started ({args.heartbeat_hz} Hz, independent of the sync callback)")
 
-        rgb_sub = message_filters.Subscriber(self, Image, args.rgb_topic, qos_profile=qos_profile_sensor_data)
         depth_sub = message_filters.Subscriber(self, Image, args.depth_topic, qos_profile=qos_profile_sensor_data)
         info_sub = message_filters.Subscriber(self, CameraInfo, args.info_topic, qos_profile=qos_profile_sensor_data)
         pose_sub = message_filters.Subscriber(self, Odometry, args.pose_topic, qos_profile=qos_profile_sensor_data)
-        synchronized_inputs = [rgb_sub, depth_sub, info_sub, pose_sub]
-        synchronized_callback = self.on_synced
+        self.latest_rgb_msg = None
+        self.latest_rgb_info_msg = None
+        self.latest_rgb_sub = None
+        self.latest_rgb_info_sub = None
+        if args.latest_rgb_for_depth:
+            self.latest_rgb_sub = self.create_subscription(
+                Image,
+                args.rgb_topic,
+                self.on_latest_rgb,
+                qos_profile_sensor_data,
+            )
+            self.latest_rgb_info_sub = self.create_subscription(
+                CameraInfo,
+                args.rgb_info_topic,
+                self.on_latest_rgb_info,
+                qos_profile_sensor_data,
+            )
+            synchronized_inputs = [depth_sub, info_sub, pose_sub]
+            synchronized_callback = self.on_synced_with_latest_rgb
+        else:
+            rgb_sub = message_filters.Subscriber(
+                self,
+                Image,
+                args.rgb_topic,
+                qos_profile=qos_profile_sensor_data,
+            )
+            synchronized_inputs = [rgb_sub, depth_sub, info_sub, pose_sub]
+            synchronized_callback = self.on_synced
         if args.register_rgb_to_depth:
             from rclpy.duration import Duration
             from rclpy.time import Time
@@ -799,14 +824,15 @@ class FocusRosSender(Node):
             self.registration_timeout = Duration(
                 seconds=args.registration_tf_timeout_s
             )
-            rgb_info_sub = message_filters.Subscriber(
-                self,
-                CameraInfo,
-                args.rgb_info_topic,
-                qos_profile=qos_profile_sensor_data,
-            )
-            synchronized_inputs.append(rgb_info_sub)
-            synchronized_callback = self.on_synced_registered
+            if not args.latest_rgb_for_depth:
+                rgb_info_sub = message_filters.Subscriber(
+                    self,
+                    CameraInfo,
+                    args.rgb_info_topic,
+                    qos_profile=qos_profile_sensor_data,
+                )
+                synchronized_inputs.append(rgb_info_sub)
+                synchronized_callback = self.on_synced_registered
         self.synchronizer = message_filters.ApproximateTimeSynchronizer(
             synchronized_inputs,
             queue_size=args.sync_queue_size, slop=args.sync_slop,
@@ -818,7 +844,8 @@ class FocusRosSender(Node):
             f"(robot_id={args.robot_id}, transform_version={args.transform_version}, "
             f"rate={args.rate_hz}Hz, max_frames={args.max_frames or 'unbounded'}, "
             f"capture_time_source={args.capture_time_source}, "
-            f"register_rgb_to_depth={args.register_rgb_to_depth})"
+            f"register_rgb_to_depth={args.register_rgb_to_depth}, "
+            f"latest_rgb_for_depth={args.latest_rgb_for_depth})"
         )
         if args.capture_time_source == "wall":
             self.get_logger().warn(
@@ -831,6 +858,29 @@ class FocusRosSender(Node):
 
     def on_synced(self, rgb_msg, depth_msg, info_msg, pose_msg) -> None:
         self._handle_synced(rgb_msg, depth_msg, info_msg, pose_msg, None)
+
+    def on_latest_rgb(self, rgb_msg) -> None:
+        self.latest_rgb_msg = rgb_msg
+
+    def on_latest_rgb_info(self, rgb_info_msg) -> None:
+        self.latest_rgb_info_msg = rgb_info_msg
+
+    def on_synced_with_latest_rgb(
+        self, depth_msg, info_msg, pose_msg
+    ) -> None:
+        rgb_msg = self.latest_rgb_msg
+        rgb_info_msg = self.latest_rgb_info_msg
+        if rgb_msg is None or rgb_info_msg is None:
+            return
+        skew_s = abs(
+            stamp_to_ns(rgb_msg.header.stamp)
+            - stamp_to_ns(depth_msg.header.stamp)
+        ) / 1e9
+        if skew_s > self.args.latest_rgb_max_skew_s:
+            return
+        self._handle_synced(
+            rgb_msg, depth_msg, info_msg, pose_msg, rgb_info_msg
+        )
 
     def on_synced_registered(
         self, rgb_msg, depth_msg, info_msg, pose_msg, rgb_info_msg
@@ -1131,6 +1181,22 @@ def main() -> int:
         default="/camera/camera/color/camera_info",
     )
     parser.add_argument(
+        "--latest-rgb-for-depth",
+        action="store_true",
+        help=(
+            "synchronize only the depth CameraInfo/odometry geometry tuple and "
+            "pair it with the latest RGB frame; intended for continuous depth "
+            "streams whose independent RGB stream can starve a five-way "
+            "ApproximateTimeSynchronizer"
+        ),
+    )
+    parser.add_argument(
+        "--latest-rgb-max-skew-s",
+        type=float,
+        default=0.05,
+        help="maximum accepted absolute timestamp skew for cached RGB",
+    )
+    parser.add_argument(
         "--rgb-optical-frame",
         default="camera_color_optical_frame",
     )
@@ -1169,6 +1235,10 @@ def main() -> int:
         parser.error("--registration-tf-timeout-s must be positive")
     if not 0.0 < args.registration_min_coverage <= 1.0:
         parser.error("--registration-min-coverage must be in (0, 1]")
+    if args.latest_rgb_max_skew_s <= 0.0:
+        parser.error("--latest-rgb-max-skew-s must be positive")
+    if args.latest_rgb_for_depth and not args.register_rgb_to_depth:
+        parser.error("--latest-rgb-for-depth requires --register-rgb-to-depth")
 
     args.base_camera_calibration = None
     args.shared_tracking_calibration = None

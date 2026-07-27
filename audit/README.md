@@ -82,6 +82,10 @@ current. For the authoritative project state, read
 
 ## Current calibration and sensors
 
+- [`WSJ_CONTINUOUS_OBSERVATION_RECOVERY_20260727.md`](WSJ_CONTINUOUS_OBSERVATION_RECOVERY_20260727.md):
+  formal-sender sparse-keyframe root cause, continuous geometry plus
+  timestamp-gated cached-color repair, and the preserved Scene 02 calibration
+  boundary for the planned stationary Yunji power cycle.
 - [`WSJ_COMMAND_OBSERVATION_STARTUP_GATE_20260727.md`](WSJ_COMMAND_OBSERVATION_STARTUP_GATE_20260727.md):
   observed 17-second stationary first-tuple latency, the residual 15-second
   strict-debug false failure and the bounded startup-gate repair.

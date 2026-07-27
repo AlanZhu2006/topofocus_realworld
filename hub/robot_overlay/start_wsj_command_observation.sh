@@ -24,14 +24,12 @@ COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"
 # than infra1. 0.38 keeps a measured margin while still rejecting a grossly
 # wrong intrinsic/extrinsic profile.
 REGISTRATION_MIN_COVERAGE="${FOCUS_WSJ_REGISTRATION_MIN_COVERAGE:-0.38}"
-# TinyNav keyframes are motion/content selected and can be much sparser while
-# the robot is stationary.  A newly attached five-topic synchronizer was
-# observed to need 17 s for its first accepted Hub upload on 2026-07-27.
-# Allow that healthy first tuple to arrive instead of restarting just before
-# it; this returns immediately on sequence advance, so it does not add delay
-# to the normal path.  One bounded read-only sender restart remains the only
-# self-heal if the sequence genuinely stalls.
-SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-30}"
+# The independent 30 Hz color stream is cached and accepted only when it is
+# within this measured time window of a continuous TinyNav depth tuple.
+LATEST_RGB_MAX_SKEW_S="${FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S:-0.05}"
+# Continuous depth/odometry removes the stationary sparse-keyframe wait. Keep
+# one bounded read-only sender restart as the sole startup self-heal.
+SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-15}"
 
 usage() {
   cat <<'EOF'
@@ -72,6 +70,10 @@ done
 }
 [[ "$SENDER_ADVANCE_TIMEOUT_S" =~ ^[1-9][0-9]*$ ]] || {
   echo "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S must be a positive integer." >&2
+  exit 2
+}
+[[ "$LATEST_RGB_MAX_SKEW_S" =~ ^0\.[0-9]*[1-9][0-9]*$ ]] || {
+  echo "FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S must be a positive subsecond decimal." >&2
   exit 2
 }
 [[ "$DEPLOYMENT_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
@@ -223,12 +225,14 @@ launch_sender() {
     --robot-id robot-0
     --transform-version "$TRANSFORM_VERSION"
     --rgb-topic /camera/camera/color/image_raw
-    --depth-topic /slam/keyframe_depth
+    --depth-topic /slam/depth
     --info-topic /slam/camera_info
-    --pose-topic /slam/keyframe_odom
+    --pose-topic /slam/odometry_visual
     --camera-frame camera
     --register-rgb-to-depth
     --rgb-info-topic /camera/camera/color/camera_info
+    --latest-rgb-for-depth
+    --latest-rgb-max-skew-s "$LATEST_RGB_MAX_SKEW_S"
     --rgb-optical-frame camera_color_optical_frame
     --depth-optical-frame camera_infra1_optical_frame
     --registration-min-coverage "$REGISTRATION_MIN_COVERAGE"

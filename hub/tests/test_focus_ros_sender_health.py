@@ -153,6 +153,52 @@ def test_rgb_registration_uses_static_extrinsic_for_valid_depth(monkeypatch):
     assert coverage == pytest.approx(0.8)
 
 
+def _stamped_message(stamp_ns: int):
+    return SimpleNamespace(
+        header=SimpleNamespace(
+            stamp=SimpleNamespace(
+                sec=stamp_ns // 1_000_000_000,
+                nanosec=stamp_ns % 1_000_000_000,
+            )
+        )
+    )
+
+
+def test_latest_rgb_geometry_tuple_accepts_fresh_cached_color(monkeypatch):
+    sender = _load_sender_module(monkeypatch)
+    node = sender.FocusRosSender.__new__(sender.FocusRosSender)
+    node.args = SimpleNamespace(latest_rgb_max_skew_s=0.05)
+    node.latest_rgb_msg = _stamped_message(10_020_000_000)
+    node.latest_rgb_info_msg = object()
+    calls = []
+    node._handle_synced = lambda *messages: calls.append(messages)
+    depth = _stamped_message(10_000_000_000)
+    info = object()
+    pose = object()
+
+    node.on_synced_with_latest_rgb(depth, info, pose)
+
+    assert calls == [
+        (node.latest_rgb_msg, depth, info, pose, node.latest_rgb_info_msg)
+    ]
+
+
+def test_latest_rgb_geometry_tuple_rejects_stale_cached_color(monkeypatch):
+    sender = _load_sender_module(monkeypatch)
+    node = sender.FocusRosSender.__new__(sender.FocusRosSender)
+    node.args = SimpleNamespace(latest_rgb_max_skew_s=0.05)
+    node.latest_rgb_msg = _stamped_message(10_051_000_000)
+    node.latest_rgb_info_msg = object()
+    calls = []
+    node._handle_synced = lambda *messages: calls.append(messages)
+
+    node.on_synced_with_latest_rgb(
+        _stamped_message(10_000_000_000), object(), object()
+    )
+
+    assert calls == []
+
+
 def _slam_payload(
     *,
     initial=1.0,
