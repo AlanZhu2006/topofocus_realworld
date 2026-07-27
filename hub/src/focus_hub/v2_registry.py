@@ -10,7 +10,12 @@ from dataclasses import dataclass, field
 import threading
 import time
 
-from .models import CommandMode
+from .models import (
+    CommandMode,
+    LocalizationState,
+    RobotHealth,
+    SafetyState,
+)
 from .registry import (
     ClockViolation,
     HubRegistry,
@@ -130,6 +135,40 @@ class V2DecisionRegistry:
             "reason": decision.reason,
         }
 
+    @staticmethod
+    def _bounded_occupancy_recovery_renewal(
+        decision: HighLevelDecisionV2,
+        state: _V2RobotState,
+        health: RobotHealth,
+    ) -> bool:
+        """Permit only the receiver's fail-stopped occupancy recovery lease.
+
+        The robot-local receiver has already removed motion authority and
+        emitted zero before reporting this event.  Extending the same immutable
+        leg lets it resume after a bounded occupancy-only sensor jitter without
+        making a new target command-ready.  Any different health state, event,
+        leg, lease, or missing zero confirmation remains fail-closed.
+        """
+
+        previous = state.latest_by_leg.get(decision.leg_id)
+        event = state.latest_event
+        return bool(
+            previous is not None
+            and event is not None
+            and decision.lease_sequence == previous.lease_sequence + 1
+            and event.decision_id == previous.decision_id
+            and event.lease_sequence == previous.lease_sequence
+            and event.leg_id == previous.leg_id
+            and event.status == NavigationStatusV2.ACCEPTED
+            and event.reason_code == "LOCAL_OCCUPANCY_RECOVERY_WAIT"
+            and event.velocity_zero_confirmed
+            and health.safety_state == SafetyState.HOLD
+            and health.localization_state == LocalizationState.TRACKING
+            and not health.estop_engaged
+            and not health.collision_avoidance_ready
+            and health.motor_controller_ready
+        )
+
     def _validate_lease_order(
         self,
         decision: HighLevelDecisionV2,
@@ -230,7 +269,14 @@ class V2DecisionRegistry:
             raise UnsafeDecision(
                 f"{decision.robot_id} health does not permit a GOAL: health is absent"
             )
-        if not health.ready_for_goal():
+        if not health.ready_for_goal() and not (
+            is_renewal
+            and self._bounded_occupancy_recovery_renewal(
+                decision,
+                state,
+                health,
+            )
+        ):
             raise UnsafeDecision(
                 f"{decision.robot_id} health does not permit a GOAL: "
                 f"safety={health.safety_state.value} "

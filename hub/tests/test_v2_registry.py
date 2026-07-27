@@ -25,6 +25,17 @@ def make_health(ready: bool, *, detail: str = "") -> RobotHealth:
     })
 
 
+def occupancy_recovery_health() -> RobotHealth:
+    return RobotHealth.model_validate({
+        "safety_state": "HOLD",
+        "localization_state": "TRACKING",
+        "estop_engaged": False,
+        "collision_avoidance_ready": False,
+        "motor_controller_ready": True,
+        "detail": "occupancy_age=5.215s/5.000s",
+    })
+
+
 def ready_registries(observation_factory, *, second_mapping_only: bool = False):
     policies = {
         robot_id: RobotPolicy(TRANSFORM, allow_goal=True) for robot_id in ROBOTS
@@ -328,6 +339,114 @@ def test_renewal_requires_fresh_feedback_from_each_robot(observation_factory):
     assert registry.effective_decision(
         "robot-0", now_ns=now + 1_000_000_001
     ).lease_sequence == 1
+
+
+def test_same_leg_renewal_accepts_zeroed_bounded_occupancy_recovery(
+    observation_factory,
+):
+    observations, registry, digests, now = ready_registries(observation_factory)
+    first = make_batch(observations, digests, now=now)
+    registry.publish_batch(first, now_ns=now)
+
+    recovery_raw = make_event(
+        first.decisions[0],
+        now=now + 500_000_000,
+        event_id="occupancy-recovery-0",
+    ).model_dump(mode="json")
+    recovery_raw["status"] = "ACCEPTED"
+    recovery_raw["reason_code"] = "LOCAL_OCCUPANCY_RECOVERY_WAIT"
+    recovery_raw["velocity_zero_confirmed"] = True
+    recovery = NavigationEventV2.model_validate(recovery_raw)
+    navigating = make_event(
+        first.decisions[1],
+        now=now + 500_000_000,
+        event_id="navigating-1",
+    )
+    for event in (recovery, navigating):
+        registry.accept_event(
+            event,
+            hashlib.sha256(event.model_dump_json().encode()).hexdigest(),
+            now_ns=now + 500_000_000,
+        )
+    observations.accept_heartbeat(
+        "robot-0",
+        occupancy_recovery_health(),
+        now + 750_000_000,
+        now_ns=now + 750_000_000,
+    )
+    observations.accept_heartbeat(
+        "robot-1",
+        make_health(True),
+        now + 750_000_000,
+        now_ns=now + 750_000_000,
+    )
+
+    renewal = make_batch(
+        observations,
+        digests,
+        now=now,
+        lease_sequence=1,
+        decision_suffix="1",
+        issued_at_ns=now + 1_000_000_000,
+        expires_at_ns=now + 9_000_000_000,
+    )
+    registry.publish_batch(renewal, now_ns=now + 1_000_000_000)
+    assert registry.effective_decision(
+        "robot-0",
+        now_ns=now + 1_000_000_001,
+    ).lease_sequence == 1
+
+
+@pytest.mark.parametrize(
+    ("reason_code", "zero_confirmed"),
+    (
+        ("LOCAL_PLANNER_ACTIVE", True),
+        ("LOCAL_OCCUPANCY_RECOVERY_WAIT", False),
+    ),
+)
+def test_unready_renewal_rejects_non_recovery_or_unconfirmed_zero(
+    observation_factory,
+    reason_code,
+    zero_confirmed,
+):
+    observations, registry, digests, now = ready_registries(observation_factory)
+    first = make_batch(observations, digests, now=now)
+    registry.publish_batch(first, now_ns=now)
+
+    for index, decision in enumerate(first.decisions):
+        raw = make_event(
+            decision,
+            now=now + 500_000_000,
+            event_id=f"event-{index}",
+        ).model_dump(mode="json")
+        if index == 0:
+            raw["status"] = "ACCEPTED"
+            raw["reason_code"] = reason_code
+            raw["velocity_zero_confirmed"] = zero_confirmed
+        event = NavigationEventV2.model_validate(raw)
+        registry.accept_event(
+            event,
+            hashlib.sha256(event.model_dump_json().encode()).hexdigest(),
+            now_ns=now + 500_000_000,
+        )
+    observations.accept_heartbeat(
+        "robot-0",
+        occupancy_recovery_health(),
+        now + 750_000_000,
+        now_ns=now + 750_000_000,
+    )
+
+    renewal = make_batch(
+        observations,
+        digests,
+        now=now,
+        lease_sequence=1,
+        decision_suffix="1",
+        issued_at_ns=now + 1_000_000_000,
+        expires_at_ns=now + 9_000_000_000,
+    )
+    with pytest.raises(UnsafeDecision, match="health does not permit a GOAL"):
+        registry.publish_batch(renewal, now_ns=now + 1_000_000_000)
 
 
 def test_one_robot_holds_while_other_renews_without_restarting_leg(
