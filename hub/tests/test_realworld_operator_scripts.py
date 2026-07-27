@@ -433,6 +433,9 @@ def test_runtime_processes_are_bound_to_the_checked_deployment_commit():
     assert "FOCUS_DEPLOYMENT_COMMIT must be the explicit" in wsj
     assert "@focus_deployment_commit" in wsj_sender
     assert "@focus_sender_process_contract_sha256" in wsj_sender
+    assert "legacy_process_contract_sha256" in wsj_sender
+    assert "SENDER_PROCESS_DEPLOYMENT_COMMIT" in wsj_sender
+    assert '"session_deployment_commit"' in wsj_sender
     assert "--runtime-command-contract-file" in wsj_sender
     assert "write_active_contract" in wsj_sender
     assert "validated_contract_applied_without_dds_restart" in (
@@ -521,6 +524,13 @@ def test_wsj_publisher_recovery_preserves_sender_and_requires_reanchor():
     assert "sender_pid_preserved" in recovery
     assert "robot_commands_issued" in recovery
     assert "publisher_order_complete" in recovery
+    assert "sender_process_deployment_commit" in recovery
+    assert "runtime_sender_pids()" in recovery
+    assert 'executable##*/}" == python*' in recovery
+    assert 'tr \'\\0\' \' \' <"/proc/$pid/cmdline"' in recovery
+    assert "Expected exactly one persistent runtime-configurable WSJ sender." in (
+        recovery
+    )
     assert recovery.index(
         'parked_tuple_baseline="$(parked_tuple_count)"'
     ) < restart_camera

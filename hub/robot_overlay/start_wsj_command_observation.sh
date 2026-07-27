@@ -16,6 +16,7 @@ TRANSFORM_VERSION="${FOCUS_WSJ_TRANSFORM_VERSION:-}"
 GOAL_CATEGORY="${FOCUS_WSJ_GOAL_CATEGORY:-chair}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
+SENDER_PROCESS_DEPLOYMENT_COMMIT=""
 PREVIEW_URL="${FOCUS_FOXGLOVE_PREVIEW_URL:-http://127.0.0.1:18766}"
 PREVIEW_WINDOW="${FOCUS_WSJ_PREVIEW_WINDOW:-foxglove-preview}"
 RUNTIME_CONTRACT_FILE="${FOCUS_WSJ_RUNTIME_CONTRACT_FILE:-$STATE_DIR/wsj-command-observation-contract.json}"
@@ -128,7 +129,6 @@ tmux has-session -t "$SESSION" 2>/dev/null || {
 PROCESS_CONTRACT_SHA256="$(
   {
     printf '%s\0' \
-      "$DEPLOYMENT_COMMIT" \
       "$HUB_URL" \
       "$RUNTIME_CONTRACT_FILE" \
       "$RUNTIME_RECEIPT_FILE" \
@@ -138,6 +138,21 @@ PROCESS_CONTRACT_SHA256="$(
     sha256sum "$SCRIPT_DIR/focus_ros_sender.py"
   } | sha256sum | awk '{print $1}'
 )"
+
+legacy_process_contract_sha256() {
+  local process_deployment_commit="$1"
+  {
+    printf '%s\0' \
+      "$process_deployment_commit" \
+      "$HUB_URL" \
+      "$RUNTIME_CONTRACT_FILE" \
+      "$RUNTIME_RECEIPT_FILE" \
+      "$REGISTRATION_MIN_COVERAGE" \
+      "$RGB_CACHE_SIZE" \
+      "$LATEST_RGB_MAX_SKEW_S"
+    sha256sum "$SCRIPT_DIR/focus_ros_sender.py"
+  } | sha256sum | awk '{print $1}'
+}
 
 sender_process_rows() {
   local pid executable
@@ -227,6 +242,7 @@ launch_sender() {
     @focus_deployment_commit "$DEPLOYMENT_COMMIT"
   tmux set-option -w -t "$SESSION:hub-sender" \
     @focus_sender_process_contract_sha256 "$PROCESS_CONTRACT_SHA256"
+  SENDER_PROCESS_DEPLOYMENT_COMMIT="$DEPLOYMENT_COMMIT"
   deadline=$((SECONDS + 30))
   until [[ -n "$(sender_pid)" ]]; do
     if [[ "$(tmux display-message -p -t "$SESSION:hub-sender" \
@@ -243,7 +259,7 @@ launch_sender() {
 }
 
 ensure_sender_process() {
-  local sender_window=false deployment process_contract processes
+  local sender_window=false deployment process_contract legacy_contract processes
   local runtime_processes incompatible_processes runtime_count
   if tmux list-windows -t "$SESSION" -F '#{window_name}' \
       | grep -qx hub-sender; then
@@ -290,16 +306,32 @@ ensure_sender_process() {
       tmux show-options -w -v -t "$SESSION:hub-sender" \
         @focus_sender_process_contract_sha256 2>/dev/null || true
     )"
-    if [[ "$deployment" != "$DEPLOYMENT_COMMIT" \
-          || "$process_contract" != "$PROCESS_CONTRACT_SHA256" ]]; then
-      echo "Replacing the WSJ sender once for a changed process deployment; publisher recovery must follow before use."
+    legacy_contract="$(
+      legacy_process_contract_sha256 "$deployment"
+    )"
+    if [[ ! "$deployment" =~ ^[0-9a-f]{40}$ \
+          || ( "$process_contract" != "$PROCESS_CONTRACT_SHA256" \
+               && "$process_contract" != "$legacy_contract" ) ]]; then
+      echo "Replacing the WSJ sender once for a changed process contract; publisher recovery must follow before use."
       stop_tracked_sender
       sender_window=false
+    else
+      # Older launchers included the repository commit in this process
+      # identity. Adopt that exact running process once when its immutable
+      # sender code and DDS arguments still match. Session-specific commit,
+      # calibration and goal metadata are hot-loaded below.
+      tmux set-option -w -t "$SESSION:hub-sender" \
+        @focus_sender_process_contract_sha256 "$PROCESS_CONTRACT_SHA256"
+      SENDER_PROCESS_DEPLOYMENT_COMMIT="$deployment"
     fi
   fi
   if [[ "$sender_window" != true ]]; then
     launch_sender
   fi
+  [[ "$SENDER_PROCESS_DEPLOYMENT_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "WSJ sender process deployment identity is unavailable." >&2
+    return 1
+  }
 }
 
 write_parked_contract() {
@@ -313,7 +345,8 @@ write_active_contract() {
   FOCUS_CONTRACT_PATH="$RUNTIME_CONTRACT_FILE" \
   FOCUS_ROBOT_ID=robot-0 \
   FOCUS_CAMERA_FRAME=camera \
-  FOCUS_DEPLOYMENT_COMMIT="$DEPLOYMENT_COMMIT" \
+  FOCUS_PROCESS_DEPLOYMENT_COMMIT="$SENDER_PROCESS_DEPLOYMENT_COMMIT" \
+  FOCUS_SESSION_DEPLOYMENT_COMMIT="$DEPLOYMENT_COMMIT" \
   FOCUS_TRANSFORM_VERSION="$TRANSFORM_VERSION" \
   FOCUS_CALIBRATION_ID="$SHARED_FRAME_CALIBRATION_ID" \
   FOCUS_GOAL_CATEGORY="$GOAL_CATEGORY" \
@@ -342,7 +375,8 @@ payload = {
     "activation_confirmation": "COMMAND_CAPABLE_OBSERVATION_ONLY",
     "robot_id": os.environ["FOCUS_ROBOT_ID"],
     "camera_frame": os.environ["FOCUS_CAMERA_FRAME"],
-    "deployment_commit": os.environ["FOCUS_DEPLOYMENT_COMMIT"],
+    "deployment_commit": os.environ["FOCUS_PROCESS_DEPLOYMENT_COMMIT"],
+    "session_deployment_commit": os.environ["FOCUS_SESSION_DEPLOYMENT_COMMIT"],
     "transform_version": os.environ["FOCUS_TRANSFORM_VERSION"],
     "shared_frame_calibration_id": os.environ["FOCUS_CALIBRATION_ID"],
     "goal_category": os.environ["FOCUS_GOAL_CATEGORY"],
@@ -418,7 +452,7 @@ wait_for_receipt() {
        FOCUS_EXPECT_STATUS="$expected_status" \
        FOCUS_EXPECT_SHA="$expected_sha" \
        FOCUS_EXPECT_PID="$expected_pid" \
-       FOCUS_EXPECT_COMMIT="$DEPLOYMENT_COMMIT" \
+       FOCUS_EXPECT_COMMIT="$SENDER_PROCESS_DEPLOYMENT_COMMIT" \
        "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
 import json
 import os
@@ -572,6 +606,7 @@ echo "WSJ command-capable observations activated without a DDS restart."
 echo "  transform: $TRANSFORM_VERSION"
 echo "  calibration: $SHARED_TRACKING_CALIBRATION"
 echo "  deployment: $DEPLOYMENT_COMMIT"
+echo "  sender process deployment: $SENDER_PROCESS_DEPLOYMENT_COMMIT"
 echo "  Hub sequence: $initial_sequence -> $latest_sequence"
 echo "  process contract: $PROCESS_CONTRACT_SHA256"
 echo "  runtime contract: $contract_sha256"

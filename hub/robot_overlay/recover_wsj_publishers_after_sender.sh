@@ -83,9 +83,34 @@ FOCUS_DEPLOYMENT_COMMIT="$DEPLOYMENT_COMMIT" \
 bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   --session "$SESSION" \
   --park-only
+
+runtime_sender_pids() {
+  local pid executable command_line
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    executable="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    [[ "${executable##*/}" == python* ]] || continue
+    command_line="$(
+      tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true
+    )"
+    [[ "$command_line" == *"$SCRIPT_DIR/focus_ros_sender.py"* \
+       && "$command_line" == *"--runtime-command-contract-file"* ]] \
+      || continue
+    printf '%s\n' "$pid"
+  done < <(
+    pgrep -f 'focus_ros_sender\.py.*--runtime-command-contract-file' \
+      2>/dev/null || true
+  )
+}
+
+sender_pids="$(runtime_sender_pids)"
+[[ "$(wc -w <<<"$sender_pids")" -eq 1 ]] || {
+  echo "Expected exactly one persistent runtime-configurable WSJ sender." >&2
+  [[ -z "$sender_pids" ]] || printf '%s\n' "$sender_pids" >&2
+  exit 1
+}
 sender_pid="$(
-  pgrep -f 'focus_ros_sender\.py.*--runtime-command-contract-file' \
-    2>/dev/null | head -n 1
+  printf '%s\n' "$sender_pids"
 )"
 [[ -n "$sender_pid" ]] || {
   echo "Persistent runtime-configurable WSJ sender is not running." >&2
@@ -95,8 +120,8 @@ sender_deployment="$(
   tmux show-options -w -v -t "$SESSION:hub-sender" \
     @focus_deployment_commit 2>/dev/null || true
 )"
-[[ "$sender_deployment" == "$DEPLOYMENT_COMMIT" ]] || {
-  echo "WSJ sender deployment does not match the requested recovery." >&2
+[[ "$sender_deployment" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "WSJ sender process deployment identity is unavailable." >&2
   exit 1
 }
 
@@ -142,10 +167,7 @@ wait_for_sender_tuple_advance() {
   local baseline="$1" deadline current current_pid
   deadline=$((SECONDS + 20))
   while (( SECONDS < deadline )); do
-    current_pid="$(
-      pgrep -f 'focus_ros_sender\.py.*--runtime-command-contract-file' \
-        2>/dev/null | head -n 1
-    )"
+    current_pid="$(runtime_sender_pids)"
     [[ "$current_pid" == "$sender_pid" ]] || {
       echo "WSJ DDS sender PID changed during publisher recovery." >&2
       return 1
@@ -165,6 +187,7 @@ write_reanchor_marker() {
   FOCUS_MARKER="$MARKER_FILE" \
   FOCUS_BOOT_ID="$boot_id" \
   FOCUS_DEPLOYMENT_COMMIT="$DEPLOYMENT_COMMIT" \
+  FOCUS_SENDER_DEPLOYMENT_COMMIT="$sender_deployment" \
   FOCUS_SENDER_PID="$sender_pid" \
   FOCUS_RECOVERY_STATUS="$status" \
   python3 - <<'PY'
@@ -180,6 +203,9 @@ payload = {
     "schema_version": "focus-wsj-tracking-reanchor-required-v1",
     "tracking_restart_boot_id": os.environ["FOCUS_BOOT_ID"],
     "deployment_commit": os.environ["FOCUS_DEPLOYMENT_COMMIT"],
+    "sender_process_deployment_commit": os.environ[
+        "FOCUS_SENDER_DEPLOYMENT_COMMIT"
+    ],
     "sender_pid_preserved": int(os.environ["FOCUS_SENDER_PID"]),
     "recovery_status": status,
     "publisher_order": [
