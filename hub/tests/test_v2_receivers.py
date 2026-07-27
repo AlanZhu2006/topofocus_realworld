@@ -551,7 +551,7 @@ def test_wsj_trajectory_gate_stops_before_terminal_recovery_deadline():
         "trajectory_received_ns": 1_100_000_000,
         "stale_timeout_s": 1.0,
         "start_grace_s": 1.5,
-        "recovery_timeout_s": 3.0,
+        "recovery_timeout_s": 5.0,
     }
 
     fresh, failed, age_s, observed = wsj.trajectory_gate_state(
@@ -564,12 +564,21 @@ def test_wsj_trajectory_gate_stops_before_terminal_recovery_deadline():
     assert observed is True
 
     fresh, failed, age_s, observed = wsj.trajectory_gate_state(
-        now_ns=4_101_000_000,
+        now_ns=4_465_452_042,
+        **kwargs,
+    )
+    assert fresh is False
+    assert failed is False
+    assert age_s == pytest.approx(3.365452042)
+    assert observed is True
+
+    fresh, failed, age_s, observed = wsj.trajectory_gate_state(
+        now_ns=6_101_000_000,
         **kwargs,
     )
     assert fresh is False
     assert failed is True
-    assert age_s == pytest.approx(3.001)
+    assert age_s == pytest.approx(5.001)
     assert observed is True
 
 
@@ -1177,7 +1186,7 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0' in wsj
     assert 'FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0' in wsj
     assert 'FOCUS_WSJ_TRAJECTORY_STALE_TIMEOUT_S:-1.0' in wsj
-    assert 'FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-3.0' in wsj
+    assert 'FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-5.0' in wsj
     assert (
         '--local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"'
         in wsj
@@ -1190,6 +1199,17 @@ def test_robot_launchers_require_live_data_plane_verification():
         '--trajectory-recovery-timeout-s '
         '"$TRAJECTORY_RECOVERY_TIMEOUT_S"'
         in wsj
+    )
+    assert 'FOCUS_YUNJI_TRAJECTORY_STALE_TIMEOUT_S:-1.0' in yunji
+    assert 'FOCUS_YUNJI_TRAJECTORY_RECOVERY_TIMEOUT_S:-5.0' in yunji
+    assert (
+        '--trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"'
+        in yunji
+    )
+    assert (
+        '--trajectory-recovery-timeout-s '
+        '"$TRAJECTORY_RECOVERY_TIMEOUT_S"'
+        in yunji
     )
     assert '--slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"' in wsj
     sensor_verification = wsj[

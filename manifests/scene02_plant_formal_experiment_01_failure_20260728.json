@@ -1,0 +1,145 @@
+{
+  "schema_version": "focus-scene-formal-experiment-v1",
+  "scene_id": "scene02-plant",
+  "target_category": "plant",
+  "formal_index": 1,
+  "result": "FAILURE",
+  "session_id": "scene02-plant-20260728-044246-recal2",
+  "episode_id": "scene02-plant-recal1-20260728-044959",
+  "session_git_commit": "a3dbe09bd543a7b26a10241712b6c9b1c60192e5",
+  "session_contract_sha256": "9a2b9a2916fe24102eb9e4b992afbf2ba8b1e1679e9e0a105c00b1926f3555d4",
+  "calibration_id": "shared-board-odin1-scene02-plant-20260728-044246-recal2-v1",
+  "classification": {
+    "primary": "execution_engineering_failure",
+    "subtype": "local_planner_trajectory_stale",
+    "terminal_reason": "LOCAL_PLANNER_PATH_STALE",
+    "vlm_failure": false,
+    "basis": "WSJ retained NAVIGATING/ONLINE_PATH_READY but its non-empty trajectory publication was 3.365452042 s old, exceeding the configured 3.0 s terminal recovery timeout"
+  },
+  "metrics": {
+    "success": 0,
+    "sr": 0.0,
+    "source_compatible_spl": 0.0,
+    "standard_spl": 0.0,
+    "standard_shortest_feasible_path_m": null,
+    "standard_shortest_path_status": "not required for this failed episode's zero SPL contribution"
+  },
+  "execution": {
+    "source_rounds_completed": 4,
+    "source_steps": [
+      0,
+      24,
+      49,
+      74
+    ],
+    "automatic_terminal_candidate_complete": false,
+    "official_success_verified": false,
+    "outcome": "failed_robot_or_controller_holding",
+    "final_velocity_zero_confirmed": {
+      "robot-0": true,
+      "robot-1": true
+    },
+    "robots": {
+      "robot-0": {
+        "name": "WSJ",
+        "actual_path_length_m": 6.104564264724331,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD"
+      },
+      "robot-1": {
+        "name": "Yunji",
+        "actual_path_length_m": 1.905386508178905,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD"
+      }
+    }
+  },
+  "behavior": [
+    "round 0: Yunji executed the selected frontier while WSJ held for route separation",
+    "round 1: WSJ explored while Yunji's frontier was withheld by the clearance guard",
+    "round 2: WSJ continued exploration while Yunji held for route separation",
+    "round 3: WSJ received the plant semantic region and Yunji received frontier B; Yunji was isolated after LOCAL_GOAL_UNREACHABLE",
+    "WSJ retained a valid ONLINE_PATH_READY route but its trajectory stream became stale and the episode failed closed before semantic arrival"
+  ],
+  "vlm_evidence": {
+    "target_found": true,
+    "round_index": 3,
+    "source_step": 74,
+    "robot_id": "robot-0",
+    "target_kind": "SEMANTIC_REGION",
+    "semantic_category": "plant",
+    "semantic_component_size_cells": 9,
+    "display_centroid_shared_xy_m": [
+      1.0142681887100657,
+      7.828397224088972
+    ],
+    "status": "source-derived candidate correctly selected the available plant semantic region; not the terminal failure"
+  },
+  "terminal_execution_evidence": {
+    "robot_id": "robot-0",
+    "trajectory_path_age_s": 3.365452042,
+    "configured_terminal_recovery_timeout_s": 3.0,
+    "configured_physical_stale_gate_timeout_s": 1.0,
+    "trajectory_observed_for_authority": true,
+    "router_state": "NAVIGATING",
+    "router_reason": "ONLINE_PATH_READY",
+    "router_waypoint_xy_m": [
+      1.025,
+      5.425
+    ],
+    "latest_raw_cmd": [
+      0.0,
+      0.0
+    ]
+  },
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-044246-recal2_live_scene02-plant_20260728_045111_880186006/episode_report.json",
+      "size_bytes": 9919,
+      "sha256": "1a96f0d2364050b577897875607878886b3c8b568b1a165606871d73ce83ffe5",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-044246-recal2_live_scene02-plant_20260728_045111_880186006/controller_events.jsonl",
+      "size_bytes": 38550,
+      "sha256": "ed0bd91a5de6204559be2df642cdb087115a0569a8626afd9474698c9a984f02",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-044246-recal2_live_scene02-plant_20260728_045111_880186006/scene_manifest.json",
+      "size_bytes": 31929,
+      "sha256": "beea265906bb24a9a70ebc59df26c21cd5ede02878ae23cc5801061a6658f353",
+      "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-044246-recal2_live_scene02-plant_20260728_045111_880186006/round_03_step_074/vlm_candidate_batch.json",
+      "size_bytes": 6548,
+      "sha256": "bbbfc5d3681f9e68334716506107c1ce7d8eca56433c0928cd90be638832718d",
+      "classification": "source-derived unmodified VLM candidate batch; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene02-plant-20260728-044246-recal2/session.json",
+      "size_bytes": 4283,
+      "sha256": "1bdebe420a829d1ff0190128c93f1efc2fbee4610040c3ef40f17bca934b8212",
+      "classification": "source-derived session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene02-plant-20260728-044246-recal2/shared_frame.json",
+      "size_bytes": 6029,
+      "sha256": "5f95966f2c201467af549fc845d0265e9ea50cd12595c5931082451a647cde07",
+      "classification": "observed and source-derived shared-frame calibration; runtime file ignored by Git"
+    },
+    {
+      "path": "/home/nvidia/.local/state/topofocus/wsj-v2-buildmap-live-20260727T205051Z.jsonl",
+      "size_bytes": 97692,
+      "sha256": "bfbdc28e3740990fdcff7d1add67c4f38a1e1d540e2e726c6ba5a9f22bcba690",
+      "classification": "observed robot-local log verified through the existing WSJ SSH/tmux session; bytes remain on WSJ"
+    }
+  ],
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "cleanup_state": "both robots HOLDING with velocity_zero_confirmed=true; Hub GOAL output disabled",
+    "post_episode_motion_authority": false
+  }
+}

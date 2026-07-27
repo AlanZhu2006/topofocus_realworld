@@ -7,6 +7,10 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md):
+  Scene 02 formal experiment 01 failure, exact dual-robot paths, zero-valued
+  SR/SPL contribution, VLM/non-VLM attribution and the observed WSJ
+  `LOCAL_PLANNER_PATH_STALE` terminal evidence.
 - [`ONECLICK_RELIABILITY_AND_LATENCY_20260725.md`](ONECLICK_RELIABILITY_AND_LATENCY_20260725.md):
   post-experiment calibration/debug/live/cleanup audit, bounded self-recovery,
   safe startup parallelism, per-phase timing and the current Yunji

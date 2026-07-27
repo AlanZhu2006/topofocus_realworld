@@ -51,6 +51,13 @@ MAX_PLAN_DURATION_S="${FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50}"
 # physical gate zeros and the seven-second recovery window begins.
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
+# Match WSJ's common TinyNav receiver contract: immediately zero after one
+# second without a fresh collision-free path, but keep an already-started
+# semantic leg alive for a bounded five-second republish window. This changes
+# no WATER velocity authority; its independent stale-command watchdog remains
+# final.
+TRAJECTORY_STALE_TIMEOUT_S="${FOCUS_YUNJI_TRAJECTORY_STALE_TIMEOUT_S:-1.0}"
+TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_YUNJI_TRAJECTORY_RECOVERY_TIMEOUT_S:-5.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # The forward-only planner contains collision-scored zero-linear turns.  The
@@ -548,6 +555,8 @@ receiver_args=(
   --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
+  --trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"
+  --trajectory-recovery-timeout-s "$TRAJECTORY_RECOVERY_TIMEOUT_S"
   --external-odometry-health
   --platform-health-topic /focus/water/cmd_bridge_status
   --reject-reverse-trajectory

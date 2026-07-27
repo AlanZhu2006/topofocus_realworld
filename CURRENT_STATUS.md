@@ -1,7 +1,7 @@
 # Current project status
 
-Snapshot: **2026-07-25, after Scene 01 formal experiment 05, media
-publication and local arrival-stabilization verification.**
+Snapshot: **2026-07-28, after Scene 02 formal experiment 01 failure archival
+and local trajectory-recovery verification.**
 
 ## Scene 01 formal results
 
@@ -28,6 +28,27 @@ The complete experiment/action/media binding is in
 Exact machine-readable metrics, paths, hashes and evidence classes are in
 [`manifests/scene01_chair_formal_experiments_20260725.json`](manifests/scene01_chair_formal_experiments_20260725.json).
 
+## Scene 02 formal results
+
+Scene `scene02-plant`, target `plant`, currently contains one archived formal
+episode.
+
+| Episodes | Successes | SR | Mean source-compatible SPL | Mean Standard SPL |
+| ---: | ---: | ---: | ---: | ---: |
+| `1` | `0` | `0.0` | `0.0` | `0.0` |
+
+Formal 01, episode `scene02-plant-recal1-20260728-044959`, completed four
+source-derived rounds. WSJ travelled `6.104564 m` and Yunji travelled
+`1.905387 m`; both ended in confirmed zero-velocity HOLD. The terminal result
+is `execution_engineering_failure/local_planner_trajectory_stale`, not a VLM
+failure: round 4 had already selected the plant semantic region for WSJ while
+its local router remained `NAVIGATING/ONLINE_PATH_READY`.
+
+The complete record is
+[`audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md);
+the machine-readable result is
+[`manifests/scene02_plant_formal_experiment_01_failure_20260728.json`](manifests/scene02_plant_formal_experiment_01_failure_20260728.json).
+
 ## Published media
 
 - Five original third-view masters and five Dashboard masters are preserved
@@ -53,40 +74,39 @@ RGB-D / pose
   -> coordinated HOLD
 ```
 
-Commit `c4b1116f524b691522c34a18dfb0d214da5011d1` contains the minimal WSJ
-semantic-arrival stabilization:
+The current deployment repair keeps the stale-trajectory physical zero gate
+at `1.0 s` and changes only the terminal republish window from `3.0 s` to
+`5.0 s` for an already-started semantic leg. Both robot launchers pass this
+contract explicitly. A never-started path retains its shorter `1.5 s` grace,
+and WATER/TinyNav collision, watchdog, lease, localization, occupancy and
+robot-local stop/reject authority remain unchanged.
 
-- a `0.15 m` inward semantic planning margin while preserving the official
-  `0.5 m` arrival radius;
-- zeroing tiny negative longitudinal segments before pinned-controller
-  reverse quantization;
-- explicit launcher configuration and regression coverage.
-
-The change passed 94 targeted tests and the full repository test gate. Details
-are in
-[`audit/WSJ_SEMANTIC_ARRIVAL_STABILIZATION_20260725.md`](audit/WSJ_SEMANTIC_ARRIVAL_STABILIZATION_20260725.md).
+The exact observed `3.365452042 s` gap is covered by regression tests; 45
+targeted receiver tests and all 599 Hub tests pass locally.
 
 No file under immutable `source/` or `dependencies/` was changed.
 
 ## Physical-runtime boundary
 
-Both robots were subsequently power-cycled. The previous tracking/shared-frame
-session is therefore archival; the next physical run requires a fresh
-calibration/session and a new explicit onsite motion confirmation. No physical
-robot command is issued by this documentation/archive work.
+The failed episode was cleaned up with Hub `GOAL=false` and both robots
+reporting `HOLDING` plus `velocity_zero_confirmed=true`. The validated
+calibration artifact remains preserved, but session
+`scene02-plant-20260728-044246-recal2` is bound to pre-fix commit
+`a3dbe09bd543a7b26a10241712b6c9b1c60192e5`; it cannot authorize post-fix live
+motion. A new code-bound session and strict no-motion debug are required before
+the next run. Calibration reuse additionally requires unchanged camera mounts
+and tracking epochs.
+
+No physical robot command was issued by the archival or code verification.
 
 Engineering attempts and diagnostic media remain separate from the formal
 results in
 [`audit/SCENE01_ENGINEERING_DEBUG_INDEX_20260725.md`](audit/SCENE01_ENGINEERING_DEBUG_INDEX_20260725.md).
 
-## Next campaign
+## Next formal run
 
-Scene 02 is prepared as `scene02-plant`, target `plant`, with five planned
-formal episodes `scene02-plant-run01` through `scene02-plant-run05`. The
-operator command sheet now binds calibration, debug and live commands to
-`plant`; the Scene 01 session remains archival.
-
-No Scene 02 episode or metric sample has been created. Standard SPL remains
-unset until the Scene 02 shortest feasible path is independently measured.
-The preparation record is
-[`audit/SCENE02_PLANT_PREPARATION_20260725.md`](audit/SCENE02_PLANT_PREPARATION_20260725.md).
+Scene 02 formal experiment 02 is next. Before live motion: synchronize the
+committed repair byte-identically to both robot roots, create a new session
+bound to that commit, pass strict no-motion debug, and obtain a fresh onsite
+motion confirmation. A successful episode still requires an independent
+Scene 02 shortest-feasible-path measurement before Standard SPL finalization.

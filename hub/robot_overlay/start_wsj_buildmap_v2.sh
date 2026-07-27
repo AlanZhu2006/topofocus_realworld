@@ -51,12 +51,12 @@ RECEIVER_LOCAL_DATA_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
 # The guarded velocity output is zeroed after one second without a fresh path.
-# A 2026-07-25 physical semantic leg observed a 1.016 s planner publication
-# gap while its router still reported ONLINE_PATH_READY.  Keep the zero-output
-# gate at one second, but allow three seconds for the planner to republish
-# before terminally rejecting the semantic leg.
+# Physical semantic legs observed 1.016 s and 3.365 s planner publication gaps
+# while the router still reported ONLINE_PATH_READY. Keep the zero-output gate
+# at one second, but allow five seconds for the planner to republish before
+# terminally rejecting the semantic leg.
 TRAJECTORY_STALE_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_STALE_TIMEOUT_S:-1.0}"
-TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-3.0}"
+TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-5.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_WSJ_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry

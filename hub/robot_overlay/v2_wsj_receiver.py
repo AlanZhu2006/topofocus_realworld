@@ -878,7 +878,7 @@ def main() -> int:
     parser.add_argument(
         "--trajectory-recovery-timeout-s",
         type=float,
-        default=3.0,
+        default=5.0,
         help=(
             "terminal semantic-leg deadline after a previously observed "
             "trajectory becomes stale; the physical gate remains governed "

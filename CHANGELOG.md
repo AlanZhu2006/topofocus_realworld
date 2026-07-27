@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Scene 02 formal experiment and trajectory recovery (2026-07-28)
+
+- Archive Scene 02 formal experiment 01 as `FAILURE`, with `Success=0`,
+  `SR=0`, both SPL variants equal to zero, exact dual-robot paths and
+  checksummed runtime/calibration/robot-local evidence.
+- Attribute the terminal result to
+  `execution_engineering_failure/local_planner_trajectory_stale`, not VLM:
+  the frozen source-derived candidate selected the plant semantic region and
+  WSJ retained `NAVIGATING/ONLINE_PATH_READY`.
+- Keep the one-second stale-trajectory physical zero gate unchanged while
+  increasing the bounded terminal republish window from three to five
+  seconds for an already-started semantic leg.
+- Configure that `1.0/5.0 s` contract explicitly and consistently in both
+  WSJ and Yunji launchers; retain the shorter never-started-path grace and all
+  robot-local watchdog, collision, lease and stop/reject authority.
+
 ### Calibration reliability (2026-07-27)
 
 - Stop treating WSJ's sparse `/slam/keyframe_depth` and
