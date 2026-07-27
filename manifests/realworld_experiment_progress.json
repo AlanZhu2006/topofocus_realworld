@@ -36,6 +36,15 @@
       "source_compatible_multi_spl_mean": 0.7260879584850242,
       "standard_multi_spl_mean": 0.7809932415154623,
       "classification": "five operator-confirmed formal successes under the declared 0.5 m real-world protocol"
+    },
+    "scene02_physical_0p5m_protocol": {
+      "recorded_episodes": 3,
+      "successes": 1,
+      "sr": 0.3333333333333333,
+      "source_compatible_multi_spl_mean": 0.2883973021635285,
+      "standard_multi_spl_mean": null,
+      "standard_multi_spl_status": "pending independent Scene 02 shortest-feasible-path measurement",
+      "classification": "Scene 02 formal experiments 01-03: two recorded zero-contribution failures and one operator-confirmed physical plant-arrival success"
     }
   },
   "formal_scene_results": {
@@ -47,6 +56,16 @@
       "mean_source_compatible_spl": 0.7260879584850242,
       "mean_standard_spl": 0.7809932415154623,
       "classification": "authoritative unified Scene 01 formal archive"
+    },
+    "scene02-plant": {
+      "path": "manifests/scene02_plant_formal_experiment_03_success_20260728.json",
+      "formal_experiments": 3,
+      "successes": 1,
+      "sr": 0.3333333333333333,
+      "mean_source_compatible_spl": 0.2883973021635285,
+      "mean_standard_spl": null,
+      "standard_spl_status": "pending independent Scene 02 shortest-feasible-path measurement",
+      "classification": "Scene 02 formal experiments 01-03 are indexed by the two failure manifests and the Formal 03 success manifest"
     }
   },
   "planned_scene_campaigns": {
@@ -54,12 +73,12 @@
       "path": "manifests/scene02_plant_preparation_20260725.json",
       "target_category": "plant",
       "planned_formal_experiments": 5,
-      "recorded_episodes": 2,
-      "successes": 0,
-      "metric_status": "two_recorded_failures_zero_successes",
+      "recorded_episodes": 3,
+      "successes": 1,
+      "metric_status": "three_recorded_episodes_one_success_standard_spl_pending",
       "standard_shortest_feasible_path_status": "pending independent Scene 02 measurement",
       "standard_shortest_feasible_path_evidence": "manifests/scene02_plant_shortest_feasible_path_20260725.json",
-      "classification": "formal experiments 01-02 both recorded as navigation_policy_failure; see attempts_not_in_metric_track and manifests/scene02_plant_formal_experiment_01_failure_20260728.json / manifests/scene02_plant_formal_experiment_02_failure_20260728.json"
+      "classification": "formal experiments 01-02 are recorded navigation-policy failures and formal experiment 03 is an operator-confirmed Yunji plant-arrival success; see the three per-run manifests"
     }
   },
   "attempts_not_in_metric_track": [
@@ -723,6 +742,92 @@
           "size_bytes": 10579,
           "sha256": "d091cf44f1771fa84f20a397f9e151876ef175f928b3559d52c1d6488724d7f6",
           "classification": "source-derived terminal evidence index; local runtime file ignored by Git"
+        }
+      ]
+    },
+    {
+      "record_id": "scene02-plant_formal-experiment-03",
+      "formal_experiment_index": 3,
+      "formal_experiment_ordinal_source": "observed operator post-run statement designating the completed Yunji plant-arrival run as Formal 003 Success",
+      "session_id": "scene02-plant-20260728-yunji-single2",
+      "session_git_commit": "6a46316aeb44da080aad7f97ef14e52ee6162d40",
+      "shared_frame_calibration_id": "shared-board-odin1-scene02-plant-20260728-062248-recal3-v1",
+      "scene_id": "scene02-plant",
+      "episode_id": "yunji-single-01",
+      "target_category": "plant",
+      "automatic_result": {
+        "success": true,
+        "success_basis": "automatic semantic ARRIVED plus post-run operator physical-arrival confirmation",
+        "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+        "robot_id": "robot-1",
+        "target_kind": "SEMANTIC_REGION",
+        "navigation_status": "ARRIVED",
+        "reason_code": "LOCAL_PLANNER_ARRIVED",
+        "local_planner_stopped": true,
+        "velocity_zero_confirmed": true,
+        "automatic_terminal_candidate_complete": true,
+        "automatic_report_official_success_verified": false,
+        "automatic_report_boundary": "the automatic report was sealed before the operator's post-run physical-success designation"
+      },
+      "physical_protocol_result": {
+        "classification": "operator-designated formal experiment 03 and operator-confirmed physical plant-arrival success",
+        "counts_in_metric_track": "scene02_physical_0p5m_protocol",
+        "success": true,
+        "success_radius_m": 0.5,
+        "operator_statement": "可以 把这个归档为formal 003 success",
+        "target_visual_status": "plant directly visible in the time-aligned robot-1 terminal RGB",
+        "standard_track_eligible": false,
+        "standard_track_basis": "Scene 02 independently measured shortest feasible path remains pending"
+      },
+      "metrics": {
+        "sr": 1.0,
+        "actual_path_length_m": 8.356523990369512,
+        "start_to_stop_displacement_m": 7.229996922862113,
+        "source_compatible_spl": 0.8651919064905854,
+        "independently_measured_shortest_feasible_path_m": null,
+        "standard_spl": null,
+        "standard_spl_status": "pending independent Scene 02 measurement"
+      },
+      "run_summary": {
+        "source_rounds_completed": 11,
+        "high_level_batches_published": 40,
+        "execution_scope": "robot-1 active; robot-0 forced HOLD by the operator-scoped single-robot contract",
+        "robot_0_live_motion_authority": false,
+        "robot_0_net_displacement_m": 0.0024180302230718685,
+        "path_conflict_observed": false,
+        "behavior": "Yunji explored frontiers, switched to the plant semantic region and ARRIVED; WSJ remained HOLD throughout."
+      },
+      "evidence": [
+        {
+          "path": "manifests/scene02_plant_formal_experiment_03_success_20260728.json",
+          "size_bytes": 10116,
+          "sha256": "a4742fa3ad6632e68f5e7d6a04dacf931816ee16e5d39be31f4b31191d02de50",
+          "classification": "authoritative machine-readable Formal 03 success archive"
+        },
+        {
+          "path": "audit/SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md",
+          "size_bytes": 3532,
+          "sha256": "cc25e1efbd9dcde19d6c327cb789d46711c1bc490f9db92b7f89b6070f99b800",
+          "classification": "human-readable provenance mirror"
+        },
+        {
+          "path": "hub/runtime/oneclick_scene02-plant-20260728-yunji-single2_live_scene02-plant_20260728_070156_944397147/episode_report.json",
+          "size_bytes": 20525,
+          "sha256": "6dbb8ade6043c1bf90e34027d65ef00168be9cb402799c3e8b8c34cd892fb302",
+          "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_scene02-plant-20260728-yunji-single2_live_scene02-plant_20260728_070156_944397147/terminal/robot-1/rgb.jpg",
+          "size_bytes": 127823,
+          "sha256": "9bfcebb1d9162fe2bbb20b3cdfc80ca1b44217ed698572cac7df9b157d6bbe4f",
+          "classification": "observed post-arrival RGB visibly containing the plant; local runtime file ignored by Git"
+        },
+        {
+          "path": "media/video/third_view/experiment_2/experiment_2_success_1.mp4",
+          "size_bytes": 15100041,
+          "sha256": "69ce83683ca33775fbc1c9af1a1239671b7776ad3c2f3413cebbc40a1e8d65ef",
+          "duration_s": 199.1,
+          "classification": "observed user-provided external-view master; byte-preserved and untracked at data-archive time"
         }
       ]
     }

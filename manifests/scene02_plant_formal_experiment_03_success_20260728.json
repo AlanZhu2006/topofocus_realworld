@@ -1,0 +1,213 @@
+{
+  "schema_version": "focus-scene-formal-experiment-v1",
+  "scene_id": "scene02-plant",
+  "target_category": "plant",
+  "formal_index": 3,
+  "result": "SUCCESS",
+  "session_id": "scene02-plant-20260728-yunji-single2",
+  "episode_id": "yunji-single-01",
+  "episode_id_note": "internal episode label; operator designated this completed run as formal experiment 03",
+  "session_git_commit": "6a46316aeb44da080aad7f97ef14e52ee6162d40",
+  "calibration_id": "shared-board-odin1-scene02-plant-20260728-062248-recal3-v1",
+  "execution_scope": {
+    "mode": "operator_scoped_single_robot_live_run",
+    "active_robot_ids": [
+      "robot-1"
+    ],
+    "inactive_robot_ids": [
+      "robot-0"
+    ],
+    "robot_0_hold_basis": "operator-scoped execution contract forced HOLD for every goal batch; WSJ was not granted live motion authority",
+    "path_conflict_observed": false,
+    "path_conflict_evidence": "all 11 route-conflict evaluations reported single_or_no_active_route"
+  },
+  "operator_evidence": {
+    "motion_authorization": "当前操作者在场，Yunji 已站立且周围净空；WSJ 底盘保持下电且不参与运动，允许 Scene 02 Yunji Single 01 本轮真机运动。",
+    "post_run_success_designation": "可以 把这个归档为formal 003 success",
+    "classification": "observed operator authorization and post-run physical-success designation"
+  },
+  "automatic_result": {
+    "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+    "automatic_terminal_candidate_complete": true,
+    "automatic_report_official_success_verified": false,
+    "automatic_report_boundary": "the immutable runtime report was sealed before the operator's post-run physical-success designation",
+    "arriving_robot_id": "robot-1",
+    "arrival_target_kind": "SEMANTIC_REGION",
+    "navigation_status": "ARRIVED",
+    "reason_code": "LOCAL_PLANNER_ARRIVED",
+    "local_planner_stopped": true,
+    "velocity_zero_confirmed": true,
+    "terminal_rgb_plant_visible": true
+  },
+  "physical_protocol_result": {
+    "classification": "operator-designated formal experiment 03 and operator-confirmed physical plant-arrival success",
+    "counts_in_scene02_metric_track": true,
+    "success": true,
+    "success_radius_m": 0.5,
+    "target_evidence": "plant is directly visible in the time-aligned robot-1 terminal RGB; the operator confirmed physical arrival after the run",
+    "standard_track_eligible": false,
+    "standard_track_status": "pending independent Scene 02 shortest-feasible-path measurement"
+  },
+  "metrics": {
+    "success": 1,
+    "sr": 1.0,
+    "arriving_robot_id": "robot-1",
+    "actual_path_length_m": 8.356523990369512,
+    "start_xy_m": [
+      -0.3170033944723041,
+      0.6770395949698349
+    ],
+    "stop_xy_m": [
+      6.883348553977043,
+      0.022985068911558625
+    ],
+    "start_to_stop_displacement_m": 7.229996922862113,
+    "source_compatible_spl_formula": "S * D / max(D, P)",
+    "source_compatible_spl": 0.8651919064905854,
+    "independently_measured_shortest_feasible_path_m": null,
+    "standard_spl_formula": "S * L / max(L, P)",
+    "standard_spl": null,
+    "standard_spl_status": "pending independent Scene 02 measurement; Scene 01 L=3.25 m is not reused",
+    "scene02_campaign_after_formal_03": {
+      "recorded_episodes": 3,
+      "successes": 1,
+      "sr": 0.3333333333333333,
+      "mean_source_compatible_spl_with_failures_zero": 0.2883973021635285,
+      "mean_standard_spl": null
+    }
+  },
+  "execution": {
+    "source_rounds_completed": 11,
+    "source_steps": [
+      0,
+      24,
+      49,
+      74,
+      99,
+      124,
+      149,
+      174,
+      199,
+      224,
+      249
+    ],
+    "high_level_batches_published": 40,
+    "first_semantic_round_index": 6,
+    "first_semantic_source_step": 149,
+    "robots": {
+      "robot-0": {
+        "name": "WSJ",
+        "live_motion_authority": false,
+        "goal_batch_modes": "HOLD in all 11 source rounds",
+        "reported_chassis_state": "powered off and excluded from motion",
+        "odometry_accumulated_path_m": 0.7286547575023636,
+        "start_to_stop_net_displacement_m": 0.0024180302230718685,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD",
+        "velocity_zero_confirmed": true,
+        "path_interpretation": "the accumulated odometry signal is retained as observed provenance; with no live authority and 0.002418 m net displacement, it is not classified as commanded physical travel"
+      },
+      "robot-1": {
+        "name": "Yunji",
+        "live_motion_authority": true,
+        "actual_path_length_m": 8.356523990369512,
+        "start_to_stop_net_displacement_m": 7.229996922862113,
+        "final_status": "ARRIVED",
+        "final_reason": "LOCAL_PLANNER_ARRIVED",
+        "velocity_zero_confirmed": true,
+        "terminal_observation_sequence": 307561
+      }
+    },
+    "bounded_replanning": {
+      "frontier_local_goal_unreachable_events": 1,
+      "semantic_path_stale_events": 4,
+      "result": "each rejection transitioned through an acknowledged HOLD and fresh source round; the final semantic leg arrived"
+    }
+  },
+  "behavior": [
+    "rounds 0-5: Yunji executed source-faithful or safety-filtered frontier goals while WSJ remained forced HOLD",
+    "round 6: the VLM first selected a plant SEMANTIC_REGION for Yunji",
+    "rounds 6-9: bounded local path-stale feedback triggered acknowledged HOLD and fresh semantic replanning",
+    "round 10: Yunji reached the plant semantic region and emitted LOCAL_PLANNER_ARRIVED",
+    "the controller published semantic_arrival_episode_complete_hold, sealed terminal evidence and disabled live motion authority"
+  ],
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-yunji-single2_live_scene02-plant_20260728_070156_944397147/episode_report.json",
+      "size_bytes": 20525,
+      "sha256": "6dbb8ade6043c1bf90e34027d65ef00168be9cb402799c3e8b8c34cd892fb302",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-yunji-single2_live_scene02-plant_20260728_070156_944397147/controller_events.jsonl",
+      "size_bytes": 86252,
+      "sha256": "f1c30e92b64bc6693ea7a2496314100ae7a7f7367f4871cd27149e249ae19d32",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-yunji-single2_live_scene02-plant_20260728_070156_944397147/scene_manifest.json",
+      "size_bytes": 77880,
+      "sha256": "4beb00a5e7be6c1db1fc57ebe13c4b1ef6216bfd77cf76ec75365563e74f51ec",
+      "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-yunji-single2_live_scene02-plant_20260728_070156_944397147/batch_035_round_10_goal.json",
+      "size_bytes": 6250,
+      "sha256": "c41eded3e75443a768a01e56e4ffe91c18e013c74759e266ea8c5f51543f20bf",
+      "classification": "source-derived final applied semantic target batch; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-yunji-single2_live_scene02-plant_20260728_070156_944397147/terminal/terminal_evidence.json",
+      "size_bytes": 10400,
+      "sha256": "496eb777513b8236f863491c9334d1c275c5f7cae7c537ed72228f8bc0beb801",
+      "classification": "source-derived terminal evidence index; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-yunji-single2_live_scene02-plant_20260728_070156_944397147/terminal/robot-1/rgb.jpg",
+      "size_bytes": 127823,
+      "sha256": "9bfcebb1d9162fe2bbb20b3cdfc80ca1b44217ed698572cac7df9b157d6bbe4f",
+      "classification": "observed post-arrival RGB visibly containing the plant; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-yunji-single2_live_scene02-plant_20260728_070156_944397147/terminal/robot-1/depth.png",
+      "size_bytes": 192763,
+      "sha256": "69b62aac05196f701f19ae6464f219b1997eeb521d5b5f557d6f88ccf70a226e",
+      "classification": "observed terminal aligned depth; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-yunji-single2_live_scene02-plant_20260728_070156_944397147/terminal/robot-1/metadata.json",
+      "size_bytes": 3272,
+      "sha256": "db36bd3aa334a73e1b4fda6e3655dc179a51209a2b08648165342833f45a103d",
+      "classification": "observed terminal observation metadata; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene02-plant-20260728-yunji-single2/session.json",
+      "size_bytes": 4267,
+      "sha256": "2b6f3cb63e6e4260299a38b69d56b52a12f219ed6aaa667247fe4dcba13ed011",
+      "classification": "source-derived exact session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene02-plant-20260728-062248-recal3/shared_frame.json",
+      "size_bytes": 6008,
+      "sha256": "bab3dfc7f09699f20d8977cfe66c3985c9e5050fb18d9ded9af68b384df3ee3c",
+      "classification": "observed and source-derived moved-board shared-frame calibration; runtime file ignored by Git"
+    }
+  ],
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_2/experiment_2_success_1.mp4",
+      "size_bytes": 15100041,
+      "sha256": "69ce83683ca33775fbc1c9af1a1239671b7776ad3c2f3413cebbc40a1e8d65ef",
+      "duration_s": 199.1,
+      "classification": "observed user-provided external-view master; byte-preserved and untracked at data-archive time"
+    }
+  ],
+  "media_status": "third-view master indexed; README, derivatives and public media presentation explicitly deferred",
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "wsj_goal_authority_enabled": false,
+    "cleanup_state": "semantic arrival completed with both robots HOLDING; Hub GOAL output verified false for robot-0 and robot-1",
+    "post_episode_motion_authority": false
+  }
+}
