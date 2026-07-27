@@ -127,11 +127,76 @@ def test_rotate_first_has_a_strict_bounded_timeout():
         )
 
 
+def test_stable_path_heading_ignores_near_pose_replan_jitter():
+    left = MODULE.stable_path_heading_error(
+        (0.0, 0.0),
+        robot_heading_rad=0.0,
+        path_xy=[(0.02, 0.01), (0.03, -0.02), (0.0, 0.60)],
+    )
+    right = MODULE.stable_path_heading_error(
+        (0.0, 0.0),
+        robot_heading_rad=0.0,
+        path_xy=[(0.02, -0.01), (0.03, 0.02), (0.0, 0.60)],
+    )
+
+    assert left == pytest.approx(0.5 * math.pi)
+    assert right == pytest.approx(0.5 * math.pi)
+
+
+def test_measured_rear_left_goal_has_one_stable_positive_turn():
+    heading_error = MODULE.stable_path_heading_error(
+        (0.376, -0.320),
+        robot_heading_rad=-2.46,
+        path_xy=[(0.39, -0.31), (4.75, -3.82)],
+    )
+
+    assert heading_error is not None
+    assert math.degrees(heading_error) == pytest.approx(102.2, abs=0.2)
+    assert MODULE.large_turn_stabilization_required(
+        heading_error,
+        recovery_active=False,
+        requested_linear_mps=0.0,
+        requested_angular_radps=-0.7,
+    )
+    assert MODULE.bounded_rotate_first_angular(
+        -0.7,
+        latched_direction=1,
+    ) == pytest.approx(0.35)
+
+
+def test_large_turn_latch_uses_hysteresis_and_never_invents_rotation():
+    assert MODULE.large_turn_stabilization_required(
+        math.radians(76.0),
+        recovery_active=False,
+        requested_linear_mps=0.0,
+        requested_angular_radps=0.7,
+    )
+    assert MODULE.large_turn_stabilization_required(
+        math.radians(40.0),
+        recovery_active=True,
+        requested_linear_mps=0.0,
+        requested_angular_radps=-0.7,
+    )
+    assert not MODULE.large_turn_stabilization_required(
+        math.radians(34.0),
+        recovery_active=True,
+        requested_linear_mps=0.0,
+        requested_angular_radps=0.7,
+    )
+    assert not MODULE.large_turn_stabilization_required(
+        math.radians(90.0),
+        recovery_active=False,
+        requested_linear_mps=0.0,
+        requested_angular_radps=0.0,
+    )
+
+
 def test_rotate_first_is_explicitly_opt_in():
     defaults = MODULE.build_parser().parse_args([])
     enabled = MODULE.build_parser().parse_args(
         [
             "--rotate-first-on-reverse",
+            "--stabilize-large-turn",
             "--rotate-first-max-angular-radps",
             "0.30",
             "--rotate-first-timeout-s",
@@ -140,7 +205,9 @@ def test_rotate_first_is_explicitly_opt_in():
     )
 
     assert defaults.rotate_first_on_reverse is False
+    assert defaults.stabilize_large_turn is False
     assert enabled.rotate_first_on_reverse is True
+    assert enabled.stabilize_large_turn is True
     assert enabled.rotate_first_max_angular_radps == pytest.approx(0.30)
     assert enabled.rotate_first_timeout_s == pytest.approx(8.0)
 

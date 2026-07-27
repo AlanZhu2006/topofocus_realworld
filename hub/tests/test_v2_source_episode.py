@@ -469,3 +469,50 @@ def test_frozen_shared_robot_positions_preserve_status_provenance(tmp_path):
         )
         assert record["size_bytes"] > 0
         assert len(record["sha256"]) == 64
+
+
+def test_cross_round_progress_guard_blocks_repeated_stationary_goals():
+    module = load_module()
+    first, counts = module.cross_round_progress_guard(
+        previous_positions={"robot-1": (1.0, 2.0)},
+        current_positions={"robot-1": (1.03, 2.01)},
+        previous_active_robot_ids={"robot-1"},
+        current_active_robot_ids={"robot-1"},
+        previous_stagnant_intervals={},
+    )
+    second, counts = module.cross_round_progress_guard(
+        previous_positions={"robot-1": (1.03, 2.01)},
+        current_positions={"robot-1": (1.04, 2.02)},
+        previous_active_robot_ids={"robot-1"},
+        current_active_robot_ids={"robot-1"},
+        previous_stagnant_intervals=counts,
+    )
+
+    assert first["status"] == "pass"
+    assert first["robots"]["robot-1"]["consecutive_stagnant_intervals"] == 1
+    assert second["status"] == "blocked"
+    assert second["blocked_robot_ids"] == ["robot-1"]
+    assert counts == {"robot-1": 2}
+
+
+def test_cross_round_progress_guard_resets_after_real_progress_or_inactivity():
+    module = load_module()
+    progressed, counts = module.cross_round_progress_guard(
+        previous_positions={"robot-1": (0.0, 0.0)},
+        current_positions={"robot-1": (0.06, 0.0)},
+        previous_active_robot_ids={"robot-1"},
+        current_active_robot_ids={"robot-1"},
+        previous_stagnant_intervals={"robot-1": 1},
+    )
+    baseline, counts = module.cross_round_progress_guard(
+        previous_positions={"robot-1": (0.06, 0.0)},
+        current_positions={"robot-1": (0.06, 0.0)},
+        previous_active_robot_ids=set(),
+        current_active_robot_ids={"robot-1"},
+        previous_stagnant_intervals=counts,
+    )
+
+    assert progressed["status"] == "pass"
+    assert progressed["robots"]["robot-1"]["status"] == "progressed"
+    assert baseline["robots"]["robot-1"]["status"] == "baseline_only"
+    assert counts == {"robot-1": 0}

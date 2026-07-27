@@ -12,8 +12,11 @@ when its lookahead lies behind the robot.  The Focus deployment normally keeps
 the stricter reverse-path rejection at 2 cm.  Yunji can explicitly opt into a
 bounded rotate-first recovery: publish zero linear velocity, retain one turn
 direction, and let the pinned pose/path/depth guards govern the yaw command.
-If the trajectory does not return to the forward half-plane before the bounded
-deadline, the existing receiver rejection remains fail-closed.
+It can also explicitly stabilize a large in-place turn from the current base
+pose toward a non-local path point.  That prevents a jittering first path
+segment from changing the turn sign on every replan.  If either recovery does
+not resolve before the bounded deadline, the existing receiver rejection
+remains fail-closed.
 
 Keep the source controller immutable and preserve all of its stale-pose,
 stale-path, depth-stop, turn, acceleration and arrival guards.  This deployment
@@ -32,6 +35,10 @@ MEANINGFUL_REVERSE_SEGMENT_M = 0.02
 DEFAULT_ROTATE_FIRST_MAX_ANGULAR_RADPS = 0.35
 DEFAULT_ROTATE_FIRST_MIN_ANGULAR_RADPS = 0.10
 DEFAULT_ROTATE_FIRST_TIMEOUT_S = 12.0
+DEFAULT_STABLE_TURN_LOOKAHEAD_M = 0.35
+DEFAULT_STABLE_TURN_MIN_TARGET_M = 0.10
+DEFAULT_STABLE_TURN_ENTER_RAD = math.radians(75.0)
+DEFAULT_STABLE_TURN_EXIT_RAD = math.radians(35.0)
 
 
 def path_segment_forward_component(
@@ -135,6 +142,95 @@ def bounded_rotate_first_angular(
     return float(direction * magnitude)
 
 
+def stable_path_heading_error(
+    robot_xy: tuple[float, float],
+    *,
+    robot_heading_rad: float,
+    path_xy: list[tuple[float, float]],
+    lookahead_m: float = DEFAULT_STABLE_TURN_LOOKAHEAD_M,
+    minimum_target_m: float = DEFAULT_STABLE_TURN_MIN_TARGET_M,
+) -> float | None:
+    """Return a stable base-frame heading error to a non-local path point.
+
+    TinyNav's pinned controller derives its large-turn sign from the first
+    short path segment.  A replanner can legitimately move that segment across
+    the base axis on successive callbacks.  Selecting the first point at least
+    ``lookahead_m`` from the *current base pose* keeps the route's local shape
+    while filtering that near-pose jitter.  A shorter path uses its farthest
+    point, provided it is still geometrically meaningful.
+    """
+
+    values = (*robot_xy, robot_heading_rad, lookahead_m, minimum_target_m)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("stable-turn geometry values must be finite")
+    if lookahead_m <= 0.0 or minimum_target_m <= 0.0:
+        raise ValueError("stable-turn distances must be positive")
+    if minimum_target_m > lookahead_m:
+        raise ValueError("minimum_target_m cannot exceed lookahead_m")
+
+    chosen: tuple[float, float] | None = None
+    farthest: tuple[float, float] | None = None
+    farthest_distance = -1.0
+    for point in path_xy:
+        if len(point) != 2 or not all(math.isfinite(value) for value in point):
+            raise ValueError("stable-turn path points must be finite XY pairs")
+        dx = point[0] - robot_xy[0]
+        dy = point[1] - robot_xy[1]
+        distance = math.hypot(dx, dy)
+        if distance > farthest_distance:
+            farthest = point
+            farthest_distance = distance
+        if distance >= lookahead_m:
+            chosen = point
+            break
+    if chosen is None:
+        if farthest is None or farthest_distance < minimum_target_m:
+            return None
+        chosen = farthest
+
+    world_bearing = math.atan2(
+        chosen[1] - robot_xy[1],
+        chosen[0] - robot_xy[0],
+    )
+    return math.atan2(
+        math.sin(world_bearing - robot_heading_rad),
+        math.cos(world_bearing - robot_heading_rad),
+    )
+
+
+def large_turn_stabilization_required(
+    heading_error_rad: float | None,
+    *,
+    recovery_active: bool,
+    requested_linear_mps: float,
+    requested_angular_radps: float,
+    enter_rad: float = DEFAULT_STABLE_TURN_ENTER_RAD,
+    exit_rad: float = DEFAULT_STABLE_TURN_EXIT_RAD,
+) -> bool:
+    """Return whether an existing pinned in-place turn needs sign latching."""
+
+    values = (
+        requested_linear_mps,
+        requested_angular_radps,
+        enter_rad,
+        exit_rad,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("stable-turn command values must be finite")
+    if heading_error_rad is not None and not math.isfinite(heading_error_rad):
+        raise ValueError("stable-turn heading error must be finite")
+    if not 0.0 < exit_rad < enter_rad <= math.pi:
+        raise ValueError("stable-turn angular thresholds are invalid")
+    if heading_error_rad is None:
+        return False
+    if abs(requested_linear_mps) > 1e-9:
+        return False
+    if abs(requested_angular_radps) <= 1e-9:
+        return False
+    threshold = exit_rad if recovery_active else enter_rad
+    return abs(heading_error_rad) >= threshold
+
+
 def reverse_recovery_expired(
     *,
     started_monotonic: float,
@@ -161,6 +257,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "replace a meaningful reverse lookahead with bounded in-place "
             "turning; intended for the measured Yunji deployment only"
+        ),
+    )
+    parser.add_argument(
+        "--stabilize-large-turn",
+        action="store_true",
+        help=(
+            "latch the sign of an existing large in-place turn using the "
+            "current base pose and a non-local path point; intended for the "
+            "measured Yunji deployment only"
         ),
     )
     parser.add_argument(
@@ -209,24 +314,23 @@ def main(args: list[str] | None = None) -> None:
             self._last_focus_reverse_log = 0.0
             self._last_focus_rotate_first_log = 0.0
             self._last_focus_tiny_reverse_log = 0.0
-            self._focus_reverse_recovery_started: float | None = None
-            self._focus_reverse_turn_direction = 0
+            self._focus_rotation_recovery_started: float | None = None
+            self._focus_rotation_turn_direction = 0
             self._reverse_required_publisher = self.create_publisher(
                 Bool, "/planning/reverse_required", 10
             )
 
-        def _reset_focus_reverse_recovery(self) -> None:
-            self._focus_reverse_recovery_started = None
-            self._focus_reverse_turn_direction = 0
+        def _reset_focus_rotation_recovery(self) -> None:
+            self._focus_rotation_recovery_started = None
+            self._focus_rotation_turn_direction = 0
 
         def _on_paused(self, message) -> None:
             super()._on_paused(message)
             if bool(message.data):
-                self._reset_focus_reverse_recovery()
+                self._reset_focus_rotation_recovery()
 
         @staticmethod
-        def _pose_matrix(pose_stamped) -> np.ndarray:
-            pose = pose_stamped.pose
+        def _raw_pose_matrix(pose) -> np.ndarray:
             quaternion = pose.orientation
             matrix = np.eye(4, dtype=np.float64)
             matrix[:3, :3] = R.from_quat(
@@ -243,6 +347,10 @@ def main(args: list[str] | None = None) -> None:
                 float(pose.position.z),
             ]
             return matrix
+
+        @classmethod
+        def _pose_matrix(cls, pose_stamped) -> np.ndarray:
+            return cls._raw_pose_matrix(pose_stamped.pose)
 
         def _control_segment_forward_m(self, message) -> float:
             first = message.poses[0]
@@ -265,96 +373,175 @@ def main(args: list[str] | None = None) -> None:
                 )
             return forward_m
 
+        def _stable_path_heading_error(self, message) -> float | None:
+            current_camera = self._raw_pose_matrix(self.pose.pose.pose)
+            current_robot = current_camera @ self.T_robot_to_camera
+            path_robot_xy = []
+            for pose_stamped in message.poses:
+                path_robot = (
+                    self._pose_matrix(pose_stamped) @ self.T_robot_to_camera
+                )
+                path_robot_xy.append(
+                    (
+                        float(path_robot[0, 3]),
+                        float(path_robot[1, 3]),
+                    )
+                )
+            return stable_path_heading_error(
+                (
+                    float(current_robot[0, 3]),
+                    float(current_robot[1, 3]),
+                ),
+                robot_heading_rad=math.atan2(
+                    float(current_robot[1, 0]),
+                    float(current_robot[0, 0]),
+                ),
+                path_xy=path_robot_xy,
+            )
+
         def path_callback(self, message) -> None:
             control_segment_forward_m = None
+            stable_heading_error_rad = None
             if message is not None and len(message.poses) >= 2:
                 try:
                     control_segment_forward_m = (
                         self._control_segment_forward_m(message)
                     )
-                except (TypeError, ValueError):
+                    if self.pose is not None:
+                        stable_heading_error_rad = (
+                            self._stable_path_heading_error(message)
+                        )
+                except (
+                    AttributeError,
+                    TypeError,
+                    ValueError,
+                    np.linalg.LinAlgError,
+                ):
                     control_segment_forward_m = None
+                    stable_heading_error_rad = None
             super().path_callback(message)
             if (
                 message is None
                 or self.pose is None
                 or len(message.poses) < 2
             ):
+                self._reset_focus_rotation_recovery()
                 return
             segment_action = classify_forward_component(
                 control_segment_forward_m
             )
-            if segment_action == "reject_reverse":
-                now = time.monotonic()
-                if (
-                    deployment_args.rotate_first_on_reverse
-                    and not self._paused
-                ):
-                    requested_angular = float(self.latest_cmd.angular.z)
-                    if self._focus_reverse_recovery_started is None:
-                        self._focus_reverse_recovery_started = now
-                        if requested_angular != 0.0:
-                            self._focus_reverse_turn_direction = (
-                                1 if requested_angular > 0.0 else -1
-                            )
-                    expired = reverse_recovery_expired(
-                        started_monotonic=(
-                            self._focus_reverse_recovery_started
-                        ),
-                        now_monotonic=now,
-                        timeout_s=deployment_args.rotate_first_timeout_s,
-                    )
-                    rotate_angular = bounded_rotate_first_angular(
-                        requested_angular,
-                        latched_direction=(
-                            self._focus_reverse_turn_direction
-                        ),
-                        maximum_radps=(
-                            deployment_args.rotate_first_max_angular_radps
-                        ),
-                    )
-                    if not expired and rotate_angular != 0.0:
-                        # Do not publish directly here. The pinned timer keeps
-                        # final authority for pause, stale pose/path,
-                        # relocalization, depth and acceleration guards.
-                        rotate_command = Twist()
-                        rotate_command.angular.z = rotate_angular
-                        self.latest_cmd = rotate_command
-                        self.prev_cmd = Twist()
-                        self._reverse_required_publisher.publish(
-                            Bool(data=False)
+            requested_linear = float(self.latest_cmd.linear.x)
+            requested_angular = float(self.latest_cmd.angular.z)
+            now = time.monotonic()
+            recovery_active = (
+                self._focus_rotation_recovery_started is not None
+            )
+            reverse_recovery_requested = bool(
+                segment_action == "reject_reverse"
+                and deployment_args.rotate_first_on_reverse
+                and not self._paused
+            )
+            large_turn_recovery_requested = bool(
+                deployment_args.stabilize_large_turn
+                and not self._paused
+                and large_turn_stabilization_required(
+                    stable_heading_error_rad,
+                    recovery_active=recovery_active,
+                    requested_linear_mps=requested_linear,
+                    requested_angular_radps=requested_angular,
+                )
+            )
+            if reverse_recovery_requested or large_turn_recovery_requested:
+                if self._focus_rotation_recovery_started is None:
+                    self._focus_rotation_recovery_started = now
+                    if (
+                        stable_heading_error_rad is not None
+                        and abs(stable_heading_error_rad) > 1e-9
+                    ):
+                        self._focus_rotation_turn_direction = (
+                            1 if stable_heading_error_rad > 0.0 else -1
                         )
-                        if (
-                            now - self._last_focus_rotate_first_log
-                            >= 2.0
-                        ):
-                            elapsed = (
-                                now
-                                - self._focus_reverse_recovery_started
-                            )
-                            self.get_logger().warning(
-                                "Focus TinyNav rotate-first recovery: "
-                                "linear=0.000 m/s, "
-                                f"angular={rotate_angular:.3f} rad/s, "
-                                f"forward_component="
-                                f"{control_segment_forward_m:.3f} m, "
-                                f"elapsed={elapsed:.2f} s"
-                            )
-                            self._last_focus_rotate_first_log = now
-                        return
-                elif deployment_args.rotate_first_on_reverse:
-                    # A path received while navigation is paused must not
-                    # consume the bounded recovery budget.
-                    self._reset_focus_reverse_recovery()
-                    self.latest_cmd = Twist()
+                    elif requested_angular != 0.0:
+                        self._focus_rotation_turn_direction = (
+                            1 if requested_angular > 0.0 else -1
+                        )
+                expired = reverse_recovery_expired(
+                    started_monotonic=self._focus_rotation_recovery_started,
+                    now_monotonic=now,
+                    timeout_s=deployment_args.rotate_first_timeout_s,
+                )
+                rotate_angular = bounded_rotate_first_angular(
+                    requested_angular,
+                    latched_direction=self._focus_rotation_turn_direction,
+                    maximum_radps=(
+                        deployment_args.rotate_first_max_angular_radps
+                    ),
+                )
+                if not expired and rotate_angular != 0.0:
+                    # Do not publish directly here. The pinned timer keeps
+                    # final authority for pause, stale pose/path,
+                    # relocalization, depth and acceleration guards.
+                    rotate_command = Twist()
+                    rotate_command.angular.z = rotate_angular
+                    self.latest_cmd = rotate_command
                     self.prev_cmd = Twist()
-                    self._reverse_required_publisher.publish(
-                        Bool(data=False)
-                    )
+                    self._reverse_required_publisher.publish(Bool(data=False))
+                    if now - self._last_focus_rotate_first_log >= 2.0:
+                        elapsed = (
+                            now - self._focus_rotation_recovery_started
+                        )
+                        context = (
+                            "reverse_segment"
+                            if reverse_recovery_requested
+                            else "large_turn"
+                        )
+                        heading_text = (
+                            "unavailable"
+                            if stable_heading_error_rad is None
+                            else f"{math.degrees(stable_heading_error_rad):.1f}"
+                        )
+                        self.get_logger().warning(
+                            "Focus TinyNav rotate-first recovery: "
+                            f"context={context}, linear=0.000 m/s, "
+                            f"angular={rotate_angular:.3f} rad/s, "
+                            f"stable_heading_error_deg={heading_text}, "
+                            f"forward_component="
+                            f"{control_segment_forward_m:.3f} m, "
+                            f"elapsed={elapsed:.2f} s"
+                        )
+                        self._last_focus_rotate_first_log = now
                     return
+                # A recovery timeout is a controller failure even when a new
+                # short path segment is nominally forward.  Reuse the existing
+                # receiver-visible fail-closed rejection channel.
+                self._reverse_required_publisher.publish(Bool(data=True))
+                self.latest_cmd = Twist()
+                self.prev_cmd = Twist()
+                self.cmd_pub.publish(Twist())
+                if now - self._last_focus_reverse_log >= 2.0:
+                    self.get_logger().warning(
+                        "Focus TinyNav rejected unresolved rotate-first "
+                        "recovery: bounded timeout expired"
+                    )
+                    self._last_focus_reverse_log = now
+                return
 
-                # Opt-out, zero-yaw, or timeout all retain the original
+            if (
+                segment_action == "reject_reverse"
+                and deployment_args.rotate_first_on_reverse
+                and self._paused
+            ):
+                # A path received while navigation is paused must not consume
+                # the bounded recovery budget.
+                self._reset_focus_rotation_recovery()
+                self.latest_cmd = Twist()
+                self.prev_cmd = Twist()
+                self._reverse_required_publisher.publish(Bool(data=False))
+                return
+            if segment_action == "reject_reverse":
+                # Opt-out or a zero-yaw request retains the original
                 # fail-closed receiver rejection.
+                self._reset_focus_rotation_recovery()
                 self._reverse_required_publisher.publish(Bool(data=True))
                 self.latest_cmd = Twist()
                 self.prev_cmd = Twist()
@@ -363,11 +550,12 @@ def main(args: list[str] | None = None) -> None:
                     self.get_logger().warning(
                         "Focus TinyNav rejected reverse control segment: "
                         f"forward_component={control_segment_forward_m:.3f} "
-                        "m; rotate-first unavailable or expired"
+                        "m; rotate-first unavailable"
                     )
                     self._last_focus_reverse_log = now
                 return
-            self._reset_focus_reverse_recovery()
+
+            self._reset_focus_rotation_recovery()
             self._reverse_required_publisher.publish(Bool(data=False))
             if segment_action == "zero_tiny_reverse":
                 # A sub-threshold negative component is trajectory jitter, not

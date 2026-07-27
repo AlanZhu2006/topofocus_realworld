@@ -269,6 +269,7 @@ start_controller() {
   start_unit focus-yunji-tinynav-controller-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" controller \
       --rotate-first-on-reverse \
+      --stabilize-large-turn \
       --rotate-first-max-angular-radps \
         "$REVERSE_ROTATE_MAX_ANGULAR_RADPS" \
       --rotate-first-timeout-s "$REVERSE_ROTATE_TIMEOUT_S"

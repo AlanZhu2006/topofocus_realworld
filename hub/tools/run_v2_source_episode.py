@@ -91,6 +91,8 @@ FAILURE_FEEDBACK = {
 }
 HOLD_FEEDBACK = {"HOLDING"}
 SAFE_REASON = re.compile(r"[^a-zA-Z0-9_.-]+")
+DEFAULT_CROSS_ROUND_MIN_PROGRESS_M = 0.05
+DEFAULT_MAX_CONSECUTIVE_STAGNANT_INTERVALS = 2
 
 
 @dataclass(frozen=True)
@@ -938,6 +940,90 @@ def frozen_shared_robot_positions(
     return positions, provenance, errors
 
 
+def cross_round_progress_guard(
+    *,
+    previous_positions: dict[str, tuple[float, float]],
+    current_positions: dict[str, tuple[float, float]],
+    previous_active_robot_ids: set[str],
+    current_active_robot_ids: set[str],
+    previous_stagnant_intervals: dict[str, int],
+    minimum_progress_m: float = DEFAULT_CROSS_ROUND_MIN_PROGRESS_M,
+    maximum_stagnant_intervals: int = (
+        DEFAULT_MAX_CONSECUTIVE_STAGNANT_INTERVALS
+    ),
+) -> tuple[dict[str, object], dict[str, int]]:
+    """Detect repeated no-progress intervals across source-round leases.
+
+    Robot-local planners retain the primary no-progress authority.  This
+    independent Hub guard prevents a new source round from resetting that
+    evidence indefinitely: only robots active in both adjacent rounds are
+    comparable, and two consecutive sub-threshold displacements fail closed
+    before another GOAL is published.
+    """
+
+    if (
+        not math.isfinite(minimum_progress_m)
+        or minimum_progress_m <= 0.0
+    ):
+        raise ValueError("minimum_progress_m must be finite and positive")
+    if maximum_stagnant_intervals < 1:
+        raise ValueError("maximum_stagnant_intervals must be positive")
+    reports: dict[str, dict[str, object]] = {}
+    updated: dict[str, int] = {}
+    blocked: list[str] = []
+    for robot_id in sorted(current_active_robot_ids):
+        comparable = robot_id in previous_active_robot_ids
+        previous = previous_positions.get(robot_id)
+        current = current_positions.get(robot_id)
+        if not comparable or previous is None or current is None:
+            updated[robot_id] = 0
+            reports[robot_id] = {
+                "status": "baseline_only",
+                "consecutive_stagnant_intervals": 0,
+            }
+            continue
+        values = (*previous, *current)
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError("cross-round robot positions must be finite")
+        displacement_m = math.hypot(
+            current[0] - previous[0],
+            current[1] - previous[1],
+        )
+        stagnant = displacement_m < minimum_progress_m
+        count = (
+            previous_stagnant_intervals.get(robot_id, 0) + 1
+            if stagnant
+            else 0
+        )
+        updated[robot_id] = count
+        reports[robot_id] = {
+            "status": "stagnant" if stagnant else "progressed",
+            "displacement_m": displacement_m,
+            "minimum_progress_m": minimum_progress_m,
+            "consecutive_stagnant_intervals": count,
+        }
+        if count >= maximum_stagnant_intervals:
+            blocked.append(robot_id)
+    return (
+        {
+            "status": "blocked" if blocked else "pass",
+            "policy": (
+                "fail closed before publishing another GOAL when one robot "
+                "is active across adjacent source rounds and remains below "
+                "the minimum shared-frame displacement for the configured "
+                "number of consecutive intervals"
+            ),
+            "minimum_progress_m": minimum_progress_m,
+            "maximum_stagnant_intervals": maximum_stagnant_intervals,
+            "previous_active_robot_ids": sorted(previous_active_robot_ids),
+            "current_active_robot_ids": sorted(current_active_robot_ids),
+            "blocked_robot_ids": blocked,
+            "robots": reports,
+        },
+        updated,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--session-file", default="current")
@@ -995,6 +1081,24 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=source_decision_round_limit(),
     )
+    parser.add_argument(
+        "--cross-round-min-progress-m",
+        type=float,
+        default=DEFAULT_CROSS_ROUND_MIN_PROGRESS_M,
+        help=(
+            "minimum frozen shared-frame displacement for a robot active in "
+            "two adjacent source rounds"
+        ),
+    )
+    parser.add_argument(
+        "--max-consecutive-stagnant-intervals",
+        type=int,
+        default=DEFAULT_MAX_CONSECUTIVE_STAGNANT_INTERVALS,
+        help=(
+            "fail closed before a new GOAL after this many consecutive "
+            "cross-round intervals below the minimum progress"
+        ),
+    )
     parser.add_argument("--enable-live-goal-publication", action="store_true")
     parser.add_argument("--operator-confirmation", default="")
     return parser.parse_args()
@@ -1033,6 +1137,17 @@ def main() -> int:
         raise ValueError("runtime/freshness timeouts must be valid and positive")
     if not 1 <= args.max_rounds <= source_decision_round_limit():
         raise ValueError("max rounds exceeds the immutable source episode")
+    if (
+        not math.isfinite(args.cross_round_min_progress_m)
+        or not 0.01 <= args.cross_round_min_progress_m <= 0.50
+    ):
+        raise ValueError(
+            "--cross-round-min-progress-m must be within [0.01, 0.50]"
+        )
+    if not 1 <= args.max_consecutive_stagnant_intervals <= 10:
+        raise ValueError(
+            "--max-consecutive-stagnant-intervals must be within [1, 10]"
+        )
     if args.robot_0_min_sequence < 0 or args.robot_1_min_sequence < 0:
         raise ValueError("minimum source sequences must be non-negative")
     if not 0.5 <= args.route_conflict_min_separation_m <= 5.0:
@@ -1134,6 +1249,16 @@ def main() -> int:
                     "footprint-clear cell intersecting its arrival disk"
                 ),
             },
+            "cross_round_progress_guard": {
+                "minimum_progress_m": args.cross_round_min_progress_m,
+                "maximum_stagnant_intervals": (
+                    args.max_consecutive_stagnant_intervals
+                ),
+                "policy": (
+                    "block a new GOAL after repeated source-round intervals "
+                    "without minimum frozen shared-frame displacement"
+                ),
+            },
         },
         "provenance": [
             artifact_record(
@@ -1171,6 +1296,9 @@ def main() -> int:
     outcome = "aborted_before_publish"
     terminal_bundle: dict[str, object] | None = None
     overall_deadline = time.monotonic() + args.max_runtime_s
+    previous_shared_positions: dict[str, tuple[float, float]] = {}
+    previous_active_robot_ids: set[str] = set()
+    stagnant_intervals: dict[str, int] = {}
 
     def emit(event: str, **fields: object) -> None:
         append_jsonl(
@@ -1688,6 +1816,43 @@ def main() -> int:
                 )
                 outcome = "failed_no_safe_goal_allocation_holding"
                 break
+            progress_guard, stagnant_intervals = cross_round_progress_guard(
+                previous_positions=previous_shared_positions,
+                current_positions=shared_positions,
+                previous_active_robot_ids=previous_active_robot_ids,
+                current_active_robot_ids=active,
+                previous_stagnant_intervals=stagnant_intervals,
+                minimum_progress_m=args.cross_round_min_progress_m,
+                maximum_stagnant_intervals=(
+                    args.max_consecutive_stagnant_intervals
+                ),
+            )
+            progress_guard_path = round_dir / "cross_round_progress_guard.json"
+            atomic_write_json(progress_guard_path, progress_guard)
+            emit(
+                "cross_round_progress_guard_evaluated",
+                status=progress_guard["status"],
+                blocked_robot_ids=progress_guard["blocked_robot_ids"],
+                robots=progress_guard["robots"],
+            )
+            previous_shared_positions = dict(shared_positions)
+            previous_active_robot_ids = set(active)
+            if progress_guard["status"] == "blocked":
+                scene_manifest["terminal_progress_guard"] = artifact_record(
+                    progress_guard_path,
+                    classification=(
+                        "source_derived_realworld_execution_guard"
+                    ),
+                )
+                if current is None:
+                    raise RuntimeError(
+                        "cross-round progress guard blocked before any batch"
+                    )
+                final_states = hold_and_confirm(
+                    "cross_round_no_progress_hold"
+                )
+                outcome = "failed_cross_round_no_progress_holding"
+                break
             readiness = readiness_for(active)
             atomic_write_json(round_dir / "runtime_readiness.json", readiness)
             publish(
@@ -1734,6 +1899,12 @@ def main() -> int:
                 ),
                 "route_conflict_guard": artifact_record(
                     round_dir / "route_conflict_guard.json",
+                    classification=(
+                        "source_derived_realworld_execution_guard"
+                    ),
+                ),
+                "cross_round_progress_guard": artifact_record(
+                    progress_guard_path,
                     classification=(
                         "source_derived_realworld_execution_guard"
                     ),
