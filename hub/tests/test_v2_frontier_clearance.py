@@ -123,6 +123,64 @@ def test_arrival_disk_intersects_safe_cell_footprint_not_only_its_center(
     assert guarded == candidate
 
 
+def test_already_arrived_frontier_is_reallocated_before_republish(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (3.5, 3.5),
+            "robot-1": (2.6, 2.5),
+        },
+    )
+    free = np.ones((100, 100), dtype=bool)
+    execution = snapshot_from_free_mask(
+        free,
+        transform_version="robot-execution-v1",
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        fallback_frontiers=[
+            {"frontier_id": "A", "x_m": 4.0, "y_m": 4.0},
+        ],
+        robot_xy_by_robot={
+            "robot-0": (2.0, 2.0),
+            "robot-1": (2.5, 2.5),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+    )
+
+    check = report["checks"]["robot-1"]
+    assert check["direct_approach_available"] is True
+    assert check["frontier_arrival_already_satisfied"] is True
+    assert check["minimum_direct_travel_m"] == 0.0
+    assert check["direct_approach_has_useful_travel"] is False
+    assert check["direct_approach_passed"] is False
+    assert report["fallback_assignments"] == [
+        {
+            "robot_id": "robot-1",
+            "rejected_frontier_id": "frontier-1",
+            "fallback_frontier_id": "A",
+            "source_rank": 0,
+        }
+    ]
+    assert guarded.decisions[1].target is not None
+    assert guarded.decisions[1].target.frontier_id == "A"
+
+
 def test_per_robot_execution_map_rejects_disconnected_global_frontier(
     observation_factory,
 ):

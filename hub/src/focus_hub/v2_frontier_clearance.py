@@ -20,7 +20,7 @@ from .map_snapshot import MapSnapshot
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
 
-FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v4"
+FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v5"
 MINIMUM_PROJECTED_TRAVEL_M = 0.10
 MINIMUM_SOURCE_PROGRESS_M = 0.25
 
@@ -380,7 +380,42 @@ def _frontier_report(
                 ]
                 projected_approach_cell_xy_m = [candidate_x, candidate_y]
 
-    direct_approach_passed = approach_count > 0
+    robot_to_frontier_distance_m = (
+        None
+        if robot_xy_m is None
+        else math.hypot(
+            target_x - float(robot_xy_m[0]),
+            target_y - float(robot_xy_m[1]),
+        )
+    )
+    minimum_direct_travel_m = (
+        None
+        if robot_to_frontier_distance_m is None
+        else max(0.0, robot_to_frontier_distance_m - arrival_radius_m)
+    )
+    frontier_arrival_already_satisfied = (
+        None
+        if robot_to_frontier_distance_m is None
+        else robot_to_frontier_distance_m <= arrival_radius_m + 1e-12
+    )
+    direct_approach_available = approach_count > 0
+    direct_approach_has_useful_travel = (
+        True
+        if minimum_direct_travel_m is None
+        else minimum_direct_travel_m
+        >= MINIMUM_PROJECTED_TRAVEL_M - 1e-12
+    )
+    # A physical frontier is an exploration target, not a stationary scan
+    # command.  Once the frozen base pose is already inside its arrival disk
+    # (or would travel less than the existing 10 cm useful-progress floor),
+    # re-publishing the same source frontier can create endless immediate
+    # ARRIVED rounds without exposing new map area.  Mark it rejected here so
+    # the unchanged source-ranked fallback path can choose another independently
+    # clearance-checked frontier.  Calls without a measured base pose retain
+    # the legacy pure-map behavior.
+    direct_approach_passed = (
+        direct_approach_available and direct_approach_has_useful_travel
+    )
     projected_approach_passed = projected_target_xy_m is not None
     return {
         "robot_id": decision.robot_id,
@@ -397,6 +432,16 @@ def _frontier_report(
         "safe_approach_cell_count": approach_count,
         "nearest_safe_approach_distance_m": nearest_safe_m,
         "maximum_approach_clearance_m": maximum_approach_clearance_m,
+        "direct_approach_available": direct_approach_available,
+        "robot_to_frontier_distance_m": robot_to_frontier_distance_m,
+        "minimum_direct_travel_m": minimum_direct_travel_m,
+        "minimum_required_travel_m": MINIMUM_PROJECTED_TRAVEL_M,
+        "frontier_arrival_already_satisfied": (
+            frontier_arrival_already_satisfied
+        ),
+        "direct_approach_has_useful_travel": (
+            direct_approach_has_useful_travel
+        ),
         "direct_approach_passed": direct_approach_passed,
         "bounded_approach_projection_enabled": (
             allow_bounded_approach_projection
