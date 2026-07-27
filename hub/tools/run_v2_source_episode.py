@@ -1077,6 +1077,24 @@ def parse_args() -> argparse.Namespace:
         help="Yunji footprint clearance required inside a frontier arrival disk",
     )
     parser.add_argument(
+        "--robot-0-frontier-start-snap-radius-m",
+        type=float,
+        default=0.75,
+        help=(
+            "WSJ bounded frozen-map start seed snap radius; independent of "
+            "footprint clearance and aligned with the robot-local router"
+        ),
+    )
+    parser.add_argument(
+        "--robot-1-frontier-start-snap-radius-m",
+        type=float,
+        default=1.0,
+        help=(
+            "Yunji bounded frozen-map start seed snap radius; independent of "
+            "footprint clearance and aligned with the robot-local router"
+        ),
+    )
+    parser.add_argument(
         "--max-rounds",
         type=int,
         default=source_decision_round_limit(),
@@ -1164,6 +1182,24 @@ def main() -> int:
         raise ValueError(
             "frontier clearance must be finite and within [0.15, 0.75] m"
         )
+    if not all(
+        math.isfinite(snap_radius)
+        and clearance <= snap_radius <= 2.0
+        for clearance, snap_radius in (
+            (
+                args.robot_0_frontier_clearance_m,
+                args.robot_0_frontier_start_snap_radius_m,
+            ),
+            (
+                args.robot_1_frontier_clearance_m,
+                args.robot_1_frontier_start_snap_radius_m,
+            ),
+        )
+    ):
+        raise ValueError(
+            "frontier start snap radii must be finite, at least the matching "
+            "footprint clearance, and no greater than 2.0 m"
+        )
 
     output = prepare_output(args.output)
     session_path = resolve_session_argument(args.session_file)
@@ -1242,11 +1278,22 @@ def main() -> int:
                     "robot-0": args.robot_0_frontier_clearance_m,
                     "robot-1": args.robot_1_frontier_clearance_m,
                 },
+                "robot_start_seed_snap_radius_m": {
+                    "robot-0": (
+                        args.robot_0_frontier_start_snap_radius_m
+                    ),
+                    "robot-1": (
+                        args.robot_1_frontier_start_snap_radius_m
+                    ),
+                },
+                "bounded_safe_approach_projection": True,
                 "policy": (
                     "preserve source/VLM selection in the candidate artifact; "
                     "withhold physical authority when the assigned robot's "
                     "frozen shared-frame map has no reachable known-free, "
-                    "footprint-clear cell intersecting its arrival disk"
+                    "footprint-clear cell intersecting its arrival disk or no "
+                    "start-connected footprint-clear partial-progress waypoint "
+                    "toward the same source frontier"
                 ),
             },
             "cross_round_progress_guard": {
@@ -1730,6 +1777,18 @@ def main() -> int:
                     ),
                     robot_xy_by_robot=shared_positions,
                     execution_snapshots_by_robot=execution_snapshots,
+                    start_seed_snap_radius_by_robot_m={
+                        "robot-0": (
+                            args.robot_0_frontier_start_snap_radius_m
+                        ),
+                        "robot-1": (
+                            args.robot_1_frontier_start_snap_radius_m
+                        ),
+                    },
+                    bounded_approach_projection_by_robot={
+                        "robot-0": True,
+                        "robot-1": True,
+                    },
                 )
             )
             atomic_write_json(

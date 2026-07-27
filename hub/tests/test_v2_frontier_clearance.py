@@ -163,6 +163,10 @@ def test_per_robot_execution_map_rejects_disconnected_global_frontier(
                 transform_version="robot-1-transform-v1",
             ),
         },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
     )
 
     assert report["status"] == "unsafe_frontiers_suppressed"
@@ -198,6 +202,219 @@ def test_clear_frontiers_preserve_candidate_batch(observation_factory):
     assert report["status"] == "frontiers_clear"
     assert report["blocked_robot_ids"] == []
     assert guarded == candidate
+
+
+def test_start_seed_snap_is_independent_of_clearance_for_both_robots(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {"robot-0": (3.0, 3.0), "robot-1": (4.0, 4.0)},
+    )
+    free = np.zeros((100, 100), dtype=bool)
+    free[20:80, 20:80] = True
+    execution = snapshot_from_free_mask(
+        free,
+        transform_version="robot-execution-v1",
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        robot_xy_by_robot={
+            "robot-0": (0.60, 2.0),
+            "robot-1": (2.0, 0.60),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+    )
+
+    assert guarded == candidate
+    assert report["status"] == "frontiers_clear"
+    for robot_id, clearance, snap_radius in (
+        ("robot-0", 0.35, 0.75),
+        ("robot-1", 0.34, 1.0),
+    ):
+        check = report["checks"][robot_id]
+        assert check["start_seed_distance_m"] > clearance
+        assert check["maximum_start_seed_distance_m"] == snap_radius
+        assert check["start_seed_within_limit"] is True
+        assert check["reachable_known_free_cell_count"] > 0
+        assert check["passed"] is True
+
+
+def narrow_corridor_snapshot(*, transform_version: str) -> MapSnapshot:
+    free = np.zeros((100, 100), dtype=bool)
+    free[20:80, 20:80] = True
+    free[49:52, 5:20] = True
+    return snapshot_from_free_mask(
+        free,
+        transform_version=transform_version,
+    )
+
+
+def test_nearby_unsafe_frontier_projects_to_start_connected_safe_cell(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (3.0, 3.0),
+            "robot-1": (0.575, 2.525),
+        },
+    )
+    execution = narrow_corridor_snapshot(
+        transform_version="robot-execution-v1"
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        robot_xy_by_robot={
+            "robot-0": (3.0, 2.0),
+            "robot-1": (3.0, 2.525),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+        bounded_approach_projection_by_robot={
+            "robot-0": True,
+            "robot-1": True,
+        },
+    )
+
+    assert report["status"] == "frontiers_projected_to_safe_approaches"
+    check = report["checks"]["robot-1"]
+    assert check["direct_approach_passed"] is False
+    assert check["projected_approach_passed"] is True
+    assert check["pass_mode"] == "bounded_safe_approach_projection"
+    assert check["projection_excess_beyond_arrival_m"] < 0.34
+    assert check["reachable_footprint_clear_cell_count"] > 0
+    assert report["selected_frontier_projected_robot_ids"] == ["robot-1"]
+    assert report["blocked_robot_ids"] == []
+    assert len(report["approach_projections"]) == 1
+    original = candidate.decisions[1].target
+    projected = guarded.decisions[1].target
+    assert original is not None
+    assert projected is not None
+    assert projected.frontier_id == original.frontier_id
+    assert projected.pose.x > original.pose.x
+    assert projected.pose.x == check["projected_target_xy_m"][0]
+    assert projected.pose.y == check["projected_target_xy_m"][1]
+
+
+def test_start_connected_safe_partial_progress_can_exceed_one_clearance(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (3.0, 3.0),
+            "robot-1": (0.475, 2.525),
+        },
+    )
+    execution = narrow_corridor_snapshot(
+        transform_version="robot-execution-v1"
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        robot_xy_by_robot={
+            "robot-0": (3.0, 2.0),
+            "robot-1": (3.0, 2.525),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+        bounded_approach_projection_by_robot={
+            "robot-0": True,
+            "robot-1": True,
+        },
+    )
+
+    check = report["checks"]["robot-1"]
+    assert check["direct_approach_passed"] is False
+    assert check["projected_approach_passed"] is True
+    assert check["projection_excess_beyond_arrival_m"] > 0.34
+    assert check["pass_mode"] == "start_connected_safe_partial_progress"
+    assert check["projected_source_progress_m"] > 0.25
+    assert report["blocked_robot_ids"] == []
+    assert [item.mode.value for item in guarded.decisions] == ["GOAL", "GOAL"]
+
+
+def test_safe_partial_progress_holds_when_robot_is_already_at_boundary(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (3.0, 3.0),
+            "robot-1": (0.475, 2.525),
+        },
+    )
+    execution = narrow_corridor_snapshot(
+        transform_version="robot-execution-v1"
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        robot_xy_by_robot={
+            "robot-0": (3.0, 2.0),
+            "robot-1": (1.40, 2.525),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+        bounded_approach_projection_by_robot={
+            "robot-0": True,
+            "robot-1": True,
+        },
+    )
+
+    check = report["checks"]["robot-1"]
+    assert check["projected_minimum_travel_m"] < 0.10
+    assert check["projected_approach_passed"] is False
+    assert report["blocked_robot_ids"] == ["robot-1"]
+    assert [item.mode.value for item in guarded.decisions] == ["GOAL", "HOLD"]
 
 
 def test_rejected_frontiers_use_one_clear_source_remaining_frontier(
