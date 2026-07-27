@@ -800,14 +800,14 @@
       "evidence": [
         {
           "path": "manifests/scene02_plant_formal_experiment_03_success_20260728.json",
-          "size_bytes": 10116,
-          "sha256": "a4742fa3ad6632e68f5e7d6a04dacf931816ee16e5d39be31f4b31191d02de50",
+          "size_bytes": 11866,
+          "sha256": "dd909bcf583cc5be05714051768c8512f084f14ba274c62c06b888ed75e90050",
           "classification": "authoritative machine-readable Formal 03 success archive"
         },
         {
           "path": "audit/SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md",
-          "size_bytes": 3532,
-          "sha256": "cc25e1efbd9dcde19d6c327cb789d46711c1bc490f9db92b7f89b6070f99b800",
+          "size_bytes": 4543,
+          "sha256": "4200ccc2baac43b3ee722c5a1149ed89c2e3aef43d14b118619a7d746af34167",
           "classification": "human-readable provenance mirror"
         },
         {
@@ -827,7 +827,28 @@
           "size_bytes": 15100041,
           "sha256": "69ce83683ca33775fbc1c9af1a1239671b7776ad3c2f3413cebbc40a1e8d65ef",
           "duration_s": 199.1,
-          "classification": "observed user-provided external-view master; byte-preserved and untracked at data-archive time"
+          "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+        },
+        {
+          "path": "media/demo/scene02_formal_03_third_view.mp4",
+          "size_bytes": 19119038,
+          "sha256": "1fa34b70f29ed75829dde9ed0f95d88e346eed7fed39f27f985ad089137a062e",
+          "duration_s": 199.1,
+          "classification": "source-derived H.264 public derivative"
+        },
+        {
+          "path": "media/video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov",
+          "size_bytes": 193595030,
+          "sha256": "ba360ba29117906b2e935a1726d7c5f2ed5aeaefe7011eeca25d1687da19356e",
+          "duration_s": 289.368,
+          "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
+        },
+        {
+          "path": "media/demo/scene02_formal_03_dashboard.mp4",
+          "size_bytes": 3496392,
+          "sha256": "1c9ce1a52d31ee718fdb3086b2f0b528994924c1cad29548c7d166c1eb438b84",
+          "duration_s": 289.3,
+          "classification": "source-derived H.264 public derivative, scaled to 1280px wide"
         }
       ]
     }

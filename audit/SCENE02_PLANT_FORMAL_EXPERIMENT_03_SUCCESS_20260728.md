@@ -46,10 +46,21 @@ Scene 01 的 `3.25 m`。
 机器可读归档：
 [`scene02_plant_formal_experiment_03_success_20260728.json`](../manifests/scene02_plant_formal_experiment_03_success_20260728.json)。
 
-## 已收到媒体
+## 媒体
 
-| Path | Bytes | Duration | SHA-256 | Classification |
-| --- | ---: | ---: | --- | --- |
-| `media/video/third_view/experiment_2/experiment_2_success_1.mp4` | 15,100,041 | 199.1 s | `69ce83683ca33775fbc1c9af1a1239671b7776ad3c2f3413cebbc40a1e8d65ef` | observed user-provided third-view master; byte-preserved and untracked at archive time |
+操作者提供的第三视角与 Dashboard 录屏已通过 Git LFS 按字节原样提交到
+`media/video/**`；浏览器可播放 H.264 版本与内嵌预览 GIF 位于 `media/demo/`，
+命名与编码方式与 Formal 01/02 一致（`libx264`，GIF 为整段视频加速压缩至
+8fps/8s 循环，无海报截图）。
 
-公开 README 和媒体展示不在本次数据整理范围内。
+| 素材 | 字节 | 时长 | SHA-256 |
+| --- | ---: | ---: | --- |
+| `media/video/third_view/experiment_2/experiment_2_success_1.mp4` | 15,100,041 | 199.1 s | `69ce83683ca33775fbc1c9af1a1239671b7776ad3c2f3413cebbc40a1e8d65ef` |
+| `media/video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov` | 193,595,030 | 289.368 s | `ba360ba29117906b2e935a1726d7c5f2ed5aeaefe7011eeca25d1687da19356e` |
+| `media/demo/scene02_formal_03_third_view.mp4` | 19,119,038 | 199.1 s | `1fa34b70f29ed75829dde9ed0f95d88e346eed7fed39f27f985ad089137a062e` |
+| `media/demo/scene02_formal_03_dashboard.mp4` | 3,496,392 | 289.3 s | `1c9ce1a52d31ee718fdb3086b2f0b528994924c1cad29548c7d166c1eb438b84` |
+| `media/demo/scene02_formal_03_preview.gif` | 10,365,072 | 8.01 s | `5e049f1c7759c04f5a9381a914e8dc4c495016491c6b4c872a82cbab6d7acbea` |
+| `media/demo/scene02_formal_03_dashboard.gif` | 1,912,186 | 8.01 s | `8be21251cf6c35df22e761eaeff11b23e7b063b15b70f2c6a43c4c0cc7a7b77d` |
+
+README 已更新以展示本次成功实验；具体见项目主 `README.md` 的 Scene 02 章节
+与 [`media/README.md`](../media/README.md)。

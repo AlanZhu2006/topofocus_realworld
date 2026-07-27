@@ -136,9 +136,13 @@ displacement `D` as a source-compatible reference.
 
 Both robots explore cooperatively toward a plant target.
 
-| Trials | Success | SR | Source-compatible SPL | Standard SPL |
+| Trials | Success | SR | Mean source-compatible SPL | Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `2` | `0` | `0.0` | `0.0` | `0.0` |
+| `3` | `1` | `0.333333` | `0.288397` | pending |
+
+Mean source-compatible SPL counts both failures at zero contribution.
+Standard SPL awaits an independent Scene 02 shortest-feasible-path
+measurement (Scene 01's `3.25 m` is not reused).
 
 <table>
   <tr>
@@ -169,15 +173,35 @@ Both robots explore cooperatively toward a plant target.
       <a href="media/demo/scene02_formal_02_dashboard.mp4">Dashboard</a>
     </td>
   </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <strong>Formal 03 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene02_formal_03_preview.gif" width="440" alt="Formal 03 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene02_formal_03_dashboard.gif" width="440" alt="Formal 03 dashboard"><br>
+      Robot 1 ran solo under an operator-scoped single-robot live authorization
+      (Robot 0 held throughout); it explored frontiers, switched to the plant
+      semantic region and auto-ARRIVED, confirmed by the operator.<br>
+      <a href="media/demo/scene02_formal_03_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene02_formal_03_dashboard.mp4">Dashboard</a>
+    </td>
+  </tr>
 </table>
 
 ### Per-run metrics
 
-| Run | Robot 0 path | Robot 1 path |
-| --- | ---: | ---: |
-| Formal 01 | `6.104564 m` | `1.905387 m` |
-| Formal 02 | `0.208027 m` | `1.488125 m` |
+| Run | Result | Robot 0 path | Robot 1 path | Source-compatible SPL |
+| --- | --- | ---: | ---: | ---: |
+| Formal 01 | FAILURE | `6.104564 m` | `1.905387 m` | `0.0` |
+| Formal 02 | FAILURE | `0.208027 m` | `1.488125 m` | `0.0` |
+| Formal 03 | SUCCESS | `0.728655 m`* | `8.356524 m` | `0.865192` |
+
+\* Robot 0 had no live motion authority in Formal 03 (operator-scoped
+single-robot run); its accumulated odometry is retained as observed
+provenance, not commanded travel — net displacement was `0.002418 m`.
 
 [Formal 01 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
 · [Formal 02 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md)
+· [Formal 03 success record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md)
 · [Machine-readable results](manifests/realworld_experiment_progress.json)

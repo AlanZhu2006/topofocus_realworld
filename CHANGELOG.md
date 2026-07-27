@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Scene 02 formal experiment 03 (2026-07-28)
+
+- Archive Scene 02 formal experiment 03 as `SUCCESS` (`Success=1`, `SR=1`,
+  source-compatible `SPL=0.865191906`): an operator-scoped Yunji-only live
+  run (WSJ forced HOLD, no live motion authority) explored, switched to the
+  plant semantic region in round 6 and emitted `LOCAL_PLANNER_ARRIVED` in
+  round 10, with the plant visible in the terminal RGB; the operator
+  confirmed the physical success afterward. Standard SPL remains pending an
+  independent Scene 02 shortest-feasible-path measurement.
+- Publish the user-provided third-view and Dashboard masters byte-for-byte
+  through Git LFS, with H.264 derivatives and a time-lapsed README preview
+  GIF pair (matching the Scene 01/formal-01/02 naming and encoding
+  convention); update the Scene 02 section of the main README (now `SR=1/3`,
+  mean source-compatible `SPL=0.288397302`) and record the attempt in
+  `manifests/realworld_experiment_progress.json`.
+
 ### Scene 02 formal experiments 01-02 (2026-07-28)
 
 - Archive Scene 02 formal experiment 01 as `FAILURE` (`Success=0`, `SR=0`,

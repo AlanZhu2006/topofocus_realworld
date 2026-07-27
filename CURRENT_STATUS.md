@@ -1,7 +1,7 @@
 # Current project status
 
-Snapshot: **2026-07-28, after Scene 02 formal experiment 01 failure archival
-and local trajectory-recovery verification.**
+Snapshot: **2026-07-28, after Scene 02 formal experiment 03 (first Scene 02
+success) archival, joining the two earlier Scene 02 failures.**
 
 ## Scene 01 formal results
 
@@ -30,12 +30,12 @@ Exact machine-readable metrics, paths, hashes and evidence classes are in
 
 ## Scene 02 formal results
 
-Scene `scene02-plant`, target `plant`, currently contains two archived formal
-episodes, both failures.
+Scene `scene02-plant`, target `plant`, currently contains three archived
+formal episodes: two failures and one operator-confirmed success.
 
 | Episodes | Successes | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `2` | `0` | `0.0` | `0.0` | `0.0` |
+| `3` | `1` | `0.3333333333333333` | `0.2883973021635285` | pending |
 
 Formal 01, episode `scene02-plant-recal1-20260728-044959`: failed during
 coordinated execution — one assigned frontier was rejected as locally
@@ -49,13 +49,26 @@ episode timed out waiting for a fresh synchronized round after Yunji's map
 was blocked by ground-plane drift. WSJ travelled `0.208027 m` and Yunji
 travelled `1.488125 m`.
 
-Both are attributed `navigation_policy_failure`, not a VLM failure. Complete
-records:
+Both failures are attributed `navigation_policy_failure`, not a VLM failure.
+
+Formal 03, episode `yunji-single-01` (session
+`scene02-plant-20260728-yunji-single2`): an operator-scoped Yunji-only live
+run (WSJ forced HOLD throughout, no live motion authority). Yunji explored,
+switched to the plant semantic region in round 6, and emitted
+`LOCAL_PLANNER_ARRIVED` in round 10 with the plant visible in its terminal
+RGB; the operator confirmed the physical success afterward
+("可以 把这个归档为formal 003 success"). Yunji travelled `8.356524 m`
+(`SPL=0.865192`); standard SPL awaits an independent Scene 02
+shortest-feasible-path measurement.
+
+Complete records:
 [`audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md) /
-[`manifests/scene02_plant_formal_experiment_01_failure_20260728.json`](manifests/scene02_plant_formal_experiment_01_failure_20260728.json)
-and
+[`manifests/scene02_plant_formal_experiment_01_failure_20260728.json`](manifests/scene02_plant_formal_experiment_01_failure_20260728.json),
 [`audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md`](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md) /
-[`manifests/scene02_plant_formal_experiment_02_failure_20260728.json`](manifests/scene02_plant_formal_experiment_02_failure_20260728.json).
+[`manifests/scene02_plant_formal_experiment_02_failure_20260728.json`](manifests/scene02_plant_formal_experiment_02_failure_20260728.json)
+and
+[`audit/SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md`](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md) /
+[`manifests/scene02_plant_formal_experiment_03_success_20260728.json`](manifests/scene02_plant_formal_experiment_03_success_20260728.json).
 
 ## Published media
 
@@ -66,7 +79,7 @@ and
   main README.
 - Formal 05 display media covers the run beginning through physical arrival;
   its SR/SPL uses the complete episode report.
-- Scene 02 formal experiments 01-02's third-view and Dashboard masters are
+- Scene 02 formal experiments 01-03's third-view and Dashboard masters are
   likewise preserved under `media/video/**` through Git LFS, with an H.264
   pair and a time-lapsed ~8 s README preview GIF per master under
   `media/demo/`, matching the Scene 01 naming/encoding convention. See
@@ -95,16 +108,17 @@ unchanged. No file under immutable `source/` or `dependencies/` was changed.
 
 ## Physical-runtime boundary
 
-The failed episode was cleaned up with Hub `GOAL=false` and both robots
-reporting `HOLDING` plus `velocity_zero_confirmed=true`. The validated
-calibration artifact remains preserved, but session
-`scene02-plant-20260728-044246-recal2` is bound to pre-fix commit
-`a3dbe09bd543a7b26a10241712b6c9b1c60192e5`; it cannot authorize post-fix live
-motion. A new code-bound session and strict no-motion debug are required before
-the next run. Calibration reuse additionally requires unchanged camera mounts
-and tracking epochs.
+Formal 03's episode was cleaned up with Hub `GOAL=false` for both robots and
+`velocity_zero_confirmed=true`; live motion authority was disabled at
+episode end. Its session (`scene02-plant-20260728-yunji-single2`) was bound
+to commit `6a46316aeb44da080aad7f97ef14e52ee6162d40` and used a
+Yunji-only operator-scoped execution contract — WSJ never held live motion
+authority in that run. A new code-bound session and strict no-motion debug
+are required before the next live run; calibration reuse additionally
+requires unchanged camera mounts and tracking epochs.
 
-No physical robot command was issued by the archival or code verification.
+No physical robot command was issued by the archival or code verification
+steps themselves.
 
 Engineering attempts and diagnostic media remain separate from the formal
 results in
@@ -112,8 +126,8 @@ results in
 
 ## Next formal run
 
-Scene 02 formal experiment 02 is next. Before live motion: synchronize the
-committed repair byte-identically to both robot roots, create a new session
-bound to that commit, pass strict no-motion debug, and obtain a fresh onsite
-motion confirmation. A successful episode still requires an independent
-Scene 02 shortest-feasible-path measurement before Standard SPL finalization.
+Scene 02 formal experiment 04 is next. Before live motion: create a new
+session bound to the current commit, pass strict no-motion debug, and obtain
+a fresh onsite motion confirmation. A successful episode still requires an
+independent Scene 02 shortest-feasible-path measurement before Standard SPL
+finalization.

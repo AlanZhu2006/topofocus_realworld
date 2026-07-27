@@ -199,10 +199,45 @@
       "size_bytes": 15100041,
       "sha256": "69ce83683ca33775fbc1c9af1a1239671b7776ad3c2f3413cebbc40a1e8d65ef",
       "duration_s": 199.1,
-      "classification": "observed user-provided external-view master; byte-preserved and untracked at data-archive time"
+      "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene02_formal_03_third_view.mp4",
+      "size_bytes": 19119038,
+      "sha256": "1fa34b70f29ed75829dde9ed0f95d88e346eed7fed39f27f985ad089137a062e",
+      "duration_s": 199.1,
+      "classification": "source-derived H.264 public derivative of the observed external-view master"
+    },
+    {
+      "path": "media/demo/scene02_formal_03_preview.gif",
+      "size_bytes": 10365072,
+      "sha256": "5e049f1c7759c04f5a9381a914e8dc4c495016491c6b4c872a82cbab6d7acbea",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to ~8 s (matching the Scene 01 formal-experiment GIF convention)"
+    },
+    {
+      "path": "media/video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov",
+      "size_bytes": 193595030,
+      "sha256": "ba360ba29117906b2e935a1726d7c5f2ed5aeaefe7011eeca25d1687da19356e",
+      "duration_s": 289.368,
+      "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene02_formal_03_dashboard.mp4",
+      "size_bytes": 3496392,
+      "sha256": "1c9ce1a52d31ee718fdb3086b2f0b528994924c1cad29548c7d166c1eb438b84",
+      "duration_s": 289.3,
+      "classification": "source-derived H.264 public derivative of the observed Dashboard master, scaled to 1280px wide"
+    },
+    {
+      "path": "media/demo/scene02_formal_03_dashboard.gif",
+      "size_bytes": 1912186,
+      "sha256": "8be21251cf6c35df22e761eaeff11b23e7b063b15b70f2c6a43c4c0cc7a7b77d",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to ~8 s (matching the Scene 01 formal-experiment GIF convention)"
     }
   ],
-  "media_status": "third-view master indexed; README, derivatives and public media presentation explicitly deferred",
+  "media_status": "third-view and Dashboard masters, derivatives and README presentation all published",
   "safety": {
     "hub_published_high_level_targets_only": true,
     "robot_local_stop_and_rejection_authority_retained": true,
