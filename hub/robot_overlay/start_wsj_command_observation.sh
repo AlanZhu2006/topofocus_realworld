@@ -29,8 +29,9 @@ REGISTRATION_MIN_COVERAGE="${FOCUS_WSJ_REGISTRATION_MIN_COVERAGE:-0.38}"
 # and accept it only inside the strict measured skew gate.
 RGB_CACHE_SIZE="${FOCUS_WSJ_RGB_CACHE_SIZE:-90}"
 LATEST_RGB_MAX_SKEW_S="${FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S:-0.05}"
-# Continuous depth/odometry removes the stationary sparse-keyframe wait. Keep
-# one bounded read-only sender restart as the sole startup self-heal.
+# Continuous depth/odometry removes the stationary sparse-keyframe wait. The
+# sender repairs a stale Hub HTTP pool while preserving its warm DDS
+# participant, so a liveness timeout fails closed without restarting it.
 SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-15}"
 
 usage() {
@@ -103,6 +104,19 @@ tmux has-session -t "$SESSION" 2>/dev/null || {
   echo "WSJ camera/perception session is not running: $SESSION" >&2
   exit 1
 }
+SENDER_CONTRACT_SHA256="$(
+  {
+    printf '%s\0' \
+      "$DEPLOYMENT_COMMIT" \
+      "$HUB_URL" \
+      "$TRANSFORM_VERSION" \
+      "$SHARED_FRAME_CALIBRATION_ID" \
+      "$REGISTRATION_MIN_COVERAGE" \
+      "$RGB_CACHE_SIZE" \
+      "$LATEST_RGB_MAX_SKEW_S"
+    sha256sum "$BASE_CAMERA_CALIBRATION" "$SHARED_TRACKING_CALIBRATION"
+  } | sha256sum | awk '{print $1}'
+)"
 
 ensure_camera_preview() {
   local preview_log deadline preview_processes
@@ -259,6 +273,8 @@ launch_sender() {
     "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; set -o pipefail; $command_text 2>&1 | tee \"$log\"'"
   tmux set-option -w -t "$SESSION:hub-sender" \
     @focus_deployment_commit "$DEPLOYMENT_COMMIT"
+  tmux set-option -w -t "$SESSION:hub-sender" \
+    @focus_sender_contract_sha256 "$SENDER_CONTRACT_SHA256"
 
   deadline=$((SECONDS + 30))
   until pgrep -af \
@@ -318,8 +334,13 @@ if [[ "$sender_window" == true ]]; then
     tmux show-options -w -v -t "$SESSION:hub-sender" \
       @focus_deployment_commit 2>/dev/null || true
   )"
-  if [[ "$sender_deployment_commit" != "$DEPLOYMENT_COMMIT" ]]; then
-    echo "WSJ read-only sender belongs to deployment ${sender_deployment_commit:-unmarked}; reloading it once for $DEPLOYMENT_COMMIT."
+  sender_contract_sha256="$(
+    tmux show-options -w -v -t "$SESSION:hub-sender" \
+      @focus_sender_contract_sha256 2>/dev/null || true
+  )"
+  if [[ "$sender_deployment_commit" != "$DEPLOYMENT_COMMIT" ]] \
+     || [[ "$sender_contract_sha256" != "$SENDER_CONTRACT_SHA256" ]]; then
+    echo "WSJ read-only sender contract changed; loading the verified deployment/calibration once."
     stop_tracked_sender
     sender_window="false"
     sender_processes="$(
@@ -334,48 +355,19 @@ if [[ "$sender_window" == true ]]; then
 fi
 
 initial_sequence="$(hub_latest_sequence)"
-attempt_baseline="$initial_sequence"
 latest_sequence="$initial_sequence"
 metrics=""
 log=""
-sender_restarts=0
-sender_ready="false"
 
 if [[ "$sender_window" != true ]]; then
   launch_sender
 fi
 
-# Attempt zero observes the existing/new sender. Attempt one is the sole
-# self-heal: restart only this read-only process, never camera/perception or a
-# command component. A second failure is terminal and remains fail-closed.
-for attempt in 0 1; do
-  if wait_for_hub_sequence_advance "$attempt_baseline"; then
-    sender_ready="true"
-    break
-  fi
-  if [[ "$attempt" == 1 ]]; then
-    current_sequence="$(hub_latest_sequence)"
-    if (( current_sequence > attempt_baseline )); then
-      latest_sequence="$current_sequence"
-      sender_ready="true"
-    fi
-    break
-  fi
-  current_sequence="$(hub_latest_sequence)"
-  if (( current_sequence > attempt_baseline )); then
-    latest_sequence="$current_sequence"
-    sender_ready="true"
-    break
-  fi
-  echo "WSJ observation sequence did not advance from $attempt_baseline; restarting only the read-only sender once." >&2
-  stop_tracked_sender
-  attempt_baseline="$current_sequence"
-  launch_sender
-  sender_restarts=1
-done
-
-[[ "$sender_ready" == true ]] || {
-  echo "WSJ observation sender failed to advance after one bounded read-only restart." >&2
+# Never replace a warm DDS participant as an HTTP-liveness repair. The sender
+# resets its own requests.Session on connection failure; replacing the process
+# here has repeatedly turned a bounded Hub transition into cold DDS discovery.
+wait_for_hub_sequence_advance "$initial_sequence" || {
+  echo "WSJ observation sender failed to advance; preserving the warm DDS participant and failing closed." >&2
   exit 1
 }
 
@@ -385,7 +377,7 @@ echo "  mount:     $BASE_CAMERA_CALIBRATION"
 echo "  shared:    $SHARED_TRACKING_CALIBRATION"
 echo "  deployment: $DEPLOYMENT_COMMIT"
 echo "  Hub sequence: $initial_sequence -> $latest_sequence"
-echo "  read-only sender restarts: $sender_restarts"
+echo "  sender contract: $SENDER_CONTRACT_SHA256"
 if [[ -n "$metrics" ]]; then
   echo "  metrics:   $metrics"
   echo "  log:       $log"

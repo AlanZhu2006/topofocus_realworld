@@ -56,6 +56,70 @@ def _covariance(diagonal: float) -> list[float]:
     return covariance
 
 
+def test_hub_transport_rebuilds_only_http_session_on_disconnect(monkeypatch):
+    sender = _load_sender_module(monkeypatch)
+
+    class ConnectionErrorForTest(Exception):
+        pass
+
+    class TimeoutForTest(Exception):
+        pass
+
+    class Response:
+        status_code = 201
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"status": "accepted"}
+
+    sessions = []
+
+    class Session:
+        def __init__(self):
+            self.headers = {}
+            self.closed = False
+            self.index = len(sessions)
+            sessions.append(self)
+
+        def post(self, *_args, **_kwargs):
+            if self.index == 0:
+                raise ConnectionErrorForTest("stale keep-alive socket")
+            return Response()
+
+        def close(self):
+            self.closed = True
+
+    requests = types.ModuleType("requests")
+    requests.Session = Session
+    requests.ConnectionError = ConnectionErrorForTest
+    requests.Timeout = TimeoutForTest
+    monkeypatch.setitem(sys.modules, "requests", requests)
+
+    transport = sender.HubTransport(
+        "http://127.0.0.1:18089",
+        "robot-0",
+        "token",
+        max_retries=1,
+        backoff_base_s=0.0,
+        backoff_cap_s=0.0,
+    )
+    ack, attempts = transport.upload(
+        {"sequence": 7},
+        b"rgb",
+        b"depth",
+        lambda metadata: metadata,
+    )
+
+    assert ack == {"status": "accepted"}
+    assert attempts == 2
+    assert transport.retries_total == 1
+    assert transport.session_resets_total == 1
+    assert len(sessions) == 2
+    assert sessions[0].closed is True
+    assert sessions[1].headers["X-Robot-Token"] == "token"
+
+
 class _DepthBridge:
     def __init__(self, array):
         self.array = array

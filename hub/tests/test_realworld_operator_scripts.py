@@ -140,7 +140,7 @@ def test_wsj_formal_observation_replaces_non_color_calibration_preview():
     assert '--registration-min-coverage "$REGISTRATION_MIN_COVERAGE"' in launcher
 
 
-def test_wsj_formal_observation_self_heals_one_sync_startup_stall():
+def test_wsj_formal_observation_preserves_warm_dds_sender_on_startup_stall():
     launcher = (
         OVERLAY / "start_wsj_command_observation.sh"
     ).read_text()
@@ -157,11 +157,13 @@ def test_wsj_formal_observation_self_heals_one_sync_startup_stall():
     assert 'FOCUS_WSJ_RGB_CACHE_SIZE:-90' in launcher
     assert '--rgb-cache-size "$RGB_CACHE_SIZE"' in launcher
     assert '--latest-rgb-max-skew-s "$LATEST_RGB_MAX_SKEW_S"' in launcher
-    assert "for attempt in 0 1" in launcher
-    assert "restart only this read-only process" in launcher
-    assert "failed to advance after one bounded read-only restart" in launcher
+    assert "@focus_sender_contract_sha256" in launcher
+    assert "resets its own requests.Session" in launcher
+    assert "preserving the warm DDS participant and failing closed" in launcher
+    assert "for attempt in 0 1" not in launcher
+    assert "restarting only the read-only sender once" not in launcher
     assert launcher.index("go2_cmd_bridge") < launcher.index(
-        "for attempt in 0 1"
+        'wait_for_hub_sequence_advance "$initial_sequence"'
     )
     assert "start_go2" not in launcher
     assert "water_cmd_vel_bridge" not in launcher
@@ -411,7 +413,8 @@ def test_runtime_processes_are_bound_to_the_checked_deployment_commit():
     assert "FOCUS_DEPLOYMENT_COMMIT='$code_commit'" in calibration
     assert "FOCUS_DEPLOYMENT_COMMIT must be the explicit" in wsj
     assert "@focus_deployment_commit" in wsj_sender
-    assert "reloading it once" in wsj_sender
+    assert "loading the verified deployment/calibration once" in wsj_sender
+    assert "@focus_sender_contract_sha256" in wsj_sender
     assert '--setenv="FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT"' in yunji
     assert "unit_matches_deployment" in yunji
     assert "Verified Yunji debug core is from a different deployment" in yunji

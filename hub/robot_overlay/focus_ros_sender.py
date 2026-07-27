@@ -426,23 +426,48 @@ class HubTransport:
 
     def __init__(self, base_url, robot_id, token, timeout_s=10.0,
                  max_retries=8, backoff_base_s=0.5, backoff_cap_s=8.0):
-        import requests
-
         self.base_url = base_url.rstrip("/")
         self.robot_id = robot_id
-        self.session = requests.Session()
-        self.session.headers["X-Robot-Token"] = token
+        self.token = token
         self.timeout_s = timeout_s
         self.max_retries = max_retries
         self.backoff_base_s = backoff_base_s
         self.backoff_cap_s = backoff_cap_s
         self.retries_total = 0
+        self.session_resets_total = 0
+        self.session = self._new_session()
+
+    def _new_session(self):
+        import requests
+
+        session = requests.Session()
+        session.headers["X-Robot-Token"] = self.token
+        return session
+
+    def _reset_session(self) -> None:
+        """Drop only the stale HTTP pool; preserve this ROS/DDS participant."""
+
+        previous = self.session
+        try:
+            previous.close()
+        finally:
+            self.session = self._new_session()
+            self.session_resets_total += 1
 
     def last_sequence(self) -> int:
-        response = self.session.get(
-            f"{self.base_url}/v1/robots/{self.robot_id}/observations/latest",
-            timeout=self.timeout_s,
-        )
+        import requests
+
+        url = f"{self.base_url}/v1/robots/{self.robot_id}/observations/latest"
+        try:
+            response = self.session.get(url, timeout=self.timeout_s)
+        except (requests.ConnectionError, requests.Timeout):
+            # Hub debug/live transitions briefly replace the local API behind
+            # the reverse tunnel. A kept-alive socket can survive in a stale
+            # pool even after the replacement is ready. Rebuild only that
+            # pool; restarting this process also recreates the DDS participant
+            # and has repeatedly delayed discovery of TinyNav publishers.
+            self._reset_session()
+            response = self.session.get(url, timeout=self.timeout_s)
         response.raise_for_status()
         return int(response.json()["last_sequence"])
 
@@ -470,7 +495,9 @@ class HubTransport:
                         f"{response.status_code} {response.text[:300]}"
                     )
             except (requests.ConnectionError, requests.Timeout):
-                pass
+                # Keep ROS subscriptions and DDS discovery warm across a Hub
+                # restart. Only the HTTP connection pool is disposable.
+                self._reset_session()
             if attempt > self.max_retries:
                 raise RuntimeError(f"giving up on seq {metadata['sequence']} after {attempt} attempts")
             self.retries_total += 1
@@ -1138,6 +1165,7 @@ class FocusRosSender(Node):
             "frames_seen_by_synchronizer": self.frames_seen,
             "frames_sent": self.frames_sent,
             "retries_total": self.transport.retries_total,
+            "http_session_resets_total": self.transport.session_resets_total,
             "mean_upload_ms": round(float(np.mean([m["upload_ms"] for m in self.metrics])), 1)
             if self.metrics else None,
             "mean_pose_sync_skew_ms": round(float(np.mean([m["pose_sync_skew_ms"] for m in self.metrics])), 1)
