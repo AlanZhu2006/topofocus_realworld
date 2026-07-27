@@ -7,7 +7,7 @@ from typing import Iterable, Mapping
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
 
-RECOVERABLE_FRONTIER_REJECTIONS = frozenset(
+RECOVERABLE_LOCAL_PATH_REJECTIONS = frozenset(
     {
         "LOCAL_GOAL_UNREACHABLE",
         "LOCAL_PATH_REVERSE_REQUIRED",
@@ -85,24 +85,24 @@ def next_coordination_batch(
     return DecisionBatchV2(decisions=tuple(decisions))
 
 
-def recoverable_frontier_failure(
+def recoverable_local_path_failure(
     decision: HighLevelDecisionV2,
     event: Mapping[str, object],
 ) -> bool:
-    """Return whether one failed frontier leg may be isolated and replanned.
+    """Return whether a failed goal leg may be safely replanned.
 
-    Transform, localization, e-stop, operator and semantic failures remain
-    episode-wide fail-closed conditions.  Only an explicit robot-local
-    ``REJECTED`` for a frontier's path/progress feasibility is recoverable.
-    The source/VLM target itself is not rewritten; the rejected leg is moved
-    to HOLD and a later source round can choose again from a fresh map.
+    Transform, localization, e-stop, operator and health failures remain
+    episode-wide fail-closed conditions. Only an explicit robot-local
+    ``REJECTED`` for path/progress feasibility is recoverable. Frontier legs
+    may be isolated while their peer continues. A semantic leg instead causes
+    a coordinated HOLD before a fresh source/VLM round chooses an approach;
+    it can never be promoted to ARRIVED by this helper.
     """
 
     target = decision.target
     return bool(
         target is not None
-        and target.kind == "FRONTIER_POINT"
         and str(event.get("status", "")) == "REJECTED"
         and str(event.get("reason_code", ""))
-        in RECOVERABLE_FRONTIER_REJECTIONS
+        in RECOVERABLE_LOCAL_PATH_REJECTIONS
     )

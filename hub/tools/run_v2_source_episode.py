@@ -65,7 +65,7 @@ from focus_hub.source_episode import (  # noqa: E402
 from focus_hub.transport_v2 import DecisionBatchV2  # noqa: E402
 from focus_hub.v2_episode_control import (  # noqa: E402
     next_coordination_batch,
-    recoverable_frontier_failure,
+    recoverable_local_path_failure,
 )
 from focus_hub.v2_frontier_clearance import (  # noqa: E402
     apply_frontier_clearance_guard,
@@ -1572,7 +1572,7 @@ def main() -> int:
                 recoverable = {
                     robot_id: event
                     for robot_id, event in inspection.failures.items()
-                    if recoverable_frontier_failure(
+                    if recoverable_local_path_failure(
                         decisions[robot_id], event
                     )
                 }
@@ -1591,6 +1591,43 @@ def main() -> int:
                         "failure",
                         f"{failed_robot} {event.get('status')}: "
                         f"{event.get('reason_code')}",
+                        final_states,
+                        {},
+                        round_latest,
+                        feedback_counts,
+                    )
+                failed_semantic = {
+                    robot_id: event
+                    for robot_id, event in recoverable.items()
+                    if (
+                        decisions[robot_id].target is not None
+                        and decisions[robot_id].target.kind
+                        == "SEMANTIC_REGION"
+                    )
+                }
+                if failed_semantic:
+                    emit(
+                        "semantic_path_failures_replan",
+                        failed_robot_ids=sorted(failed_semantic),
+                        failures={
+                            robot_id: {
+                                "status": event.get("status"),
+                                "reason_code": event.get("reason_code"),
+                                "decision_id": event.get("decision_id"),
+                                "leg_id": event.get("leg_id"),
+                            }
+                            for robot_id, event in sorted(
+                                failed_semantic.items()
+                            )
+                        },
+                    )
+                    final_states = hold_and_confirm(
+                        "semantic_path_failure_replan_hold"
+                    )
+                    return RoundResult(
+                        "replan",
+                        "semantic approach was locally blocked; continue "
+                        "with a fresh source round",
                         final_states,
                         {},
                         round_latest,
