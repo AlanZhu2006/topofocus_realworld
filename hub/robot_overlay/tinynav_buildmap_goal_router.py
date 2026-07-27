@@ -285,7 +285,7 @@ def plan_route(
     clearance_cells: int,
     start_snap_radius_m: float = 0.0,
     start_footprint_override_m: float = 0.0,
-    start_yaw_rad: float | None = None,
+    preferred_seed_heading_rad: float | None = None,
     allow_partial_progress: bool = False,
     minimum_progress_m: float = 0.10,
 ) -> RoutePlan | None:
@@ -299,8 +299,8 @@ def plan_route(
         or not math.isfinite(start_footprint_override_m)
         or start_footprint_override_m < 0
         or (
-            start_yaw_rad is not None
-            and not math.isfinite(start_yaw_rad)
+            preferred_seed_heading_rad is not None
+            and not math.isfinite(preferred_seed_heading_rad)
         )
     ):
         raise ValueError(
@@ -323,7 +323,7 @@ def plan_route(
             clearance_cells=clearance_cells,
             max_distance_m=start_snap_radius_m,
             start_footprint_override_m=start_footprint_override_m,
-            preferred_heading_rad=start_yaw_rad,
+            preferred_heading_rad=preferred_seed_heading_rad,
         )
         if seed_path is None:
             return None
@@ -902,6 +902,14 @@ def run_ros(
                 ),
                 grid_resolution_m=grid.resolution_m,
             )
+            # A footprint escape seed must remain anchored to the fixed local
+            # goal.  Choosing it from the robot's current yaw makes the seed
+            # switch sides while the base turns; the following A* segment can
+            # then remain exactly behind the controller forever.
+            seed_heading_rad = math.atan2(
+                goal.y - base_y,
+                goal.x - base_x,
+            )
             plan_started = time.monotonic()
             plan = plan_route(
                 grid,
@@ -915,9 +923,7 @@ def run_ros(
                 start_footprint_override_m=(
                     args.start_footprint_override_m
                 ),
-                start_yaw_rad=math.atan2(
-                    tracking_T_base[4], tracking_T_base[0]
-                ),
+                preferred_seed_heading_rad=seed_heading_rad,
                 allow_partial_progress=goal.target_kind
                 in {"FRONTIER_POINT", "SEMANTIC_REGION"},
                 minimum_progress_m=args.minimum_partial_progress_m,
@@ -956,6 +962,8 @@ def run_ros(
                 start_footprint_override_m=round(
                     args.start_footprint_override_m, 3
                 ),
+                start_seed_heading_rad=round(seed_heading_rad, 3),
+                start_seed_heading_source="fixed_local_goal_bearing",
                 odom_age_s=round(odom_age_s, 3),
                 plan_duration_s=round(plan_duration_s, 3),
                 waypoint=[round(waypoint_x, 3), round(waypoint_y, 3)],

@@ -140,7 +140,7 @@ tmux new-window -d -t "$SESSION" -n goal-router \
 started_windows+=("goal-router")
 
 tmux new-window -d -t "$SESSION" -n control \
-  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\"'"
+  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --rotate-first-on-reverse --stabilize-large-turn --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
 started_windows+=("control")
 
 source "$SETUP_FILE"

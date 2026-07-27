@@ -9,14 +9,14 @@ floor.  Its timer then publishes zero forever.
 
 The pinned controller already forbids negative velocity and turns in place
 when its lookahead lies behind the robot.  The Focus deployment normally keeps
-the stricter reverse-path rejection at 2 cm.  Yunji can explicitly opt into a
-bounded rotate-first recovery: publish zero linear velocity, retain one turn
-direction, and let the pinned pose/path/depth guards govern the yaw command.
-It can also explicitly stabilize a large in-place turn from the current base
-pose toward a non-local path point.  That prevents a jittering first path
-segment from changing the turn sign on every replan.  If either recovery does
-not resolve before the bounded deadline, the existing receiver rejection
-remains fail-closed.
+the stricter reverse-path rejection at 2 cm.  A measured robot deployment can
+explicitly opt into a bounded rotate-first recovery: publish zero linear
+velocity, retain one turn direction, and let the pinned pose/path/depth guards
+govern the yaw command.  It can also explicitly stabilize a large in-place
+turn from the current base pose toward a non-local path point.  That prevents a
+jittering first path segment from changing the turn sign on every replan.  If
+either recovery does not resolve before the bounded deadline, the existing
+receiver rejection remains fail-closed.
 
 Keep the source controller immutable and preserve all of its stale-pose,
 stale-path, depth-stop, turn, acceleration and arrival guards.  This deployment
@@ -316,7 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "replace a meaningful reverse lookahead with bounded in-place "
-            "turning; intended for the measured Yunji deployment only"
+            "turning; requires an explicit measured-robot launcher opt-in"
         ),
     )
     parser.add_argument(
@@ -324,8 +324,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "latch the sign of an existing large in-place turn using the "
-            "current base pose and a non-local path point; intended for the "
-            "measured Yunji deployment only"
+            "current base pose and a non-local path point; requires an "
+            "explicit measured-robot launcher opt-in"
         ),
     )
     parser.add_argument(

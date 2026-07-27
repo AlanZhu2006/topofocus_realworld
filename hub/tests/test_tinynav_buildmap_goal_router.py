@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -552,7 +553,7 @@ def test_start_snap_prefers_forward_seed_for_forward_only_controller():
         clearance_cells=1,
         start_snap_radius_m=3.0,
         start_footprint_override_m=1.1,
-        start_yaw_rad=0.0,
+        preferred_seed_heading_rad=0.0,
     )
 
     assert plan is not None
@@ -561,6 +562,53 @@ def test_start_snap_prefers_forward_seed_for_forward_only_controller():
         occupancy, plan, lookahead_m=1.0
     )
     assert lookahead[0] > 4.4
+
+
+def test_start_snap_is_anchored_to_goal_when_goal_is_behind_robot():
+    router = load_router()
+    data = [0] * (15 * 7)
+    data[3 * 15 + 7] = 100
+    occupancy = grid(data, width=15, height=7)
+
+    # The robot may currently face +X, but a fixed goal at -X must keep the
+    # clearance seed on the goal side while the controller turns.  Reusing the
+    # changing robot yaw here caused the physical seed to switch sides and the
+    # control segment to stay at +/-180 degrees indefinitely.
+    goal_heading = math.pi
+    plan = router.plan_route(
+        occupancy,
+        start_x=7.4,
+        start_y=3.5,
+        goal_x=2.5,
+        goal_y=3.5,
+        arrival_radius_m=0.1,
+        clearance_cells=1,
+        start_snap_radius_m=4.0,
+        start_footprint_override_m=1.1,
+        preferred_seed_heading_rad=goal_heading,
+    )
+
+    assert plan is not None
+    assert plan.cells[:3] == ((3, 7), (3, 6), (3, 5))
+    first_x, _ = occupancy.cell_center(*plan.cells[0])
+    second_x, _ = occupancy.cell_center(*plan.cells[1])
+    assert second_x < first_x
+
+
+def test_wsj_launcher_enables_bounded_rotate_first_and_rejects_timeout():
+    initial = (
+        OVERLAY / "start_tinynav_buildmap_online_nav.sh"
+    ).read_text(encoding="utf-8")
+    reload = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text(
+        encoding="utf-8"
+    )
+
+    for source in (initial, reload):
+        assert "--rotate-first-on-reverse" in source
+        assert "--stabilize-large-turn" in source
+        assert "--rotate-first-max-angular-radps 0.35" in source
+        assert "--rotate-first-timeout-s 12.0" in source
+    assert "--reject-reverse-trajectory" in reload
 
 
 def test_router_has_no_robot_sdk_or_velocity_output():

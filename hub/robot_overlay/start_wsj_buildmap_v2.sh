@@ -241,7 +241,7 @@ timeout 5 ros2 topic pub --once \
 old_control_pid="$(
   tmux display-message -p -t "$SESSION:control" '#{pane_pid}'
 )"
-control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\"'"
+control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --rotate-first-on-reverse --stabilize-large-turn --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
 tmux set-option -w -t "$SESSION:control" remain-on-exit on
 tmux send-keys -t "$SESSION:control" C-c
 deadline=$((SECONDS + 15))
@@ -399,6 +399,7 @@ receiver=(
   --semantic-arrival-radius-m "$SEMANTIC_ARRIVAL_RADIUS_M"
   --no-progress-timeout-s "$NO_PROGRESS_TIMEOUT_S"
   --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"
+  --reject-reverse-trajectory
   --start-snap-radius-m 0.75
   --start-footprint-override-m 0.35
   --alignment-output "$alignment"

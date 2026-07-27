@@ -262,7 +262,8 @@ def test_wsj_controller_reload_waits_out_stale_dds_identity():
     assert "old WSJ controller publisher to leave DDS" in source
     assert "Node name: cmd_vel_control_node" in source
     assert "_NODE_.*_UNKNOWN_" in source
-    assert "--rotate-first-on-reverse" not in source
+    assert "--rotate-first-on-reverse" in source
+    assert "--stabilize-large-turn" in source
     assert source.index("remain-on-exit on") < source.index(
         "tmux respawn-pane -t"
     )
