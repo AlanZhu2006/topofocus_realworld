@@ -44,14 +44,15 @@ Episode：`scene02-plant-recal1-20260728-044959`
 ## 媒体
 
 操作者提供的第三视角与 Dashboard 录屏已通过 Git LFS 按字节原样提交到
-`media/video/**`；浏览器可播放 H.264 版本、海报截图与内嵌预览 GIF 位于
-`media/demo/`。
+`media/video/**`；浏览器可播放 H.264 版本与内嵌预览 GIF 位于 `media/demo/`，
+命名与编码方式与 Scene 01 的 `scene01_formal_NN_*` 方案一致（`libx264`，
+GIF 8fps/8s 循环，无海报截图）。
 
 | 素材 | 字节 | 时长 | SHA-256 |
 | --- | ---: | ---: | --- |
 | `media/video/third_view/experiment_2/experiment_2_failure_1.mp4` | 8,098,606 | 68.767 s | `66f31368a56f635c47f46755465ef44491a9164101ff28f15fa5ec4d0ad9df5c` |
 | `media/video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov` | 61,809,856 | 99.73 s | `76b6a8fcffe98dd430d004291eb84a07a112118cad22c0a16e14b3c9a708c1bd` |
-
-Derivatives, posters and preview GIFs follow the existing Scene 01 naming and
-encoding convention; full paths and hashes are in the machine-readable
-archive above.
+| `media/demo/scene02_formal_01_third_view.mp4` | 5,325,300 | 68.767 s | `ee718bcac313a559cb95cb383de25c4fb8d7273093234f0c9c1e047d3ca9f798` |
+| `media/demo/scene02_formal_01_dashboard.mp4` | 1,472,856 | 99.634 s | `7331e7723e890892422e8f2957e5810cab4acc2edbeb494520f6473a209a5717` |
+| `media/demo/scene02_formal_01_preview.gif` | 7,574,396 | 8.01 s | `2c8faa9212d3751080388321a58427c2d4095160fecaa294158c926c3e6ab474` |
+| `media/demo/scene02_formal_01_dashboard.gif` | 1,077,428 | 8.01 s | `c2d0cd06b0ec7accdd62e26f8e06928bd8e7697f75d5cc47388236cdc9353634` |

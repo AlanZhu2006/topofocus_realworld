@@ -149,7 +149,7 @@
           "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
         },
         {
-          "path": "media/demo/scene02_failure_1_third_view_20260728.mp4",
+          "path": "media/demo/scene02_formal_01_third_view.mp4",
           "size_bytes": 5325300,
           "sha256": "ee718bcac313a559cb95cb383de25c4fb8d7273093234f0c9c1e047d3ca9f798",
           "duration_s": 68.767,
@@ -163,7 +163,7 @@
           "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
         },
         {
-          "path": "media/demo/scene02_failure_1_dashboard_20260728.mp4",
+          "path": "media/demo/scene02_formal_01_dashboard.mp4",
           "size_bytes": 1472856,
           "sha256": "7331e7723e890892422e8f2957e5810cab4acc2edbeb494520f6473a209a5717",
           "duration_s": 99.634,

@@ -149,11 +149,11 @@ Both robots explore cooperatively toward a plant target.
     <td colspan="2" align="center">
       <strong>Formal 01 · FAILURE</strong><br>
       <small>Third view</small><br>
-      <img src="media/demo/scene02_failure_1_third_view_20260728_preview.gif" width="440" alt="Formal 01 failure rollout"><br>
+      <img src="media/demo/scene02_formal_01_preview.gif" width="440" alt="Formal 01 failure rollout"><br>
       <small>Dashboard</small><br>
-      <img src="media/demo/scene02_failure_1_dashboard_20260728_preview.gif" width="440" alt="Formal 01 failure dashboard"><br>
-      <a href="media/demo/scene02_failure_1_third_view_20260728.mp4">Third view</a> ·
-      <a href="media/demo/scene02_failure_1_dashboard_20260728.mp4">Dashboard</a>
+      <img src="media/demo/scene02_formal_01_dashboard.gif" width="440" alt="Formal 01 failure dashboard"><br>
+      <a href="media/demo/scene02_formal_01_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene02_formal_01_dashboard.mp4">Dashboard</a>
     </td>
   </tr>
 </table>

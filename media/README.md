@@ -25,15 +25,14 @@ evidence and indexed in
 
 # Scene 02 media
 
-Scene 02 currently contains one archived formal episode, which failed
-(`navigation_policy_failure`, not a VLM decision failure). User-provided
-master videos are byte-preserved under `media/video/**` through Git LFS;
-browser-ready H.264 files, terminal-frame posters and inline GIF previews are
+Scene 02 currently contains one archived formal episode, which failed.
+User-provided master videos are byte-preserved under `media/video/**`
+through Git LFS; browser-ready H.264 files and inline GIF previews are
 under `media/demo/`.
 
 | Run | Third-view master | Dashboard master | README previews |
 | --- | --- | --- | --- |
-| Formal 01 · FAILURE | [`experiment_2_failure_1.mp4`](video/third_view/experiment_2/experiment_2_failure_1.mp4) | [`experiment_2_failure_1_dashboard.mov`](video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov) | [Third view](demo/scene02_failure_1_third_view_20260728_preview.gif) · [Dashboard](demo/scene02_failure_1_dashboard_20260728_preview.gif) |
+| Formal 01 · FAILURE | [`experiment_2_failure_1.mp4`](video/third_view/experiment_2/experiment_2_failure_1.mp4) | [`experiment_2_failure_1_dashboard.mov`](video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov) | [Third view](demo/scene02_formal_01_preview.gif) · [Dashboard](demo/scene02_formal_01_dashboard.gif) |
 
 README previews are an ~8 s excerpt from the end of each master, not the
 complete run. Exact source paths, sizes, durations, SHA-256 values and
