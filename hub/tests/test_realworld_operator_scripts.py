@@ -418,9 +418,16 @@ def test_runtime_processes_are_bound_to_the_checked_deployment_commit():
 
 
 def test_robot_sender_liveness_is_bounded_without_duplicate_wsj_probes():
+    oneclick = (SCRIPTS / "realworld_oneclick.sh").read_text()
     wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
     yunji = (OVERLAY / "start_yunji_v2.sh").read_text()
 
+    read_only_start = oneclick[
+        oneclick.index("start_read_only_robots()") :
+        oneclick.index("ensure_local_services_parallel()")
+    ]
+    assert "tinynav_semantic_nav_auto:hub-sender" not in read_only_start
+    assert "tinynav_semantic_nav_auto:calibration-sender" in read_only_start
     assert "fresh_topic_once" not in wsj
     assert "timeout -k 2 15 ros2 topic echo" not in wsj
     assert "--fresh-camera-info-topic /camera/camera/color/camera_info" in wsj
