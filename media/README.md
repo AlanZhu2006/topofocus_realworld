@@ -33,16 +33,17 @@ files and inline GIF previews are under `media/demo/`.
 | Run | Third-view master | Dashboard master | README previews |
 | --- | --- | --- | --- |
 | Formal 01 · FAILURE | [`experiment_2_failure_1.mp4`](video/third_view/experiment_2/experiment_2_failure_1.mp4) | [`experiment_2_failure_1_dashboard.mov`](video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov) | [Third view](demo/scene02_formal_01_preview.gif) · [Dashboard](demo/scene02_formal_01_dashboard.gif) |
-| Formal 02 · FAILURE | pending | pending | pending |
+| Formal 02 · FAILURE | [`experiment_2_failure_2.mp4`](video/third_view/experiment_2/experiment_2_failure_2.mp4) | [`experiment_2_failure_2_dashboard.mov`](video/dashboard/experiment_2/experiment_2_failure_2_dashboard.mov) | [Third view](demo/scene02_formal_02_preview.gif) · [Dashboard](demo/scene02_formal_02_dashboard.gif) |
 | Formal 03 · SUCCESS | [`experiment_2_success_1.mp4`](video/third_view/experiment_2/experiment_2_success_1.mp4) | [`experiment_2_success_2_dashboard.mov`](video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov) | [Third view](demo/scene02_formal_03_preview.gif) · [Dashboard](demo/scene02_formal_03_dashboard.gif) |
 
-Formal 02 was replaced: the operator designated a later Yunji-only run as
-the official formal experiment 02 (see the audit record), and no third-view
-or Dashboard footage has been bound to it yet. The originally published
-Formal 02 media (`experiment_2_failure_2.mp4` /
-`experiment_2_failure_2_dashboard.mov`) belongs to the superseded run and
-remains preserved in Git history, but is no longer shown here as current
-Formal 02 evidence.
+Formal 02 was replaced: the operator designated a later Yunji-only run
+(algorithmic exploration failure, 13 rounds without a plant semantic
+arrival) as the official formal experiment 02. Its third-view and Dashboard
+masters reuse the original `experiment_2_failure_2.*` filenames with
+replaced content — the originally published Formal 02 media belonged to
+the superseded run and remains recoverable in Git history at commit
+`dcc8812b027c40fad2716b8a097e45d226d46686`, but is no longer current
+evidence.
 
 README previews time-lapse the entire master into an ~8 s / 8 fps loop,
 matching the Scene 01 formal-experiment GIF convention. Exact source paths,

@@ -160,13 +160,18 @@ the operator-provided independently measured shortest feasible path
     </td>
     <td width="50%" align="center">
       <strong>Formal 02 · FAILURE</strong><br>
-      <em>third-view / Dashboard footage pending</em><br><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene02_formal_02_preview.gif" width="440" alt="Formal 02 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene02_formal_02_dashboard.gif" width="440" alt="Formal 02 failure dashboard"><br>
       Robot 1 ran solo under an operator-scoped single-robot live
       authorization (Robot 0 held throughout, chassis powered off). It
       completed 13 exploration rounds without ever finding the plant
       semantic region — one frontier branch was observed heading away from
       the target — and the run was stopped by a two-interval no-progress
-      guard after displacement stalled below 0.05 m.
+      guard after displacement stalled below 0.05 m.<br>
+      <a href="media/demo/scene02_formal_02_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene02_formal_02_dashboard.mp4">Dashboard</a>
     </td>
   </tr>
   <tr>

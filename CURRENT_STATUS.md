@@ -86,10 +86,14 @@ and
   main README.
 - Formal 05 display media covers the run beginning through physical arrival;
   its SR/SPL uses the complete episode report.
-- Scene 02's previously published third-view and Dashboard masters remain
-  preserved under `media/video/**` through Git LFS. The old Formal 02 media
-  belongs to the superseded run and is not evidence for the replacement
-  `yunji-single-02`; replacement media has not yet been bound.
+- Scene 02's third-view and Dashboard masters for Formal 01-03 are preserved
+  under `media/video/**` through Git LFS, each with an H.264 derivative pair
+  and a time-lapsed ~8 s README preview GIF under `media/demo/`. Formal 02's
+  replacement run (`yunji-single-02`) is now bound to its own masters, which
+  reuse the original `experiment_2_failure_2.*` filenames with replaced
+  content; the pre-replacement Formal 02 media remains recoverable in Git
+  history at commit `dcc8812b027c40fad2716b8a097e45d226d46686` but is no
+  longer current evidence.
 
 ## Implementation state
 

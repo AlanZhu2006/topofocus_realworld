@@ -217,8 +217,37 @@
         "path": "audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md",
         "classification": "full record with machine-readable mirror at manifests/scene02_plant_formal_experiment_02_failure_20260728.json"
       },
-      "media": [],
-      "media_status": "replacement-run media not yet bound; all pre-replacement Formal 02 media is excluded from this record",
+      "media": [
+        {
+          "path": "media/video/third_view/experiment_2/experiment_2_failure_2.mp4",
+          "size_bytes": 12550671,
+          "sha256": "127a65d81bed9352382b73563330c435d7c7dda68207934f80b14ca380cfafe9",
+          "duration_s": 165.733333,
+          "classification": "observed user-provided external-view master for the replacement run; committed byte-for-byte through Git LFS under media/video"
+        },
+        {
+          "path": "media/demo/scene02_formal_02_third_view.mp4",
+          "size_bytes": 9616058,
+          "sha256": "3a33e72481459242a128d7a7a533fce74d13e8cd7b36aa8f7a53dc75ddf9c56c",
+          "duration_s": 165.734,
+          "classification": "source-derived H.264 public derivative"
+        },
+        {
+          "path": "media/video/dashboard/experiment_2/experiment_2_failure_2_dashboard.mov",
+          "size_bytes": 208455462,
+          "sha256": "38f1a6f188031d3e4c8e7149503eaca3a9712227fcbc59d20e36638435415f73",
+          "duration_s": 318.3,
+          "classification": "observed user-provided Dashboard master for the replacement run; committed byte-for-byte through Git LFS under media/video"
+        },
+        {
+          "path": "media/demo/scene02_formal_02_dashboard.mp4",
+          "size_bytes": 3976530,
+          "sha256": "e47b1c571feba9b11888c66d8a425c0f6a2814ceff7703f089637966b043ffc0",
+          "duration_s": 318.234,
+          "classification": "source-derived H.264 public derivative, scaled to 1280px wide"
+        }
+      ],
+      "media_status": "replacement-run masters, derivatives and README presentation all published; all pre-replacement Formal 02 media is excluded from this record",
       "supersedes": {
         "session_id": "scene02-plant-20260728-semanticreplan4",
         "episode_id": "formal-03",

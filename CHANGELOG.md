@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Scene 02 Standard SPL and Formal 02 replacement media (2026-07-28)
+
+- Record the operator-provided independently measured Scene 02 shortest
+  feasible path `L≈7 m` and finalize Standard SPL for formal experiment 03:
+  `S*L/max(L,P) = 0.8376688690258246`. Scene 02's mean Standard SPL (failures
+  at zero) is now `0.27922295634194155`, replacing the prior "pending" state
+  across the README, `CURRENT_STATUS.md` and both progress manifests.
+- Publish the replacement Formal 02 run's third-view and Dashboard masters
+  (reusing the original `experiment_2_failure_2.*` filenames with replaced
+  content) byte-for-byte through Git LFS, with H.264 derivatives and a
+  time-lapsed preview GIF pair matching the Formal 01/03 pipeline; update the
+  README, media manifest, audit doc and both progress manifests so Formal 02
+  shows its own evidence instead of the superseded run's.
+
 ### Scene 02 formal experiment 02 replacement (2026-07-28)
 
 - Replace the previous Formal 02 designation with `yunji-single-02` and

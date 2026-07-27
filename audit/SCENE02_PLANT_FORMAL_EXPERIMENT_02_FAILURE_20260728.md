@@ -59,4 +59,18 @@ Round 7 的代表性 frontier `B` 位于 shared-world
 原 Formal 02 在提交 `dcc8812b027c40fad2716b8a097e45d226d46686` 中完整保留；
 旧 manifest 的 SHA-256 为
 `e237ad271f31707fa118cc40b252d0a627a785f61aa9e518b99ec7a1f546f33c`。
-其视频不作为本轮替换样本的证据；本轮第三视角与 Dashboard 素材待独立绑定。
+其视频不作为本轮替换样本的证据。
+
+替换样本的第三视角与 Dashboard 素材已通过 Git LFS 按字节原样提交到
+`media/video/**`（复用原 `experiment_2_failure_2.*` 文件名，内容已替换）；
+浏览器可播放 H.264 版本与内嵌预览 GIF 位于 `media/demo/`，命名与编码方式与
+Formal 01/03 一致。
+
+| 素材 | 字节 | 时长 | SHA-256 |
+| --- | ---: | ---: | --- |
+| `media/video/third_view/experiment_2/experiment_2_failure_2.mp4` | 12,550,671 | 165.733 s | `127a65d81bed9352382b73563330c435d7c7dda68207934f80b14ca380cfafe9` |
+| `media/video/dashboard/experiment_2/experiment_2_failure_2_dashboard.mov` | 208,455,462 | 318.3 s | `38f1a6f188031d3e4c8e7149503eaca3a9712227fcbc59d20e36638435415f73` |
+| `media/demo/scene02_formal_02_third_view.mp4` | 9,616,058 | 165.734 s | `3a33e72481459242a128d7a7a533fce74d13e8cd7b36aa8f7a53dc75ddf9c56c` |
+| `media/demo/scene02_formal_02_dashboard.mp4` | 3,976,530 | 318.234 s | `e47b1c571feba9b11888c66d8a425c0f6a2814ceff7703f089637966b043ffc0` |
+| `media/demo/scene02_formal_02_preview.gif` | 9,932,601 | 8.01 s | `dae0245815c99dee15d6055845889f9dca1e8e2e2ca86a2bfbc652ae4e2aaf9c` |
+| `media/demo/scene02_formal_02_dashboard.gif` | 2,048,793 | 8.01 s | `ef24524b63fa271b085064a49ad03d680e21b42b00a360902e44d642a3f8bdca` |
