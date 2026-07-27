@@ -292,22 +292,45 @@ class HubTransport:
     """Same resume/retry contract as the other robot_overlay senders."""
 
     def __init__(self, base_url, robot_id, token, timeout_s=10.0,
-                 max_retries=8, backoff_base_s=0.5, backoff_cap_s=8.0):
-        import requests
-
+                 max_retries: int | None = 8, backoff_base_s=0.5,
+                 backoff_cap_s=8.0):
         self.base_url = base_url.rstrip("/")
         self.robot_id = robot_id
-        self.session = requests.Session()
-        self.session.headers["X-Robot-Token"] = token
+        self.token = token
         self.timeout_s = timeout_s
         self.max_retries = max_retries
         self.backoff_base_s = backoff_base_s
         self.backoff_cap_s = backoff_cap_s
         self.retries_total = 0
+        self.session_resets_total = 0
+        self.session = self._new_session()
+
+    def _new_session(self):
+        import requests
+
+        session = requests.Session()
+        session.headers["X-Robot-Token"] = self.token
+        return session
+
+    def _reset_session(self) -> None:
+        """Replace only HTTP state while keeping the DDS participant alive."""
+
+        previous = self.session
+        try:
+            previous.close()
+        finally:
+            self.session = self._new_session()
+            self.session_resets_total += 1
 
     def last_sequence(self) -> int:
-        response = self.session.get(
-            f"{self.base_url}/v1/robots/{self.robot_id}/observations/latest", timeout=self.timeout_s)
+        import requests
+
+        url = f"{self.base_url}/v1/robots/{self.robot_id}/observations/latest"
+        try:
+            response = self.session.get(url, timeout=self.timeout_s)
+        except (requests.ConnectionError, requests.Timeout):
+            self._reset_session()
+            response = self.session.get(url, timeout=self.timeout_s)
         response.raise_for_status()
         return int(response.json()["last_sequence"])
 
@@ -332,8 +355,11 @@ class HubTransport:
                         f"hub rejected seq {metadata['sequence']}: "
                         f"{response.status_code} {response.text[:300]}")
             except (requests.ConnectionError, requests.Timeout):
-                pass
-            if attempt > self.max_retries:
+                self._reset_session()
+            if (
+                self.max_retries is not None
+                and attempt > self.max_retries
+            ):
                 raise RuntimeError(f"giving up on seq {metadata['sequence']} after {attempt} attempts")
             self.retries_total += 1
             delay = min(self.backoff_cap_s, self.backoff_base_s * (2 ** (attempt - 1)))
@@ -1084,7 +1110,14 @@ def main() -> int:
         print("FOCUS_ROBOT_TOKEN is not set", file=sys.stderr)
         return 2
 
-    transport = HubTransport(args.base_url, args.robot_id, token)
+    # The observation sender owns one long-lived ROS/DDS participant. Keep it
+    # across reverse-tunnel interruptions and retry only its HTTP transport.
+    transport = HubTransport(
+        args.base_url,
+        args.robot_id,
+        token,
+        max_retries=None,
+    )
     try:
         sequence = transport.last_sequence() + 1
         print(f"resume: starting at sequence {sequence} [hub]")

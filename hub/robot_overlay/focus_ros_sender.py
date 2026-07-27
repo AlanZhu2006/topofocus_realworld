@@ -541,7 +541,8 @@ class HubTransport:
     """Same resume/retry contract as hub/robot_overlay/focus_sender.py."""
 
     def __init__(self, base_url, robot_id, token, timeout_s=10.0,
-                 max_retries=8, backoff_base_s=0.5, backoff_cap_s=8.0):
+                 max_retries: int | None = 8, backoff_base_s=0.5,
+                 backoff_cap_s=8.0):
         self.base_url = base_url.rstrip("/")
         self.robot_id = robot_id
         self.token = token
@@ -614,7 +615,10 @@ class HubTransport:
                 # Keep ROS subscriptions and DDS discovery warm across a Hub
                 # restart. Only the HTTP connection pool is disposable.
                 self._reset_session()
-            if attempt > self.max_retries:
+            if (
+                self.max_retries is not None
+                and attempt > self.max_retries
+            ):
                 raise RuntimeError(f"giving up on seq {metadata['sequence']} after {attempt} attempts")
             self.retries_total += 1
             delay = min(self.backoff_cap_s, self.backoff_base_s * (2 ** (attempt - 1)))
@@ -885,7 +889,15 @@ class FocusRosSender(Node):
         super().__init__("focus_ros_sender")
         self.args = args
         self.bridge = CvBridge()
-        self.transport = HubTransport(args.base_url, args.robot_id, args.token)
+        # This ROS/DDS participant is intentionally session-long. Network
+        # outages rebuild only its HTTP pool and must not exhaust into a
+        # process exit that would require publisher rediscovery.
+        self.transport = HubTransport(
+            args.base_url,
+            args.robot_id,
+            args.token,
+            max_retries=None,
+        )
         self.min_period_s = 1.0 / args.rate_hz if args.rate_hz > 0 else 0.0
         self.last_upload_monotonic = 0.0
         self.frames_sent = 0

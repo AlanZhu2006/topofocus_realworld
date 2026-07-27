@@ -121,6 +121,67 @@ def test_hub_transport_rebuilds_only_http_session_on_disconnect(monkeypatch):
     assert sessions[1].headers["X-Robot-Token"] == "token"
 
 
+def test_hub_transport_can_retry_without_exhausting_dds_owner(monkeypatch):
+    sender = _load_sender_module(monkeypatch)
+
+    class ConnectionErrorForTest(Exception):
+        pass
+
+    class TimeoutForTest(Exception):
+        pass
+
+    class Response:
+        status_code = 201
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"status": "accepted"}
+
+    attempts = 0
+
+    class Session:
+        def __init__(self):
+            self.headers = {}
+
+        def post(self, *_args, **_kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts <= 3:
+                raise ConnectionErrorForTest("reverse tunnel unavailable")
+            return Response()
+
+        def close(self):
+            return None
+
+    requests = types.ModuleType("requests")
+    requests.Session = Session
+    requests.ConnectionError = ConnectionErrorForTest
+    requests.Timeout = TimeoutForTest
+    monkeypatch.setitem(sys.modules, "requests", requests)
+    monkeypatch.setattr(sender.time, "sleep", lambda _seconds: None)
+
+    transport = sender.HubTransport(
+        "http://127.0.0.1:18089",
+        "robot-0",
+        "token",
+        max_retries=None,
+        backoff_base_s=0.0,
+        backoff_cap_s=0.0,
+    )
+    ack, observed_attempts = transport.upload(
+        {"sequence": 11},
+        b"rgb",
+        b"depth",
+        lambda metadata: metadata,
+    )
+
+    assert ack == {"status": "accepted"}
+    assert observed_attempts == 4
+    assert transport.retries_total == 3
+    assert transport.session_resets_total == 3
+
+
 def _artifact(path: Path) -> dict[str, object]:
     encoded = path.read_bytes()
     return {

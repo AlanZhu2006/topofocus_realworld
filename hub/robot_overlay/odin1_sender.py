@@ -686,7 +686,20 @@ def main() -> int:
     )
     source = OdinRos2Source(args, projector)
     tcp = WaterTcpClient(args.robot_host, args.tcp_port)
-    transport = None if args.dry_run else HubTransport(args.base_url, args.robot_id, token)
+    # Preserve the already-discovered Odin ROS/DDS subscriptions across a Hub
+    # or SSH reverse-tunnel interruption. HubTransport still rejects permanent
+    # 4xx contract failures immediately; only transient transport/5xx failures
+    # retry without exhausting the process.
+    transport = (
+        None
+        if args.dry_run
+        else HubTransport(
+            args.base_url,
+            args.robot_id,
+            token,
+            max_retries=None,
+        )
+    )
     sequence = 0
     if transport is not None:
         sequence = transport.last_sequence() + 1
