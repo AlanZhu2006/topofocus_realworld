@@ -72,6 +72,11 @@ def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():
     assert "tmux rename-session" in source
     assert "run_glm_offline.sh" in source
     assert "GLM endpoint is live but not owned by a verified GLM tmux." in source
+    assert (
+        "Replacing verified GLM owner with an incompatible model contract"
+        in source
+    )
+    assert "FOCUS_GLM_MODELS_PAYLOAD" in source
     assert "deadline=$((SECONDS + 90))" in source
     assert "cogvlm2-19b-focus-score-contract-v1" in source
     assert source.count("glm_contract_ready") >= 3

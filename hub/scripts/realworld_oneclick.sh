@@ -534,12 +534,18 @@ ensure_maps() {
 }
 
 glm_contract_ready() {
-  curl -fsS --max-time 5 "$GLM_URL/models" 2>/dev/null \
-    | "$PYTHON_BIN" -c '
+  local payload
+  payload="$(curl -fsS --max-time 5 "$GLM_URL/models" 2>/dev/null)" \
+    || return 1
+  FOCUS_GLM_MODELS_PAYLOAD="$payload" "$PYTHON_BIN" -c '
 import json
+import os
 import sys
 
-payload = json.load(sys.stdin)
+try:
+    payload = json.loads(os.environ["FOCUS_GLM_MODELS_PAYLOAD"])
+except (KeyError, json.JSONDecodeError):
+    raise SystemExit(1)
 ids = [
     row.get("id")
     for row in payload.get("data", [])
@@ -589,8 +595,26 @@ print(urlparse(os.environ["GLM_URL_VALUE"]).port)
     return 1
   fi
   tmux kill-session -t "$FOCUS_GLM_SESSION" >/dev/null 2>&1 || true
+  # A previous experiment can own this exact verified launcher and port while
+  # still exposing an older model contract. Replace only that proven project
+  # process; an unrelated listener remains fail-closed below.
+  rows="$(
+    tmux list-panes -a \
+      -F $'#{session_name}\t#{pane_start_command}' 2>/dev/null || true
+  )"
+  while IFS=$'\t' read -r session candidate_start; do
+    [[ "$candidate_start" == *"run_glm_offline.sh"* \
+       && "$candidate_start" == *"$desired_port"* ]] || continue
+    echo "Replacing verified GLM owner with an incompatible model contract: $session"
+    tmux kill-session -t "$session"
+  done <<<"$rows"
+  deadline=$((SECONDS + 15))
+  while ss -tln 2>/dev/null | grep -q ":$desired_port "; do
+    (( SECONDS < deadline )) || break
+    sleep 1
+  done
   if ss -tln 2>/dev/null | grep -q ":$desired_port "; then
-    echo "GLM port $desired_port is owned by an unhealthy process." >&2
+    echo "GLM port $desired_port is owned by an unverified process." >&2
     return 1
   fi
   tmux new-session -d -s "$FOCUS_GLM_SESSION" -n server \

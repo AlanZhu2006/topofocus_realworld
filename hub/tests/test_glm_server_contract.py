@@ -38,3 +38,33 @@ def test_glm_launcher_uses_fail_closed_deployment_wrapper():
 
     assert "run_glm_server_fail_closed.py" in launcher
     assert 'exec "$PYTHON_BIN" "$DEMO_DIR/' not in launcher
+
+
+def test_runtime_main_module_resolves_postponed_pydantic_annotations():
+    original_main = sys.modules.get("__main__")
+    runtime = MODULE.runtime_main_module(Path("/tmp/upstream_glm.py"))
+    try:
+        sys.modules["__main__"] = runtime
+        exec(
+            compile(
+                "\n".join(
+                    (
+                        "from __future__ import annotations",
+                        "from typing import Optional",
+                        "from pydantic import BaseModel",
+                        "class ModelCard(BaseModel):",
+                        "    id: Optional[str] = None",
+                        'model_card = ModelCard(id="contract")',
+                    )
+                ),
+                "<runtime-main-contract>",
+                "exec",
+            ),
+            runtime.__dict__,
+        )
+        assert runtime.model_card.id == "contract"
+    finally:
+        if original_main is None:
+            sys.modules.pop("__main__", None)
+        else:
+            sys.modules["__main__"] = original_main

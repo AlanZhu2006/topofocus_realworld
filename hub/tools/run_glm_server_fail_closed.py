@@ -19,6 +19,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import types
 
 
 WORKSPACE = Path(__file__).resolve().parents[2]
@@ -112,6 +113,24 @@ def patched_source_text(source: str) -> str:
     )
 
 
+def runtime_main_module(source_path: Path) -> types.ModuleType:
+    """Create the real ``__main__`` module used by the patched upstream app.
+
+    The upstream file enables postponed annotations and defines Pydantic
+    models.  Executing it in a detached dictionary leaves those models with
+    ``__module__ == "__main__"`` while ``sys.modules["__main__"]`` still
+    points at this wrapper.  Pydantic then cannot resolve names such as
+    ``Optional`` from the upstream namespace.  A registered module preserves
+    normal Python execution semantics without writing a patched source file.
+    """
+
+    module = types.ModuleType("__main__")
+    module.__file__ = str(source_path)
+    module.__package__ = None
+    module.__dict__["__builtins__"] = __builtins__
+    return module
+
+
 def main() -> int:
     source_bytes = UPSTREAM_SERVER.read_bytes()
     observed_sha256 = hashlib.sha256(source_bytes).hexdigest()
@@ -142,13 +161,14 @@ def main() -> int:
     )
     sys.path.insert(0, str(UPSTREAM_SERVER.parent))
     sys.argv[0] = str(UPSTREAM_SERVER)
-    namespace = {
-        "__name__": "__main__",
-        "__file__": str(UPSTREAM_SERVER),
-        "__package__": None,
-        "__builtins__": __builtins__,
-    }
-    exec(compile(patched, str(UPSTREAM_SERVER), "exec"), namespace)
+    runtime_module = runtime_main_module(UPSTREAM_SERVER)
+    # The upstream uvicorn call blocks until shutdown, so this replacement
+    # remains authoritative for the complete server lifetime.
+    sys.modules["__main__"] = runtime_module
+    exec(
+        compile(patched, str(UPSTREAM_SERVER), "exec"),
+        runtime_module.__dict__,
+    )
     return 0
 
 
