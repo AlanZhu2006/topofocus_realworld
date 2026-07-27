@@ -14,6 +14,7 @@ DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
 STATE_DIR="${FOCUS_ROBOT_STATE_DIR:-/home/nvidia/.local/state/topofocus}"
 RUNTIME_RECEIPT_FILE="${FOCUS_WSJ_RUNTIME_RECEIPT_FILE:-$STATE_DIR/wsj-command-observation-receipt.json}"
 REANCHOR_REQUIRED_FILE="${FOCUS_WSJ_REANCHOR_REQUIRED_FILE:-$STATE_DIR/wsj-tracking-reanchor-required.json}"
+FASTDDS_BUILTIN_TRANSPORTS_VALUE="${FOCUS_WSJ_FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
 TRANSFORM_VERSION=""
 CONFIRMATION=""
 
@@ -64,6 +65,11 @@ done
   echo "FOCUS_DEPLOYMENT_COMMIT must be the explicit 40-character Git commit." >&2
   exit 2
 }
+[[ "$FASTDDS_BUILTIN_TRANSPORTS_VALUE" == UDPv4 ]] || {
+  echo "WSJ calibration transport must be the verified UDPv4 profile." >&2
+  exit 2
+}
+export FASTDDS_BUILTIN_TRANSPORTS="$FASTDDS_BUILTIN_TRANSPORTS_VALUE"
 for required in \
   "$ENV_FILE" "$SETUP_FILE" "$PYTHON_BIN" "$TOKEN_FILE" \
   "$SCRIPT_DIR/focus_ros_sender.py" "$SCRIPT_DIR/wsj_camera_preview.py" \
@@ -174,6 +180,7 @@ mkdir -p "$state_dir"
 sender_log="$state_dir/wsj-calibration-sender-$stamp.log"
 metrics="$state_dir/wsj-calibration-sender-$stamp.json"
 sender=(
+  env "FASTDDS_BUILTIN_TRANSPORTS=$FASTDDS_BUILTIN_TRANSPORTS_VALUE"
   "$PYTHON_BIN" -u "$SCRIPT_DIR/focus_ros_sender.py"
   --base-url "$HUB_URL"
   --robot-id robot-0
@@ -385,7 +392,7 @@ if pgrep -af 'wsj_camera_preview\.py' >/dev/null 2>&1; then
 fi
 preview_log="$state_dir/wsj-calibration-preview-$stamp.log"
 tmux new-window -d -t "$SESSION" -n foxglove-preview \
-  "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; exec \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/wsj_camera_preview.py\" --relay-url \"$PREVIEW_URL\" --name wsj --rgb-topic /camera/camera/infra1/image_rect_raw --max-rate-hz 5 2>&1 | tee \"$preview_log\"'"
+  "bash -lc 'source \"$SETUP_FILE\"; export FASTDDS_BUILTIN_TRANSPORTS=\"$FASTDDS_BUILTIN_TRANSPORTS_VALUE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; exec \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/wsj_camera_preview.py\" --relay-url \"$PREVIEW_URL\" --name wsj --rgb-topic /camera/camera/infra1/image_rect_raw --max-rate-hz 5 2>&1 | tee \"$preview_log\"'"
 
 deadline=$((SECONDS + 60))
 latest_sequence="$initial_sequence"

@@ -31,6 +31,7 @@ LATEST_RGB_MAX_SKEW_S="${FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S:-0.05}"
 # alive and allow that bounded self-recovery; this is observation readiness
 # only and cannot extend a motion lease or guarded velocity authority.
 SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-50}"
+FASTDDS_BUILTIN_TRANSPORTS_VALUE="${FOCUS_WSJ_FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
 park_only=false
 
 usage() {
@@ -93,6 +94,10 @@ done
   echo "FOCUS_WSJ_RGB_CACHE_SIZE must be a positive integer." >&2
   exit 2
 }
+[[ "$FASTDDS_BUILTIN_TRANSPORTS_VALUE" == UDPv4 ]] || {
+  echo "WSJ observation transport must be the verified UDPv4 profile." >&2
+  exit 2
+}
 for required in \
   "$SCRIPT_DIR/focus_ros_sender.py" \
   "$SCRIPT_DIR/wsj_camera_preview.py" \
@@ -138,7 +143,8 @@ PROCESS_CONTRACT_SHA256="$(
       "$RUNTIME_RECEIPT_FILE" \
       "$REGISTRATION_MIN_COVERAGE" \
       "$RGB_CACHE_SIZE" \
-      "$LATEST_RGB_MAX_SKEW_S"
+      "$LATEST_RGB_MAX_SKEW_S" \
+      "$FASTDDS_BUILTIN_TRANSPORTS_VALUE"
     sha256sum "$SCRIPT_DIR/focus_ros_sender.py"
   } | sha256sum | awk '{print $1}'
 )"
@@ -153,7 +159,8 @@ legacy_process_contract_sha256() {
       "$RUNTIME_RECEIPT_FILE" \
       "$REGISTRATION_MIN_COVERAGE" \
       "$RGB_CACHE_SIZE" \
-      "$LATEST_RGB_MAX_SKEW_S"
+      "$LATEST_RGB_MAX_SKEW_S" \
+      "$FASTDDS_BUILTIN_TRANSPORTS_VALUE"
     sha256sum "$SCRIPT_DIR/focus_ros_sender.py"
   } | sha256sum | awk '{print $1}'
 }
@@ -212,6 +219,7 @@ launch_sender() {
   metrics="$STATE_DIR/wsj-command-observation-${stamp}.json"
   log="$STATE_DIR/wsj-command-observation-${stamp}.log"
   command=(
+    env "FASTDDS_BUILTIN_TRANSPORTS=$FASTDDS_BUILTIN_TRANSPORTS_VALUE"
     "$PYTHON_BIN" -u "$SCRIPT_DIR/focus_ros_sender.py"
     --base-url "$HUB_URL"
     --robot-id robot-0
@@ -246,6 +254,8 @@ launch_sender() {
     @focus_deployment_commit "$DEPLOYMENT_COMMIT"
   tmux set-option -w -t "$SESSION:hub-sender" \
     @focus_sender_process_contract_sha256 "$PROCESS_CONTRACT_SHA256"
+  tmux set-option -w -t "$SESSION:hub-sender" \
+    @focus_fastrtps_builtin_transports "$FASTDDS_BUILTIN_TRANSPORTS_VALUE"
   SENDER_PROCESS_DEPLOYMENT_COMMIT="$DEPLOYMENT_COMMIT"
   deadline=$((SECONDS + 30))
   until [[ -n "$(sender_pid)" ]]; do
@@ -316,7 +326,7 @@ ensure_sender_process() {
     if [[ ! "$deployment" =~ ^[0-9a-f]{40}$ \
           || ( "$process_contract" != "$PROCESS_CONTRACT_SHA256" \
                && "$process_contract" != "$legacy_contract" ) ]]; then
-      echo "Replacing the WSJ sender once for a changed process contract; publisher recovery must follow before use."
+      echo "Replacing the WSJ sender once for a changed process contract; the verified UDPv4 subscriber must receive a fresh frame before use."
       stop_tracked_sender
       sender_window=false
     else
@@ -512,13 +522,18 @@ wait_for_hub_sequence_advance() {
 }
 
 ensure_camera_preview() {
-  local preview_log deadline preview_processes
+  local preview_log deadline preview_processes preview_transport
   preview_processes="$(
     pgrep -af '[w]sj_camera_preview\.py' 2>/dev/null || true
   )"
+  preview_transport="$(
+    tmux show-options -w -v -t "$SESSION:$PREVIEW_WINDOW" \
+      @focus_fastrtps_builtin_transports 2>/dev/null || true
+  )"
   if [[ -n "$preview_processes" ]] \
      && ! grep -Fv -- "--rgb-topic $COLOR_PREVIEW_TOPIC" \
-       <<<"$preview_processes" >/dev/null; then
+       <<<"$preview_processes" >/dev/null \
+     && [[ "$preview_transport" == "$FASTDDS_BUILTIN_TRANSPORTS_VALUE" ]]; then
     return 0
   fi
   tmux kill-window -t "$SESSION:$PREVIEW_WINDOW" >/dev/null 2>&1 || true
@@ -532,7 +547,9 @@ ensure_camera_preview() {
   }
   preview_log="$STATE_DIR/wsj-camera-preview-$(date -u +%Y%m%dT%H%M%SZ).log"
   tmux new-window -d -t "$SESSION" -n "$PREVIEW_WINDOW" \
-    "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; exec \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/wsj_camera_preview.py\" --relay-url \"$PREVIEW_URL\" --name wsj --rgb-topic \"$COLOR_PREVIEW_TOPIC\" --max-rate-hz 5 2>&1 | tee \"$preview_log\"'"
+    "bash -lc 'source \"$SETUP_FILE\"; export FASTDDS_BUILTIN_TRANSPORTS=\"$FASTDDS_BUILTIN_TRANSPORTS_VALUE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; exec \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/wsj_camera_preview.py\" --relay-url \"$PREVIEW_URL\" --name wsj --rgb-topic \"$COLOR_PREVIEW_TOPIC\" --max-rate-hz 5 2>&1 | tee \"$preview_log\"'"
+  tmux set-option -w -t "$SESSION:$PREVIEW_WINDOW" \
+    @focus_fastrtps_builtin_transports "$FASTDDS_BUILTIN_TRANSPORTS_VALUE"
   deadline=$((SECONDS + 20))
   until pgrep -af '[w]sj_camera_preview\.py' \
       | grep -F -- "--rgb-topic $COLOR_PREVIEW_TOPIC" >/dev/null; do
@@ -564,7 +581,7 @@ if [[ "$park_only" == true ]]; then
   write_parked_contract
   ensure_sender_process
   wait_for_receipt parked ""
-  echo "WSJ_DDS_PARTICIPANT_PARKED_BEFORE_PUBLISHERS"
+  echo "WSJ_DDS_UDP_PARTICIPANT_PARKED"
   echo "  process contract: $PROCESS_CONTRACT_SHA256"
   echo "  robot commands issued: false"
   exit 0
@@ -614,4 +631,5 @@ echo "  sender process deployment: $SENDER_PROCESS_DEPLOYMENT_COMMIT"
 echo "  Hub sequence: $initial_sequence -> $latest_sequence"
 echo "  process contract: $PROCESS_CONTRACT_SHA256"
 echo "  runtime contract: $contract_sha256"
+echo "  Fast DDS transport: $FASTDDS_BUILTIN_TRANSPORTS_VALUE"
 echo "  robot commands issued: false"

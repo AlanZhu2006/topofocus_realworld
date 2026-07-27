@@ -14,6 +14,7 @@ MARKER_FILE="${FOCUS_WSJ_REANCHOR_REQUIRED_FILE:-$STATE_DIR/wsj-tracking-reancho
 RECEIPT_FILE="${FOCUS_WSJ_RUNTIME_RECEIPT_FILE:-$STATE_DIR/wsj-command-observation-receipt.json}"
 CONFIRMATION=""
 PERCEPTION_ONLY=false
+FASTDDS_BUILTIN_TRANSPORTS_VALUE="${FOCUS_WSJ_FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
 
 usage() {
   cat <<'EOF'
@@ -50,6 +51,11 @@ done
   echo "FOCUS_DEPLOYMENT_COMMIT must be the explicit deployed Git commit." >&2
   exit 2
 }
+[[ "$FASTDDS_BUILTIN_TRANSPORTS_VALUE" == UDPv4 ]] || {
+  echo "WSJ recovery transport must be the verified UDPv4 profile." >&2
+  exit 2
+}
+export FASTDDS_BUILTIN_TRANSPORTS="$FASTDDS_BUILTIN_TRANSPORTS_VALUE"
 [[ -r "$SETUP_FILE" ]] || {
   echo "Missing TinyNav setup: $SETUP_FILE" >&2
   exit 1

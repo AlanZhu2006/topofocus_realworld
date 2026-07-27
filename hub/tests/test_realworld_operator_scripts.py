@@ -512,6 +512,32 @@ def test_wsj_sender_is_parked_before_any_publisher_recovery():
     assert park < recovery < activation
 
 
+def test_wsj_observation_paths_pin_verified_udp_transport():
+    sender = (OVERLAY / "start_wsj_command_observation.sh").read_text()
+    launcher = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
+    recovery = (
+        OVERLAY / "recover_wsj_publishers_after_sender.sh"
+    ).read_text()
+    calibration = (
+        OVERLAY / "start_wsj_calibration_observation.sh"
+    ).read_text()
+
+    for script in (sender, launcher, recovery, calibration):
+        assert "FOCUS_WSJ_FASTDDS_BUILTIN_TRANSPORTS:-UDPv4" in script
+        assert "== UDPv4" in script
+    assert (
+        'env "FASTDDS_BUILTIN_TRANSPORTS=$FASTDDS_BUILTIN_TRANSPORTS_VALUE"'
+        in sender
+    )
+    assert "@focus_fastrtps_builtin_transports" in sender
+    assert "publisher recovery must follow before use" not in sender
+    assert "WSJ_DDS_UDP_PARTICIPANT_PARKED" in sender
+    assert (
+        'export FASTDDS_BUILTIN_TRANSPORTS="$FASTDDS_BUILTIN_TRANSPORTS_VALUE"'
+        in launcher
+    )
+
+
 def test_goal_category_reaches_both_persistent_observation_senders():
     oneclick = (SCRIPTS / "realworld_oneclick.sh").read_text()
     calibration = (SCRIPTS / "calibrate_realworld_session.sh").read_text()
