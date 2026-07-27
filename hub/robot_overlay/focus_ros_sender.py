@@ -97,6 +97,7 @@ is in ``shared_world``.  This sender still has no control or actuator output.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import hashlib
 import json
 import math
@@ -783,8 +784,11 @@ class FocusRosSender(Node):
         depth_sub = message_filters.Subscriber(self, Image, args.depth_topic, qos_profile=qos_profile_sensor_data)
         info_sub = message_filters.Subscriber(self, CameraInfo, args.info_topic, qos_profile=qos_profile_sensor_data)
         pose_sub = message_filters.Subscriber(self, Odometry, args.pose_topic, qos_profile=qos_profile_sensor_data)
-        self.latest_rgb_msg = None
+        self.rgb_cache = deque(maxlen=args.rgb_cache_size)
         self.latest_rgb_info_msg = None
+        self.geometry_tuples_seen = 0
+        self.rgb_cache_skew_rejections = 0
+        self.closest_rgb_skew_ms = None
         self.latest_rgb_sub = None
         self.latest_rgb_info_sub = None
         if args.latest_rgb_for_depth:
@@ -845,7 +849,8 @@ class FocusRosSender(Node):
             f"rate={args.rate_hz}Hz, max_frames={args.max_frames or 'unbounded'}, "
             f"capture_time_source={args.capture_time_source}, "
             f"register_rgb_to_depth={args.register_rgb_to_depth}, "
-            f"latest_rgb_for_depth={args.latest_rgb_for_depth})"
+            f"latest_rgb_for_depth={args.latest_rgb_for_depth}, "
+            f"rgb_cache_size={args.rgb_cache_size})"
         )
         if args.capture_time_source == "wall":
             self.get_logger().warn(
@@ -860,7 +865,7 @@ class FocusRosSender(Node):
         self._handle_synced(rgb_msg, depth_msg, info_msg, pose_msg, None)
 
     def on_latest_rgb(self, rgb_msg) -> None:
-        self.latest_rgb_msg = rgb_msg
+        self.rgb_cache.append(rgb_msg)
 
     def on_latest_rgb_info(self, rgb_info_msg) -> None:
         self.latest_rgb_info_msg = rgb_info_msg
@@ -868,15 +873,23 @@ class FocusRosSender(Node):
     def on_synced_with_latest_rgb(
         self, depth_msg, info_msg, pose_msg
     ) -> None:
-        rgb_msg = self.latest_rgb_msg
+        self.geometry_tuples_seen += 1
         rgb_info_msg = self.latest_rgb_info_msg
-        if rgb_msg is None or rgb_info_msg is None:
+        if not self.rgb_cache or rgb_info_msg is None:
             return
+        depth_stamp_ns = stamp_to_ns(depth_msg.header.stamp)
+        rgb_msg = min(
+            self.rgb_cache,
+            key=lambda candidate: abs(
+                stamp_to_ns(candidate.header.stamp) - depth_stamp_ns
+            ),
+        )
         skew_s = abs(
-            stamp_to_ns(rgb_msg.header.stamp)
-            - stamp_to_ns(depth_msg.header.stamp)
+            stamp_to_ns(rgb_msg.header.stamp) - depth_stamp_ns
         ) / 1e9
+        self.closest_rgb_skew_ms = skew_s * 1e3
         if skew_s > self.args.latest_rgb_max_skew_s:
+            self.rgb_cache_skew_rejections += 1
             return
         self._handle_synced(
             rgb_msg, depth_msg, info_msg, pose_msg, rgb_info_msg
@@ -1119,6 +1132,9 @@ class FocusRosSender(Node):
     def write_summary(self, path: str) -> None:
         summary = {
             "capture_time_source": self.args.capture_time_source,
+            "geometry_tuples_seen": self.geometry_tuples_seen,
+            "rgb_cache_skew_rejections": self.rgb_cache_skew_rejections,
+            "closest_rgb_skew_ms": self.closest_rgb_skew_ms,
             "frames_seen_by_synchronizer": self.frames_seen,
             "frames_sent": self.frames_sent,
             "retries_total": self.transport.retries_total,
@@ -1185,10 +1201,17 @@ def main() -> int:
         action="store_true",
         help=(
             "synchronize only the depth CameraInfo/odometry geometry tuple and "
-            "pair it with the latest RGB frame; intended for continuous depth "
-            "streams whose independent RGB stream can starve a five-way "
+            "pair it with the closest timestamped frame in a bounded RGB "
+            "cache; intended for delayed continuous depth streams whose "
+            "independent RGB stream can starve a five-way "
             "ApproximateTimeSynchronizer"
         ),
+    )
+    parser.add_argument(
+        "--rgb-cache-size",
+        type=int,
+        default=90,
+        help="bounded number of recent RGB messages retained for timestamp matching",
     )
     parser.add_argument(
         "--latest-rgb-max-skew-s",
@@ -1237,6 +1260,8 @@ def main() -> int:
         parser.error("--registration-min-coverage must be in (0, 1]")
     if args.latest_rgb_max_skew_s <= 0.0:
         parser.error("--latest-rgb-max-skew-s must be positive")
+    if args.rgb_cache_size <= 0:
+        parser.error("--rgb-cache-size must be positive")
     if args.latest_rgb_for_depth and not args.register_rgb_to_depth:
         parser.error("--latest-rgb-for-depth requires --register-rgb-to-depth")
 

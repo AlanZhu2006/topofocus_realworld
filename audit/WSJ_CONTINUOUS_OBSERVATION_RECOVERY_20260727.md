@@ -11,14 +11,19 @@ continuous `/slam/depth`, `/slam/camera_info` and
 network, calibration or base-controller fault.
 
 The sender now synchronizes the continuous depth, depth intrinsics and visual
-odometry tuple. The independent color stream and its intrinsics are cached
-separately. A tuple is accepted only when the latest color timestamp is within
-`0.05 s` of the depth timestamp, after which the existing calibrated
-RGB-to-depth reprojection and `0.38` coverage gate still apply. The launcher
-retains one bounded read-only restart and a `15 s` sequence-advance gate.
+odometry tuple. The independent color stream keeps a bounded 90-frame history,
+and its intrinsics are cached separately. A tuple is accepted only when the
+nearest color timestamp is within `0.05 s` of the depth timestamp, after which
+the existing calibrated RGB-to-depth reprojection and `0.38` coverage gate
+still apply. The launcher retains one bounded read-only restart and a `15 s`
+sequence-advance gate.
 
-This change is locally verified and awaits byte-exact robot synchronization
-and a read-only hardware probe.
+The first deployed candidate used only the latest color message. Its read-only
+hardware probe produced no upload because TinyNav depth processing trails the
+raw 30 Hz color callback; the previously observed latest-message skew was
+about `0.97 s`. Both bounded attempts recorded zero accepted tuples. This
+additional evidence caused the bounded nearest-timestamp history above; that
+candidate is locally verified and awaits its byte-exact hardware probe.
 
 ## Preserved Scene 02 calibration
 
@@ -48,10 +53,10 @@ replace or misuse the calibration.
 
 | Classification | Path | Size | SHA-256 |
 |---|---|---:|---|
-| locally implemented | `hub/robot_overlay/focus_ros_sender.py` | 58,602 B | `245abd26bda2fb5bbbd62348467a3bc8342440bbccba5e4bbe35920fa2f4a92b` |
-| locally implemented | `hub/robot_overlay/start_wsj_command_observation.sh` | 14,329 B | `c3174d435e6b548693afacaf3b6126ae15eb8c9edba777ac000a189d92edf8c0` |
-| local regression tests | `hub/tests/test_focus_ros_sender_health.py` | 14,046 B | `a2691b5344b06f66213615f01aaadab3518041f063c586554ae3f8d2075bb4e6` |
-| local launcher tests | `hub/tests/test_realworld_operator_scripts.py` | 17,973 B | `826045e6a3886495749778650e8860a51f82a6ff62964eaae9ef5832be1b49a0` |
+| locally implemented | `hub/robot_overlay/focus_ros_sender.py` | 59,670 B | `48eac0778a70cbd04d3f6ac24c4d933bbc8a490e77b9fc71d8f661a05c90348c` |
+| locally implemented | `hub/robot_overlay/start_wsj_command_observation.sh` | 14,606 B | `125097430bbaaf7f6cc1918c34ce5b70537bac457107cac423038732c2a8ab41` |
+| local regression tests | `hub/tests/test_focus_ros_sender_health.py` | 14,693 B | `c5014a227279c531d1387d3fd30bb05b71d5578196a933beb39d8720189e33ba` |
+| local launcher tests | `hub/tests/test_realworld_operator_scripts.py` | 18,087 B | `2863cad1552e4d5c2ac151d09806a08958f0209ba5065c5187035958d5225fd8` |
 
 ## Verification and safety boundary
 
@@ -59,7 +64,8 @@ replace or misuse the calibration.
 - Focused sender/launcher/receiver tests passed.
 - The complete Hub suite passed: `502` tests, with one pre-existing Starlette
   deprecation warning.
-- The cached-color tests accept a `20 ms` skew and reject a `51 ms` skew.
+- The cached-color tests select an older `20 ms` match despite a newer
+  non-matching color message, and reject a nearest `51 ms` skew.
 - Hub was restored with the generated debug robot policy; goal output is
   disabled.
 - Calibration checks and implementation issued no robot command. Physical

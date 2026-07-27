@@ -16,10 +16,10 @@
   require an actual Hub observation sequence advance before calibration
   reports the Yunji sender ready.
 - Decouple WSJ's formal observation sender from motion-selected keyframes:
-  synchronize continuous depth/intrinsics/visual odometry, cache the latest
-  color frame behind a strict `50 ms` skew gate, retain calibrated
-  RGB-to-depth reprojection, and restore the bounded startup gate to
-  `15 seconds`.
+  synchronize continuous depth/intrinsics/visual odometry, select the nearest
+  timestamp from a bounded 90-frame color history behind a strict `50 ms`
+  skew gate, retain calibrated RGB-to-depth reprojection, and restore the
+  bounded startup gate to `15 seconds`.
 
 ### Scene 02 plant preparation (2026-07-25)
 

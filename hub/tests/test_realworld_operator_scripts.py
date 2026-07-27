@@ -154,6 +154,8 @@ def test_wsj_formal_observation_self_heals_one_sync_startup_stall():
         'FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S:-0.05'
         in launcher
     )
+    assert 'FOCUS_WSJ_RGB_CACHE_SIZE:-90' in launcher
+    assert '--rgb-cache-size "$RGB_CACHE_SIZE"' in launcher
     assert '--latest-rgb-max-skew-s "$LATEST_RGB_MAX_SKEW_S"' in launcher
     assert "for attempt in 0 1" in launcher
     assert "restart only this read-only process" in launcher

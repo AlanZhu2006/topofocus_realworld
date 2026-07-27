@@ -24,8 +24,10 @@ COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"
 # than infra1. 0.38 keeps a measured margin while still rejecting a grossly
 # wrong intrinsic/extrinsic profile.
 REGISTRATION_MIN_COVERAGE="${FOCUS_WSJ_REGISTRATION_MIN_COVERAGE:-0.38}"
-# The independent 30 Hz color stream is cached and accepted only when it is
-# within this measured time window of a continuous TinyNav depth tuple.
+# TinyNav depth can trail the independent 30 Hz color callback by about one
+# second. Retain three seconds of color history, choose the nearest timestamp,
+# and accept it only inside the strict measured skew gate.
+RGB_CACHE_SIZE="${FOCUS_WSJ_RGB_CACHE_SIZE:-90}"
 LATEST_RGB_MAX_SKEW_S="${FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S:-0.05}"
 # Continuous depth/odometry removes the stationary sparse-keyframe wait. Keep
 # one bounded read-only sender restart as the sole startup self-heal.
@@ -74,6 +76,10 @@ done
 }
 [[ "$LATEST_RGB_MAX_SKEW_S" =~ ^0\.[0-9]*[1-9][0-9]*$ ]] || {
   echo "FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S must be a positive subsecond decimal." >&2
+  exit 2
+}
+[[ "$RGB_CACHE_SIZE" =~ ^[1-9][0-9]*$ ]] || {
+  echo "FOCUS_WSJ_RGB_CACHE_SIZE must be a positive integer." >&2
   exit 2
 }
 [[ "$DEPLOYMENT_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
@@ -232,6 +238,7 @@ launch_sender() {
     --register-rgb-to-depth
     --rgb-info-topic /camera/camera/color/camera_info
     --latest-rgb-for-depth
+    --rgb-cache-size "$RGB_CACHE_SIZE"
     --latest-rgb-max-skew-s "$LATEST_RGB_MAX_SKEW_S"
     --rgb-optical-frame camera_color_optical_frame
     --depth-optical-frame camera_infra1_optical_frame

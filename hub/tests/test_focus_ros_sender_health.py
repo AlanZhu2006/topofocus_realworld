@@ -168,8 +168,15 @@ def test_latest_rgb_geometry_tuple_accepts_fresh_cached_color(monkeypatch):
     sender = _load_sender_module(monkeypatch)
     node = sender.FocusRosSender.__new__(sender.FocusRosSender)
     node.args = SimpleNamespace(latest_rgb_max_skew_s=0.05)
-    node.latest_rgb_msg = _stamped_message(10_020_000_000)
+    matching_rgb = _stamped_message(10_020_000_000)
+    node.rgb_cache = [
+        matching_rgb,
+        _stamped_message(10_900_000_000),
+    ]
     node.latest_rgb_info_msg = object()
+    node.geometry_tuples_seen = 0
+    node.rgb_cache_skew_rejections = 0
+    node.closest_rgb_skew_ms = None
     calls = []
     node._handle_synced = lambda *messages: calls.append(messages)
     depth = _stamped_message(10_000_000_000)
@@ -179,16 +186,25 @@ def test_latest_rgb_geometry_tuple_accepts_fresh_cached_color(monkeypatch):
     node.on_synced_with_latest_rgb(depth, info, pose)
 
     assert calls == [
-        (node.latest_rgb_msg, depth, info, pose, node.latest_rgb_info_msg)
+        (matching_rgb, depth, info, pose, node.latest_rgb_info_msg)
     ]
+    assert node.geometry_tuples_seen == 1
+    assert node.rgb_cache_skew_rejections == 0
+    assert node.closest_rgb_skew_ms == pytest.approx(20.0)
 
 
 def test_latest_rgb_geometry_tuple_rejects_stale_cached_color(monkeypatch):
     sender = _load_sender_module(monkeypatch)
     node = sender.FocusRosSender.__new__(sender.FocusRosSender)
     node.args = SimpleNamespace(latest_rgb_max_skew_s=0.05)
-    node.latest_rgb_msg = _stamped_message(10_051_000_000)
+    node.rgb_cache = [
+        _stamped_message(10_051_000_000),
+        _stamped_message(10_900_000_000),
+    ]
     node.latest_rgb_info_msg = object()
+    node.geometry_tuples_seen = 0
+    node.rgb_cache_skew_rejections = 0
+    node.closest_rgb_skew_ms = None
     calls = []
     node._handle_synced = lambda *messages: calls.append(messages)
 
@@ -197,6 +213,9 @@ def test_latest_rgb_geometry_tuple_rejects_stale_cached_color(monkeypatch):
     )
 
     assert calls == []
+    assert node.geometry_tuples_seen == 1
+    assert node.rgb_cache_skew_rejections == 1
+    assert node.closest_rgb_skew_ms == pytest.approx(51.0)
 
 
 def _slam_payload(
