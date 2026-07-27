@@ -284,6 +284,41 @@ def test_builds_semantic_and_frontier_concurrent_batch(tmp_path, observation_fac
     )
 
 
+def test_forced_hold_preserves_vlm_selection_but_scopes_physical_authority(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    config_payload = json.loads(config.read_text(encoding="utf-8"))
+    config_payload["robots"]["robot-0"]["allow_goal"] = False
+    write_json(config, config_payload)
+
+    built = build_batch_from_shadow_manifest(
+        manifest,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-yunji-only",
+        execution_epoch=4,
+        now_ns=now,
+        robot_config_path=config,
+        forced_hold_robot_ids=("robot-0",),
+    )
+
+    assert built.report["preflight_ready"] is True
+    assert built.report["source_active_robot_ids"] == ["robot-0", "robot-1"]
+    assert built.report["active_robot_ids"] == ["robot-1"]
+    assert built.report["forced_hold_robot_ids"] == ["robot-0"]
+    by_robot = {
+        decision.robot_id: decision for decision in built.batch.decisions
+    }
+    assert by_robot["robot-0"].mode == "HOLD"
+    assert by_robot["robot-0"].target is None
+    assert by_robot["robot-1"].mode == "GOAL"
+    assert by_robot["robot-1"].target.kind == "FRONTIER_POINT"
+
+
 def test_mapping_only_inputs_build_but_fail_preflight(tmp_path, observation_factory):
     now, manifest, registry, config = prepare_round(
         tmp_path, observation_factory, mapping_only=True

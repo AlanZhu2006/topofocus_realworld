@@ -13,7 +13,7 @@ import json
 import math
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Iterable
 
 import cv2
 import numpy as np
@@ -744,8 +744,15 @@ def build_batch_from_shadow_manifest(
     now_ns: int,
     robot_config_path: Path | str | None = None,
     lease_duration_ns: int = 8_000_000_000,
+    forced_hold_robot_ids: Iterable[str] = (),
 ) -> SceneBatchBuild:
-    """Build and preflight a two-robot v2 batch without publishing it."""
+    """Build and preflight a two-robot v2 batch without publishing it.
+
+    ``forced_hold_robot_ids`` is an execution-scope restriction, not a VLM
+    rewrite. The original selections remain preserved and fully validated in
+    the shadow manifest; listed robots are converted to explicit HOLD
+    decisions before any command-capable batch is constructed.
+    """
 
     manifest_path = Path(manifest_path).expanduser().resolve()
     registry_state_path = Path(registry_state_path).expanduser().resolve()
@@ -778,6 +785,18 @@ def build_batch_from_shadow_manifest(
         selections_raw,
     )
     robot_ids = tuple(record["robot_id"] for record in robot_results_raw)
+    forced_holds = frozenset(str(value) for value in forced_hold_robot_ids)
+    unknown_forced_holds = forced_holds.difference(robot_ids)
+    if unknown_forced_holds:
+        raise ValueError(
+            "forced HOLD contains unknown robot IDs: "
+            + ", ".join(sorted(unknown_forced_holds))
+        )
+    execution_selections = {
+        robot_id: selection
+        for robot_id, selection in selections_raw.items()
+        if robot_id not in forced_holds
+    }
     registry_entries = _registry_entries(registry_state)
     if set(robot_ids) != set(registry_entries):
         raise ValueError("manifest and registry robot sets differ")
@@ -905,7 +924,10 @@ def build_batch_from_shadow_manifest(
 
         policy = policies.get(robot_id)
         if policy is not None:
-            if not bool(policy.get("allow_goal", False)):
+            if (
+                robot_id in execution_selections
+                and not bool(policy.get("allow_goal", False))
+            ):
                 blockers.append({
                     "code": "GOAL_POLICY_DISABLED",
                     "robot_id": robot_id,
@@ -942,7 +964,7 @@ def build_batch_from_shadow_manifest(
         })
 
     active_robot_ids = tuple(
-        robot_id for robot_id in robot_ids if robot_id in selections_raw
+        robot_id for robot_id in robot_ids if robot_id in execution_selections
     )
     source_episode = manifest.get("source_episode", {})
     if not isinstance(source_episode, dict):
@@ -965,7 +987,7 @@ def build_batch_from_shadow_manifest(
     decisions: list[HighLevelDecisionV2] = []
     for robot_id in robot_ids:
         result = robot_results[robot_id]
-        selection_raw = selections_raw.get(robot_id)
+        selection_raw = execution_selections.get(robot_id)
         selection = selection_raw if isinstance(selection_raw, dict) else None
         mode = "GOAL" if selection is not None else "HOLD"
         target: dict[str, object] | None = None
@@ -1023,8 +1045,16 @@ def build_batch_from_shadow_manifest(
             "expires_at_ns": now_ns + lease_duration_ns,
             "target": target,
             "reason": (
-                f"source-faithful VLM {selection.get('kind') if selection else 'no-selection'} "
-                f"from frozen manifest {run_id}"
+                (
+                    "operator-scoped diagnostic forced HOLD; original VLM "
+                    f"selection preserved in frozen manifest {run_id}"
+                )
+                if robot_id in forced_holds
+                else (
+                    "source-faithful VLM "
+                    f"{selection.get('kind') if selection else 'no-selection'} "
+                    f"from frozen manifest {run_id}"
+                )
             ),
         })
         decisions.append(decision)
@@ -1044,6 +1074,10 @@ def build_batch_from_shadow_manifest(
         "manifest": manifest_artifact,
         "decision_batch_id": batch_id,
         "active_robot_ids": list(active_robot_ids),
+        "source_active_robot_ids": [
+            robot_id for robot_id in robot_ids if robot_id in selections_raw
+        ],
+        "forced_hold_robot_ids": sorted(forced_holds),
         "robot_commands_sent": False,
         "network_used": False,
         "preflight_ready": not blockers,

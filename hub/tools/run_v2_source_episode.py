@@ -1050,6 +1050,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--robot-config", type=Path, required=True)
     parser.add_argument("--robot-0-min-sequence", type=int, default=0)
     parser.add_argument("--robot-1-min-sequence", type=int, default=0)
+    parser.add_argument(
+        "--force-hold-robot-id",
+        action="append",
+        default=[],
+        choices=("robot-0", "robot-1"),
+        help=(
+            "repeatable diagnostic execution-scope restriction; the original "
+            "VLM allocation remains preserved, but this robot receives HOLD"
+        ),
+    )
     parser.add_argument("--lease-s", type=float, default=8.0)
     parser.add_argument("--renew-before-s", type=float, default=3.0)
     parser.add_argument("--poll-s", type=float, default=0.5)
@@ -1263,6 +1273,11 @@ def main() -> int:
     spool = resolve_workspace_path(WORKSPACE, session.runtime.spool_dir)
     robots = tuple(sorted(session.robots, key=lambda item: item.robot_id))
     robot_ids = tuple(item.robot_id for item in robots)
+    forced_hold_robot_ids = frozenset(args.force_hold_robot_id)
+    if len(forced_hold_robot_ids) != len(args.force_hold_robot_id):
+        raise ValueError("--force-hold-robot-id contains duplicates")
+    if forced_hold_robot_ids == set(robot_ids):
+        raise ValueError("at least one robot must remain eligible for GOAL")
 
     state_path = output / "scene_state.json"
     state = SourceEpisodeState(
@@ -1292,6 +1307,13 @@ def main() -> int:
             ),
             "max_episode_steps": SOURCE_MAX_EPISODE_STEPS,
             "max_rounds": args.max_rounds,
+            "execution_scope": {
+                "forced_hold_robot_ids": sorted(forced_hold_robot_ids),
+                "classification": (
+                    "operator-scoped diagnostic restriction; original VLM "
+                    "allocations remain preserved in each shadow manifest"
+                ),
+            },
             "target_override": (
                 "largest connected positive goal-category semantic component"
             ),
@@ -1833,6 +1855,7 @@ def main() -> int:
                 now_ns=time.time_ns(),
                 robot_config_path=robot_config,
                 lease_duration_ns=int(args.lease_s * 1e9),
+                forced_hold_robot_ids=forced_hold_robot_ids,
             )
             atomic_write_json(
                 round_dir / "controller_preflight.json", built.report

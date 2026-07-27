@@ -65,7 +65,11 @@ def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():
     assert "semantic_arrival_episode_complete_hold" in runner
     assert "LIVE_RECEIVERS_READY_NO_GOAL" in source
     assert "--round-input-timeout-s 45" in source
+    assert 'expected_ready = robot_id in active' in source
     assert 'payload.get("ready_for_goal") is not True' in source
+    assert '"GOAL_POLICY_DISABLED" not in blockers' in source
+    assert "--force-hold-robot-id" in source
+    assert "episode_robot_config" in source
     assert 'payload.get("health_source") != "heartbeat"' in source
 
 

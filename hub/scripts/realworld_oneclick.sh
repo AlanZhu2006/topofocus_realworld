@@ -14,8 +14,12 @@ episode_id=""
 confirmation=""
 full_preflight="false"
 session_env_file=""
+scoped_robot_config_file=""
 live_cleanup_required="false"
 cleanup_started="false"
+active_robot_ids=()
+active_wsj="true"
+active_yunji="true"
 SSH_PROBE_TIMEOUT_S="${FOCUS_SSH_PROBE_TIMEOUT_S:-15}"
 oneclick_started="$SECONDS"
 
@@ -28,7 +32,7 @@ Usage:
   bash hub/scripts/realworld_oneclick.sh --session-file current --mode live \
     --scene-id SCENE --episode-id EPISODE --goal-category chair \
     --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR \
-    [--full-preflight]
+    [--active-robot-id robot-0|robot-1] [--full-preflight]
 
 debug restarts a clean Hub epoch, verifies exact session/map/Foxglove
 identities, runs both robot receivers read-only, freezes fresh synchronized
@@ -44,6 +48,10 @@ loop. Every round is separated by an acknowledged robot-local HOLD; semantic
 ARRIVED automatically ends the episode and seals terminal RGB-D/map evidence.
 The exit trap removes both chassis command paths and leaves only the warm
 read-only observation/map core.
+
+One --active-robot-id restricts physical authority to that robot while the
+other remains an explicit, acknowledged HOLD participant. This is a diagnostic
+single-robot execution scope; it does not rewrite the preserved VLM allocation.
 EOF
 }
 
@@ -55,6 +63,7 @@ while [[ $# -gt 0 ]]; do
     --scene-id) scene_id="$2"; shift 2 ;;
     --episode-id) episode_id="$2"; shift 2 ;;
     --operator-confirmation) confirmation="$2"; shift 2 ;;
+    --active-robot-id) active_robot_ids+=("$2"); shift 2 ;;
     --full-preflight) full_preflight="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -76,6 +85,42 @@ if [[ "$mode" == live ]]; then
   }
   [[ -n "$scene_id" && -n "$episode_id" ]] || {
     echo "Live mode requires --scene-id and --episode-id." >&2
+    exit 2
+  }
+  if (( ${#active_robot_ids[@]} == 0 )); then
+    active_robot_ids=(robot-0 robot-1)
+  fi
+  if (( ${#active_robot_ids[@]} > 2 )); then
+    echo "--active-robot-id may name each robot at most once." >&2
+    exit 2
+  fi
+  active_wsj="false"
+  active_yunji="false"
+  for robot_id in "${active_robot_ids[@]}"; do
+    case "$robot_id" in
+      robot-0)
+        [[ "$active_wsj" == false ]] || {
+          echo "Duplicate --active-robot-id robot-0." >&2
+          exit 2
+        }
+        active_wsj="true"
+        ;;
+      robot-1)
+        [[ "$active_yunji" == false ]] || {
+          echo "Duplicate --active-robot-id robot-1." >&2
+          exit 2
+        }
+        active_yunji="true"
+        ;;
+      *)
+        echo "--active-robot-id must be robot-0 or robot-1." >&2
+        exit 2
+        ;;
+    esac
+  done
+else
+  (( ${#active_robot_ids[@]} == 0 )) || {
+    echo "--active-robot-id is valid only for live mode." >&2
     exit 2
   }
 fi
@@ -108,7 +153,12 @@ fi
 
 mkdir -p "$HUB_DIR/runtime"
 session_env_file="$(mktemp "$HUB_DIR/runtime/.oneclick-session.XXXXXX")"
-trap 'rm -f "$session_env_file"' EXIT
+cleanup_temp_files() {
+  [[ -z "$session_env_file" ]] || rm -f "$session_env_file"
+  [[ -z "$scoped_robot_config_file" ]] \
+    || rm -f "$scoped_robot_config_file"
+}
+trap cleanup_temp_files EXIT
 "$PYTHON_BIN" "$SESSION_MANAGER" resolve \
   --session-file "$session_file" \
   --mode "$mode" \
@@ -141,6 +191,46 @@ for required in \
     exit 1
   }
 done
+
+if (( ${#active_robot_ids[@]} == 0 )); then
+  active_robot_csv="robot-0,robot-1"
+else
+  active_robot_csv="$(IFS=,; echo "${active_robot_ids[*]}")"
+fi
+episode_robot_config="$FOCUS_LIVE_ROBOT_CONFIG"
+episode_force_hold_args=()
+if [[ "$mode" == live \
+      && ( "$active_wsj" != true || "$active_yunji" != true ) ]]; then
+  scoped_robot_config_file="$(
+    mktemp "$HUB_DIR/runtime/.oneclick-scoped-robots.XXXXXX"
+  )"
+  FOCUS_SOURCE_ROBOT_CONFIG="$FOCUS_LIVE_ROBOT_CONFIG" \
+  FOCUS_SCOPED_ROBOT_CONFIG="$scoped_robot_config_file" \
+  FOCUS_ACTIVE_ROBOT_IDS="$active_robot_csv" \
+    "$PYTHON_BIN" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+source = Path(os.environ["FOCUS_SOURCE_ROBOT_CONFIG"])
+output = Path(os.environ["FOCUS_SCOPED_ROBOT_CONFIG"])
+active = set(os.environ["FOCUS_ACTIVE_ROBOT_IDS"].split(","))
+payload = json.loads(source.read_text(encoding="utf-8"))
+robots = payload.get("robots", {})
+if set(robots) != {"robot-0", "robot-1"}:
+    raise SystemExit("live robot policy does not contain the exact robot pair")
+for robot_id, policy in robots.items():
+    policy["allow_goal"] = robot_id in active
+temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+os.replace(temporary, output)
+PY
+  episode_robot_config="$scoped_robot_config_file"
+  [[ "$active_wsj" == true ]] \
+    || episode_force_hold_args+=(--force-hold-robot-id robot-0)
+  [[ "$active_yunji" == true ]] \
+    || episode_force_hold_args+=(--force-hold-robot-id robot-1)
+fi
 
 probe_ssh_tmux_shell() {
   local target="$1" token line deadline pane_state output
@@ -428,7 +518,7 @@ stop_managed_hub() {
 }
 
 restart_hub() {
-  local config="$1" expected_goal="$2" health_json
+  local config="$1" _expected_goal="$2" health_json
   stop_managed_hub
   bash "$HUB_DIR/scripts/focus_hub_up.sh" \
     --port "$FOCUS_HUB_PORT" \
@@ -437,17 +527,24 @@ restart_hub() {
     --session "$HUB_SESSION" \
     --robots-config "$config"
   health_json="$(curl -fsS --max-time 5 "$HUB_URL/healthz")"
-  FOCUS_HEALTH_JSON="$health_json" FOCUS_EXPECT_GOAL="$expected_goal" \
+  FOCUS_HEALTH_JSON="$health_json" FOCUS_EXPECTED_CONFIG="$config" \
     "$PYTHON_BIN" -c '
 import json
 import os
 
 health = json.loads(os.environ["FOCUS_HEALTH_JSON"])
-expected = os.environ["FOCUS_EXPECT_GOAL"] == "true"
+with open(os.environ["FOCUS_EXPECTED_CONFIG"], encoding="utf-8") as stream:
+    config = json.load(stream)
 if set(health.get("robots", [])) != {"robot-0", "robot-1"}:
     raise SystemExit("Hub robot identity mismatch")
 enabled = health.get("goal_output_enabled", {})
-if any(enabled.get(robot) is not expected for robot in ("robot-0", "robot-1")):
+expected = {
+    robot_id: bool(policy.get("allow_goal", False))
+    for robot_id, policy in config.get("robots", {}).items()
+}
+if expected.keys() != {"robot-0", "robot-1"}:
+    raise SystemExit("robot policy identity mismatch")
+if any(enabled.get(robot) is not expected[robot] for robot in expected):
     raise SystemExit("Hub GOAL policy mismatch")
 '
 }
@@ -839,10 +936,21 @@ prepare_warm_live_reuse() {
 }
 
 arm_live_robots() {
+  local wsj_args yunji_args
   live_cleanup_required="true"
+  if [[ "$active_wsj" == true ]]; then
+    wsj_args="--mode live --operator-confirmation OPERATOR_PRESENT_AND_WSJ_CLEAR --reuse-verified-debug-core"
+  else
+    wsj_args="--mode debug"
+  fi
+  if [[ "$active_yunji" == true ]]; then
+    yunji_args="--mode live --operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR --reuse-verified-debug-core"
+  else
+    yunji_args="--mode debug"
+  fi
   remote_pair \
-    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_WSJ_CLEAR --reuse-verified-debug-core" \
-    "/bin/bash '$YUNJI_ROOT/hub/robot_overlay/stop_yunji_live_command_path.sh'; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR --reuse-verified-debug-core"
+    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER $wsj_args" \
+    "/bin/bash '$YUNJI_ROOT/hub/robot_overlay/stop_yunji_live_command_path.sh'; $YUNJI_ENV bash $YUNJI_LAUNCHER $yunji_args"
 }
 
 wait_for_live_readiness() {
@@ -854,11 +962,13 @@ wait_for_live_readiness() {
       FOCUS_HUB_URL="$HUB_URL" \
       FOCUS_ADMIN_TOKEN="$admin_token" \
       FOCUS_EPOCH_NS="$final_hub_epoch_ns" \
+      FOCUS_ACTIVE_ROBOT_IDS="$active_robot_csv" \
       "$PYTHON_BIN" - <<'PY'
 import json
 import os
 import urllib.request
 
+active = set(os.environ["FOCUS_ACTIVE_ROBOT_IDS"].split(","))
 sequences = []
 for robot_id in ("robot-0", "robot-1"):
     request = urllib.request.Request(
@@ -868,10 +978,20 @@ for robot_id in ("robot-0", "robot-1"):
     )
     with urllib.request.urlopen(request, timeout=3) as response:
         payload = json.load(response)
-    if payload.get("ready_for_goal") is not True:
-        raise SystemExit(1)
-    if payload.get("health_source") != "heartbeat":
-        raise SystemExit(1)
+    expected_ready = robot_id in active
+    if expected_ready:
+        if payload.get("ready_for_goal") is not True:
+            raise SystemExit(1)
+        if payload.get("health_source") != "heartbeat":
+            raise SystemExit(1)
+    else:
+        blockers = set(payload.get("blockers", []))
+        if (
+            payload.get("ready_for_goal") is not False
+            or payload.get("policy_allow_goal") is not False
+            or "GOAL_POLICY_DISABLED" not in blockers
+        ):
+            raise SystemExit(1)
     if int(payload.get("last_observation_received_at_ns", 0)) < int(
         os.environ["FOCUS_EPOCH_NS"]
     ):
@@ -889,6 +1009,26 @@ PY
     sleep 1
   done
   echo "Timed out waiting for both live heartbeats and clean-epoch observations." >&2
+  FOCUS_HUB_URL="$HUB_URL" \
+  FOCUS_ADMIN_TOKEN="$admin_token" \
+    "$PYTHON_BIN" - <<'PY' >&2 || true
+import json
+import os
+import urllib.request
+
+for robot_id in ("robot-0", "robot-1"):
+    request = urllib.request.Request(
+        os.environ["FOCUS_HUB_URL"]
+        + f"/v2/admin/robots/{robot_id}/runtime-readiness",
+        headers={"X-Admin-Token": os.environ["FOCUS_ADMIN_TOKEN"]},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.load(response)
+    except Exception as exc:
+        payload = {"robot_id": robot_id, "query_error": str(exc)}
+    print(json.dumps(payload, sort_keys=True))
+PY
   return 1
 }
 
@@ -911,7 +1051,7 @@ cleanup_on_exit() {
   trap - EXIT INT TERM
   set +e
   disarm_live_stack
-  [[ -z "$session_env_file" ]] || rm -f "$session_env_file"
+  cleanup_temp_files
   exit "$rc"
 }
 trap cleanup_on_exit EXIT INT TERM
@@ -1008,7 +1148,7 @@ if [[ "$mode" == live ]]; then
   # and fresh observations have entered this exact Hub epoch.
   live_cleanup_required="true"
   phase_started="$SECONDS"
-  restart_hub "$FOCUS_LIVE_ROBOT_CONFIG" true
+  restart_hub "$episode_robot_config" true
   echo "ONECLICK_TIMING phase=live_hub_restart elapsed_s=$((SECONDS - phase_started))"
   final_hub_epoch_ns="$(date +%s%N)"
   phase_started="$SECONDS"
@@ -1039,10 +1179,11 @@ if [[ "$mode" == live ]]; then
       --glm-url "$GLM_URL" \
       --admin-token-file "$FOCUS_ADMIN_TOKEN_FILE" \
       --registry-state "$HUB_DIR/runtime/state/registry_state.json" \
-      --robot-config "$FOCUS_LIVE_ROBOT_CONFIG" \
+      --robot-config "$episode_robot_config" \
       --robot-0-min-sequence "$wsj_epoch_sequence" \
       --robot-1-min-sequence "$yunji_epoch_sequence" \
       --round-input-timeout-s 45 \
+      "${episode_force_hold_args[@]}" \
       --enable-live-goal-publication \
       --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR; then
     echo "LIVE_SOURCE_EPISODE_FINISHED: $run_dir/episode_report.json"
