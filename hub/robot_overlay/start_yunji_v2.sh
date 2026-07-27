@@ -12,6 +12,7 @@ TRANSFORM_VERSION="${FOCUS_YUNJI_TRANSFORM_VERSION:-}"
 CALIBRATION_ID="${FOCUS_SHARED_CALIBRATION_ID:-}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
+GOAL_CATEGORY="${FOCUS_YUNJI_GOAL_CATEGORY:-chair}"
 TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus/tinynav-runtime}"
 # The router uses a square cell-clearance test, while TinyNav's unchanged local
 # planner remains the final footprint/depth authority.  On the 2026-07-25 live
@@ -117,6 +118,10 @@ fi
   echo "FOCUS_DEPLOYMENT_COMMIT must be the explicit 40-character Git commit." >&2
   exit 2
 }
+case "$GOAL_CATEGORY" in
+  chair|bed|plant|toilet|tv|sofa) ;;
+  *) echo "FOCUS_YUNJI_GOAL_CATEGORY is unsupported: $GOAL_CATEGORY" >&2; exit 2 ;;
+esac
 [[ "$SENDER_ADVANCE_TIMEOUT_S" =~ ^[1-9][0-9]*$ ]] || {
   echo "FOCUS_YUNJI_SENDER_ADVANCE_TIMEOUT_S must be a positive integer." >&2
   exit 2
@@ -134,6 +139,7 @@ for required in \
   "$SCRIPT_DIR/install_yunji_tinynav_runtime.sh" \
   "$SCRIPT_DIR/run_yunji_tinynav_component.sh" \
   "$SCRIPT_DIR/run_yunji_mapping_observation.sh" \
+  "$SCRIPT_DIR/odin1_sender.py" \
   "$SCRIPT_DIR/odin1_tinynav_adapter.py" \
   "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   "$SCRIPT_DIR/water_cmd_vel_bridge.py" \
@@ -147,6 +153,21 @@ for required in \
     exit 1
   }
 done
+SENDER_CONTRACT_SHA256="$(
+  {
+    printf '%s\0' \
+      "$DEPLOYMENT_COMMIT" \
+      "$HUB_URL" \
+      "$TRANSFORM_VERSION" \
+      "$CALIBRATION_ID" \
+      "$GOAL_CATEGORY"
+    sha256sum \
+      "$CALIBRATION_FILE" \
+      "$BASE_CAMERA_CALIBRATION" \
+      "$SCRIPT_DIR/odin1_sender.py" \
+      "$SCRIPT_DIR/run_yunji_mapping_observation.sh"
+  } | sha256sum | awk '{print $1}'
+)"
 systemctl is-active --quiet focus-yunji-odin1-driver.service || {
   echo "Odin driver is not active." >&2
   exit 1
@@ -180,6 +201,8 @@ start_unit() {
     --working-directory="$RELEASE_ROOT" \
     --setenv="FOCUS_YUNJI_TINYNAV_RUNTIME=$TINYNAV_RUNTIME" \
     --setenv="FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT" \
+    --setenv="FOCUS_YUNJI_GOAL_CATEGORY=$GOAL_CATEGORY" \
+    --setenv="FOCUS_YUNJI_SENDER_CONTRACT_SHA256=$SENDER_CONTRACT_SHA256" \
     --setenv="OPENBLAS_NUM_THREADS=1" \
     --setenv="OMP_NUM_THREADS=1" \
     --setenv="MKL_NUM_THREADS=1" \
@@ -193,6 +216,16 @@ unit_matches_deployment() {
     systemctl show --property Environment --value "$unit" 2>/dev/null || true
   )"
   [[ " $environment " == *" FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT "* ]]
+}
+
+unit_matches_sender_contract() {
+  local unit="$1" environment
+  environment="$(
+    systemctl show --property Environment --value "$unit" 2>/dev/null || true
+  )"
+  [[ " $environment " == *" FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT "* \
+     && " $environment " == *" FOCUS_YUNJI_GOAL_CATEGORY=$GOAL_CATEGORY "* \
+     && " $environment " == *" FOCUS_YUNJI_SENDER_CONTRACT_SHA256=$SENDER_CONTRACT_SHA256 "* ]]
 }
 
 hub_latest_sequence() {
@@ -304,6 +337,7 @@ start_yunji_sender() {
       --transform-version "$TRANSFORM_VERSION" \
       --shared-frame-transform-file "$CALIBRATION_FILE" \
       --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
+      --goal-category "$GOAL_CATEGORY" \
       --command-capable \
       --env "$ENV_FILE" \
       --metrics-out "$metrics"
@@ -336,8 +370,8 @@ ensure_yunji_sender_advance() {
 
 sender_baseline="$(hub_latest_sequence)"
 if systemctl is-active --quiet "$SENDER_UNIT" \
-   && ! unit_matches_deployment "$SENDER_UNIT"; then
-  echo "Yunji read-only sender belongs to an older/unmarked deployment; reloading it once for $DEPLOYMENT_COMMIT."
+   && ! unit_matches_sender_contract "$SENDER_UNIT"; then
+  echo "Yunji read-only sender contract changed; reloading it once for deployment=$DEPLOYMENT_COMMIT goal=$GOAL_CATEGORY."
   stop_unit "$SENDER_UNIT"
 fi
 if ! systemctl is-active --quiet "$SENDER_UNIT"; then

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import sys
 import types
@@ -118,6 +119,199 @@ def test_hub_transport_rebuilds_only_http_session_on_disconnect(monkeypatch):
     assert len(sessions) == 2
     assert sessions[0].closed is True
     assert sessions[1].headers["X-Robot-Token"] == "token"
+
+
+def _artifact(path: Path) -> dict[str, object]:
+    encoded = path.read_bytes()
+    return {
+        "path": str(path.resolve()),
+        "size_bytes": len(encoded),
+        "sha256": hashlib.sha256(encoded).hexdigest(),
+    }
+
+
+def test_runtime_command_contract_checks_artifact_provenance(
+    monkeypatch, tmp_path,
+):
+    sender = _load_sender_module(monkeypatch)
+    base_path = tmp_path / "base.json"
+    shared_path = tmp_path / "shared.json"
+    contract_path = tmp_path / "contract.json"
+    base_path.write_text('{"base": true}\n', encoding="utf-8")
+    shared_path.write_text('{"shared": true}\n', encoding="utf-8")
+    payload = {
+        "schema_version": sender.RUNTIME_COMMAND_CONTRACT_SCHEMA,
+        "activation_confirmation": sender.RUNTIME_COMMAND_ACTIVATION,
+        "robot_id": "robot-0",
+        "camera_frame": "camera",
+        "deployment_commit": "a" * 40,
+        "transform_version": "wsj-transform-v1",
+        "shared_frame_calibration_id": "shared-calibration-v1",
+        "goal_category": "plant",
+        "base_camera_calibration": _artifact(base_path),
+        "shared_tracking_calibration": _artifact(shared_path),
+    }
+    contract_path.write_text(
+        json.dumps(payload, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    base = SimpleNamespace(name="base")
+    shared = SimpleNamespace(
+        name="shared",
+        source_sha256="b" * 64,
+        shared_T_tracking=list(np.eye(4).reshape(-1)),
+    )
+    monkeypatch.setattr(
+        sender,
+        "load_base_camera_calibration",
+        lambda path, **kwargs: (
+            base
+            if path == base_path and kwargs == {
+                "expected_robot_id": "robot-0",
+                "expected_camera_frame": "camera",
+            }
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        sender,
+        "load_shared_tracking_calibration",
+        lambda path, **kwargs: (
+            shared
+            if path == shared_path and kwargs == {
+                "robot_id": "robot-0",
+                "expected_transform_version": "wsj-transform-v1",
+                "expected_calibration_id": "shared-calibration-v1",
+            }
+            else None
+        ),
+    )
+
+    contract = sender.load_runtime_command_contract(
+        contract_path,
+        robot_id="robot-0",
+        camera_frame="camera",
+        deployment_commit="a" * 40,
+    )
+
+    assert contract.transform_version == "wsj-transform-v1"
+    assert contract.goal_category == "plant"
+    assert contract.base_camera_calibration is base
+    assert contract.shared_tracking_calibration is shared
+    assert contract.mapping_only is False
+    assert contract.runtime_contract_sha256 == hashlib.sha256(
+        contract_path.read_bytes()
+    ).hexdigest()
+
+    shared_path.write_text('{"shared": null}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="shared_tracking_calibration .*mismatch"):
+        sender.load_runtime_command_contract(
+            contract_path,
+            robot_id="robot-0",
+            camera_frame="camera",
+            deployment_commit="a" * 40,
+        )
+
+
+def test_runtime_contract_retries_transient_hub_resynchronization(
+    monkeypatch, tmp_path,
+):
+    sender = _load_sender_module(monkeypatch)
+    contract_path = tmp_path / "contract.json"
+    receipt_path = tmp_path / "receipt.json"
+    contract_path.write_text('{"candidate": 1}\n', encoding="utf-8")
+    contract = sender.ObservationContract(
+        transform_version="wsj-transform-v1",
+        goal_category="plant",
+        base_camera_calibration=object(),
+        shared_tracking_calibration=SimpleNamespace(source_sha256="b" * 64),
+        runtime_contract_sha256="unused-by-refresh",
+    )
+    monkeypatch.setattr(
+        sender, "load_runtime_command_contract", lambda *_args, **_kwargs: contract
+    )
+    calls = 0
+
+    class Transport:
+        @staticmethod
+        def last_sequence():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("hub transition")
+            return 41
+
+    logger = SimpleNamespace(
+        error=lambda *_args: None,
+        warning=lambda *_args: None,
+        info=lambda *_args: None,
+    )
+    node = sender.FocusRosSender.__new__(sender.FocusRosSender)
+    node.args = SimpleNamespace(
+        robot_id="robot-0",
+        camera_frame="camera",
+        deployment_commit="a" * 40,
+    )
+    node.transport = Transport()
+    node.runtime_contract_file = contract_path
+    node.runtime_receipt_file = receipt_path
+    node.runtime_contract_sha256 = None
+    node.runtime_rejected_sha256 = None
+    node.runtime_receipt_state = None
+    node.runtime_contract_activations = 0
+    node.observation_contract = None
+    node.get_logger = lambda: logger
+
+    node._refresh_runtime_contract()
+
+    waiting = json.loads(receipt_path.read_text())
+    assert waiting["status"] == "waiting_for_hub_sequence"
+    assert node.runtime_rejected_sha256 is None
+    assert node.observation_contract is None
+
+    node._refresh_runtime_contract()
+
+    active = json.loads(receipt_path.read_text())
+    assert active["status"] == "active"
+    assert active["detail"] == "validated_contract_applied_without_dds_restart"
+    assert node.observation_contract is contract
+    assert node.sequence == 42
+    assert node.runtime_contract_activations == 1
+    assert calls == 2
+
+
+def test_parked_sender_receipt_proves_synchronized_tuple_activity(
+    monkeypatch, tmp_path,
+):
+    sender = _load_sender_module(monkeypatch)
+    node = sender.FocusRosSender.__new__(sender.FocusRosSender)
+    node.args = SimpleNamespace(
+        robot_id="robot-0",
+        deployment_commit="a" * 40,
+    )
+    node.runtime_contract_file = tmp_path / "absent-contract.json"
+    node.runtime_receipt_file = tmp_path / "receipt.json"
+    node.runtime_contract_sha256 = None
+    node.runtime_rejected_sha256 = None
+    node.runtime_receipt_state = None
+    node.observation_contract = None
+    node.frames_seen = 0
+    node.parked_geometry_tuples = 0
+    node.last_parked_receipt_tuple = 0
+    node.done = False
+
+    for _ in range(sender.PARKED_RECEIPT_TUPLE_INTERVAL):
+        node._handle_synced(None, None, None, None, None)
+
+    receipt = json.loads(node.runtime_receipt_file.read_text())
+    assert receipt["status"] == "parked"
+    assert receipt["frames_seen"] == sender.PARKED_RECEIPT_TUPLE_INTERVAL
+    assert (
+        receipt["parked_geometry_tuples"]
+        == sender.PARKED_RECEIPT_TUPLE_INTERVAL
+    )
+    assert receipt["robot_commands_issued"] is False
+    assert node.observation_contract is None
 
 
 class _DepthBridge:

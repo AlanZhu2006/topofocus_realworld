@@ -207,9 +207,14 @@ bypass a changed tracking epoch.
 
 The exact Git identity is bound to long-lived runtime processes as well as the
 files on disk. A WSJ sender tmux window or Yunji systemd unit from an
-older/unmarked deployment is reloaded once; matching senders remain warm.
-Both senders must advance the Hub sequence, with at most one bounded read-only
-sender restart before startup fails closed.
+older/unmarked deployment is rejected or deliberately replaced; matching
+senders remain warm. WSJ calibration creates its runtime-configurable DDS
+subscriber before restarting camera/perception, then later hot-loads the
+checked calibration contract without replacing that subscriber. A WSJ frame
+stall preserves the sender and fails closed; only the bounded Yunji path may
+perform its one read-only sender restart. The enforced WSJ ordering and
+re-anchor gate are recorded in
+[WSJ_DDS_LIFECYCLE.md](WSJ_DDS_LIFECYCLE.md).
 
 Only after that potentially slow startup has completed does the launcher enter
 the bounded source-derived episode loop. It freezes an exact synchronized
@@ -323,6 +328,7 @@ Use this decision table:
 | Go2 or WATER chassis power only; Jetson/Odin tracking stayed alive | Directly run the next live command; no board and no repeated debug |
 | Hub process, local Foxglove or SSH tunnel restarted; robot tracking stayed alive | Directly run live; local components are recovered as needed |
 | WSJ perception/SLAM or Yunji Odin driver restarted while the robot was certainly stationary | Create a validated stationary tracking re-anchor, then a new session |
+| WSJ sender was replaced and stopped receiving existing publishers | Keep WSJ stationary; run the ordered read-only publisher recovery, then create a matching stationary re-anchor |
 | Robot base moved relative to the room, camera mount moved, or stationary continuity is uncertain | Run a new two-position board calibration |
 
 `probe_tracking_epoch.py` records its source paths, process start identity,

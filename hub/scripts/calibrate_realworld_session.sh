@@ -311,9 +311,9 @@ write(final_path, wsj_raw, yunji_final)
 PY
 
 remote_run() {
-  local target="$1" command="$2" token
+  local target="$1" command="$2" timeout_s="${3:-180}" token
   remote_begin "$target" "$command" token
-  remote_finish "$target" "$token"
+  remote_finish "$target" "$token" "$timeout_s"
 }
 
 remote_begin() {
@@ -324,7 +324,7 @@ remote_begin() {
   }
   run_token="FOCUS_$(date +%s%N)_${RANDOM}"
   printf -v line \
-    'bash -lc %q; rc=$?; echo; echo __%s_RC=$rc' \
+    'set +e; bash -lc %q; rc=$?; echo; echo __%s_RC=$rc; true' \
     "$command" "$run_token"
   tmux send-keys -t "$target" "$line" Enter
   printf -v "$result_name" '%s' "$run_token"
@@ -389,7 +389,7 @@ remote_pair() {
 
 remote_queue() {
   local target="$1" command="$2" line
-  printf -v line 'bash -lc %q' "$command"
+  printf -v line 'set +e; bash -lc %q; :' "$command"
   # Queue bounded PTY lines without waiting for one round trip per manifest
   # chunk.  The marked remote_run below remains the completion/checksum
   # barrier, exactly as in realworld_oneclick.sh.
@@ -399,7 +399,7 @@ remote_queue() {
 
 verify_remote_release() {
   local target="$1" root="$2" manifest encoded quoted_root suffix
-  local remote_encoded remote_manifest chunk
+  local remote_encoded remote_manifest chunk rc=0
   manifest="$(
     cd "$WORKSPACE"
     git ls-files -z hub/src/focus_hub hub/robot_overlay \
@@ -412,16 +412,37 @@ verify_remote_release() {
   suffix="$(date +%s%N)_${RANDOM}"
   remote_encoded="/tmp/focus-release-${suffix}.b64"
   remote_manifest="/tmp/focus-release-${suffix}.sha256"
-  remote_run "$target" "umask 077; : > '$remote_encoded'"
+  remote_run "$target" "umask 077; : > '$remote_encoded'" || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    remote_run "$target" \
+      "[[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_manifest' ]] || unlink '$remote_manifest'" \
+      15 \
+      || true
+    return "$rc"
+  fi
   while IFS= read -r chunk || [[ -n "$chunk" ]]; do
-    remote_queue "$target" \
-      "printf '%s' '$chunk' >> '$remote_encoded'"
+    if ! remote_queue "$target" \
+      "printf '%s' '$chunk' >> '$remote_encoded'"; then
+      remote_run "$target" \
+        "[[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_manifest' ]] || unlink '$remote_manifest'" \
+        15 \
+        || true
+      return 1
+    fi
   # Keep each tmux/PTY line well below the observed remote canonical-input
   # limit. Larger chunks can be accepted by tmux but silently truncated by
   # the interactive SSH terminal.
   done < <(printf '%s' "$encoded" | fold -w 1000)
   remote_run "$target" \
-    "set +e; base64 -d '$remote_encoded' > '$remote_manifest'; rc=\$?; if [ \"\$rc\" -eq 0 ]; then (cd $quoted_root && sha256sum --quiet -c '$remote_manifest'); rc=\$?; fi; unlink '$remote_encoded'; unlink '$remote_manifest'; exit \"\$rc\""
+    "set +e; base64 -d '$remote_encoded' > '$remote_manifest'; rc=\$?; if [ \"\$rc\" -eq 0 ]; then (cd $quoted_root && sha256sum --quiet -c '$remote_manifest'); rc=\$?; fi; [[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_manifest' ]] || unlink '$remote_manifest'; exit \"\$rc\"" \
+    || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    remote_run "$target" \
+      "[[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_manifest' ]] || unlink '$remote_manifest'" \
+      15 \
+      || true
+    return "$rc"
+  fi
 }
 
 verify_remote_release_pair() {
@@ -592,20 +613,43 @@ capture_pair() {
 
 deploy_calibration() {
   local target="$1" remote_path="$2" encoded expected remote_dir
-  local suffix remote_encoded chunk
+  local suffix remote_encoded remote_temporary chunk rc=0
   expected="$(sha256sum "$calibration_file" | awk '{print $1}')"
   encoded="$(base64 -w0 "$calibration_file")"
   remote_dir="${remote_path%/*}"
   suffix="$(date +%s%N)_${RANDOM}"
   remote_encoded="${remote_path}.focus-${suffix}.b64"
+  remote_temporary="${remote_path}.focus-${suffix}.tmp"
   remote_run "$target" \
-    "set -e; install -d -m 700 '$remote_dir'; umask 077; : > '$remote_encoded'"
+    "set -e; install -d -m 700 '$remote_dir'; umask 077; : > '$remote_encoded'" \
+    || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    remote_run "$target" \
+      "[[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_temporary' ]] || unlink '$remote_temporary'" \
+      15 \
+      || true
+    return "$rc"
+  fi
   while IFS= read -r chunk || [[ -n "$chunk" ]]; do
-    remote_queue "$target" \
-      "printf '%s' '$chunk' >> '$remote_encoded'"
+    if ! remote_queue "$target" \
+      "printf '%s' '$chunk' >> '$remote_encoded'"; then
+      remote_run "$target" \
+        "[[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_temporary' ]] || unlink '$remote_temporary'" \
+        15 \
+        || true
+      return 1
+    fi
   done < <(printf '%s' "$encoded" | fold -w 1000)
   remote_run "$target" \
-    "set -e; base64 -d '$remote_encoded' > '${remote_path}.tmp'; test \"\$(sha256sum '${remote_path}.tmp' | awk '{print \$1}')\" = '$expected'; python3 -m json.tool '${remote_path}.tmp' >/dev/null; chmod 600 '${remote_path}.tmp'; mv '${remote_path}.tmp' '$remote_path'; unlink '$remote_encoded'; test \"\$(sha256sum '$remote_path' | awk '{print \$1}')\" = '$expected'"
+    "set +e; base64 -d '$remote_encoded' > '$remote_temporary'; rc=\$?; if [[ \"\$rc\" -eq 0 ]]; then test \"\$(sha256sum '$remote_temporary' | awk '{print \$1}')\" = '$expected'; rc=\$?; fi; if [[ \"\$rc\" -eq 0 ]]; then python3 -m json.tool '$remote_temporary' >/dev/null; rc=\$?; fi; if [[ \"\$rc\" -eq 0 ]]; then chmod 600 '$remote_temporary' && mv '$remote_temporary' '$remote_path'; rc=\$?; fi; [[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_temporary' ]] || unlink '$remote_temporary'; if [[ \"\$rc\" -eq 0 ]]; then test \"\$(sha256sum '$remote_path' | awk '{print \$1}')\" = '$expected'; rc=\$?; fi; exit \"\$rc\"" \
+    || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    remote_run "$target" \
+      "[[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_temporary' ]] || unlink '$remote_temporary'" \
+      15 \
+      || true
+    return "$rc"
+  fi
 }
 
 deploy_calibration_pair() {
@@ -657,7 +701,7 @@ start_hub_config "$raw_config"
 ensure_calibration_relay
 raw_start_s="$SECONDS"
 remote_pair \
-  "FOCUS_WSJ_ENV_FILE='$WSJ_ENV_FILE' FOCUS_HUB_BASE_URL=http://127.0.0.1:18089 FOCUS_FOXGLOVE_PREVIEW_URL=http://127.0.0.1:18766 bash '$WSJ_ROOT/hub/robot_overlay/start_wsj_calibration_observation.sh' --transform-version '$wsj_raw_transform' --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY" \
+  "FOCUS_WSJ_ENV_FILE='$WSJ_ENV_FILE' FOCUS_HUB_BASE_URL=http://127.0.0.1:18089 FOCUS_FOXGLOVE_PREVIEW_URL=http://127.0.0.1:18766 FOCUS_DEPLOYMENT_COMMIT='$code_commit' bash '$WSJ_ROOT/hub/robot_overlay/start_wsj_calibration_observation.sh' --transform-version '$wsj_raw_transform' --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY" \
   "bash '$YUNJI_ROOT/hub/robot_overlay/start_yunji_calibration_observation.sh' --transform-version '$yunji_raw_transform' --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY"
 echo "CALIBRATION_TIMING phase=dual_raw_observation_start elapsed_s=$((SECONDS - raw_start_s))"
 
@@ -745,13 +789,15 @@ PY
 
 echo "CALIBRATION_HOLDOUT_PASSED: deploying the checked shared transform."
 deploy_calibration_pair
+remote_run "$WSJ_TMUX_TARGET" \
+  "marker=/home/nvidia/.local/state/topofocus/wsj-tracking-reanchor-required.json; if [[ -e \"\$marker\" ]]; then unlink \"\$marker\"; fi"
 
 echo "Switching both robots to calibrated read-only observation."
 start_hub_config "$final_debug_config"
 debug_start_s="$SECONDS"
 remote_pair \
-  "tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; FOCUS_SHARED_CALIBRATION_FILE='$wsj_remote_calibration' FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE='$WSJ_BASE_CAMERA' FOCUS_WSJ_TRANSFORM_VERSION='$wsj_raw_transform' FOCUS_SHARED_CALIBRATION_ID='$calibration_id' FOCUS_DEPLOYMENT_COMMIT='$code_commit' bash '$WSJ_ROOT/hub/robot_overlay/start_wsj_buildmap_v2.sh' --mode debug" \
-  "FOCUS_YUNJI_SHARED_CALIBRATION_FILE='$yunji_remote_calibration' FOCUS_YUNJI_BASE_CAMERA_CALIBRATION='$YUNJI_BASE_CAMERA' FOCUS_YUNJI_TRANSFORM_VERSION='$yunji_final_transform' FOCUS_SHARED_CALIBRATION_ID='$calibration_id' FOCUS_DEPLOYMENT_COMMIT='$code_commit' bash '$YUNJI_ROOT/hub/robot_overlay/start_yunji_v2.sh' --mode debug"
+  "tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; FOCUS_SHARED_CALIBRATION_FILE='$wsj_remote_calibration' FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE='$WSJ_BASE_CAMERA' FOCUS_WSJ_TRANSFORM_VERSION='$wsj_raw_transform' FOCUS_SHARED_CALIBRATION_ID='$calibration_id' FOCUS_WSJ_GOAL_CATEGORY='$goal_category' FOCUS_DEPLOYMENT_COMMIT='$code_commit' bash '$WSJ_ROOT/hub/robot_overlay/start_wsj_buildmap_v2.sh' --mode debug" \
+  "FOCUS_YUNJI_SHARED_CALIBRATION_FILE='$yunji_remote_calibration' FOCUS_YUNJI_BASE_CAMERA_CALIBRATION='$YUNJI_BASE_CAMERA' FOCUS_YUNJI_TRANSFORM_VERSION='$yunji_final_transform' FOCUS_SHARED_CALIBRATION_ID='$calibration_id' FOCUS_YUNJI_GOAL_CATEGORY='$goal_category' FOCUS_DEPLOYMENT_COMMIT='$code_commit' bash '$YUNJI_ROOT/hub/robot_overlay/start_yunji_v2.sh' --mode debug"
 echo "CALIBRATION_TIMING phase=dual_calibrated_debug_start elapsed_s=$((SECONDS - debug_start_s))"
 
 deadline=$((SECONDS + 90))

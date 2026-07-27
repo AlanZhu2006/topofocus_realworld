@@ -1009,22 +1009,39 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     launcher = (
         OVERLAY / "start_wsj_calibration_observation.sh"
     ).read_text(encoding="utf-8")
-    sensor_gate = launcher[
-        : launcher.index("WSJ_CALIBRATION_SENSOR_EPOCH_READY")
-    ]
-    sender_gate = launcher[launcher.index("sender=(") :]
+    persistent_sender = launcher.index(
+        'bash "$SCRIPT_DIR/start_wsj_command_observation.sh"'
+    )
+    keyframe_sender = launcher.index("sender=(")
+    subscribers_ready = launcher.index(
+        "WSJ_DDS_SUBSCRIBERS_READY_BEFORE_PUBLISHERS"
+    )
+    stop_perception = launcher.index(
+        'tmux set-option -w -t "$SESSION:perception" remain-on-exit on'
+    )
+    restart_camera = launcher.index(
+        'tmux respawn-pane -k -t "$SESSION:camera"'
+    )
+    restart_perception = launcher.index(
+        'tmux respawn-pane -k -t "$SESSION:perception"'
+    )
+    persistent_tuple = launcher.index(
+        'wait_for_persistent_sender_tuple "$parked_tuple_baseline"'
+    )
+    sensor_ready = launcher.index("WSJ_CALIBRATION_SENSOR_EPOCH_READY")
+    continuous_sensor_gate = launcher[restart_perception:sensor_ready]
 
     assert 'tmux respawn-pane -k -t "$SESSION:camera"' in launcher
     assert 'tmux respawn-pane -k -t "$SESSION:perception"' in launcher
-    assert "/slam/depth" in sensor_gate
-    assert "/slam/odometry_visual" in sensor_gate
-    assert "/slam/keyframe_depth" not in sensor_gate
-    assert "/slam/keyframe_odom" not in sensor_gate
-    assert "--depth-topic /slam/keyframe_depth" in sender_gate
-    assert "--pose-topic /slam/keyframe_odom" in sender_gate
-    assert "latest_sequence > initial_sequence" in sender_gate
+    assert "/slam/depth" in continuous_sensor_gate
+    assert "/slam/odometry_visual" in continuous_sensor_gate
+    assert "/slam/keyframe_depth" not in continuous_sensor_gate
+    assert "/slam/keyframe_odom" not in continuous_sensor_gate
+    assert "--depth-topic /slam/keyframe_depth" in launcher
+    assert "--pose-topic /slam/keyframe_odom" in launcher
+    assert "latest_sequence > initial_sequence" in launcher
     assert "keyframe_tuple_gate=sender_sequence" in launcher
-    assert launcher.count("verify_ros_geometry_profile.py") >= 3
+    assert launcher.count("verify_ros_geometry_profile.py") >= 2
     assert "--image-topic /slam/depth" in launcher
     assert "--camera-info-topic /slam/camera_info" in launcher
     assert "stable TinyNav processed depth" in launcher
@@ -1033,9 +1050,17 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     assert "--qos-reliability best_effort" in launcher
     assert "--qos-durability volatile" in launcher
     assert "--qos-depth 1" in launcher
-    assert launcher.index("WSJ_CALIBRATION_SENSOR_EPOCH_READY") < launcher.index(
-        "sender=("
+    assert (
+        persistent_sender
+        < keyframe_sender
+        < subscribers_ready
+        < stop_perception
+        < restart_camera
+        < restart_perception
+        < persistent_tuple
+        < sensor_ready
     )
+    assert "Persistent WSJ sender PID changed during publisher restart" in launcher
 
 
 def test_yunji_direct_water_map_receiver_is_retained_as_legacy_only():

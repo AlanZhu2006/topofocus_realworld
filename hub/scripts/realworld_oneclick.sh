@@ -209,9 +209,9 @@ ensure_ssh_tmux_shell "$WSJ_TMUX_TARGET"
 ensure_ssh_tmux_shell "$YUNJI_TMUX_TARGET"
 
 remote_run() {
-  local target="$1" command="$2" token
+  local target="$1" command="$2" timeout_s="${3:-180}" token
   remote_begin "$target" "$command" token
-  remote_finish "$target" "$token"
+  remote_finish "$target" "$token" "$timeout_s"
 }
 
 remote_begin() {
@@ -222,7 +222,7 @@ remote_begin() {
   }
   run_token="FOCUS_$(date +%s%N)_${RANDOM}"
   printf -v line \
-    'bash -lc %q; rc=$?; echo; echo __%s_RC=$rc' \
+    'set +e; bash -lc %q; rc=$?; echo; echo __%s_RC=$rc; true' \
     "$command" "$run_token"
   tmux send-keys -t "$target" "$line" Enter
   printf -v "$result_name" '%s' "$run_token"
@@ -287,7 +287,7 @@ remote_pair() {
 
 remote_queue() {
   local target="$1" command="$2" line
-  printf -v line 'bash -lc %q' "$command"
+  printf -v line 'set +e; bash -lc %q; :' "$command"
   # Each queued line stays below the remote PTY canonical-input limit. The
   # shell executes them in order; the following marked remote_run is the
   # completion barrier and still performs the authoritative checksum check.
@@ -297,7 +297,7 @@ remote_queue() {
 
 verify_remote_release() {
   local target="$1" root="$2" manifest encoded quoted_root suffix
-  local remote_encoded remote_manifest chunk
+  local remote_encoded remote_manifest chunk rc=0
   manifest="$(
     cd "$WORKSPACE"
     git ls-files -z hub/src/focus_hub hub/robot_overlay \
@@ -313,16 +313,37 @@ verify_remote_release() {
   suffix="$(date +%s%N)_${RANDOM}"
   remote_encoded="/tmp/focus-release-${suffix}.b64"
   remote_manifest="/tmp/focus-release-${suffix}.sha256"
-  remote_run "$target" "umask 077; : > '$remote_encoded'"
+  remote_run "$target" "umask 077; : > '$remote_encoded'" || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    remote_run "$target" \
+      "[[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_manifest' ]] || unlink '$remote_manifest'" \
+      15 \
+      || true
+    return "$rc"
+  fi
   while IFS= read -r chunk || [[ -n "$chunk" ]]; do
-    remote_queue "$target" \
-      "printf '%s' '$chunk' >> '$remote_encoded'"
+    if ! remote_queue "$target" \
+      "printf '%s' '$chunk' >> '$remote_encoded'"; then
+      remote_run "$target" \
+        "[[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_manifest' ]] || unlink '$remote_manifest'" \
+        15 \
+        || true
+      return 1
+    fi
   # Keep each tmux/PTY line well below the observed remote canonical-input
   # limit. Larger chunks can be accepted by tmux but silently truncated by
   # the interactive SSH terminal.
   done < <(printf '%s' "$encoded" | fold -w 1000)
   remote_run "$target" \
-    "set +e; base64 -d '$remote_encoded' > '$remote_manifest'; rc=\$?; if [ \"\$rc\" -eq 0 ]; then (cd $quoted_root && sha256sum --quiet -c '$remote_manifest'); rc=\$?; fi; unlink '$remote_encoded'; unlink '$remote_manifest'; exit \"\$rc\""
+    "set +e; base64 -d '$remote_encoded' > '$remote_manifest'; rc=\$?; if [ \"\$rc\" -eq 0 ]; then (cd $quoted_root && sha256sum --quiet -c '$remote_manifest'); rc=\$?; fi; [[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_manifest' ]] || unlink '$remote_manifest'; exit \"\$rc\"" \
+    || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    remote_run "$target" \
+      "[[ ! -e '$remote_encoded' ]] || unlink '$remote_encoded'; [[ ! -e '$remote_manifest' ]] || unlink '$remote_manifest'" \
+      15 \
+      || true
+    return "$rc"
+  fi
 }
 
 verify_remote_release_pair() {
@@ -348,20 +369,22 @@ verify_remote_release_pair() {
 }
 
 printf -v WSJ_ENV \
-  'FOCUS_SHARED_CALIBRATION_FILE=%q FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE=%q FOCUS_WSJ_TRANSFORM_VERSION=%q FOCUS_SHARED_CALIBRATION_ID=%q FOCUS_HUB_BASE_URL=%q FOCUS_FOXGLOVE_PREVIEW_URL=%q FOCUS_DEPLOYMENT_COMMIT=%q' \
+  'FOCUS_SHARED_CALIBRATION_FILE=%q FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE=%q FOCUS_WSJ_TRANSFORM_VERSION=%q FOCUS_SHARED_CALIBRATION_ID=%q FOCUS_WSJ_GOAL_CATEGORY=%q FOCUS_HUB_BASE_URL=%q FOCUS_FOXGLOVE_PREVIEW_URL=%q FOCUS_DEPLOYMENT_COMMIT=%q' \
   "$FOCUS_WSJ_REMOTE_CALIBRATION" \
   "$FOCUS_WSJ_REMOTE_BASE_CAMERA" \
   "$FOCUS_WSJ_TRANSFORM" \
   "$FOCUS_CALIBRATION_ID" \
+  "$FOCUS_MAP_GOAL_CATEGORY" \
   "$FOCUS_WSJ_REMOTE_HUB_URL" \
   "$FOCUS_WSJ_REMOTE_PREVIEW_URL" \
   "$FOCUS_SESSION_CODE_COMMIT"
 printf -v YUNJI_ENV \
-  'FOCUS_YUNJI_SHARED_CALIBRATION_FILE=%q FOCUS_YUNJI_BASE_CAMERA_CALIBRATION=%q FOCUS_YUNJI_TRANSFORM_VERSION=%q FOCUS_SHARED_CALIBRATION_ID=%q FOCUS_HUB_BASE_URL=%q FOCUS_DEPLOYMENT_COMMIT=%q' \
+  'FOCUS_YUNJI_SHARED_CALIBRATION_FILE=%q FOCUS_YUNJI_BASE_CAMERA_CALIBRATION=%q FOCUS_YUNJI_TRANSFORM_VERSION=%q FOCUS_SHARED_CALIBRATION_ID=%q FOCUS_YUNJI_GOAL_CATEGORY=%q FOCUS_HUB_BASE_URL=%q FOCUS_DEPLOYMENT_COMMIT=%q' \
   "$FOCUS_YUNJI_REMOTE_CALIBRATION" \
   "$FOCUS_YUNJI_REMOTE_BASE_CAMERA" \
   "$FOCUS_YUNJI_TRANSFORM" \
   "$FOCUS_CALIBRATION_ID" \
+  "$FOCUS_MAP_GOAL_CATEGORY" \
   "$FOCUS_YUNJI_REMOTE_HUB_URL" \
   "$FOCUS_SESSION_CODE_COMMIT"
 printf -v WSJ_LAUNCHER '%q' \

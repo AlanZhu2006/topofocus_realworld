@@ -75,7 +75,11 @@ def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():
 def test_remote_completion_marker_always_starts_on_a_new_line():
     for name in ("realworld_oneclick.sh", "calibrate_realworld_session.sh"):
         source = (SCRIPTS / name).read_text()
-        assert "'bash -lc %q; rc=$?; echo; echo __%s_RC=$rc'" in source
+        assert (
+            "'set +e; bash -lc %q; rc=$?; echo; "
+            "echo __%s_RC=$rc; true'"
+        ) in source
+        assert "'set +e; bash -lc %q; :'" in source
 
 
 def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
@@ -157,9 +161,14 @@ def test_wsj_formal_observation_preserves_warm_dds_sender_on_startup_stall():
     assert 'FOCUS_WSJ_RGB_CACHE_SIZE:-90' in launcher
     assert '--rgb-cache-size "$RGB_CACHE_SIZE"' in launcher
     assert '--latest-rgb-max-skew-s "$LATEST_RGB_MAX_SKEW_S"' in launcher
-    assert "@focus_sender_contract_sha256" in launcher
-    assert "resets its own requests.Session" in launcher
-    assert "preserving the warm DDS participant and failing closed" in launcher
+    assert "@focus_sender_process_contract_sha256" in launcher
+    assert "--runtime-command-contract-file" in launcher
+    assert "--runtime-command-receipt-file" in launcher
+    assert "--park-only" in launcher
+    sender = (OVERLAY / "focus_ros_sender.py").read_text()
+    assert "preserve this ROS/DDS participant" in sender
+    assert "self._reset_session()" in sender
+    assert "Preserving the DDS participant; do not restart it" in launcher
     assert "for attempt in 0 1" not in launcher
     assert "restarting only the read-only sender once" not in launcher
     assert launcher.index("go2_cmd_bridge") < launcher.index(
@@ -413,11 +422,36 @@ def test_runtime_processes_are_bound_to_the_checked_deployment_commit():
     assert "FOCUS_DEPLOYMENT_COMMIT='$code_commit'" in calibration
     assert "FOCUS_DEPLOYMENT_COMMIT must be the explicit" in wsj
     assert "@focus_deployment_commit" in wsj_sender
-    assert "loading the verified deployment/calibration once" in wsj_sender
-    assert "@focus_sender_contract_sha256" in wsj_sender
+    assert "@focus_sender_process_contract_sha256" in wsj_sender
+    assert "--runtime-command-contract-file" in wsj_sender
+    assert "write_active_contract" in wsj_sender
+    assert "validated_contract_applied_without_dds_restart" in (
+        OVERLAY / "focus_ros_sender.py"
+    ).read_text()
     assert '--setenv="FOCUS_DEPLOYMENT_COMMIT=$DEPLOYMENT_COMMIT"' in yunji
     assert "unit_matches_deployment" in yunji
     assert "Verified Yunji debug core is from a different deployment" in yunji
+
+
+def test_goal_category_reaches_both_persistent_observation_senders():
+    oneclick = (SCRIPTS / "realworld_oneclick.sh").read_text()
+    calibration = (SCRIPTS / "calibrate_realworld_session.sh").read_text()
+    wsj = (OVERLAY / "start_wsj_command_observation.sh").read_text()
+    yunji = (OVERLAY / "start_yunji_v2.sh").read_text()
+    yunji_sender = (
+        OVERLAY / "run_yunji_mapping_observation.sh"
+    ).read_text()
+
+    assert "FOCUS_WSJ_GOAL_CATEGORY=%q" in oneclick
+    assert "FOCUS_YUNJI_GOAL_CATEGORY=%q" in oneclick
+    assert "FOCUS_WSJ_GOAL_CATEGORY='$goal_category'" in calibration
+    assert "FOCUS_YUNJI_GOAL_CATEGORY='$goal_category'" in calibration
+    assert 'GOAL_CATEGORY="${FOCUS_WSJ_GOAL_CATEGORY:-chair}"' in wsj
+    assert 'GOAL_CATEGORY="${FOCUS_YUNJI_GOAL_CATEGORY:-chair}"' in yunji
+    assert '--goal-category "$GOAL_CATEGORY"' in yunji
+    assert "unit_matches_sender_contract" in yunji
+    assert "FOCUS_YUNJI_SENDER_CONTRACT_SHA256" in yunji
+    assert '--goal-category "$goal_category"' in yunji_sender
 
 
 def test_robot_sender_liveness_is_bounded_without_duplicate_wsj_probes():
@@ -443,3 +477,44 @@ def test_robot_sender_liveness_is_bounded_without_duplicate_wsj_probes():
     assert yunji.index('ensure_yunji_sender_advance "$sender_baseline"') < (
         yunji.index('wait "$sender_watchdog_pid"')
     )
+
+
+def test_wsj_publisher_recovery_preserves_sender_and_requires_reanchor():
+    recovery = (
+        OVERLAY / "recover_wsj_publishers_after_sender.sh"
+    ).read_text()
+
+    assert "OPERATOR_PRESENT_AND_WSJ_STATIONARY" in recovery
+    assert "--runtime-command-contract-file" in recovery
+    sender_gate = recovery.index(
+        "Persistent runtime-configurable WSJ sender is not running."
+    )
+    stop_perception = recovery.index(
+        'tmux set-option -w -t "$SESSION:perception" remain-on-exit on'
+    )
+    restart_camera = recovery.index(
+        'tmux respawn-pane -k -t "$SESSION:camera"'
+    )
+    restart_perception = recovery.index(
+        'tmux respawn-pane -k -t "$SESSION:perception"'
+    )
+    marker_started = recovery.index(
+        "write_reanchor_marker recovery_started"
+    )
+    marker_completed = recovery.index(
+        "write_reanchor_marker publishers_recovered"
+    )
+    assert sender_gate < stop_perception < restart_camera < restart_perception
+    assert marker_started < stop_perception
+    assert restart_perception < marker_completed
+    assert "tmux kill-window -t \"$SESSION:hub-sender\"" not in recovery
+    assert "sender_pid_preserved" in recovery
+    assert "robot_commands_issued" in recovery
+    assert "publisher_order_complete" in recovery
+    assert recovery.index(
+        'parked_tuple_baseline="$(parked_tuple_count)"'
+    ) < restart_camera
+    assert restart_perception < recovery.index(
+        'wait_for_sender_tuple_advance "$parked_tuple_baseline"'
+    )
+    assert "WSJ DDS sender PID changed during publisher recovery" in recovery

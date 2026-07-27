@@ -144,6 +144,122 @@ SLAM_IMU_MAX_SAMPLE_GAP_S = 0.05
 SLAM_IMU_END_TOLERANCE_S = 0.01
 SLAM_OVERWRITE_RECOVERY_MIN_REPORTS = 3
 SLAM_OVERWRITE_RECOVERY_MIN_S = 2.0
+PARKED_RECEIPT_TUPLE_INTERVAL = 15
+RUNTIME_COMMAND_CONTRACT_SCHEMA = (
+    "focus-wsj-command-observation-contract-v1"
+)
+RUNTIME_COMMAND_ACTIVATION = "COMMAND_CAPABLE_OBSERVATION_ONLY"
+
+
+class ObservationContract:
+    """Checked metadata applied without replacing the ROS/DDS participant."""
+
+    def __init__(
+        self,
+        *,
+        transform_version: str,
+        goal_category: str,
+        base_camera_calibration: object | None,
+        shared_tracking_calibration: object | None,
+        runtime_contract_sha256: str | None = None,
+    ) -> None:
+        self.transform_version = transform_version
+        self.goal_category = goal_category
+        self.base_camera_calibration = base_camera_calibration
+        self.shared_tracking_calibration = shared_tracking_calibration
+        self.runtime_contract_sha256 = runtime_contract_sha256
+
+    @property
+    def mapping_only(self) -> bool:
+        return self.base_camera_calibration is None
+
+
+def sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validated_runtime_artifact(
+    value: object, *, label: str
+) -> Path:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an artifact object")
+    path = Path(str(value.get("path", "")))
+    if not path.is_absolute() or not path.is_file():
+        raise ValueError(f"{label}.path must be an existing absolute file")
+    expected_size = int(value.get("size_bytes", -1))
+    expected_sha256 = str(value.get("sha256", ""))
+    if path.stat().st_size != expected_size:
+        raise ValueError(f"{label} size mismatch")
+    if sha256_path(path) != expected_sha256:
+        raise ValueError(f"{label} checksum mismatch")
+    return path
+
+
+def load_runtime_command_contract(
+    path: Path,
+    *,
+    robot_id: str,
+    camera_frame: str,
+    deployment_commit: str,
+) -> ObservationContract:
+    encoded = path.read_bytes()
+    contract_sha256 = hashlib.sha256(encoded).hexdigest()
+    payload = json.loads(encoded)
+    if not isinstance(payload, dict):
+        raise ValueError("runtime command contract must be a JSON object")
+    if payload.get("schema_version") != RUNTIME_COMMAND_CONTRACT_SCHEMA:
+        raise ValueError("runtime command contract schema mismatch")
+    if payload.get("activation_confirmation") != RUNTIME_COMMAND_ACTIVATION:
+        raise ValueError("runtime command contract activation mismatch")
+    if payload.get("robot_id") != robot_id:
+        raise ValueError("runtime command contract robot mismatch")
+    if payload.get("camera_frame") != camera_frame:
+        raise ValueError("runtime command contract camera mismatch")
+    if payload.get("deployment_commit") != deployment_commit:
+        raise ValueError("runtime command contract deployment mismatch")
+    transform_version = str(payload.get("transform_version", ""))
+    calibration_id = str(payload.get("shared_frame_calibration_id", ""))
+    goal_category = str(payload.get("goal_category", ""))
+    for label, value in (
+        ("transform_version", transform_version),
+        ("shared_frame_calibration_id", calibration_id),
+        ("goal_category", goal_category),
+    ):
+        if not value or any(
+            character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
+            for character in value
+        ):
+            raise ValueError(f"runtime command contract {label} is invalid")
+    base_path = _validated_runtime_artifact(
+        payload.get("base_camera_calibration"),
+        label="base_camera_calibration",
+    )
+    shared_path = _validated_runtime_artifact(
+        payload.get("shared_tracking_calibration"),
+        label="shared_tracking_calibration",
+    )
+    base = load_base_camera_calibration(
+        base_path,
+        expected_robot_id=robot_id,
+        expected_camera_frame=camera_frame,
+    )
+    shared = load_shared_tracking_calibration(
+        shared_path,
+        robot_id=robot_id,
+        expected_transform_version=transform_version,
+        expected_calibration_id=calibration_id,
+    )
+    return ObservationContract(
+        transform_version=transform_version,
+        goal_category=goal_category,
+        base_camera_calibration=base,
+        shared_tracking_calibration=shared,
+        runtime_contract_sha256=contract_sha256,
+    )
 
 
 def stamp_to_ns(stamp) -> int:
@@ -781,10 +897,23 @@ class FocusRosSender(Node):
         self.registration_tf_buffer = None
         self.registration_time_zero = None
         self.registration_timeout = None
-        self.shared_T_tracking = (
+        self.runtime_contract_file = args.runtime_command_contract_file
+        self.runtime_receipt_file = args.runtime_command_receipt_file
+        self.runtime_contract_sha256 = None
+        self.runtime_rejected_sha256 = None
+        self.runtime_receipt_state = None
+        self.runtime_contract_activations = 0
+        self.parked_geometry_tuples = 0
+        self.last_parked_receipt_tuple = 0
+        self.observation_contract = (
             None
-            if args.shared_tracking_calibration is None
-            else args.shared_tracking_calibration.shared_T_tracking
+            if self.runtime_contract_file is not None
+            else ObservationContract(
+                transform_version=args.transform_version,
+                goal_category=args.goal_category,
+                base_camera_calibration=args.base_camera_calibration,
+                shared_tracking_calibration=args.shared_tracking_calibration,
+            )
         )
 
         try:
@@ -869,6 +998,12 @@ class FocusRosSender(Node):
             queue_size=args.sync_queue_size, slop=args.sync_slop,
         )
         self.synchronizer.registerCallback(synchronized_callback)
+        self.runtime_contract_timer = None
+        if self.runtime_contract_file is not None:
+            self.runtime_contract_timer = self.create_timer(
+                0.25, self._refresh_runtime_contract
+            )
+            self._refresh_runtime_contract()
         self.get_logger().info(
             f"focus_ros_sender ready: rgb={args.rgb_topic} depth={args.depth_topic} "
             f"info={args.info_topic} pose={args.pose_topic} -> {args.base_url} "
@@ -884,6 +1019,149 @@ class FocusRosSender(Node):
                 "capture_time_source=wall: capture_time_ns is NOT the real sensor "
                 "timestamp. Rehearsal/bag-replay use only."
             )
+
+    def _write_runtime_receipt(
+        self,
+        *,
+        status: str,
+        contract_sha256: str | None,
+        detail: str,
+    ) -> None:
+        if self.runtime_receipt_file is None:
+            return
+        receipt = {
+            "schema_version": "focus-wsj-command-observation-receipt-v1",
+            "status": status,
+            "detail": detail,
+            "robot_id": self.args.robot_id,
+            "deployment_commit": self.args.deployment_commit,
+            "contract_sha256": contract_sha256,
+            "pid": os.getpid(),
+            "written_at_ns": time.time_ns(),
+            "transform_version": (
+                None
+                if self.observation_contract is None
+                else self.observation_contract.transform_version
+            ),
+            "shared_tracking_calibration_sha256": (
+                None
+                if self.observation_contract is None
+                or self.observation_contract.shared_tracking_calibration is None
+                else self.observation_contract.shared_tracking_calibration.source_sha256
+            ),
+            "robot_commands_issued": False,
+            "frames_seen": getattr(self, "frames_seen", 0),
+            "parked_geometry_tuples": getattr(
+                self, "parked_geometry_tuples", 0
+            ),
+        }
+        destination = self.runtime_receipt_file
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(
+            f".{destination.name}.tmp.{os.getpid()}"
+        )
+        temporary.write_text(
+            json.dumps(receipt, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, destination)
+        self.runtime_receipt_state = (status, contract_sha256, detail)
+        if status == "parked":
+            self.last_parked_receipt_tuple = getattr(
+                self, "parked_geometry_tuples", 0
+            )
+
+    def _park_runtime_contract(
+        self,
+        *,
+        status: str,
+        contract_sha256: str | None,
+        detail: str,
+    ) -> None:
+        self.observation_contract = None
+        state = (status, contract_sha256, detail)
+        if self.runtime_receipt_state != state:
+            self._write_runtime_receipt(
+                status=status,
+                contract_sha256=contract_sha256,
+                detail=detail,
+            )
+
+    def _refresh_runtime_contract(self) -> None:
+        if self.runtime_contract_file is None:
+            return
+        try:
+            encoded = self.runtime_contract_file.read_bytes()
+        except FileNotFoundError:
+            self.runtime_contract_sha256 = None
+            self.runtime_rejected_sha256 = None
+            self._park_runtime_contract(
+                status="parked",
+                contract_sha256=None,
+                detail="runtime_contract_absent",
+            )
+            return
+        candidate_sha256 = hashlib.sha256(encoded).hexdigest()
+        if (
+            candidate_sha256 == self.runtime_contract_sha256
+            and self.observation_contract is not None
+        ):
+            return
+        if candidate_sha256 == self.runtime_rejected_sha256:
+            return
+        try:
+            candidate = load_runtime_command_contract(
+                self.runtime_contract_file,
+                robot_id=self.args.robot_id,
+                camera_frame=self.args.camera_frame,
+                deployment_commit=self.args.deployment_commit,
+            )
+        except Exception as exc:  # noqa: BLE001 - malformed contracts fail closed
+            self.runtime_contract_sha256 = None
+            self.runtime_rejected_sha256 = candidate_sha256
+            detail = f"{type(exc).__name__}:{exc}"
+            self._park_runtime_contract(
+                status="rejected",
+                contract_sha256=candidate_sha256,
+                detail=detail,
+            )
+            self.get_logger().error(
+                f"runtime command contract rejected; sender parked: {detail}"
+            )
+            return
+        try:
+            next_sequence = self.transport.last_sequence() + 1
+        except Exception as exc:  # noqa: BLE001 - retry transient Hub failures
+            self.runtime_contract_sha256 = None
+            self.runtime_rejected_sha256 = None
+            detail = f"{type(exc).__name__}:{exc}"
+            self._park_runtime_contract(
+                status="waiting_for_hub_sequence",
+                contract_sha256=candidate_sha256,
+                detail=detail,
+            )
+            self.get_logger().warning(
+                "validated runtime command contract is waiting for Hub "
+                f"sequence resynchronization: {detail}"
+            )
+            return
+
+        self.observation_contract = candidate
+        self.sequence = next_sequence
+        self.runtime_contract_sha256 = candidate_sha256
+        self.runtime_rejected_sha256 = None
+        self.runtime_contract_activations += 1
+        self._write_runtime_receipt(
+            status="active",
+            contract_sha256=candidate_sha256,
+            detail="validated_contract_applied_without_dds_restart",
+        )
+        self.get_logger().info(
+            "runtime command contract activated without replacing the DDS "
+            f"participant: transform={candidate.transform_version} "
+            f"sequence={self.sequence}"
+        )
 
     def on_slam_data(self, msg: String) -> None:
         self.latest_slam_metrics.update(msg.data)
@@ -935,6 +1213,28 @@ class FocusRosSender(Node):
         self.frames_seen += 1
         if self.done:
             return
+        if self.runtime_contract_file is not None:
+            self._refresh_runtime_contract()
+            if self.observation_contract is None:
+                self.parked_geometry_tuples += 1
+                if (
+                    self.runtime_receipt_state is not None
+                    and self.runtime_receipt_state[0] == "parked"
+                    and (
+                        self.parked_geometry_tuples
+                        - self.last_parked_receipt_tuple
+                        >= PARKED_RECEIPT_TUPLE_INTERVAL
+                    )
+                ):
+                    status, contract_sha256, detail = (
+                        self.runtime_receipt_state
+                    )
+                    self._write_runtime_receipt(
+                        status=status,
+                        contract_sha256=contract_sha256,
+                        detail=detail,
+                    )
+                return
         now_mono = time.monotonic()
         if now_mono - self.last_upload_monotonic < self.min_period_s:
             return
@@ -983,6 +1283,9 @@ class FocusRosSender(Node):
         *,
         rgb_info_msg=None,
     ) -> None:
+        contract = self.observation_contract
+        if contract is None:
+            raise RuntimeError("observation sender is parked")
         t0 = time.perf_counter()
         rgb = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
         depth = depth_msg_to_png16_array(self.bridge, depth_msg)
@@ -1032,9 +1335,14 @@ class FocusRosSender(Node):
         sync_skew_ns = abs(pose_stamp_ns - geometry_capture_ns)
         rgb_depth_sync_skew_ns = abs(image_capture_ns - depth_capture_ns)
         matrix = odom_to_matrix(pose_msg)
-        if self.shared_T_tracking is not None:
+        shared_T_tracking = (
+            None
+            if contract.shared_tracking_calibration is None
+            else contract.shared_tracking_calibration.shared_T_tracking
+        )
+        if shared_T_tracking is not None:
             matrix = apply_shared_tracking_alignment(
-                matrix, self.shared_T_tracking
+                matrix, shared_T_tracking
             )
         covariance_state, covariance_6x6 = classify_localization_state(
             list(pose_msg.pose.covariance))
@@ -1071,12 +1379,12 @@ class FocusRosSender(Node):
                     "matrix": matrix,
                 },
                 "covariance_6x6": covariance_6x6,
-                "transform_version": self.args.transform_version,
+                "transform_version": contract.transform_version,
             },
             "base_T_camera": (
                 None
-                if self.args.base_camera_calibration is None
-                else self.args.base_camera_calibration.wire_transform()
+                if contract.base_camera_calibration is None
+                else contract.base_camera_calibration.wire_transform()
             ),
             "intrinsics": {
                 "width": w, "height": h,
@@ -1094,12 +1402,15 @@ class FocusRosSender(Node):
             "depth_size_bytes": len(depth_bytes),
             "rgb_sha256": hashlib.sha256(rgb_bytes).hexdigest(),
             "depth_sha256": hashlib.sha256(depth_bytes).hexdigest(),
-            "object_goal": {"goal_id": "live-ros2-rehearsal", "category": self.args.goal_category},
+            "object_goal": {
+                "goal_id": "live-ros2-rehearsal",
+                "category": contract.goal_category,
+            },
             # Same snapshot just written to self.latest_health above. Valid
             # optimizer/IMU telemetry with absent covariance is capped at
             # DEGRADED; a fault forces LOST even if covariance appears plausible.
             "health": dict(health_snapshot),
-            "mapping_only": self.args.base_camera_calibration is None,
+            "mapping_only": contract.mapping_only,
         }
 
         def restamp(meta: dict) -> dict:
@@ -1166,6 +1477,8 @@ class FocusRosSender(Node):
             "frames_sent": self.frames_sent,
             "retries_total": self.transport.retries_total,
             "http_session_resets_total": self.transport.session_resets_total,
+            "runtime_contract_activations": self.runtime_contract_activations,
+            "parked_geometry_tuples": self.parked_geometry_tuples,
             "mean_upload_ms": round(float(np.mean([m["upload_ms"] for m in self.metrics])), 1)
             if self.metrics else None,
             "mean_pose_sync_skew_ms": round(float(np.mean([m["pose_sync_skew_ms"] for m in self.metrics])), 1)
@@ -1281,6 +1594,9 @@ def main() -> int:
     parser.add_argument("--shared-frame-calibration-id", default="")
     parser.add_argument("--enable-command-capable-observations", action="store_true")
     parser.add_argument("--activation-confirmation", default="")
+    parser.add_argument("--runtime-command-contract-file", type=Path)
+    parser.add_argument("--runtime-command-receipt-file", type=Path)
+    parser.add_argument("--deployment-commit", default="")
     args = parser.parse_args()
     if args.registration_tf_timeout_s <= 0.0:
         parser.error("--registration-tf-timeout-s must be positive")
@@ -1295,7 +1611,57 @@ def main() -> int:
 
     args.base_camera_calibration = None
     args.shared_tracking_calibration = None
-    if args.enable_command_capable_observations:
+    if args.runtime_command_contract_file is not None:
+        if args.enable_command_capable_observations:
+            parser.error(
+                "--runtime-command-contract-file cannot be combined with "
+                "--enable-command-capable-observations"
+            )
+        if args.runtime_command_receipt_file is None:
+            parser.error(
+                "--runtime-command-receipt-file is required with the runtime "
+                "command contract"
+            )
+        if (
+            len(args.deployment_commit) != 40
+            or any(
+                character not in "0123456789abcdef"
+                for character in args.deployment_commit
+            )
+        ):
+            parser.error(
+                "--deployment-commit must be an explicit 40-character "
+                "lowercase Git commit"
+            )
+        if args.capture_time_source != "header":
+            parser.error(
+                "runtime command observations require real header timestamps"
+            )
+        if args.heartbeat_hz != 0:
+            parser.error(
+                "set --heartbeat-hz 0; the armed v2 receiver owns command "
+                "health heartbeats"
+            )
+        if (
+            args.base_camera_calibration_file is not None
+            or args.shared_tracking_calibration_file is not None
+            or args.shared_frame_calibration_id
+        ):
+            parser.error(
+                "runtime command calibration comes only from the atomic "
+                "runtime contract"
+            )
+        print(
+            "runtime-configurable command observation participant enabled; "
+            "it stays parked until a checked contract is atomically applied "
+            "and still has no planner or actuator output."
+        )
+    elif args.runtime_command_receipt_file is not None or args.deployment_commit:
+        parser.error(
+            "runtime receipt/deployment arguments require "
+            "--runtime-command-contract-file"
+        )
+    elif args.enable_command_capable_observations:
         if args.activation_confirmation != "COMMAND_CAPABLE_OBSERVATION_ONLY":
             parser.error(
                 "command-capable observations require --activation-confirmation "

@@ -15,13 +15,15 @@ shared_transform_file=""
 metrics_out="/home/nyu/.local/state/topofocus/odin1-mapping-observation-metrics.json"
 command_capable="false"
 base_camera_calibration_file=""
+goal_category="${FOCUS_YUNJI_GOAL_CATEGORY:-chair}"
 
 usage() {
   cat <<'EOF'
 Usage: run_yunji_mapping_observation.sh \
   --transform-version UNIQUE_CURRENT_SESSION_ID [--env FILE] [--metrics-out FILE] \
   [--shared-frame-transform-file FILE] \
-  [--command-capable --base-camera-calibration-file FILE]
+  [--command-capable --base-camera-calibration-file FILE] \
+  [--goal-category chair|bed|plant|toilet|tv|sofa]
 
 Starts only the Odin1 observation sender. The default is mapping-only.
 --command-capable adds measured base_T_camera metadata and sets mapping_only
@@ -38,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --command-capable) command_capable="true"; shift ;;
     --base-camera-calibration-file)
       base_camera_calibration_file="$2"; shift 2 ;;
+    --goal-category) goal_category="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -47,6 +50,10 @@ if [[ -z "$transform_version" || "$transform_version" == *20260722* ]]; then
   echo "A unique current-session transform version is required." >&2
   exit 2
 fi
+case "$goal_category" in
+  chair|bed|plant|toilet|tv|sofa) ;;
+  *) echo "Unsupported HPC goal category: $goal_category" >&2; exit 2 ;;
+esac
 [[ -r "$env_file" ]] || { echo "Missing environment file: $env_file" >&2; exit 2; }
 [[ -r "$calibration_file" ]] || {
   echo "Missing Odin factory calibration: $calibration_file" >&2
@@ -107,6 +114,7 @@ mkdir -p "$(dirname "$metrics_out")"
 sender_args=(
   --calibration-file "$calibration_file"
   --transform-version "$transform_version"
+  --goal-category "$goal_category"
   --rate-hz 1
   --metrics-out "$metrics_out"
 )

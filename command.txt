@@ -30,6 +30,10 @@
 #      旧 session 不可直接 live。脚本会在发布 GOAL 前显示
 #      TRACKING_EPOCH_CHANGED 并停止。机器人确实移动时执行第 1 节；仅 tracking
 #      重启且机器人始终未动时可做静止重锚，不要伪造旧 session。
+#   D. WSJ 新 sender 能发现 publisher 但持续没有帧：
+#      不要重启 sender。保持 WSJ 静止，用有现场确认的只读 publisher 恢复脚本
+#      按 sender -> camera -> perception 顺序恢复；随后必须完成匹配静止重锚，
+#      门禁解除前一键 live 会拒绝启动。
 #
 # 同一 session 的第 2～5 次 live 默认走快速复用：
 #   不重复完整 debug，不重建匹配的地图/Foxglove；两端并行启动。
