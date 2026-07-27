@@ -82,6 +82,9 @@ current. For the authoritative project state, read
 
 ## Current calibration and sensors
 
+- [`WSJ_COMMAND_OBSERVATION_STARTUP_GATE_20260727.md`](WSJ_COMMAND_OBSERVATION_STARTUP_GATE_20260727.md):
+  observed 17-second stationary first-tuple latency, the residual 15-second
+  strict-debug false failure and the bounded startup-gate repair.
 - [`YUNJI_WATER_LINK_PREFLIGHT_20260727.md`](YUNJI_WATER_LINK_PREFLIGHT_20260727.md):
   observed no-carrier failure, fail-fast MAC/profile/TCP recovery and
   sequence-backed calibration readiness.

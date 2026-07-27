@@ -146,7 +146,8 @@ def test_wsj_formal_observation_self_heals_one_sync_startup_stall():
     ).read_text()
 
     assert "wait_for_hub_sequence_advance" in launcher
-    assert "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-15" in launcher
+    assert "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-30" in launcher
+    assert "observed to need 17 s" in launcher
     assert "for attempt in 0 1" in launcher
     assert "restart only this read-only process" in launcher
     assert "failed to advance after one bounded read-only restart" in launcher

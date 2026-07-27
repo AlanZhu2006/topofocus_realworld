@@ -24,10 +24,14 @@ COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"
 # than infra1. 0.38 keeps a measured margin while still rejecting a grossly
 # wrong intrinsic/extrinsic profile.
 REGISTRATION_MIN_COVERAGE="${FOCUS_WSJ_REGISTRATION_MIN_COVERAGE:-0.38}"
-# TinyNav keyframes normally arrive about every 3.1 s. Give a newly attached
-# five-topic synchronizer several keyframes, then restart only this read-only
-# sender once if the Hub sequence still has not advanced.
-SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-15}"
+# TinyNav keyframes are motion/content selected and can be much sparser while
+# the robot is stationary.  A newly attached five-topic synchronizer was
+# observed to need 17 s for its first accepted Hub upload on 2026-07-27.
+# Allow that healthy first tuple to arrive instead of restarting just before
+# it; this returns immediately on sequence advance, so it does not add delay
+# to the normal path.  One bounded read-only sender restart remains the only
+# self-heal if the sequence genuinely stalls.
+SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-30}"
 
 usage() {
   cat <<'EOF'
