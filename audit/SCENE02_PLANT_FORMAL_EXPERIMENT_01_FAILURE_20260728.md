@@ -54,5 +54,5 @@ GIF 8fps/8s 循环，无海报截图）。
 | `media/video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov` | 61,809,856 | 99.73 s | `76b6a8fcffe98dd430d004291eb84a07a112118cad22c0a16e14b3c9a708c1bd` |
 | `media/demo/scene02_formal_01_third_view.mp4` | 5,325,300 | 68.767 s | `ee718bcac313a559cb95cb383de25c4fb8d7273093234f0c9c1e047d3ca9f798` |
 | `media/demo/scene02_formal_01_dashboard.mp4` | 1,472,856 | 99.634 s | `7331e7723e890892422e8f2957e5810cab4acc2edbeb494520f6473a209a5717` |
-| `media/demo/scene02_formal_01_preview.gif` | 7,574,396 | 8.01 s | `2c8faa9212d3751080388321a58427c2d4095160fecaa294158c926c3e6ab474` |
-| `media/demo/scene02_formal_01_dashboard.gif` | 1,077,428 | 8.01 s | `c2d0cd06b0ec7accdd62e26f8e06928bd8e7697f75d5cc47388236cdc9353634` |
+| `media/demo/scene02_formal_01_preview.gif` | 10,434,447 | 8.01 s | `f27d0acea5e775fee4a2665671e858478632df1a06c526a5dc75035ea32ed1a7` |
+| `media/demo/scene02_formal_01_dashboard.gif` | 1,917,054 | 8.01 s | `fd139536fca1d69ff3a5418ded2d62f99e355e39b105b94beafc4e1d78a2a7f4` |

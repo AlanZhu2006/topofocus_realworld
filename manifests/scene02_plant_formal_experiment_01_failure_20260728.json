@@ -153,10 +153,10 @@
     },
     {
       "path": "media/demo/scene02_formal_01_preview.gif",
-      "size_bytes": 7574396,
-      "sha256": "2c8faa9212d3751080388321a58427c2d4095160fecaa294158c926c3e6ab474",
+      "size_bytes": 10434447,
+      "sha256": "f27d0acea5e775fee4a2665671e858478632df1a06c526a5dc75035ea32ed1a7",
       "duration_s": 8.01,
-      "classification": "source-derived README-embedded preview, last ~8 s of the observed external-view master"
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to ~8 s (matching the Scene 01 formal-experiment GIF convention)"
     },
     {
       "path": "media/video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov",
@@ -174,10 +174,10 @@
     },
     {
       "path": "media/demo/scene02_formal_01_dashboard.gif",
-      "size_bytes": 1077428,
-      "sha256": "c2d0cd06b0ec7accdd62e26f8e06928bd8e7697f75d5cc47388236cdc9353634",
+      "size_bytes": 1917054,
+      "sha256": "fd139536fca1d69ff3a5418ded2d62f99e355e39b105b94beafc4e1d78a2a7f4",
       "duration_s": 8.01,
-      "classification": "source-derived README-embedded preview, last ~8 s of the observed Dashboard master"
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to ~8 s (matching the Scene 01 formal-experiment GIF convention)"
     }
   ],
   "safety": {
