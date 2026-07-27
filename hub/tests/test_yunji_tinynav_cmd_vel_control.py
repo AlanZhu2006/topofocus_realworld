@@ -191,6 +191,59 @@ def test_large_turn_latch_uses_hysteresis_and_never_invents_rotation():
     )
 
 
+def test_active_rotate_first_crosses_tiny_reverse_deadband():
+    assert MODULE.tiny_reverse_recovery_continuation_required(
+        "zero_tiny_reverse",
+        math.radians(-85.9),
+        recovery_active=True,
+        rotate_first_enabled=True,
+        paused=False,
+    )
+    request = MODULE.rotate_first_continuation_request(
+        0.0,
+        continuation_required=True,
+        latched_direction=-1,
+    )
+    assert request == pytest.approx(-0.10)
+    assert MODULE.bounded_rotate_first_angular(
+        request,
+        latched_direction=-1,
+    ) == pytest.approx(-0.10)
+
+
+@pytest.mark.parametrize(
+    ("recovery_active", "enabled", "paused", "heading_deg"),
+    [
+        (False, True, False, -85.9),
+        (True, False, False, -85.9),
+        (True, True, True, -85.9),
+        (True, True, False, -34.9),
+    ],
+)
+def test_tiny_reverse_cannot_start_or_extend_unbounded_rotation(
+    recovery_active,
+    enabled,
+    paused,
+    heading_deg,
+):
+    assert not MODULE.tiny_reverse_recovery_continuation_required(
+        "zero_tiny_reverse",
+        math.radians(heading_deg),
+        recovery_active=recovery_active,
+        rotate_first_enabled=enabled,
+        paused=paused,
+    )
+
+
+def test_tiny_reverse_continuation_requires_latched_direction():
+    with pytest.raises(ValueError):
+        MODULE.rotate_first_continuation_request(
+            0.0,
+            continuation_required=True,
+            latched_direction=0,
+        )
+
+
 def test_rotate_first_is_explicitly_opt_in():
     defaults = MODULE.build_parser().parse_args([])
     enabled = MODULE.build_parser().parse_args(

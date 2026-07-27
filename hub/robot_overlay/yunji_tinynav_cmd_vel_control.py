@@ -231,6 +231,66 @@ def large_turn_stabilization_required(
     return abs(heading_error_rad) >= threshold
 
 
+def tiny_reverse_recovery_continuation_required(
+    segment_action: str,
+    heading_error_rad: float | None,
+    *,
+    recovery_active: bool,
+    rotate_first_enabled: bool,
+    paused: bool,
+    exit_rad: float = DEFAULT_STABLE_TURN_EXIT_RAD,
+) -> bool:
+    """Keep an existing turn alive across the near-zero reverse deadband."""
+
+    if segment_action not in {
+        "unknown",
+        "reject_reverse",
+        "zero_tiny_reverse",
+        "allow",
+    }:
+        raise ValueError("unknown forward-component classification")
+    if heading_error_rad is not None and not math.isfinite(heading_error_rad):
+        raise ValueError("continuation heading error must be finite")
+    if not math.isfinite(exit_rad) or not 0.0 < exit_rad <= math.pi:
+        raise ValueError("continuation exit angle is invalid")
+    return bool(
+        recovery_active
+        and rotate_first_enabled
+        and not paused
+        and segment_action == "zero_tiny_reverse"
+        and heading_error_rad is not None
+        and abs(heading_error_rad) >= exit_rad
+    )
+
+
+def rotate_first_continuation_request(
+    requested_radps: float,
+    *,
+    continuation_required: bool,
+    latched_direction: int,
+    minimum_radps: float = DEFAULT_ROTATE_FIRST_MIN_ANGULAR_RADPS,
+) -> float:
+    """Preserve an already-authorized turn when pinned output crosses zero."""
+
+    if not all(
+        math.isfinite(value) for value in (requested_radps, minimum_radps)
+    ):
+        raise ValueError("continuation angular values must be finite")
+    if minimum_radps <= 0.0:
+        raise ValueError("continuation minimum angular speed must be positive")
+    if latched_direction not in {-1, 0, 1}:
+        raise ValueError("latched_direction must be -1, 0 or 1")
+    if (
+        continuation_required
+        and requested_radps == 0.0
+        and latched_direction == 0
+    ):
+        raise ValueError("active continuation requires a latched direction")
+    if continuation_required and requested_radps == 0.0:
+        return float(latched_direction * minimum_radps)
+    return requested_radps
+
+
 def reverse_recovery_expired(
     *,
     started_monotonic: float,
@@ -451,7 +511,22 @@ def main(args: list[str] | None = None) -> None:
                     requested_angular_radps=requested_angular,
                 )
             )
-            if reverse_recovery_requested or large_turn_recovery_requested:
+            tiny_reverse_recovery_requested = (
+                tiny_reverse_recovery_continuation_required(
+                    segment_action,
+                    stable_heading_error_rad,
+                    recovery_active=recovery_active,
+                    rotate_first_enabled=(
+                        deployment_args.rotate_first_on_reverse
+                    ),
+                    paused=self._paused,
+                )
+            )
+            if (
+                reverse_recovery_requested
+                or large_turn_recovery_requested
+                or tiny_reverse_recovery_requested
+            ):
                 if self._focus_rotation_recovery_started is None:
                     self._focus_rotation_recovery_started = now
                     if (
@@ -470,8 +545,13 @@ def main(args: list[str] | None = None) -> None:
                     now_monotonic=now,
                     timeout_s=deployment_args.rotate_first_timeout_s,
                 )
-                rotate_angular = bounded_rotate_first_angular(
+                continuation_request = rotate_first_continuation_request(
                     requested_angular,
+                    continuation_required=tiny_reverse_recovery_requested,
+                    latched_direction=self._focus_rotation_turn_direction,
+                )
+                rotate_angular = bounded_rotate_first_angular(
+                    continuation_request,
                     latched_direction=self._focus_rotation_turn_direction,
                     maximum_radps=(
                         deployment_args.rotate_first_max_angular_radps
@@ -493,7 +573,11 @@ def main(args: list[str] | None = None) -> None:
                         context = (
                             "reverse_segment"
                             if reverse_recovery_requested
-                            else "large_turn"
+                            else (
+                                "tiny_reverse_continuation"
+                                if tiny_reverse_recovery_requested
+                                else "large_turn"
+                            )
                         )
                         heading_text = (
                             "unavailable"
