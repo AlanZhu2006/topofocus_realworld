@@ -17,6 +17,7 @@ TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus
 WATER_HOST="${FOCUS_YUNJI_WATER_HOST:-192.168.10.10}"
 WATER_PORT="${FOCUS_YUNJI_WATER_PORT:-31001}"
 MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
+LINEAR_COMMAND_FLOOR_MPS="${FOCUS_YUNJI_LINEAR_COMMAND_FLOOR_MPS:-0.18}"
 # The router uses a square cell-clearance test, while TinyNav's unchanged local
 # planner remains the final footprint/depth authority.  On the 2026-07-25 live
 # Yunji grid, 0.34 m rounded up to seven 5 cm cells and no 15x15 known-free
@@ -203,6 +204,7 @@ CORE_CONTRACT_SHA256="$(
       "$MAP_TIMEOUT_S" \
       "$MAX_PLAN_EXPANSIONS" \
       "$MAX_PLAN_DURATION_S" \
+      "$LINEAR_COMMAND_FLOOR_MPS" \
       "$REVERSE_ROTATE_MAX_ANGULAR_RADPS" \
       "$REVERSE_ROTATE_TIMEOUT_S"
     sha256sum \
@@ -373,6 +375,7 @@ start_controller() {
       --base-camera-frame odin1_camera_optical_frame \
       --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
       --stabilize-large-turn \
+      --linear-command-floor-mps "$LINEAR_COMMAND_FLOOR_MPS" \
       --rotate-first-max-angular-radps \
         "$REVERSE_ROTATE_MAX_ANGULAR_RADPS" \
       --rotate-first-timeout-s "$REVERSE_ROTATE_TIMEOUT_S"
@@ -514,7 +517,7 @@ bridge_args=(
   --status-topic /focus/water/cmd_bridge_status
   --robot-host "$WATER_HOST"
   --tcp-port "$WATER_PORT"
-  --max-linear-mps 0.15
+  --max-linear-mps 0.20
   --max-angular-radps 0.40
 )
 if [[ "$mode" == live ]]; then

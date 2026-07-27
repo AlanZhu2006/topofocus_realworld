@@ -117,6 +117,7 @@ class SpoolMappingPipeline:
         max_ground_tilt_delta_deg: float = 3.0,
         max_ground_height_delta_m: float = 0.08,
         ground_drift_consecutive_frames: int = 3,
+        ground_drift_min_duration_s: float = 5.0,
         ground_drift_stationary_translation_m: float = 0.03,
         ground_drift_stationary_rotation_deg: float = 2.0,
         allow_ground_height_translation_for_2d: bool = False,
@@ -156,6 +157,11 @@ class SpoolMappingPipeline:
             or ground_drift_consecutive_frames <= 0
         ):
             raise ValueError("ground_drift_consecutive_frames must be a positive integer")
+        if (
+            not np.isfinite(ground_drift_min_duration_s)
+            or ground_drift_min_duration_s <= 0.0
+        ):
+            raise ValueError("ground_drift_min_duration_s must be finite and positive")
         for value, name in (
             (
                 ground_drift_stationary_translation_m,
@@ -177,6 +183,7 @@ class SpoolMappingPipeline:
         self.max_ground_tilt_delta_deg = float(max_ground_tilt_delta_deg)
         self.max_ground_height_delta_m = float(max_ground_height_delta_m)
         self.ground_drift_consecutive_frames = ground_drift_consecutive_frames
+        self.ground_drift_min_duration_s = float(ground_drift_min_duration_s)
         self.ground_drift_stationary_translation_m = float(
             ground_drift_stationary_translation_m
         )
@@ -202,6 +209,8 @@ class SpoolMappingPipeline:
         self.ground_drift_frames = 0
         self.ground_drift_events = 0
         self.ground_drift_streak = 0
+        self.ground_drift_streak_start_capture_time_ns: int | None = None
+        self.last_ground_drift_duration_s = 0.0
         self.ground_drift_motion_deferred_frames = 0
         self.ground_height_translation_frames = 0
         self.max_ground_height_translation_m = 0.0
@@ -419,6 +428,8 @@ class SpoolMappingPipeline:
                 # no evidence that drift persists, and the frame is already
                 # excluded from both the pose gate and map integration.
                 self.ground_drift_streak = 0
+                self.ground_drift_streak_start_capture_time_ns = None
+                self.last_ground_drift_duration_s = 0.0
                 self.skipped_non_keyframes += 1
                 return KeyframeDecision(
                     False,
@@ -459,6 +470,8 @@ class SpoolMappingPipeline:
                     height_delta,
                 )
                 self.ground_drift_streak = 0
+                self.ground_drift_streak_start_capture_time_ns = None
+                self.last_ground_drift_duration_s = 0.0
                 self.last_ground_reason = "height_translation_tolerated_2d"
             elif tilt_outside_gate or height_outside_gate:
                 # Do not integrate any outlying frame.  A single fit can be
@@ -474,6 +487,8 @@ class SpoolMappingPipeline:
                 if ground_pose_moving:
                     self.ground_drift_motion_deferred_frames += 1
                     self.ground_drift_streak = 0
+                    self.ground_drift_streak_start_capture_time_ns = None
+                    self.last_ground_drift_duration_s = 0.0
                     self.last_ground_reason = "drift_deferred_while_moving"
                     return KeyframeDecision(
                         False,
@@ -482,8 +497,26 @@ class SpoolMappingPipeline:
                         ground_pose_rotation_deg,
                         0.0,
                     )
+                capture_time_ns = int(observation.metadata.capture_time_ns)
+                if self.ground_drift_streak == 0:
+                    self.ground_drift_streak_start_capture_time_ns = capture_time_ns
                 self.ground_drift_streak += 1
-                if self.ground_drift_streak < self.ground_drift_consecutive_frames:
+                streak_start_ns = self.ground_drift_streak_start_capture_time_ns
+                if streak_start_ns is None or capture_time_ns < streak_start_ns:
+                    # A non-monotonic source timestamp cannot prove persistence.
+                    self.ground_drift_streak = 1
+                    self.ground_drift_streak_start_capture_time_ns = capture_time_ns
+                    self.last_ground_drift_duration_s = 0.0
+                else:
+                    self.last_ground_drift_duration_s = (
+                        capture_time_ns - streak_start_ns
+                    ) / 1e9
+                if (
+                    self.ground_drift_streak
+                    < self.ground_drift_consecutive_frames
+                    or self.last_ground_drift_duration_s
+                    < self.ground_drift_min_duration_s
+                ):
                     self.last_ground_reason = "drift_pending"
                     return KeyframeDecision(
                         False,
@@ -499,11 +532,14 @@ class SpoolMappingPipeline:
                     "ground plane drift requires a fresh calibrated map session: "
                     f"sequence={observation.sequence}, "
                     f"consecutive_frames={self.ground_drift_streak}, "
+                    f"duration_s={self.last_ground_drift_duration_s:.3f}, "
                     f"tilt_delta_deg={tilt_delta:.3f}, "
                     f"height_delta_m={height_delta:.3f}"
                 )
                 return KeyframeDecision(False, "ground_drift", 0.0, 0.0, 0.0)
             self.ground_drift_streak = 0
+            self.ground_drift_streak_start_capture_time_ns = None
+            self.last_ground_drift_duration_s = 0.0
 
         if self.keyframes is None:
             decision = KeyframeDecision(True, "unfiltered", 0.0, 0.0, 0.0)
@@ -779,6 +815,7 @@ class SpoolMappingPipeline:
             "ground_drift_frames": self.ground_drift_frames,
             "ground_drift_events": self.ground_drift_events,
             "ground_drift_streak": self.ground_drift_streak,
+            "ground_drift_duration_s": self.last_ground_drift_duration_s,
             "ground_drift_motion_deferred_frames": (
                 self.ground_drift_motion_deferred_frames
             ),
@@ -801,6 +838,7 @@ class SpoolMappingPipeline:
                 "max_tilt_delta_deg": self.max_ground_tilt_delta_deg,
                 "max_height_delta_m": self.max_ground_height_delta_m,
                 "consecutive_frames_to_latch": self.ground_drift_consecutive_frames,
+                "minimum_duration_s_to_latch": self.ground_drift_min_duration_s,
                 "stationary_translation_threshold_m": (
                     self.ground_drift_stationary_translation_m
                 ),
@@ -816,6 +854,7 @@ class SpoolMappingPipeline:
                 "last_reason": self.last_ground_reason,
                 "last_tilt_delta_deg": self.last_ground_tilt_delta_deg,
                 "last_height_delta_m": self.last_ground_height_delta_m,
+                "last_drift_duration_s": self.last_ground_drift_duration_s,
                 "last_pose_translation_m": (
                     self.last_ground_pose_translation_m
                 ),

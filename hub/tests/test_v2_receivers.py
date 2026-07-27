@@ -995,7 +995,9 @@ def test_wsj_live_bridge_uses_observed_effective_command_floors() -> None:
 
     assert "GO2_MAX_VX=0.20" in launcher
     assert "GO2_MAX_WZ=0.50" in launcher
-    assert "GO2_MIN_CMD_V=0.15" in launcher
+    assert 'FOCUS_WSJ_LINEAR_COMMAND_FLOOR_MPS:-0.18' in launcher
+    assert 'GO2_MIN_CMD_V=\\"$LINEAR_COMMAND_FLOOR_MPS\\"' in launcher
+    assert '--linear-command-floor-mps \\"$LINEAR_COMMAND_FLOOR_MPS\\"' in launcher
     assert "GO2_MIN_CMD_W=0.30" in launcher
     assert "GO2_SEND_ZERO_WHEN_IDLE=true" in launcher
     assert "--start-snap-radius-m 0.75" in launcher

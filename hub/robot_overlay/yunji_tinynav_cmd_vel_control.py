@@ -56,6 +56,8 @@ from tinynav_source_contract import (  # noqa: E402
 
 
 MEANINGFUL_REVERSE_SEGMENT_M = 0.02
+DEFAULT_LINEAR_COMMAND_FLOOR_MPS = 0.18
+MAX_DEPLOYMENT_LINEAR_COMMAND_FLOOR_MPS = 0.20
 DEFAULT_ROTATE_FIRST_MAX_ANGULAR_RADPS = 0.35
 DEFAULT_ROTATE_FIRST_MIN_ANGULAR_RADPS = 0.10
 DEFAULT_ROTATE_FIRST_TIMEOUT_S = 12.0
@@ -580,6 +582,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--linear-command-floor-mps",
+        type=float,
+        default=DEFAULT_LINEAR_COMMAND_FLOOR_MPS,
+        help=(
+            "minimum intentional nonzero forward command after all pinned "
+            "pose, path, depth and arrival guards"
+        ),
+    )
+    parser.add_argument(
         "--rotate-first-max-angular-radps",
         type=float,
         default=DEFAULT_ROTATE_FIRST_MAX_ANGULAR_RADPS,
@@ -614,6 +625,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(args: list[str] | None = None) -> None:
     deployment_args, ros_args = build_parser().parse_known_args(args)
+    if (
+        not math.isfinite(deployment_args.linear_command_floor_mps)
+        or deployment_args.linear_command_floor_mps <= 0.0
+        or deployment_args.linear_command_floor_mps
+        > MAX_DEPLOYMENT_LINEAR_COMMAND_FLOOR_MPS
+    ):
+        raise SystemExit(
+            "--linear-command-floor-mps must be finite, positive and at "
+            f"most {MAX_DEPLOYMENT_LINEAR_COMMAND_FLOOR_MPS:.2f}"
+        )
     if (
         not math.isfinite(deployment_args.rotate_first_max_angular_radps)
         or deployment_args.rotate_first_max_angular_radps
@@ -668,12 +689,16 @@ def main(args: list[str] | None = None) -> None:
             "schema_version": "focus-tinynav-controller-wrapper-v2",
             "adaptations": [
                 "linear_engagement_floor",
+                "bounded_deployment_linear_floor",
                 "reverse_segment_fail_closed",
                 "stable_large_turn",
                 "measured_base_pose_for_stable_heading",
                 "common_pose_path_stale_stop",
                 "common_pose_jump_freeze",
             ],
+            "linear_command_floor_mps": (
+                deployment_args.linear_command_floor_mps
+            ),
             "base_camera_calibration": {
                 "source_path": base_camera_calibration.source_path,
                 "source_size_bytes": (
@@ -1170,8 +1195,9 @@ def main(args: list[str] | None = None) -> None:
             floored = apply_linear_engagement_floor(
                 requested,
                 engage_threshold_mps=float(self.linear_engage_threshold),
-                minimum_effective_mps=float(
-                    self.min_effective_linear_speed
+                minimum_effective_mps=max(
+                    float(self.min_effective_linear_speed),
+                    deployment_args.linear_command_floor_mps,
                 ),
             )
             if floored == requested:

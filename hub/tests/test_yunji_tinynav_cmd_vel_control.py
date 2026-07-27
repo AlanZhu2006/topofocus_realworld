@@ -121,6 +121,20 @@ def test_small_intentional_forward_command_reaches_static_friction_floor():
     ) == pytest.approx(0.10)
 
 
+def test_deployment_linear_floor_is_bounded_to_observed_source_maximum():
+    parsed = MODULE.build_parser().parse_args(_deployment_args())
+
+    assert parsed.linear_command_floor_mps == pytest.approx(0.18)
+    assert MODULE.MAX_DEPLOYMENT_LINEAR_COMMAND_FLOOR_MPS == pytest.approx(
+        0.20
+    )
+    assert MODULE.apply_linear_engagement_floor(
+        0.10,
+        engage_threshold_mps=0.04,
+        minimum_effective_mps=parsed.linear_command_floor_mps,
+    ) == pytest.approx(0.18)
+
+
 def test_reverse_path_segment_is_negative_in_robot_forward_axis():
     assert MODULE.path_segment_forward_component(
         (0.90, 0.08),

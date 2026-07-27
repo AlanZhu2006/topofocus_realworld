@@ -71,6 +71,7 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
     assert summary["ground_drift_frames"] == 0
     assert summary["ground_drift_streak"] == 0
     assert summary["ground_guard"]["consecutive_frames_to_latch"] == 3
+    assert summary["ground_guard"]["minimum_duration_s_to_latch"] == 5.0
     assert summary["semantic_mapping"]["pixel_segmenter"]["backend"] == (
         "rednet_mp3d40"
     )

@@ -29,6 +29,7 @@ GO2_BRIDGE_RUNNER_SHA256="f0d06edb8d1ac59b497aac77b099927d415baf63700a6cd73d240c
 # goal router and velocity wrapper must be reloaded so they cannot retain
 # pre-deployment Python code.
 MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
+LINEAR_COMMAND_FLOOR_MPS="${FOCUS_WSJ_LINEAR_COMMAND_FLOOR_MPS:-0.18}"
 MAP_TIMEOUT_S="${FOCUS_WSJ_MAP_TIMEOUT_S:-12.0}"
 # TinyNav's goal router keeps a strict three-second odometry deadline.  It
 # enters HOLD on a transient gap and the v2 receiver immediately closes its
@@ -438,7 +439,7 @@ bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   --hub-url "$HUB_URL"
 
 planning_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/run_yunji_tinynav_planner.py\" --robot-profile source-default'"
-control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --robot-profile source-default --robot-id robot-0 --base-camera-frame camera --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --stabilize-large-turn --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
+control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --robot-profile source-default --robot-id robot-0 --base-camera-frame camera --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --stabilize-large-turn --linear-command-floor-mps \"$LINEAR_COMMAND_FLOOR_MPS\" --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
 
 if [[ "$reuse_verified_debug_core" == true ]]; then
   component_contract_matches \
@@ -768,7 +769,7 @@ if [[ "$mode" == live ]]; then
   # repeatedly calling StopMove during short planner gaps. A dead receiver
   # still triggers the bridge's independent cmd_vel timeout and StopMove.
   tmux new-window -d -t "$SESSION" -n go2-bridge \
-    "bash -lc 'set -o pipefail; export GO2_CMD_TOPIC=/focus_guarded_cmd_vel GO2_MAX_VX=0.20 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.50 GO2_MIN_CMD_V=0.15 GO2_MIN_CMD_W=0.30 GO2_REMOTE_PRIORITY=true GO2_SEND_ZERO_WHEN_IDLE=true GO2_LOG_COMMANDS=true GO2_LOG_INTERVAL_SEC=0.2; bash \"$GO2_BRIDGE_RUNNER\" 2>&1 | tee \"$bridge_log\"'"
+    "bash -lc 'set -o pipefail; export GO2_CMD_TOPIC=/focus_guarded_cmd_vel GO2_MAX_VX=0.20 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.50 GO2_MIN_CMD_V=\"$LINEAR_COMMAND_FLOOR_MPS\" GO2_MIN_CMD_W=0.30 GO2_REMOTE_PRIORITY=true GO2_SEND_ZERO_WHEN_IDLE=true GO2_LOG_COMMANDS=true GO2_LOG_INTERVAL_SEC=0.2; bash \"$GO2_BRIDGE_RUNNER\" 2>&1 | tee \"$bridge_log\"'"
   echo "WSJ Go2 bridge command log: $bridge_log"
   "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
     --robot-id robot-0 \

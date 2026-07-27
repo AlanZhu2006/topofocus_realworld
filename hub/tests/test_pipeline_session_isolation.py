@@ -62,6 +62,7 @@ def _pipeline(
     keyframe_config=None,
     ground_guard=False,
     ground_drift_consecutive_frames=3,
+    ground_drift_min_duration_s=5.0,
     allow_ground_height_translation_for_2d=False,
     semantic_detector=None,
     semantic_yolo_reinforce_map=True,
@@ -80,6 +81,7 @@ def _pipeline(
         keyframe_config=keyframe_config,
         ground_plane_config=GroundPlaneConfig() if ground_guard else None,
         ground_drift_consecutive_frames=ground_drift_consecutive_frames,
+        ground_drift_min_duration_s=ground_drift_min_duration_s,
         allow_ground_height_translation_for_2d=(
             allow_ground_height_translation_for_2d
         ),
@@ -256,9 +258,9 @@ def test_ground_guard_latches_only_after_consecutive_drift_before_segmentation(
     )
 
     first = pipeline.process(_observation(10, "session-a"))
-    second = pipeline.process(_observation(11, "session-a"))
-    decision = pipeline.process(_observation(12, "session-a"))
-    after = pipeline.process(_observation(13, "session-a"))
+    second = pipeline.process(_observation(13, "session-a"))
+    decision = pipeline.process(_observation(15, "session-a"))
+    after = pipeline.process(_observation(16, "session-a"))
 
     assert first.reason == "ground_drift_pending"
     assert second.reason == "ground_drift_pending"
@@ -270,6 +272,57 @@ def test_ground_guard_latches_only_after_consecutive_drift_before_segmentation(
     assert pipeline.ground_drift_streak == 3
     assert segmenter.calls == 0
     assert pipeline.mapper.calls == 0
+
+
+def test_ground_guard_does_not_latch_short_stationary_fit_burst(monkeypatch):
+    pipeline, segmenter = _pipeline("session-a", ground_guard=True)
+    drifting = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=8.0,
+        plane_coefficients=(0.15, 0.0, 0.0),
+    )
+    stable = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=1.0,
+        plane_coefficients=(0.01, -0.01, 0.0),
+    )
+    candidates = iter([drifting, drifting, drifting, stable])
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate", lambda *_args: next(candidates)
+    )
+
+    pending = [
+        pipeline.process(_observation(sequence, "session-a"))
+        for sequence in (10, 11, 12)
+    ]
+    recovered = pipeline.process(_observation(13, "session-a"))
+
+    assert [decision.reason for decision in pending] == [
+        "ground_drift_pending",
+        "ground_drift_pending",
+        "ground_drift_pending",
+    ]
+    assert recovered.accept
+    assert pipeline.mapping_blocked_reason is None
+    assert pipeline.ground_drift_frames == 3
+    assert pipeline.ground_drift_events == 0
+    assert pipeline.ground_drift_streak == 0
+    assert pipeline.last_ground_drift_duration_s == 0.0
+    assert segmenter.calls == 1
+    assert pipeline.mapper.calls == 1
 
 
 def test_ground_guard_recovers_after_one_transient_drift(monkeypatch):

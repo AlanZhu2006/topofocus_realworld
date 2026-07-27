@@ -140,6 +140,7 @@ def write_camera_snapshot(
         "ground_drift_frames": pipeline.ground_drift_frames,
         "ground_drift_events": pipeline.ground_drift_events,
         "ground_drift_streak": pipeline.ground_drift_streak,
+        "ground_drift_duration_s": pipeline.last_ground_drift_duration_s,
         "ground_drift_motion_deferred_frames": (
             pipeline.ground_drift_motion_deferred_frames
         ),
@@ -155,6 +156,7 @@ def write_camera_snapshot(
             else "latch_after_consecutive_frames"
         ),
         "ground_drift_consecutive_frames": pipeline.ground_drift_consecutive_frames,
+        "ground_drift_min_duration_s": pipeline.ground_drift_min_duration_s,
         "ground_drift_stationary_translation_m": (
             pipeline.ground_drift_stationary_translation_m
         ),
@@ -453,6 +455,15 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--ground-drift-min-duration-s",
+        type=float,
+        default=5.0,
+        help=(
+            "an accepted-but-drifting stationary run must span at least this "
+            "much source capture time before the map is irreversibly halted"
+        ),
+    )
+    parser.add_argument(
         "--ground-drift-stationary-translation-m",
         type=float,
         default=0.03,
@@ -525,6 +536,8 @@ def main() -> int:
         parser.error("--max-ground-height-delta-m must be positive")
     if args.ground_drift_consecutive_frames <= 0:
         parser.error("--ground-drift-consecutive-frames must be positive")
+    if args.ground_drift_min_duration_s <= 0.0:
+        parser.error("--ground-drift-min-duration-s must be positive")
     if args.ground_drift_stationary_translation_m <= 0.0:
         parser.error("--ground-drift-stationary-translation-m must be positive")
     if args.ground_drift_stationary_rotation_deg <= 0.0:
@@ -749,6 +762,9 @@ def main() -> int:
                     ground_drift_consecutive_frames=(
                         args.ground_drift_consecutive_frames
                     ),
+                    ground_drift_min_duration_s=(
+                        args.ground_drift_min_duration_s
+                    ),
                     ground_drift_stationary_translation_m=(
                         args.ground_drift_stationary_translation_m
                     ),
@@ -855,6 +871,10 @@ def main() -> int:
                         sequence=mapping_observation.sequence,
                         streak=pipeline.ground_drift_streak,
                         latch_after=pipeline.ground_drift_consecutive_frames,
+                        duration_s=pipeline.last_ground_drift_duration_s,
+                        minimum_duration_s=(
+                            pipeline.ground_drift_min_duration_s
+                        ),
                         tilt_delta_deg=pipeline.last_ground_tilt_delta_deg,
                         height_delta_m=pipeline.last_ground_height_delta_m,
                     )
