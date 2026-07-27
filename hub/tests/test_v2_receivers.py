@@ -913,7 +913,7 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert "--external-odometry-health" in launcher
     assert "--enable-live-tinynav-motion" in launcher
     assert "--reject-reverse-trajectory" in launcher
-    assert "--rotate-first-on-reverse" in launcher
+    assert "--rotate-first-on-reverse" not in launcher
     assert "--stabilize-large-turn" in launcher
     assert "--rotate-first-max-angular-radps" in launcher
     assert "--rotate-first-timeout-s" in launcher

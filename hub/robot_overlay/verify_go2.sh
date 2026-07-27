@@ -67,7 +67,7 @@ fi
   (( usbfs_mb >= 1000 )) && pass "usbfs_memory_mb=$usbfs_mb" || fail "usbfs_memory_mb=$usbfs_mb; expected >=1000"
 }
 
-if pgrep -af 'go2_cmd_bridge|cmd_vel_control|planning_node.py|nav2_controller' >/dev/null 2>&1; then
+if pgrep -af 'go2_cmd_bridge|cmd_vel_control|planning_node.py|run_yunji_tinynav_planner.py|nav2_controller' >/dev/null 2>&1; then
   fail "an actuation/planning process is already running"
 else
   pass "no known TopoFocus actuation/planning process"

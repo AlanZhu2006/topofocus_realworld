@@ -697,7 +697,7 @@ ensure_foxglove() {
 start_read_only_robots() {
   remote_pair \
     "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode debug" \
-    "for unit in focus-yunji-calibration-observation-v1.service focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service focus-yunji-command-observation-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode debug"
+    "/bin/bash '$YUNJI_ROOT/hub/robot_overlay/stop_yunji_live_command_path.sh'; for unit in focus-yunji-calibration-observation-v1.service focus-yunji-command-observation-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode debug"
 }
 
 ensure_local_services_parallel() {
@@ -784,14 +784,14 @@ prepare_warm_live_reuse() {
   # This operation cannot move either robot.
   remote_pair \
     "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; for window in maploc online-map planning goal-router control; do tmux list-windows -t tinynav_semantic_nav_auto -F '#{window_name}' | grep -qx \"\$window\" || exit 1; done" \
-    "for unit in focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service focus-yunji-v2-debug-v3.service focus-yunji-v2-live-v3.service focus-yunji-water-bridge-debug-v1.service focus-yunji-water-bridge-live-v1.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; systemctl is-active --quiet focus-yunji-odin1-driver.service || exit 1; for unit in focus-yunji-tinynav-adapter-v1.service focus-yunji-tinynav-occupancy-v1.service focus-yunji-tinynav-planner-v1.service focus-yunji-tinynav-router-v1.service focus-yunji-tinynav-controller-v1.service; do systemctl is-active --quiet \"\$unit\" || exit 1; environment=\$(systemctl show --property Environment --value \"\$unit\"); [[ \" \$environment \" == *\" FOCUS_DEPLOYMENT_COMMIT=$FOCUS_SESSION_CODE_COMMIT \"* ]] || exit 1; done"
+    "/bin/bash '$YUNJI_ROOT/hub/robot_overlay/stop_yunji_live_command_path.sh'; systemctl is-active --quiet focus-yunji-odin1-driver.service || exit 1; for unit in focus-yunji-tinynav-adapter-v1.service focus-yunji-tinynav-occupancy-v1.service focus-yunji-tinynav-planner-v1.service focus-yunji-tinynav-router-v1.service focus-yunji-tinynav-controller-v1.service; do systemctl is-active --quiet \"\$unit\" || exit 1; environment=\$(systemctl show --property Environment --value \"\$unit\"); [[ \" \$environment \" == *\" FOCUS_DEPLOYMENT_COMMIT=$FOCUS_SESSION_CODE_COMMIT \"* ]] || exit 1; done"
 }
 
 arm_live_robots() {
   live_cleanup_required="true"
   remote_pair \
     "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_WSJ_CLEAR" \
-    "for unit in focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR --reuse-verified-debug-core"
+    "/bin/bash '$YUNJI_ROOT/hub/robot_overlay/stop_yunji_live_command_path.sh'; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode live --operator-confirmation OPERATOR_PRESENT_AND_YUNJI_CLEAR --reuse-verified-debug-core"
 }
 
 wait_for_live_readiness() {
@@ -850,7 +850,7 @@ disarm_live_stack() {
     || echo "WARNING: Hub debug restart failed." >&2
   remote_pair \
     "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true" \
-    "for unit in focus-yunji-v2-debug-v2.service focus-yunji-v2-live-v2.service focus-yunji-v2-debug-v3.service focus-yunji-v2-live-v3.service focus-yunji-water-bridge-debug-v1.service focus-yunji-water-bridge-live-v1.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done" \
+    "/bin/bash '$YUNJI_ROOT/hub/robot_overlay/stop_yunji_live_command_path.sh'" \
     || echo "WARNING: one robot command path did not confirm its guarded stop." >&2
   echo "WARM_READONLY_CORE_PRESERVED: observation, maps and Foxglove keep running."
 }

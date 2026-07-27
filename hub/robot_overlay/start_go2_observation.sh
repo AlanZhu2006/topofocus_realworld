@@ -65,7 +65,7 @@ source_setup() {
 }
 source_setup
 
-if pgrep -af 'go2_cmd_bridge|cmd_vel_control|planning_node.py|nav2_controller' >/dev/null 2>&1; then
+if pgrep -af 'go2_cmd_bridge|cmd_vel_control|planning_node.py|run_yunji_tinynav_planner.py|nav2_controller' >/dev/null 2>&1; then
   echo "Refusing observation launch while a known actuation/planner process is running." >&2
   exit 1
 fi

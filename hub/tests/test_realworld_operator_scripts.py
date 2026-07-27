@@ -156,7 +156,7 @@ def test_wsj_formal_observation_preserves_warm_dds_sender_on_startup_stall():
     ).read_text()
 
     assert "wait_for_hub_sequence_advance" in launcher
-    assert "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-15" in launcher
+    assert "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-50" in launcher
     assert "--depth-topic /slam/depth" in launcher
     assert "--pose-topic /slam/odometry_visual" in launcher
     assert "--latest-rgb-for-depth" in launcher
@@ -257,22 +257,43 @@ def test_robot_launchers_require_explicit_session_identity():
     assert "shared-board-odin1-20260723-v3" not in wsj + yunji
 
 
-def test_wsj_controller_reload_waits_out_stale_dds_identity():
+def test_wsj_planner_and_controller_reload_wait_out_stale_dds_identity():
     source = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
 
     assert "remain-on-exit on" in source
+    assert 'tmux send-keys -t "$SESSION:planning" C-c' in source
     assert 'tmux send-keys -t "$SESSION:control" C-c' in source
+    assert "old WSJ planner publisher to leave DDS" in source
     assert "old WSJ controller publisher to leave DDS" in source
+    assert "Node name: planning_node" in source
     assert "Node name: cmd_vel_control_node" in source
     assert "_NODE_.*_UNKNOWN_" in source
-    assert "--rotate-first-on-reverse" in source
+    assert "run_yunji_tinynav_planner.py" in source
+    assert "--robot-profile source-default" in source
+    assert "--rotate-first-on-reverse" not in source
     assert "--stabilize-large-turn" in source
     assert source.index("remain-on-exit on") < source.index(
         "tmux respawn-pane -t"
     )
     assert source.index("tmux respawn-pane -t") < source.index(
-        "Node name: cmd_vel_control_node"
+        "Node name: planning_node"
     )
+
+
+def test_yunji_cleanup_requires_explicit_chassis_zero_acknowledgement():
+    oneclick = (SCRIPTS / "realworld_oneclick.sh").read_text()
+    stop = (
+        OVERLAY / "stop_yunji_live_command_path.sh"
+    ).read_text(encoding="utf-8")
+    bridge = (OVERLAY / "water_cmd_vel_bridge.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "stop_yunji_live_command_path.sh" in oneclick
+    assert "--send-explicit-zero" in stop
+    assert stop.count("--send-explicit-zero") == 2
+    assert "YUNJI_EXPLICIT_ZERO_CONFIRMED" in stop
+    assert "focus-water-explicit-zero-v1" in bridge
 
 
 def test_operator_entry_help_is_noninteractive():

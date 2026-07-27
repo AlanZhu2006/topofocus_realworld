@@ -50,7 +50,7 @@ for file in "$SCRIPT_DIR/.token" "$SCRIPT_DIR/focus_ros_sender.py" \
             "$SCRIPT_DIR/wsj_camera_preview.py" "$SCRIPT_DIR/start_go2_observation.sh"; do
   [[ -f "$file" ]] || { echo "Missing deployment file: $file" >&2; exit 2; }
 done
-if pgrep -af 'go2_cmd_bridge|cmd_vel_control|planning_node.py|nav2_controller' >/dev/null 2>&1; then
+if pgrep -af 'go2_cmd_bridge|cmd_vel_control|planning_node.py|run_yunji_tinynav_planner.py|nav2_controller' >/dev/null 2>&1; then
   echo "Refusing to start while an actuation/planner process exists." >&2
   exit 1
 fi

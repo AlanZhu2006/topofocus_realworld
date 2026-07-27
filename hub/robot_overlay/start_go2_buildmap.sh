@@ -58,7 +58,7 @@ if [[ "$repair_online_stack" == "true" ]]; then
     >/dev/null 2>&1 || true
 else
   if pgrep -af \
-      'go2_cmd_bridge|cmd_vel_control|planning_node.py|nav2_controller' \
+      'go2_cmd_bridge|cmd_vel_control|planning_node.py|run_yunji_tinynav_planner.py|nav2_controller' \
       >/dev/null 2>&1; then
     echo "Refusing BuildMap while a known actuation/planner process is running." >&2
     exit 1

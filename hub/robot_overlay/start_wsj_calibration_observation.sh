@@ -114,7 +114,7 @@ else
 fi
 
 if pgrep -af \
-  'go2_cmd_bridge|cmd_vel_control|planning_node.py|v2_wsj_receiver.py|nav2_controller' \
+  'go2_cmd_bridge|cmd_vel_control|planning_node.py|run_yunji_tinynav_planner.py|v2_wsj_receiver.py|nav2_controller' \
   >/dev/null 2>&1; then
   echo "A WSJ planner/receiver/bridge remains after fail-closed cleanup." >&2
   exit 1

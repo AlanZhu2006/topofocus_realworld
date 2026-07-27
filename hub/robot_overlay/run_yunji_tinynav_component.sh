@@ -38,7 +38,8 @@ case "$component" in
       "$SEMANTIC_ROOT/semantic_mapping/occupancy_mapper_node.py" "$@"
     ;;
   planner)
-    exec "$PYTHON_BIN" -u "$SCRIPT_DIR/run_yunji_tinynav_planner.py" "$@"
+    exec "$PYTHON_BIN" -u "$SCRIPT_DIR/run_yunji_tinynav_planner.py" \
+      --robot-profile yunji-water "$@"
     ;;
   controller)
     exec "$PYTHON_BIN" -u \

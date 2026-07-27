@@ -143,6 +143,27 @@ def test_stable_path_heading_ignores_near_pose_replan_jitter():
     assert right == pytest.approx(0.5 * math.pi)
 
 
+def test_router_target_heading_overrides_reverse_trajectory_bearing():
+    target_error = MODULE.world_target_heading_error(
+        (2.8755, -6.0557),
+        (3.225, -6.175),
+        robot_heading_rad=0.5597,
+    )
+    reverse_path_error = MODULE.stable_path_heading_error(
+        (2.8755, -6.0557),
+        robot_heading_rad=0.5597,
+        path_xy=[
+            (2.8755, -6.0557),
+            (2.8755 - 0.2 * math.cos(0.5597), -6.0557 - 0.2 * math.sin(0.5597)),
+        ],
+    )
+
+    assert target_error is not None
+    assert math.degrees(target_error) == pytest.approx(-50.8, abs=0.3)
+    assert reverse_path_error is not None
+    assert abs(math.degrees(reverse_path_error)) == pytest.approx(180.0)
+
+
 def test_measured_rear_left_goal_has_one_stable_positive_turn():
     heading_error = MODULE.stable_path_heading_error(
         (0.376, -0.320),
@@ -187,6 +208,12 @@ def test_large_turn_latch_uses_hysteresis_and_never_invents_rotation():
         math.radians(90.0),
         recovery_active=False,
         requested_linear_mps=0.0,
+        requested_angular_radps=0.0,
+    )
+    assert MODULE.large_turn_stabilization_required(
+        math.radians(40.0),
+        recovery_active=True,
+        requested_linear_mps=0.1,
         requested_angular_radps=0.0,
     )
 

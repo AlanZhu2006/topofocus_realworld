@@ -119,6 +119,55 @@ def test_water_status_parser_rejects_estop_and_errors() -> None:
     )["ready"] is False
 
 
+def test_explicit_water_zero_requires_and_records_chassis_ack(monkeypatch) -> None:
+    bridge = load_bridge()
+    sends = []
+
+    class FakeJoy:
+        def __init__(self, host, port, *, timeout_s):
+            assert (host, port, timeout_s) == ("water", 31001, 0.35)
+
+        def send(self, linear_mps, angular_radps):
+            sends.append((linear_mps, angular_radps))
+            return {"status": "OK"}
+
+        def close(self):
+            return None
+
+    class FakeStatus:
+        def __init__(self, host, port, timeout_s):
+            assert (host, port, timeout_s) == ("water", 31001, 0.5)
+
+        def request(self, path):
+            assert path == "/api/robot_status"
+            return {
+                "type": "response",
+                "status": "OK",
+                "results": {
+                    "estop_state": False,
+                    "error_code": "00000000",
+                    "move_status": "idle",
+                    "running_status": "idle",
+                },
+            }
+
+    monkeypatch.setattr(bridge, "WaterJoyClient", FakeJoy)
+    monkeypatch.setattr(bridge, "WaterTcpClient", FakeStatus)
+    monkeypatch.setattr(bridge.time, "sleep", lambda _: None)
+
+    result = bridge.send_explicit_water_zero(
+        "water",
+        31001,
+        timeout_s=0.35,
+    )
+
+    assert sends == [(0.0, 0.0)] * 3
+    assert result["schema_version"] == "focus-water-explicit-zero-v1"
+    assert result["accepted_zero_commands"] == 3
+    assert result["move_status"] == "idle"
+    assert result["water_ready"] is True
+
+
 def test_water_bridge_source_has_no_high_level_move_endpoint() -> None:
     source = (OVERLAY / "water_cmd_vel_bridge.py").read_text(encoding="utf-8")
     assert "/api/joy_control" in source

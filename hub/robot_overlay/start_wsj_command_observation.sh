@@ -26,7 +26,11 @@ COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"
 REGISTRATION_MIN_COVERAGE="${FOCUS_WSJ_REGISTRATION_MIN_COVERAGE:-0.38}"
 RGB_CACHE_SIZE="${FOCUS_WSJ_RGB_CACHE_SIZE:-90}"
 LATEST_RGB_MAX_SKEW_S="${FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S:-0.05}"
-SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-15}"
+# The persistent sender recovered without a publisher restart after one
+# observed 35.508 s Fast DDS receive gap on 2026-07-27. Keep the participant
+# alive and allow that bounded self-recovery; this is observation readiness
+# only and cannot extend a motion lease or guarded velocity authority.
+SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-50}"
 park_only=false
 
 usage() {

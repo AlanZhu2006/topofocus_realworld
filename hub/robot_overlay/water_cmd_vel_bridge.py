@@ -226,6 +226,63 @@ class WaterJoyClient:
         raise last_error
 
 
+def send_explicit_water_zero(
+    host: str,
+    port: int,
+    *,
+    timeout_s: float,
+    attempts: int = 3,
+) -> dict[str, object]:
+    """Send and verify a stop without creating a ROS command publisher."""
+
+    if not host or not 1 <= port <= 65535:
+        raise ValueError("WATER stop endpoint is invalid")
+    if not math.isfinite(timeout_s) or timeout_s <= 0.0:
+        raise ValueError("WATER stop timeout must be finite and positive")
+    if not 1 <= attempts <= 5:
+        raise ValueError("WATER stop attempts must be between one and five")
+
+    joy = WaterJoyClient(host, port, timeout_s=timeout_s)
+    accepted = 0
+    errors: list[str] = []
+    try:
+        for _ in range(attempts):
+            try:
+                joy.send(0.0, 0.0)
+                accepted += 1
+            except Exception as exc:  # noqa: BLE001 - continue bounded retries
+                errors.append(type(exc).__name__)
+            time.sleep(0.05)
+    finally:
+        joy.close()
+    if accepted == 0:
+        raise RuntimeError(
+            "WATER did not acknowledge any explicit zero command: "
+            + ",".join(errors)
+        )
+
+    status_response = WaterTcpClient(
+        host,
+        port,
+        timeout_s=max(0.5, timeout_s),
+    ).request("/api/robot_status")
+    health = parse_water_health(status_response)
+    results = status_response.get("results")
+    assert isinstance(results, dict)
+    return {
+        "schema_version": "focus-water-explicit-zero-v1",
+        "classification": "observed_live_stop_acknowledgement",
+        "api": "/api/joy_control",
+        "accepted_zero_commands": accepted,
+        "attempted_zero_commands": attempts,
+        "status": "acknowledged",
+        "move_status": str(results.get("move_status", "")),
+        "running_status": str(results.get("running_status", "")),
+        "water_ready": bool(health["ready"]),
+        "error_code": str(health["error_code"]),
+    }
+
+
 def parse_water_health(response: dict[str, object]) -> dict[str, object]:
     payload = require_water_ok(response, command="/api/robot_status")
     results = payload.get("results")
@@ -259,6 +316,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-angular-radps", type=float, default=0.40)
     parser.add_argument("--enable-live-water-output", action="store_true")
     parser.add_argument("--operator-confirmation", default="")
+    parser.add_argument(
+        "--send-explicit-zero",
+        action="store_true",
+        help=(
+            "send three zero-velocity commands, verify WATER status, print "
+            "the observed acknowledgement and exit without starting ROS"
+        ),
+    )
     return parser
 
 
@@ -286,6 +351,19 @@ def main() -> int:
         max_linear_mps=args.max_linear_mps,
         max_angular_radps=args.max_angular_radps,
     )
+    if args.send_explicit_zero:
+        if args.enable_live_water_output:
+            raise SystemExit(
+                "--send-explicit-zero cannot be combined with live bridge mode"
+            )
+        result = send_explicit_water_zero(
+            args.robot_host,
+            args.tcp_port,
+            timeout_s=args.tcp_timeout_s,
+        )
+        print(json.dumps(result, sort_keys=True), flush=True)
+        return 0
+
     live = bool(args.enable_live_water_output)
     if live and args.operator_confirmation != LIVE_CONFIRMATION:
         raise SystemExit(
@@ -296,6 +374,7 @@ def main() -> int:
     import rclpy
     from geometry_msgs.msg import Twist
     from rclpy.node import Node
+    from rclpy.executors import ExternalShutdownException
     from rclpy.qos import DurabilityPolicy, QoSProfile
     from std_msgs.msg import String
 
@@ -459,6 +538,8 @@ def main() -> int:
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
+        pass
+    except ExternalShutdownException:
         pass
     except Exception as exc:  # noqa: BLE001
         node.get_logger().error(str(exc))

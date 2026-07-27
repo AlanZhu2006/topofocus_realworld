@@ -39,9 +39,9 @@ ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_YUNJI_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
 MAP_TIMEOUT_S="${FOCUS_YUNJI_MAP_TIMEOUT_S:-12.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
-# A reverse local lookahead is recovered without reverse translation.  The
-# controller holds one turn direction, WATER retains the lower 0.40 rad/s
-# actuator cap, and the receiver still rejects after this bounded interval.
+# The forward-only planner contains collision-scored zero-linear turns.  The
+# controller stabilizes those turns, while any unexpected reverse segment is
+# rejected immediately instead of being converted into another recovery loop.
 REVERSE_ROTATE_MAX_ANGULAR_RADPS="${FOCUS_YUNJI_REVERSE_ROTATE_MAX_ANGULAR_RADPS:-0.35}"
 REVERSE_ROTATE_TIMEOUT_S="${FOCUS_YUNJI_REVERSE_ROTATE_TIMEOUT_S:-12.0}"
 # Keep the transported/source-derived semantic approach mask unchanged, but
@@ -69,10 +69,8 @@ fail_closed_on_error() {
   local rc=$?
   if [[ "$rc" -ne 0 && "$mode" == live \
         && "$startup_complete" != true ]]; then
-    sudo -n systemctl stop \
-      focus-yunji-v2-live-v3.service \
-      focus-yunji-water-bridge-live-v1.service \
-      >/dev/null 2>&1 || true
+    /bin/bash "$SCRIPT_DIR/stop_yunji_live_command_path.sh" \
+      || echo "WARNING: Yunji explicit-zero cleanup did not confirm." >&2
   fi
   return "$rc"
 }
@@ -138,6 +136,7 @@ for required in \
   "$SCRIPT_DIR/ensure_yunji_water_link.sh" \
   "$SCRIPT_DIR/install_yunji_tinynav_runtime.sh" \
   "$SCRIPT_DIR/run_yunji_tinynav_component.sh" \
+  "$SCRIPT_DIR/stop_yunji_live_command_path.sh" \
   "$SCRIPT_DIR/run_yunji_mapping_observation.sh" \
   "$SCRIPT_DIR/odin1_sender.py" \
   "$SCRIPT_DIR/odin1_tinynav_adapter.py" \
@@ -301,7 +300,6 @@ start_router() {
 start_controller() {
   start_unit focus-yunji-tinynav-controller-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" controller \
-      --rotate-first-on-reverse \
       --stabilize-large-turn \
       --rotate-first-max-angular-radps \
         "$REVERSE_ROTATE_MAX_ANGULAR_RADPS" \

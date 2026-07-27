@@ -595,7 +595,7 @@ def test_start_snap_is_anchored_to_goal_when_goal_is_behind_robot():
     assert second_x < first_x
 
 
-def test_wsj_launcher_enables_bounded_rotate_first_and_rejects_timeout():
+def test_wsj_launcher_uses_forward_only_planner_and_rejects_reverse():
     initial = (
         OVERLAY / "start_tinynav_buildmap_online_nav.sh"
     ).read_text(encoding="utf-8")
@@ -604,7 +604,9 @@ def test_wsj_launcher_enables_bounded_rotate_first_and_rejects_timeout():
     )
 
     for source in (initial, reload):
-        assert "--rotate-first-on-reverse" in source
+        assert "run_yunji_tinynav_planner.py" in source
+        assert "--robot-profile source-default" in source
+        assert "--rotate-first-on-reverse" not in source
         assert "--stabilize-large-turn" in source
         assert "--rotate-first-max-angular-radps 0.35" in source
         assert "--rotate-first-timeout-s 12.0" in source

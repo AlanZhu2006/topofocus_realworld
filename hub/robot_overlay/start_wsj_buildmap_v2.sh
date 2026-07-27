@@ -125,6 +125,7 @@ for required in \
   "$SCRIPT_DIR/start_go2_buildmap.sh" \
   "$SCRIPT_DIR/start_tinynav_buildmap_online_nav.sh" \
   "$SCRIPT_DIR/wsj_perception_entry.py" \
+  "$SCRIPT_DIR/run_yunji_tinynav_planner.py" \
   "$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py" \
   "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
   "$SCRIPT_DIR/v2_wsj_receiver.py" \
@@ -325,6 +326,79 @@ bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   --transform-version "$TRANSFORM_VERSION" \
   --hub-url "$HUB_URL"
 
+# The persistent source planner includes a fixed reverse vocabulary that both
+# deployed chassis paths reject. Replace it with the forward-only deployment
+# wrapper while the chassis bridge is absent and navigation is paused.
+timeout 5 ros2 topic pub --once \
+  /nav/paused std_msgs/msg/Bool '{data: true}' \
+  >/dev/null 2>&1 || true
+old_planning_pid="$(
+  tmux display-message -p -t "$SESSION:planning" '#{pane_pid}'
+)"
+planning_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/run_yunji_tinynav_planner.py\" --robot-profile source-default'"
+tmux set-option -w -t "$SESSION:planning" remain-on-exit on
+tmux send-keys -t "$SESSION:planning" C-c
+deadline=$((SECONDS + 15))
+until [[ "$(tmux display-message -p -t "$SESSION:planning" \
+    '#{pane_dead}' 2>/dev/null || true)" == 1 ]]; do
+  (( SECONDS < deadline )) || {
+    echo "WSJ planner did not stop cleanly; removing its isolated pane." >&2
+    tmux kill-window -t "$SESSION:planning" >/dev/null 2>&1 || true
+    break
+  }
+  sleep 1
+done
+
+deadline=$((SECONDS + 30))
+while timeout 5 ros2 topic info /planning/trajectory_path -v 2>/dev/null \
+    | grep -q 'Endpoint type: PUBLISHER'; do
+  (( SECONDS < deadline )) || {
+    echo "Timed out waiting for the old WSJ planner publisher to leave DDS." >&2
+    exit 1
+  }
+  sleep 1
+done
+
+if tmux display-message -p -t "$SESSION:planning" >/dev/null 2>&1; then
+  tmux respawn-pane -t "$SESSION:planning" "$planning_command"
+  tmux set-option -w -t "$SESSION:planning" remain-on-exit off
+else
+  tmux new-window -d -t "$SESSION" -n planning "$planning_command"
+fi
+new_planning_pid="$(
+  tmux display-message -p -t "$SESSION:planning" '#{pane_pid}'
+)"
+planning_start="$(
+  tmux display-message -p -t "$SESSION:planning" '#{pane_start_command}'
+)"
+[[ -n "$new_planning_pid" \
+   && "$new_planning_pid" != "$old_planning_pid" \
+   && "$planning_start" == *"run_yunji_tinynav_planner.py"* \
+   && "$planning_start" == *"--robot-profile source-default"* ]] || {
+  echo "WSJ planner did not reload from the forward-only wrapper." >&2
+  exit 1
+}
+deadline=$((SECONDS + 30))
+until planner_graph="$(
+    timeout 5 ros2 topic info /planning/trajectory_path -v 2>/dev/null || true
+  )" \
+  && grep -Eq '^Publisher count: 1[[:space:]]*$' <<<"$planner_graph" \
+  && grep -Eq '^Node name: planning_node[[:space:]]*$' <<<"$planner_graph" \
+  && ! grep -q '_NODE_.*_UNKNOWN_' <<<"$planner_graph"; do
+  if [[ "$(tmux display-message -p -t "$SESSION:planning" \
+      '#{pane_dead}')" == 1 ]]; then
+    tmux capture-pane -pt "$SESSION:planning" -S -100 >&2 || true
+    exit 1
+  fi
+  (( SECONDS < deadline )) || {
+    echo "Timed out waiting for the forward-only WSJ planner publisher." >&2
+    printf '%s\n' "$planner_graph" >&2
+    exit 1
+  }
+  sleep 1
+done
+echo "WSJ forward-only planner reloaded from the current deployment: $new_planning_pid"
+
 # The BuildMap core persists between episodes, so its controller process may
 # predate the checked deployment. Pause first, then replace only the raw
 # /cmd_vel controller before any receiver or chassis bridge can be created.
@@ -339,7 +413,7 @@ timeout 5 ros2 topic pub --once \
 old_control_pid="$(
   tmux display-message -p -t "$SESSION:control" '#{pane_pid}'
 )"
-control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --rotate-first-on-reverse --stabilize-large-turn --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
+control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --stabilize-large-turn --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
 tmux set-option -w -t "$SESSION:control" remain-on-exit on
 tmux send-keys -t "$SESSION:control" C-c
 deadline=$((SECONDS + 15))

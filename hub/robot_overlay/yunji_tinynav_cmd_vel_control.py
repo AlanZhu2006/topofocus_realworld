@@ -39,6 +39,7 @@ DEFAULT_STABLE_TURN_LOOKAHEAD_M = 0.35
 DEFAULT_STABLE_TURN_MIN_TARGET_M = 0.10
 DEFAULT_STABLE_TURN_ENTER_RAD = math.radians(75.0)
 DEFAULT_STABLE_TURN_EXIT_RAD = math.radians(35.0)
+DEFAULT_ROUTER_TARGET_TIMEOUT_S = 2.0
 
 
 def path_segment_forward_component(
@@ -198,6 +199,31 @@ def stable_path_heading_error(
     )
 
 
+def world_target_heading_error(
+    robot_xy: tuple[float, float],
+    target_xy: tuple[float, float],
+    *,
+    robot_heading_rad: float,
+    minimum_target_m: float = DEFAULT_STABLE_TURN_MIN_TARGET_M,
+) -> float | None:
+    """Return heading error to the router's fixed local waypoint."""
+
+    values = (*robot_xy, *target_xy, robot_heading_rad, minimum_target_m)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("target-heading geometry values must be finite")
+    if minimum_target_m <= 0.0:
+        raise ValueError("minimum target distance must be positive")
+    dx = target_xy[0] - robot_xy[0]
+    dy = target_xy[1] - robot_xy[1]
+    if math.hypot(dx, dy) < minimum_target_m:
+        return None
+    world_bearing = math.atan2(dy, dx)
+    return math.atan2(
+        math.sin(world_bearing - robot_heading_rad),
+        math.cos(world_bearing - robot_heading_rad),
+    )
+
+
 def large_turn_stabilization_required(
     heading_error_rad: float | None,
     *,
@@ -223,12 +249,20 @@ def large_turn_stabilization_required(
         raise ValueError("stable-turn angular thresholds are invalid")
     if heading_error_rad is None:
         return False
-    if abs(requested_linear_mps) > 1e-9:
+    if (
+        abs(requested_linear_mps) <= 1e-9
+        and abs(requested_angular_radps) <= 1e-9
+    ):
         return False
-    if abs(requested_angular_radps) <= 1e-9:
-        return False
-    threshold = exit_rad if recovery_active else enter_rad
-    return abs(heading_error_rad) >= threshold
+    if recovery_active:
+        # Do not let one intermittent forward lattice sample clear an active
+        # turn while the fixed router waypoint is still far off-axis.
+        return abs(heading_error_rad) >= exit_rad
+    return bool(
+        abs(requested_linear_mps) <= 1e-9
+        and abs(requested_angular_radps) > 1e-9
+        and abs(heading_error_rad) >= enter_rad
+    )
 
 
 def tiny_reverse_recovery_continuation_required(
@@ -363,6 +397,8 @@ def main(args: list[str] | None = None) -> None:
     import numpy as np
     import rclpy
     from geometry_msgs.msg import Twist
+    from nav_msgs.msg import Odometry
+    from rclpy.executors import ExternalShutdownException
     from scipy.spatial.transform import Rotation as R
     from std_msgs.msg import Bool
     from tinynav.platforms.cmd_vel_control import CmdVelControlNode
@@ -376,13 +412,28 @@ def main(args: list[str] | None = None) -> None:
             self._last_focus_tiny_reverse_log = 0.0
             self._focus_rotation_recovery_started: float | None = None
             self._focus_rotation_turn_direction = 0
+            self._focus_router_target_xy: tuple[float, float] | None = None
+            self._focus_router_target_received_monotonic = 0.0
             self._reverse_required_publisher = self.create_publisher(
                 Bool, "/planning/reverse_required", 10
+            )
+            self.create_subscription(
+                Odometry,
+                "/control/target_pose",
+                self._on_focus_router_target,
+                10,
             )
 
         def _reset_focus_rotation_recovery(self) -> None:
             self._focus_rotation_recovery_started = None
             self._focus_rotation_turn_direction = 0
+
+        def _on_focus_router_target(self, message) -> None:
+            position = message.pose.pose.position
+            target = (float(position.x), float(position.y))
+            if all(math.isfinite(value) for value in target):
+                self._focus_router_target_xy = target
+                self._focus_router_target_received_monotonic = time.monotonic()
 
         def _on_paused(self, message) -> None:
             super()._on_paused(message)
@@ -436,6 +487,27 @@ def main(args: list[str] | None = None) -> None:
         def _stable_path_heading_error(self, message) -> float | None:
             current_camera = self._raw_pose_matrix(self.pose.pose.pose)
             current_robot = current_camera @ self.T_robot_to_camera
+            robot_xy = (
+                float(current_robot[0, 3]),
+                float(current_robot[1, 3]),
+            )
+            robot_heading_rad = math.atan2(
+                float(current_robot[1, 0]),
+                float(current_robot[0, 0]),
+            )
+            if (
+                self._focus_router_target_xy is not None
+                and time.monotonic()
+                - self._focus_router_target_received_monotonic
+                <= DEFAULT_ROUTER_TARGET_TIMEOUT_S
+            ):
+                target_error = world_target_heading_error(
+                    robot_xy,
+                    self._focus_router_target_xy,
+                    robot_heading_rad=robot_heading_rad,
+                )
+                if target_error is not None:
+                    return target_error
             path_robot_xy = []
             for pose_stamped in message.poses:
                 path_robot = (
@@ -448,14 +520,8 @@ def main(args: list[str] | None = None) -> None:
                     )
                 )
             return stable_path_heading_error(
-                (
-                    float(current_robot[0, 3]),
-                    float(current_robot[1, 3]),
-                ),
-                robot_heading_rad=math.atan2(
-                    float(current_robot[1, 0]),
-                    float(current_robot[0, 0]),
-                ),
+                robot_xy,
+                robot_heading_rad=robot_heading_rad,
                 path_xy=path_robot_xy,
             )
 
@@ -547,7 +613,13 @@ def main(args: list[str] | None = None) -> None:
                 )
                 continuation_request = rotate_first_continuation_request(
                     requested_angular,
-                    continuation_required=tiny_reverse_recovery_requested,
+                    continuation_required=bool(
+                        tiny_reverse_recovery_requested
+                        or (
+                            recovery_active
+                            and large_turn_recovery_requested
+                        )
+                    ),
                     latched_direction=self._focus_rotation_turn_direction,
                 )
                 rotate_angular = bounded_rotate_first_angular(
@@ -684,6 +756,8 @@ def main(args: list[str] | None = None) -> None:
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
+        pass
+    except ExternalShutdownException:
         pass
     finally:
         node.destroy_node()

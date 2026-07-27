@@ -63,6 +63,7 @@ for required in \
   "$SCRIPT_DIR/run_tinynav_buildmap_live.py" \
   "$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py" \
   "$SCRIPT_DIR/ros_image_frame_alias.py" \
+  "$SCRIPT_DIR/run_yunji_tinynav_planner.py" \
   "$SCRIPT_DIR/tinynav_buildmap_goal_router.py" \
   "$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py"; do
   [[ -f "$required" ]] || {
@@ -101,7 +102,7 @@ done
   echo "Refusing to overwrite an existing BuildMap output." >&2
   exit 1
 }
-if pgrep -f 'go2_cmd_bridge|cmd_vel_control|planning_node.py|map_node.py|nav2_controller' \
+if pgrep -f 'go2_cmd_bridge|cmd_vel_control|planning_node.py|run_yunji_tinynav_planner.py|map_node.py|nav2_controller' \
   >/dev/null 2>&1; then
   echo "Refusing startup while an old planner/controller/bridge is running." >&2
   exit 1
@@ -132,7 +133,7 @@ tmux new-window -d -t "$SESSION" -n online-map \
 started_windows+=("online-map")
 
 tmux new-window -d -t "$SESSION" -n planning \
-  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python /tinynav/tinynav/core/planning_node.py'"
+  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/run_yunji_tinynav_planner.py\" --robot-profile source-default'"
 started_windows+=("planning")
 
 tmux new-window -d -t "$SESSION" -n goal-router \
@@ -140,7 +141,7 @@ tmux new-window -d -t "$SESSION" -n goal-router \
 started_windows+=("goal-router")
 
 tmux new-window -d -t "$SESSION" -n control \
-  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --rotate-first-on-reverse --stabilize-large-turn --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
+  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --stabilize-large-turn --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
 started_windows+=("control")
 
 source "$SETUP_FILE"
@@ -172,7 +173,7 @@ echo "  BuildMap output:  $OUTPUT_DIR"
 echo "  online occupancy: $online_output"
 echo "  frame:            $FRAME_ID"
 echo "  global source:    BuildMapNode + online known/free/occupied grid"
-echo "  local planner:    TinyNav planning_node.py"
+echo "  local planner:    Focus forward-only wrapper over TinyNav planning_node.py"
 echo "  controller:       Focus-wrapped TinyNav cmd_vel_control.py -> raw /cmd_vel only"
 echo "  target source:    versioned /mapping/cmd_pois only"
 echo "  stale-map motion: <=${MAX_CACHED_MAP_MOTION_M} m (source keyframe + one cell)"
