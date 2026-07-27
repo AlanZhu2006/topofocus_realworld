@@ -45,8 +45,9 @@
     "success": true,
     "success_radius_m": 0.5,
     "target_evidence": "plant is directly visible in the time-aligned robot-1 terminal RGB; the operator confirmed physical arrival after the run",
-    "standard_track_eligible": false,
-    "standard_track_status": "pending independent Scene 02 shortest-feasible-path measurement"
+    "standard_track_eligible": true,
+    "standard_track_status": "official; operator-provided independently measured shortest feasible path L=approximately 7 m",
+    "standard_track_basis": "operator statement: 大概直线距离应该是7m 可以计算standard spl"
   },
   "metrics": {
     "success": 1,
@@ -64,16 +65,18 @@
     "start_to_stop_displacement_m": 7.229996922862113,
     "source_compatible_spl_formula": "S * D / max(D, P)",
     "source_compatible_spl": 0.8651919064905854,
-    "independently_measured_shortest_feasible_path_m": null,
+    "independently_measured_shortest_feasible_path_m": 7.0,
+    "shortest_path_measurement_precision": "approximate",
+    "operator_measurement_statement": "大概直线距离应该是7m 可以计算standard spl",
     "standard_spl_formula": "S * L / max(L, P)",
-    "standard_spl": null,
-    "standard_spl_status": "pending independent Scene 02 measurement; Scene 01 L=3.25 m is not reused",
+    "standard_spl": 0.8376688690258246,
+    "standard_spl_status": "official_operator_confirmed_independently_measured_shortest_feasible_path",
     "scene02_campaign_after_formal_03": {
       "recorded_episodes": 3,
       "successes": 1,
       "sr": 0.3333333333333333,
       "mean_source_compatible_spl_with_failures_zero": 0.2883973021635285,
-      "mean_standard_spl": null
+      "mean_standard_spl_with_failures_zero": 0.27922295634194155
     }
   },
   "execution": {

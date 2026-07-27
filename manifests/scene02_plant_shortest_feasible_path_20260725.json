@@ -2,10 +2,10 @@
   "schema_version": "focus-realworld-shortest-feasible-path-v1",
   "scene_id": "scene02-plant",
   "target_category": "plant",
-  "measurement_status": "pending",
-  "shortest_feasible_path_m": null,
-  "precision": null,
-  "classification": "unverified pending independent onsite measurement",
+  "measurement_status": "complete",
+  "shortest_feasible_path_m": 7.0,
+  "precision": "approximate",
+  "classification": "observed operator-provided independent measurement",
   "scope": "Scene 02 formal experiments 01-05",
   "measurement_protocol": [
     "Use the fixed formal Scene 02 start placement.",
@@ -13,7 +13,7 @@
     "End at the boundary of the declared 0.5 m valid plant goal region.",
     "Record the measured value, method and operator statement before Standard SPL finalization."
   ],
-  "operator_statement": null,
+  "operator_statement": "大概直线距离应该是7m 可以计算standard spl",
   "metric_formula": "standard_spl = S * L / max(L, P)",
-  "notes": "Do not reuse the Scene 01 value. This record is intentionally metric-ineligible until measurement_status is complete."
+  "notes": "Applies to any current or future Scene 02 formal episode using the same fixed start/target placement. Only formal experiment 03 (SUCCESS) currently contributes a nonzero standard SPL; failed episodes are S=0 regardless of L."
 }

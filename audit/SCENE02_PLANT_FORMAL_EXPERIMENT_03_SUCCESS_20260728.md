@@ -8,7 +8,7 @@ Episode：`yunji-single-01`
 
 | Result | Success | SR | Source-compatible SPL | Standard SPL |
 | --- | ---: | ---: | ---: | ---: |
-| `SUCCESS` | `1` | `1.0` | `0.865191906` | 待 Scene 02 独立最短路径测量 |
+| `SUCCESS` | `1` | `1.0` | `0.865191906` | `0.837668869` |
 
 Yunji 的实际路径 `P=8.356523990 m`，起点到终点位移
 `D=7.229996923 m`，因此 source-compatible SPL 为
@@ -16,8 +16,25 @@ Yunji 的实际路径 `P=8.356523990 m`，起点到终点位移
 其中一次成功：`SR=1/3=0.333333333`，计入失败零贡献后的平均
 source-compatible SPL 为 `0.288397302`。
 
-Standard SPL 保持未定；Scene 02 的独立最短可行路径尚未测量，且不复用
-Scene 01 的 `3.25 m`。
+## Standard SPL 更新 — 2026-07-28
+
+操作者事后提供了独立测量的最短可行路径：
+
+> 大概直线距离应该是7m 可以计算standard spl
+
+据此记录 `L≈7 m`（近似值，不复用 Scene 01 的 `3.25 m`），得到官方 Standard
+SPL：
+
+```text
+standard SPL = S * L / max(L, P)
+             = 1 * 7 / max(7, 8.356523990369512)
+             = 0.8376688690258246
+```
+
+计入本次成功后，Scene 02 计入失败零贡献的平均 Standard SPL 为
+`0.27922295634194155`（Formal 01/02 两次失败各贡献 `0`）。该 `L≈7 m`
+适用于使用同一起点/目标布局的任何当前或未来 Scene 02 正式实验；失败
+episode 无论 `L` 为何均因 `S=0` 而 Standard SPL 恒为 `0`。
 
 ## 执行数据
 

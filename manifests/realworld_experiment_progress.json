@@ -42,8 +42,8 @@
       "successes": 1,
       "sr": 0.3333333333333333,
       "source_compatible_multi_spl_mean": 0.2883973021635285,
-      "standard_multi_spl_mean": null,
-      "standard_multi_spl_status": "pending independent Scene 02 shortest-feasible-path measurement",
+      "standard_multi_spl_mean": 0.27922295634194155,
+      "standard_multi_spl_status": "official; uses operator-provided independently measured Scene 02 shortest feasible path L=approximately 7 m",
       "classification": "Scene 02 formal experiments 01-03: two recorded zero-contribution failures and one operator-confirmed physical plant-arrival success"
     }
   },
@@ -63,8 +63,8 @@
       "successes": 1,
       "sr": 0.3333333333333333,
       "mean_source_compatible_spl": 0.2883973021635285,
-      "mean_standard_spl": null,
-      "standard_spl_status": "pending independent Scene 02 shortest-feasible-path measurement",
+      "mean_standard_spl": 0.27922295634194155,
+      "standard_spl_status": "official; uses operator-provided independently measured Scene 02 shortest feasible path L=approximately 7 m",
       "classification": "Scene 02 formal experiments 01-03 are indexed by the two failure manifests and the Formal 03 success manifest"
     }
   },
@@ -75,8 +75,8 @@
       "planned_formal_experiments": 5,
       "recorded_episodes": 3,
       "successes": 1,
-      "metric_status": "three_recorded_episodes_one_success_standard_spl_pending",
-      "standard_shortest_feasible_path_status": "pending independent Scene 02 measurement",
+      "metric_status": "three_recorded_episodes_one_success_standard_spl_official",
+      "standard_shortest_feasible_path_status": "complete; L=approximately 7 m",
       "standard_shortest_feasible_path_evidence": "manifests/scene02_plant_shortest_feasible_path_20260725.json",
       "classification": "formal experiments 01-02 are recorded navigation-policy failures and formal experiment 03 is an operator-confirmed Yunji plant-arrival success; see the three per-run manifests"
     }
@@ -755,17 +755,17 @@
         "success_radius_m": 0.5,
         "operator_statement": "可以 把这个归档为formal 003 success",
         "target_visual_status": "plant directly visible in the time-aligned robot-1 terminal RGB",
-        "standard_track_eligible": false,
-        "standard_track_basis": "Scene 02 independently measured shortest feasible path remains pending"
+        "standard_track_eligible": true,
+        "standard_track_basis": "The operator designated Scene 02's independently measured shortest feasible path L as approximately 7 m (\"大概直线距离应该是7m 可以计算standard spl\")."
       },
       "metrics": {
         "sr": 1.0,
         "actual_path_length_m": 8.356523990369512,
         "start_to_stop_displacement_m": 7.229996922862113,
         "source_compatible_spl": 0.8651919064905854,
-        "independently_measured_shortest_feasible_path_m": null,
-        "standard_spl": null,
-        "standard_spl_status": "pending independent Scene 02 measurement"
+        "independently_measured_shortest_feasible_path_m": 7.0,
+        "standard_spl": 0.8376688690258246,
+        "standard_spl_status": "official_operator_confirmed_independently_measured_shortest_feasible_path"
       },
       "run_summary": {
         "source_rounds_completed": 11,

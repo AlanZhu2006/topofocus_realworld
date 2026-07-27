@@ -136,13 +136,13 @@ displacement `D` as a source-compatible reference.
 
 Both robots explore cooperatively toward a plant target.
 
-| Trials | Success | SR | Mean source-compatible SPL | Standard SPL |
+| Trials | Success | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `3` | `1` | `0.333333` | `0.288397` | pending |
+| `3` | `1` | `0.333333` | `0.288397` | `0.279223` |
 
-Mean source-compatible SPL counts both failures at zero contribution.
-Standard SPL awaits an independent Scene 02 shortest-feasible-path
-measurement (Scene 01's `3.25 m` is not reused).
+Both means count the two failures at zero contribution. Standard SPL uses
+the operator-provided independently measured shortest feasible path
+`L≈7 m` (Scene 01's `3.25 m` is not reused).
 
 <table>
   <tr>
@@ -160,17 +160,13 @@ measurement (Scene 01's `3.25 m` is not reused).
     </td>
     <td width="50%" align="center">
       <strong>Formal 02 · FAILURE</strong><br>
-      <small>Third view</small><br>
-      <img src="media/demo/scene02_formal_02_preview.gif" width="440" alt="Formal 02 failure rollout"><br>
-      <small>Dashboard</small><br>
-      <img src="media/demo/scene02_formal_02_dashboard.gif" width="440" alt="Formal 02 failure dashboard"><br>
-      Formal 02 failed during coordinated execution: both robots' assigned
-      frontiers were rejected as locally unreachable before any plant
-      semantic region was found, and the episode then timed out waiting for
-      a fresh synchronized round after Robot 1's map was blocked by
-      ground-plane drift.<br>
-      <a href="media/demo/scene02_formal_02_third_view.mp4">Third view</a> ·
-      <a href="media/demo/scene02_formal_02_dashboard.mp4">Dashboard</a>
+      <em>third-view / Dashboard footage pending</em><br><br>
+      Robot 1 ran solo under an operator-scoped single-robot live
+      authorization (Robot 0 held throughout, chassis powered off). It
+      completed 13 exploration rounds without ever finding the plant
+      semantic region — one frontier branch was observed heading away from
+      the target — and the run was stopped by a two-interval no-progress
+      guard after displacement stalled below 0.05 m.
     </td>
   </tr>
   <tr>
@@ -191,15 +187,15 @@ measurement (Scene 01's `3.25 m` is not reused).
 
 ### Per-run metrics
 
-| Run | Result | Robot 0 path | Robot 1 path | Source-compatible SPL |
-| --- | --- | ---: | ---: | ---: |
-| Formal 01 | FAILURE | `6.104564 m` | `1.905387 m` | `0.0` |
-| Formal 02 | FAILURE | `0.208027 m` | `1.488125 m` | `0.0` |
-| Formal 03 | SUCCESS | `0.728655 m`* | `8.356524 m` | `0.865192` |
+| Run | Result | Robot 0 path | Robot 1 path | Source-compatible SPL | Standard SPL |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Formal 01 | FAILURE | `6.104564 m` | `1.905387 m` | `0.0` | `0.0` |
+| Formal 02 | FAILURE | `1.034858 m`* | `7.425951 m` | `0.0` | `0.0` |
+| Formal 03 | SUCCESS | `0.728655 m`* | `8.356524 m` | `0.865192` | `0.837669` |
 
-\* Robot 0 had no live motion authority in Formal 03 (operator-scoped
-single-robot run); its accumulated odometry is retained as observed
-provenance, not commanded travel — net displacement was `0.002418 m`.
+\* Robot 0 had no live motion authority in Formal 02/03 (operator-scoped
+Yunji-only runs, WSJ chassis powered off/forced HOLD); its accumulated
+odometry is retained as observed provenance, not commanded travel.
 
 [Formal 01 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
 · [Formal 02 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md)

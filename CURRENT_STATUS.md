@@ -36,7 +36,10 @@ formal episodes: two failures and one operator-confirmed success.
 
 | Episodes | Successes | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `3` | `1` | `0.3333333333333333` | `0.2883973021635285` | pending |
+| `3` | `1` | `0.3333333333333333` | `0.2883973021635285` | `0.27922295634194155` |
+
+Standard SPL uses the operator-provided independently measured shortest
+feasible path `L≈7 m` ("大概直线距离应该是7m 可以计算standard spl").
 
 Formal 01, episode `scene02-plant-recal1-20260728-044959`: failed during
 coordinated execution — one assigned frontier was rejected as locally
@@ -62,8 +65,8 @@ switched to the plant semantic region in round 6, and emitted
 `LOCAL_PLANNER_ARRIVED` in round 10 with the plant visible in its terminal
 RGB; the operator confirmed the physical success afterward
 ("可以 把这个归档为formal 003 success"). Yunji travelled `8.356524 m`
-(`SPL=0.865192`); standard SPL awaits an independent Scene 02
-shortest-feasible-path measurement.
+(source-compatible `SPL=0.865192`; standard `SPL=0.837669` using the
+operator-measured `L≈7 m`).
 
 Complete records:
 [`audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md) /
