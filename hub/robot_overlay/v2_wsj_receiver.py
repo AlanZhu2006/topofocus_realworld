@@ -809,7 +809,7 @@ def main() -> int:
     parser.add_argument(
         "--occupancy-recovery-grace-s",
         type=float,
-        default=2.0,
+        default=7.0,
         help=(
             "maximum zero-velocity recovery window after occupancy freshness "
             "expires before the active episode leg is terminally rejected"

@@ -653,7 +653,7 @@ def test_occupancy_episode_recovery_is_bounded_after_motion_gate_closes():
     wsj = load_overlay("v2_wsj_receiver.py")
     common = {
         "freshness_timeout_s": 5.0,
-        "recovery_grace_s": 2.0,
+        "recovery_grace_s": 7.0,
         "all_other_health_ready": True,
     }
 
@@ -664,10 +664,10 @@ def test_occupancy_episode_recovery_is_bounded_after_motion_gate_closes():
         occupancy_age_s=5.105, **common
     )
     assert wsj.occupancy_recovery_eligible(
-        occupancy_age_s=7.0, **common
+        occupancy_age_s=12.0, **common
     )
     assert not wsj.occupancy_recovery_eligible(
-        occupancy_age_s=7.001, **common
+        occupancy_age_s=12.001, **common
     )
     assert not wsj.occupancy_recovery_eligible(
         occupancy_age_s=5.105,

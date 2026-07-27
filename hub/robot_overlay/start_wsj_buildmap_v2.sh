@@ -43,11 +43,11 @@ ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
 # watchdogs retain final authority.
 RECEIVER_LOCAL_DATA_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0}"
 # Keep the cross-robot occupancy-liveness contract identical. The 20 Hz final
-# velocity gate still zeros immediately after this bound. A separate bounded
-# recovery window prevents a single publication-jitter sample from becoming a
-# terminal episode failure while the robot remains stopped.
+# velocity gate still zeros immediately after this bound. The zero-velocity
+# recovery window ends at the same 12 s bound already enforced by the TinyNav
+# router and startup verifier; it never authorizes motion on the cached grid.
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
-RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-2.0}"
+RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
 # The guarded velocity output is zeroed after one second without a fresh path.
 # A 2026-07-25 physical semantic leg observed a 1.016 s planner publication
 # gap while its router still reported ONLINE_PATH_READY.  Keep the zero-output
