@@ -538,6 +538,14 @@ def test_wsj_observation_paths_pin_verified_udp_transport():
     )
 
 
+def test_dual_robot_occupancy_liveness_timeout_is_consistent():
+    wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
+    yunji = (OVERLAY / "start_yunji_v2.sh").read_text()
+
+    assert 'FOCUS_WSJ_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0' in wsj
+    assert 'FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0' in yunji
+
+
 def test_goal_category_reaches_both_persistent_observation_senders():
     oneclick = (SCRIPTS / "realworld_oneclick.sh").read_text()
     calibration = (SCRIPTS / "calibrate_realworld_session.sh").read_text()

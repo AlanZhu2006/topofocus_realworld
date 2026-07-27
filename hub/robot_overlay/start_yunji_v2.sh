@@ -41,7 +41,13 @@ ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_YUNJI_ODOMETRY_INPUT_TIMEOUT_S:-2.0}"
 MAP_TIMEOUT_S="${FOCUS_YUNJI_MAP_TIMEOUT_S:-12.0}"
 MAX_PLAN_EXPANSIONS="${FOCUS_TINYNAV_MAX_PLAN_EXPANSIONS:-20000}"
 MAX_PLAN_DURATION_S="${FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50}"
-RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-3.0}"
+# Observed physical provenance (2026-07-28): Yunji's healthy online occupancy
+# publisher runs at 0.34-0.35 Hz (2.717-3.049 s intervals) and produced one
+# 3.199 s interval while odometry, SLAM, graph, WATER and the local planner
+# all remained ready. Five seconds covers one normal publication plus bounded
+# scheduling jitter; trajectory and chassis watchdogs retain their tighter
+# independent zero-output authority.
+RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # The forward-only planner contains collision-scored zero-linear turns.  The
