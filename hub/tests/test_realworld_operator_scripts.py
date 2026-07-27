@@ -564,6 +564,9 @@ def test_wsj_publisher_recovery_preserves_sender_and_requires_reanchor():
     ).read_text()
 
     assert "OPERATOR_PRESENT_AND_WSJ_STATIONARY" in recovery
+    assert "--perception-only" in recovery
+    assert 'if [[ "$PERCEPTION_ONLY" != true ]]; then' in recovery
+    assert '"camera_preserved": perception_only' in recovery
     assert "--runtime-command-contract-file" in recovery
     sender_gate = recovery.index(
         "Persistent runtime-configurable WSJ sender is not running."

@@ -13,22 +13,29 @@ DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
 MARKER_FILE="${FOCUS_WSJ_REANCHOR_REQUIRED_FILE:-$STATE_DIR/wsj-tracking-reanchor-required.json}"
 RECEIPT_FILE="${FOCUS_WSJ_RUNTIME_RECEIPT_FILE:-$STATE_DIR/wsj-command-observation-receipt.json}"
 CONFIRMATION=""
+PERCEPTION_ONLY=false
 
 usage() {
   cat <<'EOF'
 Usage: recover_wsj_publishers_after_sender.sh \
-  --operator-confirmation OPERATOR_PRESENT_AND_WSJ_STATIONARY
+  --operator-confirmation OPERATOR_PRESENT_AND_WSJ_STATIONARY \
+  [--perception-only]
 
 The sender must already be the runtime-configurable hub-sender. The script
 stops perception, restarts camera, then restarts perception. It leaves all
 motion paths closed and emits a tracking boot ID that must be represented by a
 validated stationary re-anchor (or superseded by a new board calibration).
+
+--perception-only preserves a currently healthy camera publisher and restarts
+only TinyNav perception. It still creates a new tracking epoch and therefore
+retains the same mandatory stationary re-anchor gate.
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --operator-confirmation) CONFIRMATION="$2"; shift 2 ;;
+    --perception-only) PERCEPTION_ONLY=true; shift ;;
     --session) SESSION="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -190,6 +197,7 @@ write_reanchor_marker() {
   FOCUS_SENDER_DEPLOYMENT_COMMIT="$sender_deployment" \
   FOCUS_SENDER_PID="$sender_pid" \
   FOCUS_RECOVERY_STATUS="$status" \
+  FOCUS_PERCEPTION_ONLY="$PERCEPTION_ONLY" \
   python3 - <<'PY'
 import json
 import os
@@ -199,6 +207,14 @@ import time
 destination = Path(os.environ["FOCUS_MARKER"])
 destination.parent.mkdir(parents=True, exist_ok=True)
 status = os.environ["FOCUS_RECOVERY_STATUS"]
+perception_only = os.environ["FOCUS_PERCEPTION_ONLY"] == "true"
+publisher_order = [
+    "persistent_sender_parked",
+    "old_perception_stopped",
+]
+if not perception_only:
+    publisher_order.append("camera_restarted")
+publisher_order.append("perception_restarted")
 payload = {
     "schema_version": "focus-wsj-tracking-reanchor-required-v1",
     "tracking_restart_boot_id": os.environ["FOCUS_BOOT_ID"],
@@ -208,12 +224,11 @@ payload = {
     ],
     "sender_pid_preserved": int(os.environ["FOCUS_SENDER_PID"]),
     "recovery_status": status,
-    "publisher_order": [
-        "persistent_sender_parked",
-        "old_perception_stopped",
-        "camera_restarted",
-        "perception_restarted",
-    ],
+    "recovery_scope": (
+        "perception_only" if perception_only else "camera_and_perception"
+    ),
+    "camera_preserved": perception_only,
+    "publisher_order": publisher_order,
     "publisher_order_complete": status == "publishers_recovered",
     "operator_confirmation": "OPERATOR_PRESENT_AND_WSJ_STATIONARY",
     "classification": (
@@ -234,7 +249,11 @@ os.replace(temporary, destination)
 PY
 }
 
-boot_id="wsj-camera-perception-$(date -u +%Y%m%dT%H%M%S)_${RANDOM}"
+if [[ "$PERCEPTION_ONLY" == true ]]; then
+  boot_id="wsj-perception-$(date -u +%Y%m%dT%H%M%S)_${RANDOM}"
+else
+  boot_id="wsj-camera-perception-$(date -u +%Y%m%dT%H%M%S)_${RANDOM}"
+fi
 # Write the fail-closed marker before the first publisher is touched. If any
 # later step fails, old calibration cannot silently become command-capable.
 write_reanchor_marker recovery_started
@@ -259,8 +278,10 @@ fi
 # baseline. A later increase must therefore come from the restarted publishers.
 sleep 1
 parked_tuple_baseline="$(parked_tuple_count)"
-tmux respawn-pane -k -t "$SESSION:camera"
-wait_for_topic /camera/camera/infra1/image_rect_raw
+if [[ "$PERCEPTION_ONLY" != true ]]; then
+  tmux respawn-pane -k -t "$SESSION:camera"
+  wait_for_topic /camera/camera/infra1/image_rect_raw
+fi
 tmux respawn-pane -k -t "$SESSION:perception"
 wait_for_topic /slam/depth
 wait_for_topic /slam/odometry_visual
