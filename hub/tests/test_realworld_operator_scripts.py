@@ -163,7 +163,7 @@ def test_wsj_formal_observation_replaces_non_color_calibration_preview():
     assert '--registration-min-coverage "$REGISTRATION_MIN_COVERAGE"' in launcher
 
 
-def test_wsj_formal_observation_preserves_warm_dds_sender_on_startup_stall():
+def test_wsj_formal_observation_recovers_only_a_proven_stale_sender_reader():
     launcher = (
         OVERLAY / "start_wsj_command_observation.sh"
     ).read_text()
@@ -172,7 +172,8 @@ def test_wsj_formal_observation_preserves_warm_dds_sender_on_startup_stall():
     ).read_text()
 
     assert "wait_for_hub_sequence_advance" in launcher
-    assert "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-50" in launcher
+    assert "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-12" in launcher
+    assert "FOCUS_WSJ_SYNC_PROBE_TIMEOUT_S:-12" in launcher
     assert "--depth-topic /slam/depth" in launcher
     assert "--pose-topic /slam/odometry_visual" in launcher
     assert "--latest-rgb-for-depth" in launcher
@@ -195,11 +196,28 @@ def test_wsj_formal_observation_preserves_warm_dds_sender_on_startup_stall():
     assert 'persistent_sender_pid="$(runtime_sender_pid)"' in calibration
     assert 'current_pid="$(runtime_sender_pid)"' in calibration
     sender = (OVERLAY / "focus_ros_sender.py").read_text()
+    probe = (OVERLAY / "probe_wsj_observation_sync.py").read_text()
     assert "preserve this ROS/DDS participant" in sender
     assert "self._reset_session()" in sender
     assert "Preserving the DDS participant; do not restart it" in launcher
-    assert "for attempt in 0 1" not in launcher
-    assert "restarting only the read-only sender once" not in launcher
+    assert "fresh_reader_can_assemble_observation" in launcher
+    assert "recover_stale_sender_reader" in launcher
+    assert "WSJ_STALE_SENDER_READER_RECOVERED" in launcher
+    assert "probe_wsj_observation_sync.py" in launcher
+    assert "observed_read_only_fresh_dds_reader" in probe
+    assert '"robot_commands_issued": False' in probe
+    probe_gate = launcher.index("if fresh_reader_can_assemble_observation")
+    sender_recovery = launcher.index("recover_stale_sender_reader", probe_gate)
+    publisher_instruction = launcher.index(
+        "If publisher recovery is authorized", probe_gate
+    )
+    assert probe_gate < sender_recovery < publisher_instruction
+    assert 'write_parked_contract\n  wait_for_receipt parked ""' in launcher
+    assert "tracking publishers restarted: false" in launcher
+    assert (
+        "Refusing sender reader recovery while a command path exists"
+        in launcher
+    )
     assert launcher.index("go2_cmd_bridge") < launcher.index(
         'wait_for_hub_sequence_advance "$initial_sequence"'
     )

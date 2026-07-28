@@ -26,11 +26,13 @@ COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"
 REGISTRATION_MIN_COVERAGE="${FOCUS_WSJ_REGISTRATION_MIN_COVERAGE:-0.38}"
 RGB_CACHE_SIZE="${FOCUS_WSJ_RGB_CACHE_SIZE:-90}"
 LATEST_RGB_MAX_SKEW_S="${FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S:-0.05}"
-# The persistent sender recovered without a publisher restart after one
-# observed 35.508 s Fast DDS receive gap on 2026-07-27. Keep the participant
-# alive and allow that bounded self-recovery; this is observation readiness
-# only and cannot extend a motion lease or guarded velocity authority.
-SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-50}"
+# A stale persistent DataReader can expose every publisher endpoint yet stop
+# delivering synchronized tuples.  Twelve seconds covers the observed healthy
+# cadence without spending most of a test window on a dead reader.  A fresh
+# read-only participant must prove the complete RGB-D/pose tuple before only
+# the sender is replaced; tracking publishers are never touched by that path.
+SENDER_ADVANCE_TIMEOUT_S="${FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S:-12}"
+SYNC_PROBE_TIMEOUT_S="${FOCUS_WSJ_SYNC_PROBE_TIMEOUT_S:-12}"
 FASTDDS_BUILTIN_TRANSPORTS_VALUE="${FOCUS_WSJ_FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
 park_only=false
 
@@ -86,6 +88,10 @@ done
   echo "FOCUS_WSJ_SENDER_ADVANCE_TIMEOUT_S must be a positive integer." >&2
   exit 2
 }
+[[ "$SYNC_PROBE_TIMEOUT_S" =~ ^[1-9][0-9]*$ ]] || {
+  echo "FOCUS_WSJ_SYNC_PROBE_TIMEOUT_S must be a positive integer." >&2
+  exit 2
+}
 [[ "$LATEST_RGB_MAX_SKEW_S" =~ ^0\.[0-9]*[1-9][0-9]*$ ]] || {
   echo "FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S must be a positive subsecond decimal." >&2
   exit 2
@@ -100,6 +106,7 @@ done
 }
 for required in \
   "$SCRIPT_DIR/focus_ros_sender.py" \
+  "$SCRIPT_DIR/probe_wsj_observation_sync.py" \
   "$SCRIPT_DIR/wsj_camera_preview.py" \
   "$SETUP_FILE" \
   "$PYTHON_BIN" \
@@ -521,6 +528,55 @@ wait_for_hub_sequence_advance() {
   return 1
 }
 
+fresh_reader_can_assemble_observation() {
+  env "FASTDDS_BUILTIN_TRANSPORTS=$FASTDDS_BUILTIN_TRANSPORTS_VALUE" \
+    "$PYTHON_BIN" -u "$SCRIPT_DIR/probe_wsj_observation_sync.py" \
+      --timeout-s "$SYNC_PROBE_TIMEOUT_S" \
+      --minimum-tuples 3 \
+      --sync-queue-size 50 \
+      --sync-slop-s 0.05 \
+      --rgb-cache-size "$RGB_CACHE_SIZE" \
+      --latest-rgb-max-skew-s "$LATEST_RGB_MAX_SKEW_S"
+}
+
+recover_stale_sender_reader() {
+  local old_pid new_pid baseline
+  old_pid="$(sender_pid)"
+  [[ "$old_pid" =~ ^[1-9][0-9]*$ ]] || {
+    echo "Persistent WSJ sender PID is unavailable for reader recovery." >&2
+    return 1
+  }
+  if pgrep -af 'go2_cmd_bridge|v2_wsj_receiver\.py' >/dev/null 2>&1; then
+    echo "Refusing sender reader recovery while a command path exists." >&2
+    return 1
+  fi
+
+  # Remove command-capable metadata before replacing the observation-only
+  # process.  No camera/perception publisher or tracking epoch is touched.
+  write_parked_contract
+  wait_for_receipt parked ""
+  stop_tracked_sender
+  launch_sender
+  new_pid="$(sender_pid)"
+  [[ "$new_pid" =~ ^[1-9][0-9]*$ && "$new_pid" != "$old_pid" ]] || {
+    echo "WSJ sender reader was not replaced by a new process." >&2
+    return 1
+  }
+  wait_for_receipt parked ""
+
+  baseline="$(hub_latest_sequence)"
+  contract_sha256="$(write_active_contract)"
+  wait_for_receipt active "$contract_sha256"
+  if ! wait_for_hub_sequence_advance "$baseline"; then
+    echo "Fresh WSJ sender reader did not advance after a passing sync probe." >&2
+    return 1
+  fi
+  initial_sequence="$baseline"
+  echo "WSJ_STALE_SENDER_READER_RECOVERED:$old_pid->$new_pid"
+  echo "  tracking publishers restarted: false"
+  echo "  robot commands issued: false"
+}
+
 ensure_camera_preview() {
   local preview_log deadline preview_processes preview_transport
   preview_processes="$(
@@ -613,11 +669,17 @@ validate_reanchor_marker
 initial_sequence="$(hub_latest_sequence)"
 contract_sha256="$(write_active_contract)"
 wait_for_receipt active "$contract_sha256"
-wait_for_hub_sequence_advance "$initial_sequence" || {
-  echo "WSJ sender contract is active but no synchronized frame arrived." >&2
-  echo "Preserving the DDS participant; do not restart it. If publisher recovery is authorized, restart camera/perception only after this sender exists." >&2
-  exit 1
-}
+if ! wait_for_hub_sequence_advance "$initial_sequence"; then
+  echo "WSJ persistent sender did not advance; probing the publisher tuple with a fresh read-only participant." >&2
+  if fresh_reader_can_assemble_observation; then
+    echo "Fresh reader proved the publishers healthy; replacing only the stale observation sender." >&2
+    recover_stale_sender_reader
+  else
+    echo "WSJ sender and fresh sync probe both received no complete observation tuple." >&2
+    echo "Preserving the DDS participant; do not restart it. If publisher recovery is authorized, restart camera/perception only after this sender exists." >&2
+    exit 1
+  fi
+fi
 if [[ -n "$resolved_restart_boot_id" \
       && -e "$REANCHOR_REQUIRED_FILE" ]]; then
   unlink "$REANCHOR_REQUIRED_FILE"
