@@ -447,7 +447,7 @@ def test_latched_map_stays_valid_only_within_bounded_base_motion():
     ) == (False, None)
 
 
-def test_wsj_launcher_bridges_one_source_keyframe_plus_one_grid_cell():
+def test_wsj_launcher_uses_continuous_geometry_plus_one_grid_cell():
     source = (
         OVERLAY / "start_tinynav_buildmap_online_nav.sh"
     ).read_text(encoding="utf-8")
@@ -486,8 +486,12 @@ def test_wsj_launcher_bridges_one_source_keyframe_plus_one_grid_cell():
         '--max-plan-duration-s \\"$MAX_PLAN_DURATION_S\\"'
         in source
     )
-    assert '"--alternate-size",' in online_mapping
+    assert '"/slam/depth",' in online_mapping
+    assert '"ros_continuous_depth_geometry_rgb.py"' in online_mapping
+    assert '"--approved-size",' in online_mapping
+    assert '"848x480",' in online_mapping
     assert '"640x480",' in online_mapping
+    assert '"/slam/keyframe_depth"' not in online_mapping
     assert '"keyframe.pose_jump_rotation_deg": 35.0' in online_mapping
 
 

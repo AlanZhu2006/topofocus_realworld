@@ -122,8 +122,24 @@ def test_controller_path_filter_rejects_all_duplicate_geometry():
         _pose_stamped(0.009, 0.0),
     )
 
-    with pytest.raises(ValueError, match="geometrically distinct"):
+    with pytest.raises(
+        MODULE.DegenerateControllerPathError,
+        match="geometrically distinct",
+    ) as raised:
         MODULE.distinct_controller_path_pose_indices(path)
+    assert (
+        MODULE.trajectory_contract_hold_reason(raised.value)
+        == "trajectory_degenerate_hold"
+    )
+
+
+def test_malformed_path_hold_does_not_claim_reverse_motion():
+    error = ValueError("trajectory frame 'map' != 'world'")
+
+    assert MODULE.trajectory_contract_hold_reason(error) == (
+        "trajectory_contract_invalid:"
+        "trajectory frame 'map' != 'world'"
+    )
 
 
 def test_controller_path_filter_preserves_rotate_in_place_geometry():

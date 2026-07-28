@@ -70,7 +70,7 @@ for required in \
   "$TINYNAV_ROOT/tinynav/platforms/cmd_vel_control.py" \
   "$SCRIPT_DIR/run_tinynav_buildmap_live.py" \
   "$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py" \
-  "$SCRIPT_DIR/ros_image_frame_alias.py" \
+  "$SCRIPT_DIR/ros_continuous_depth_geometry_rgb.py" \
   "$SCRIPT_DIR/tinynav_source_contract.py" \
   "$SCRIPT_DIR/run_yunji_tinynav_planner.py" \
   "$SCRIPT_DIR/tinynav_buildmap_goal_router.py" \

@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Launch TinyNav stereo geometry/occupancy directly in the fresh ``world`` frame.
+"""Launch continuous TinyNav geometry/occupancy in the fresh ``world`` frame.
 
 The installed ``semantic_mapping`` package normally targets a relocalized
 saved-map frame and RealSense aligned depth. This deployment launch keeps the
-package unchanged but overrides it to consume TinyNav's timestamp-matched
-stereo products:
+package unchanged but overrides it to consume TinyNav's continuously
+published, timestamp-matched geometry products:
 
-``/slam/keyframe_image + /slam/keyframe_depth + /slam/camera_info``.
+``/slam/depth + /slam/camera_info + world->camera TF``.
 
-No semantic inference or actuator process is started here.
+The point-cloud node requires an RGB field although occupancy uses only XYZ.
+A read-only adapter therefore supplies a strictly stamped black RGB companion
+for each validated depth frame. No semantic inference or actuator process is
+started here.
 """
 from __future__ import annotations
 
@@ -42,14 +45,19 @@ def main() -> int:
         parser.error(f"semantic mapping config is missing: {default_config}")
     output = args.output_directory.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
-    alias_script = Path(__file__).resolve().with_name("ros_image_frame_alias.py")
-    if not alias_script.is_file():
-        parser.error(f"RGB frame-alias bridge is missing: {alias_script}")
-    normalized_rgb_topic = "/focus/slam/keyframe_image_camera_alias"
+    geometry_rgb_script = Path(__file__).resolve().with_name(
+        "ros_continuous_depth_geometry_rgb.py"
+    )
+    if not geometry_rgb_script.is_file():
+        parser.error(
+            f"continuous geometry RGB adapter is missing: "
+            f"{geometry_rgb_script}"
+        )
+    geometry_rgb_topic = "/focus/slam/continuous_depth_geometry_rgb"
 
     geometry_overrides = {
-        "topics.rgb": normalized_rgb_topic,
-        "topics.depth": "/slam/keyframe_depth",
+        "topics.rgb": geometry_rgb_topic,
+        "topics.depth": "/slam/depth",
         "topics.camera_info": "/slam/camera_info",
         "topics.pointcloud": "/semantic_mapping/semantic_pointcloud",
         "topics.camera_pose": "/semantic_mapping/camera_pose",
@@ -59,7 +67,10 @@ def main() -> int:
         "frames.tracking_camera_frame": "camera",
         "frames.camera_frame": "camera",
         "sync.queue_size": 30,
-        "sync.max_slop_sec": 0.005,
+        # This is the same continuous depth/CameraInfo/pose tuple already
+        # validated by the persistent WSJ observation sender.  Its measured
+        # pose skew is 0 ms; retain the sender's 50 ms fail-closed sync bound.
+        "sync.max_slop_sec": 0.05,
         "pose.allow_latest_map_alignment": False,
         "pose.wait_for_target_alignment": False,
         "processing.max_rate_hz": args.max_rate_hz,
@@ -91,29 +102,21 @@ def main() -> int:
                 cmd=[
                     sys.executable,
                     "-u",
-                    str(alias_script),
+                    str(geometry_rgb_script),
                     "--input-topic",
-                    "/slam/keyframe_image",
+                    "/slam/depth",
                     "--output-topic",
-                    normalized_rgb_topic,
-                    "--source-frame",
-                    "camera_infra1_optical_frame",
-                    "--target-frame",
+                    geometry_rgb_topic,
+                    "--camera-frame",
                     "camera",
-                    "--width",
-                    "848",
-                    "--height",
-                    "480",
-                    # The observed D435 reconnect fallback on a USB 2.1 link is
-                    # 640x480@15.  Both profiles preserve the same left-infrared
-                    # optical frame; the downstream synchronized CameraInfo
-                    # check still rejects a stale-intrinsics transition.
-                    "--alternate-size",
+                    "--approved-size",
+                    "848x480",
+                    "--approved-size",
                     "640x480",
-                    "--encoding",
-                    "mono8",
+                    "--max-capture-age-s",
+                    "2.0",
                 ],
-                name="focus_image_frame_alias",
+                name="focus_continuous_depth_geometry_rgb",
                 output="screen",
             ),
             Node(

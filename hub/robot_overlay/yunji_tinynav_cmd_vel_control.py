@@ -75,6 +75,18 @@ DEFAULT_CONTROLLER_POSE_JUMP_FREEZE_S = 0.60
 EXPECTED_CONTROLLER_PATH_FRAME = "world"
 
 
+class DegenerateControllerPathError(ValueError):
+    """A well-formed path contains no meaningful translation or rotation."""
+
+
+def trajectory_contract_hold_reason(error: ValueError) -> str:
+    """Classify invalid geometry without falsely claiming reverse motion."""
+
+    if isinstance(error, DegenerateControllerPathError):
+        return "trajectory_degenerate_hold"
+    return f"trajectory_contract_invalid:{error}"
+
+
 def validate_controller_path_message(
     message: object,
     *,
@@ -213,7 +225,7 @@ def distinct_controller_path_pose_indices(
         previous_translation = translation
         previous_quaternion = quaternion
     if len(selected) < 2:
-        raise ValueError(
+        raise DegenerateControllerPathError(
             "trajectory has fewer than two geometrically distinct poses"
         )
     return tuple(selected)
@@ -1057,9 +1069,13 @@ def main(args: list[str] | None = None) -> None:
             except ValueError as exc:
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
-                self._reverse_required_publisher.publish(Bool(data=True))
+                # Invalid or stationary geometry must close velocity, but it
+                # is not evidence that the path asks the robot to reverse.
+                # Only a measured negative control segment below publishes
+                # reverse_required=True.
+                self._reverse_required_publisher.publish(Bool(data=False))
                 self._publish_focus_guarded_zero(
-                    f"trajectory_contract_invalid:{exc}"
+                    trajectory_contract_hold_reason(exc)
                 )
                 return
             if len(distinct_indices) != len(message.poses):
@@ -1092,7 +1108,7 @@ def main(args: list[str] | None = None) -> None:
             if geometry_error or control_segment_forward_m is None:
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
-                self._reverse_required_publisher.publish(Bool(data=True))
+                self._reverse_required_publisher.publish(Bool(data=False))
                 self._publish_focus_guarded_zero(
                     "trajectory_geometry_invalid"
                 )
@@ -1107,7 +1123,7 @@ def main(args: list[str] | None = None) -> None:
             ):
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
-                self._reverse_required_publisher.publish(Bool(data=True))
+                self._reverse_required_publisher.publish(Bool(data=False))
                 self._publish_focus_guarded_zero(
                     "source_path_callback_failed"
                 )
@@ -1115,7 +1131,7 @@ def main(args: list[str] | None = None) -> None:
             if not command_components_finite(self.latest_cmd):
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
-                self._reverse_required_publisher.publish(Bool(data=True))
+                self._reverse_required_publisher.publish(Bool(data=False))
                 self._publish_focus_guarded_zero(
                     "source_controller_command_nonfinite"
                 )
