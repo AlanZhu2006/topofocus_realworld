@@ -231,13 +231,10 @@ the operator-provided independently measured shortest feasible path
 | Run | Result | Robot 0 path | Robot 1 path | Source-compatible SPL | Standard SPL |
 | --- | --- | ---: | ---: | ---: | ---: |
 | Formal 01 | FAILURE | `6.104564 m` | `1.905387 m` | `0.0` | `0.0` |
-| Formal 02 | FAILURE | `1.034858 m`* | `7.425951 m` | `0.0` | `0.0` |
-| Formal 03 | SUCCESS | `0.728655 m`* | `8.356524 m` | `0.865192` | `0.837669` |
-| Formal 04 | SUCCESS | `0.454227 m`* | `7.579081 m` | `0.961379` | `0.923595` |
+| Formal 02 | FAILURE | `1.034858 m` | `7.425951 m` | `0.0` | `0.0` |
+| Formal 03 | SUCCESS | `0.728655 m` | `8.356524 m` | `0.865192` | `0.837669` |
+| Formal 04 | SUCCESS | `0.454227 m` | `7.579081 m` | `0.961379` | `0.923595` |
 | Formal 05 | SUCCESS | `2.032182 m` | `7.802197 m` | `0.960264` | `0.897183` |
-
-\* Robot 0 is inactive or HOLDs under route coordination; its accumulated
-odometry is retained as observed provenance.
 
 [Formal 01 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
 · [Formal 02 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md)
