@@ -190,6 +190,125 @@ def test_score_summary_exposes_all_collision_and_in_place_recovery():
     assert recovered["finite_in_place_candidate_count"] == 1
 
 
+def test_circular_scorer_uses_measured_radius_not_square_corner_radius():
+    rows, columns = np.indices((20, 20))
+    # Put one obstacle exactly at the square scorer's front-left corner.
+    # Its distance from the trajectory center is sqrt(2)*0.25 ~= 0.354 m:
+    # outside the measured 0.283 m circle but on the source corner sample.
+    esdf = np.hypot(rows - 15, columns - 15) * 0.05
+    trajectories = np.zeros((1, 3, 7), dtype=np.float64)
+    trajectories[0, :, :2] = [0.5, 0.5]
+
+    scores, closest_steps = (
+        MODULE.score_circular_trajectories_by_esdf(
+            trajectories,
+            esdf,
+            origin=[0.0, 0.0, 0.0],
+            resolution=0.05,
+            safety_radius=0.05,
+            front_len=0.283,
+            rear_len=0.283,
+            half_w=0.283,
+        )
+    )
+
+    assert esdf[15, 15] == 0.0
+    assert esdf[10, 10] > 0.283
+    # The source's square-corner proxy samples the obstacle and rejects the
+    # path. The exact circular body remains collision-free.
+    assert np.isfinite(scores[0])
+    assert scores[0] == 0.0
+    assert closest_steps == [0]
+
+
+def test_circular_scorer_rejects_true_body_overlap_and_out_of_map_path():
+    esdf = np.full((20, 20), 1.0, dtype=np.float64)
+    esdf[10, 10] = 0.25
+    trajectories = np.zeros((2, 2, 7), dtype=np.float64)
+    trajectories[0, :, :2] = [0.5, 0.5]
+    trajectories[1, :, :2] = [-0.01, 0.5]
+
+    scores, closest_steps = (
+        MODULE.score_circular_trajectories_by_esdf(
+            trajectories,
+            esdf,
+            origin=[0.0, 0.0],
+            resolution=0.05,
+            safety_radius=0.05,
+            front_len=0.283,
+            rear_len=0.283,
+            half_w=0.283,
+        )
+    )
+
+    assert scores == [float("inf"), float("inf")]
+    assert closest_steps == [0, 0]
+
+
+def test_circular_scorer_preserves_open_space_and_closest_step_decay():
+    esdf = np.full((20, 20), 1.0, dtype=np.float64)
+    trajectories = np.zeros((2, 4, 7), dtype=np.float64)
+    trajectories[0, :, :2] = [0.5, 0.5]
+    trajectories[1, :, :2] = [0.5, 0.5]
+    esdf[10, 10] = 0.32
+
+    scores, closest_steps = (
+        MODULE.score_circular_trajectories_by_esdf(
+            trajectories,
+            esdf,
+            origin=[0.0, 0.0],
+            resolution=0.05,
+            safety_radius=0.05,
+            front_len=0.283,
+            rear_len=0.283,
+            half_w=0.283,
+        )
+    )
+
+    assert scores[0] == pytest.approx(1.0 / (0.037 + 0.001))
+    assert scores[1] == pytest.approx(scores[0])
+    assert closest_steps == [0, 0]
+
+    esdf[10, 10] = 0.50
+    open_scores, _ = MODULE.score_circular_trajectories_by_esdf(
+        trajectories,
+        esdf,
+        origin=[0.0, 0.0],
+        resolution=0.05,
+        safety_radius=0.05,
+        front_len=0.283,
+        rear_len=0.283,
+        half_w=0.283,
+    )
+    assert open_scores == [0.0, 0.0]
+
+
+@pytest.mark.parametrize(
+    ("front_len", "rear_len", "half_w"),
+    [
+        (0.283, 0.300, 0.283),
+        (0.283, 0.283, 0.300),
+        (0.0, 0.0, 0.0),
+    ],
+)
+def test_circular_scorer_rejects_non_circular_or_invalid_geometry(
+    front_len,
+    rear_len,
+    half_w,
+):
+    with pytest.raises(ValueError):
+        MODULE.score_circular_trajectories_by_esdf(
+            np.zeros((1, 2, 7)),
+            np.ones((4, 4)),
+            origin=[0.0, 0.0],
+            resolution=0.05,
+            safety_radius=0.05,
+            front_len=front_len,
+            rear_len=rear_len,
+            half_w=half_w,
+        )
+
+
 @pytest.mark.parametrize(
     ("trajectories", "parameters"),
     [
