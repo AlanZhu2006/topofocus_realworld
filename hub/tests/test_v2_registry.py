@@ -664,6 +664,56 @@ def test_same_leg_renewal_accepts_zeroed_odometry_recovery(
     ).lease_sequence == 1
 
 
+def test_odometry_recovery_accepts_exact_transient_slam_detail(
+    observation_factory,
+):
+    observations, registry, digests, now = ready_registries(
+        observation_factory
+    )
+    first = make_batch(observations, digests, now=now)
+    registry.publish_batch(first, now_ns=now)
+
+    for index, decision in enumerate(first.decisions):
+        raw = make_event(
+            decision,
+            now=now + 500_000_000,
+            event_id=f"odometry-slam-recovery-{index}",
+        ).model_dump(mode="json")
+        if index == 0:
+            raw["status"] = "ACCEPTED"
+            raw["reason_code"] = "LOCAL_ODOMETRY_RECOVERY_WAIT"
+            raw["velocity_zero_confirmed"] = True
+        event = NavigationEventV2.model_validate(raw)
+        registry.accept_event(
+            event,
+            hashlib.sha256(event.model_dump_json().encode()).hexdigest(),
+            now_ns=now + 500_000_000,
+        )
+    observations.accept_heartbeat(
+        "robot-0",
+        odometry_recovery_health(
+            "optimizer_status=skipped_imu_invalid"
+        ),
+        now + 750_000_000,
+        now_ns=now + 750_000_000,
+    )
+
+    renewal = make_batch(
+        observations,
+        digests,
+        now=now,
+        lease_sequence=1,
+        decision_suffix="1",
+        issued_at_ns=now + 1_000_000_000,
+        expires_at_ns=now + 9_000_000_000,
+    )
+    registry.publish_batch(renewal, now_ns=now + 1_000_000_000)
+    assert registry.effective_decision(
+        "robot-0",
+        now_ns=now + 1_000_000_001,
+    ).lease_sequence == 1
+
+
 @pytest.mark.parametrize(
     ("detail", "zero_confirmed", "motor_ready"),
     (

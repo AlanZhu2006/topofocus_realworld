@@ -814,6 +814,72 @@ def test_odometry_recovery_renewal_overrides_only_localization_gate():
     ).ready_for_goal()
 
 
+def test_odometry_slam_recovery_keeps_both_original_bounds():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    common = {
+        "odometry_recovery_grace_s": 7.0,
+        "slam_recovery_grace_s": 2.0,
+        "slam_detail": "optimizer_status=skipped_imu_invalid",
+        "all_non_odometry_slam_health_ready": True,
+        "odometry_observed": True,
+    }
+
+    assert wsj.odometry_slam_recovery_eligible(
+        odometry_recovery_elapsed_s=6.9,
+        slam_recovery_elapsed_s=1.9,
+        **common,
+    )
+    assert not wsj.odometry_slam_recovery_eligible(
+        odometry_recovery_elapsed_s=7.001,
+        slam_recovery_elapsed_s=0.1,
+        **common,
+    )
+    assert not wsj.odometry_slam_recovery_eligible(
+        odometry_recovery_elapsed_s=0.1,
+        slam_recovery_elapsed_s=2.001,
+        **common,
+    )
+    assert not wsj.odometry_slam_recovery_eligible(
+        odometry_recovery_elapsed_s=0.1,
+        slam_recovery_elapsed_s=0.1,
+        **{**common, "slam_detail": "optimizer_status=failed"},
+    )
+    assert not wsj.odometry_slam_recovery_eligible(
+        odometry_recovery_elapsed_s=0.1,
+        slam_recovery_elapsed_s=0.1,
+        **{**common, "all_non_odometry_slam_health_ready": False},
+    )
+
+
+def test_odometry_slam_handoff_preserves_timer_only_for_same_leg():
+    wsj = load_overlay("v2_wsj_receiver.py")
+
+    assert wsj.inherited_recovery_start_ns(
+        now_ns=9_000_000_000,
+        active_leg_id="leg-a",
+        current_started_ns=0,
+        current_leg_id=None,
+        handoff_started_ns=7_500_000_000,
+        handoff_leg_id="leg-a",
+    ) == 7_500_000_000
+    assert wsj.inherited_recovery_start_ns(
+        now_ns=9_000_000_000,
+        active_leg_id="leg-b",
+        current_started_ns=0,
+        current_leg_id=None,
+        handoff_started_ns=7_500_000_000,
+        handoff_leg_id="leg-a",
+    ) == 9_000_000_000
+    assert wsj.inherited_recovery_start_ns(
+        now_ns=9_000_000_000,
+        active_leg_id="leg-a",
+        current_started_ns=7_000_000_000,
+        current_leg_id="leg-a",
+        handoff_started_ns=7_500_000_000,
+        handoff_leg_id="leg-a",
+    ) == 7_000_000_000
+
+
 def test_combined_sensor_recovery_keeps_both_original_bounds():
     wsj = load_overlay("v2_wsj_receiver.py")
     common = {

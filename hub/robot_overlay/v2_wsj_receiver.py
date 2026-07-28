@@ -232,6 +232,65 @@ def odometry_recovery_renewal_health(health: RobotHealth) -> RobotHealth:
     )
 
 
+def odometry_slam_recovery_eligible(
+    *,
+    odometry_recovery_elapsed_s: float,
+    odometry_recovery_grace_s: float,
+    slam_recovery_elapsed_s: float,
+    slam_recovery_grace_s: float,
+    slam_detail: str,
+    all_non_odometry_slam_health_ready: bool,
+    odometry_observed: bool,
+) -> bool:
+    """Bound a shared-upstream odometry and transient-SLAM stopped wait.
+
+    The control-odometry publication gap keeps the physical velocity gate
+    closed.  A simultaneous exact transient SLAM diagnostic gets its own
+    shorter timer, and both original timers must remain valid.  This prevents
+    a handoff between the two recovery states from extending either budget.
+    """
+
+    if (
+        not math.isfinite(odometry_recovery_grace_s)
+        or odometry_recovery_grace_s <= 0.0
+    ):
+        raise ValueError("odometry recovery bound must be positive")
+    if (
+        not math.isfinite(slam_recovery_grace_s)
+        or slam_recovery_grace_s <= 0.0
+    ):
+        raise ValueError("SLAM recovery bound must be positive")
+    return bool(
+        all_non_odometry_slam_health_ready
+        and odometry_observed
+        and slam_detail in TRANSIENT_SLAM_FAILURES
+        and math.isfinite(odometry_recovery_elapsed_s)
+        and 0.0
+        <= odometry_recovery_elapsed_s
+        <= odometry_recovery_grace_s
+        and math.isfinite(slam_recovery_elapsed_s)
+        and 0.0 <= slam_recovery_elapsed_s <= slam_recovery_grace_s
+    )
+
+
+def inherited_recovery_start_ns(
+    *,
+    now_ns: int,
+    active_leg_id: str,
+    current_started_ns: int,
+    current_leg_id: str | None,
+    handoff_started_ns: int,
+    handoff_leg_id: str | None,
+) -> int:
+    """Preserve one sensor incident's timer across a same-leg handoff."""
+
+    if current_started_ns > 0 and current_leg_id == active_leg_id:
+        return current_started_ns
+    if handoff_started_ns > 0 and handoff_leg_id == active_leg_id:
+        return handoff_started_ns
+    return now_ns
+
+
 def combined_sensor_recovery_eligible(
     *,
     occupancy_recovery_elapsed_s: float,
@@ -2009,6 +2068,8 @@ def main() -> int:
     slam_recovery_started_ns = 0
     odometry_recovery_leg_id: str | None = None
     odometry_recovery_started_ns = 0
+    odometry_slam_recovery_leg_id: str | None = None
+    odometry_slam_recovery_started_ns = 0
     progress_watchdog = GoalProgressWatchdog(
         timeout_s=args.no_progress_timeout_s,
         minimum_improvement_m=args.minimum_goal_progress_m,
@@ -2114,6 +2175,8 @@ def main() -> int:
                 slam_recovery_started_ns = 0
                 odometry_recovery_leg_id = None
                 odometry_recovery_started_ns = 0
+                odometry_slam_recovery_leg_id = None
+                odometry_slam_recovery_started_ns = 0
             now_ns = time.time_ns()
             alignment_shift, alignment_yaw = planar_transform_delta(
                 tracking_T_map, current_tracking_T_map
@@ -2229,11 +2292,16 @@ def main() -> int:
                 and (occupancy_fresh or node.occupancy is not None)
             )
             if slam_recovery_candidate:
-                if (
-                    slam_recovery_started_ns <= 0
-                    or slam_recovery_leg_id != active_decision.leg_id
-                ):
-                    slam_recovery_started_ns = now_ns
+                slam_recovery_started_ns = inherited_recovery_start_ns(
+                    now_ns=now_ns,
+                    active_leg_id=active_decision.leg_id,
+                    current_started_ns=slam_recovery_started_ns,
+                    current_leg_id=slam_recovery_leg_id,
+                    handoff_started_ns=(
+                        odometry_slam_recovery_started_ns
+                    ),
+                    handoff_leg_id=odometry_slam_recovery_leg_id,
+                )
                 slam_recovery_elapsed_s = max(
                     0.0,
                     (now_ns - slam_recovery_started_ns) / 1e9,
@@ -2248,20 +2316,23 @@ def main() -> int:
                     all_non_slam_health_ready and occupancy_fresh
                 ),
             )
-            all_non_odometry_health_ready = bool(
+            all_non_odometry_slam_health_ready = bool(
                 slam_stream_fresh
-                and node.slam_pass
                 and occupancy_fresh
                 and alignment_stable
                 and graph_ready
                 and platform_fresh
                 and node.platform_pass
             )
+            all_non_odometry_health_ready = bool(
+                all_non_odometry_slam_health_ready and node.slam_pass
+            )
             odometry_recovery_candidate = bool(
                 active_decision is not None
                 and not odometry_fresh
                 and node.odom_received_ns > 0
-                and all_non_odometry_health_ready
+                and all_non_odometry_slam_health_ready
+                and (node.slam_pass or transient_slam_failure)
             )
             if odometry_recovery_candidate:
                 if (
@@ -2276,13 +2347,67 @@ def main() -> int:
                 )
             else:
                 odometry_recovery_elapsed_s = math.inf
-            odometry_recovery_active = odometry_recovery_eligible(
-                recovery_elapsed_s=odometry_recovery_elapsed_s,
-                recovery_grace_s=args.odometry_recovery_grace_s,
-                all_non_odometry_health_ready=(
-                    all_non_odometry_health_ready
-                ),
-                odometry_observed=node.odom_received_ns > 0,
+            healthy_slam_odometry_recovery_active = (
+                odometry_recovery_eligible(
+                    recovery_elapsed_s=odometry_recovery_elapsed_s,
+                    recovery_grace_s=args.odometry_recovery_grace_s,
+                    all_non_odometry_health_ready=(
+                        all_non_odometry_health_ready
+                    ),
+                    odometry_observed=node.odom_received_ns > 0,
+                )
+            )
+            odometry_slam_recovery_candidate = bool(
+                odometry_recovery_candidate and transient_slam_failure
+            )
+            if odometry_slam_recovery_candidate:
+                odometry_slam_recovery_started_ns = (
+                    inherited_recovery_start_ns(
+                        now_ns=now_ns,
+                        active_leg_id=active_decision.leg_id,
+                        current_started_ns=(
+                            odometry_slam_recovery_started_ns
+                        ),
+                        current_leg_id=odometry_slam_recovery_leg_id,
+                        handoff_started_ns=slam_recovery_started_ns,
+                        handoff_leg_id=slam_recovery_leg_id,
+                    )
+                )
+                odometry_slam_recovery_leg_id = active_decision.leg_id
+                odometry_slam_recovery_elapsed_s = max(
+                    0.0,
+                    (
+                        now_ns - odometry_slam_recovery_started_ns
+                    )
+                    / 1e9,
+                )
+            else:
+                odometry_slam_recovery_leg_id = None
+                odometry_slam_recovery_started_ns = 0
+                odometry_slam_recovery_elapsed_s = math.inf
+            odometry_slam_recovery_active = (
+                odometry_slam_recovery_candidate
+                and odometry_slam_recovery_eligible(
+                    odometry_recovery_elapsed_s=(
+                        odometry_recovery_elapsed_s
+                    ),
+                    odometry_recovery_grace_s=(
+                        args.odometry_recovery_grace_s
+                    ),
+                    slam_recovery_elapsed_s=(
+                        odometry_slam_recovery_elapsed_s
+                    ),
+                    slam_recovery_grace_s=args.slam_recovery_grace_s,
+                    slam_detail=node.slam_detail,
+                    all_non_odometry_slam_health_ready=(
+                        all_non_odometry_slam_health_ready
+                    ),
+                    odometry_observed=node.odom_received_ns > 0,
+                )
+            )
+            odometry_recovery_active = bool(
+                healthy_slam_odometry_recovery_active
+                or odometry_slam_recovery_active
             )
             combined_sensor_recovery_candidate = bool(
                 occupancy_recovery_candidate
@@ -2709,6 +2834,23 @@ def main() -> int:
                             decision_id=active_decision.decision_id,
                             leg_id=active_decision.leg_id,
                             odometry_age_s=round(odom_age_s, 3),
+                            slam_detail=node.slam_detail,
+                            simultaneous_transient_slam=(
+                                odometry_slam_recovery_candidate
+                            ),
+                            transient_slam_recovery_elapsed_s=(
+                                round(
+                                    odometry_slam_recovery_elapsed_s,
+                                    3,
+                                )
+                                if math.isfinite(
+                                    odometry_slam_recovery_elapsed_s
+                                )
+                                else None
+                            ),
+                            transient_slam_recovery_grace_s=(
+                                args.slam_recovery_grace_s
+                            ),
                             freshness_timeout_s=(
                                 args.local_data_timeout_s
                             ),
@@ -2747,23 +2889,27 @@ def main() -> int:
                         "SENSOR_RECOVERY_TIMEOUT"
                         if combined_sensor_recovery_candidate
                         else (
-                            "ODOMETRY_STALE_TIMEOUT"
-                            if odometry_recovery_candidate
+                            "ODOMETRY_SLAM_RECOVERY_TIMEOUT"
+                            if odometry_slam_recovery_candidate
                             else (
-                                "OCCUPANCY_STALE_TIMEOUT"
-                                if (
-                                    all_other_health_ready
-                                    and not occupancy_fresh
-                                )
+                                "ODOMETRY_STALE_TIMEOUT"
+                                if odometry_recovery_candidate
                                 else (
-                                    "SLAM_TRANSIENT_TIMEOUT"
+                                    "OCCUPANCY_STALE_TIMEOUT"
                                     if (
-                                        slam_recovery_leg_id
-                                        == failed_decision.leg_id
-                                        and node.slam_detail
-                                        in TRANSIENT_SLAM_FAILURES
+                                        all_other_health_ready
+                                        and not occupancy_fresh
                                     )
-                                    else "HEALTH_NOT_READY"
+                                    else (
+                                        "SLAM_TRANSIENT_TIMEOUT"
+                                        if (
+                                            slam_recovery_leg_id
+                                            == failed_decision.leg_id
+                                            and node.slam_detail
+                                            in TRANSIENT_SLAM_FAILURES
+                                        )
+                                        else "HEALTH_NOT_READY"
+                                    )
                                 )
                             )
                         )
@@ -2797,6 +2943,16 @@ def main() -> int:
                             ),
                             "odometry_recovery_grace_s": (
                                 args.odometry_recovery_grace_s
+                            ),
+                            "odometry_slam_recovery_candidate": (
+                                odometry_slam_recovery_candidate
+                            ),
+                            "odometry_slam_recovery_elapsed_s": (
+                                odometry_slam_recovery_elapsed_s
+                                if math.isfinite(
+                                    odometry_slam_recovery_elapsed_s
+                                )
+                                else None
                             ),
                             "alignment_stable": alignment_stable,
                             "graph_ready": graph_ready,
@@ -3772,6 +3928,16 @@ def main() -> int:
                                 "physical velocity gate is closed while "
                                 "waiting for fresh control odometry; "
                                 f"odometry_age_s={odom_age_s:.3f}; "
+                                f"slam_detail={node.slam_detail}; "
+                                "transient_slam_recovery_elapsed_s="
+                                + (
+                                    f"{odometry_slam_recovery_elapsed_s:.3f}"
+                                    if math.isfinite(
+                                        odometry_slam_recovery_elapsed_s
+                                    )
+                                    else "not_active"
+                                )
+                                + "; "
                                 "recovery_elapsed_s="
                                 f"{odometry_recovery_elapsed_s:.3f}; "
                                 "recovery_grace_s="

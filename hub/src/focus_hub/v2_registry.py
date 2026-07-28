@@ -49,9 +49,10 @@ HEALTHY_SLAM_RECOVERY_DETAILS = frozenset(
 )
 
 
-def healthy_slam_during_odometry_recovery(detail: str) -> bool:
+def permitted_slam_during_odometry_recovery(detail: str) -> bool:
     return bool(
         detail in HEALTHY_SLAM_RECOVERY_DETAILS
+        or detail in TRANSIENT_SLAM_RECOVERY_DETAILS
         or detail.startswith(
             "slam_optimizer_imu_valid_after_overwrite_recovery:"
         )
@@ -280,7 +281,13 @@ class V2DecisionRegistry:
         state: _V2RobotState,
         health: RobotHealth,
     ) -> bool:
-        """Permit only a stopped same-leg lease during healthy-SLAM odometry lag."""
+        """Permit a stopped same-leg lease during bounded odometry recovery.
+
+        The receiver owns the timers and may report either a healthy SLAM
+        diagnostic or one exact transient diagnostic sharing the same
+        upstream gap.  Zero confirmation and every independent health gate
+        remain authoritative here.
+        """
 
         previous = state.latest_by_leg.get(decision.leg_id)
         event = state.latest_event
@@ -300,7 +307,7 @@ class V2DecisionRegistry:
             and not health.estop_engaged
             and health.collision_avoidance_ready
             and health.motor_controller_ready
-            and healthy_slam_during_odometry_recovery(slam_detail)
+            and permitted_slam_during_odometry_recovery(slam_detail)
         )
 
     def _validate_lease_order(
