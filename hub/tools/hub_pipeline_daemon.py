@@ -292,6 +292,37 @@ def map_snapshot_revision(
     )
 
 
+def persist_map_snapshot_if_due(
+    pipeline: SpoolMappingPipeline | None,
+    out_dir: Path,
+    interval_s: float,
+    last_snapshot_at: float,
+    last_snapshot_revision: tuple[int | None, int, str | None] | None,
+    *,
+    now: float | None = None,
+) -> tuple[float, tuple[int | None, int, str | None] | None]:
+    """Persist a changed map without waiting for a replay batch to drain.
+
+    A cold deployment may need to replay thousands of observations.  Keeping
+    the cadence check outside that replay loop withheld the first 2-D map
+    until the entire backlog completed, even though a usable map already
+    existed.  This helper is safe to call after every streamed observation:
+    it writes only when both the wall-clock interval and map revision advance.
+    """
+
+    if interval_s <= 0 or pipeline is None:
+        return last_snapshot_at, last_snapshot_revision
+    current_time = time.monotonic() if now is None else now
+    current_revision = map_snapshot_revision(pipeline)
+    if (
+        current_time - last_snapshot_at < interval_s
+        or current_revision == last_snapshot_revision
+    ):
+        return last_snapshot_at, last_snapshot_revision
+    write_map_snapshot(pipeline, out_dir)
+    return current_time, current_revision
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--spool", type=Path, required=True)
@@ -656,9 +687,15 @@ def main() -> int:
     import httpx
 
     while running:
-        new = list(iter_spooled_observations(
-            args.spool, args.robot_id, after_sequence=highest_sequence))
-        for observation in new:
+        # Stream decoded RGB-D observations.  Materializing this iterator kept
+        # every historical RGB/depth array resident during a cold replay
+        # (multiple GiB in long scenes) and delayed all periodic work until the
+        # backlog drained.
+        for observation in iter_spooled_observations(
+            args.spool,
+            args.robot_id,
+            after_sequence=highest_sequence,
+        ):
             highest_sequence = max(highest_sequence, observation.sequence)
             observations_total += 1
             last_metadata = observation.metadata
@@ -947,21 +984,29 @@ def main() -> int:
                         last_metadata,
                         frames_total,
                     )
+                    (
+                        last_snapshot_at,
+                        last_snapshot_revision,
+                    ) = persist_map_snapshot_if_due(
+                        pipeline,
+                        args.out_dir,
+                        args.snapshot_interval_s,
+                        last_snapshot_at,
+                        last_snapshot_revision,
+                    )
+
+        (
+            last_snapshot_at,
+            last_snapshot_revision,
+        ) = persist_map_snapshot_if_due(
+            pipeline,
+            args.out_dir,
+            args.snapshot_interval_s,
+            last_snapshot_at,
+            last_snapshot_revision,
+        )
 
         now = time.monotonic()
-        current_snapshot_revision = (
-            None if pipeline is None else map_snapshot_revision(pipeline)
-        )
-        if (
-            args.snapshot_interval_s > 0
-            and pipeline is not None
-            and now - last_snapshot_at >= args.snapshot_interval_s
-            and current_snapshot_revision != last_snapshot_revision
-        ):
-            last_snapshot_at = now
-            write_map_snapshot(pipeline, args.out_dir)
-            last_snapshot_revision = current_snapshot_revision
-
         if pipeline is not None and now - last_decision_at >= args.decision_interval:
             last_decision_at = now
             decision_step += 1

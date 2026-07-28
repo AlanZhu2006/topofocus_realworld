@@ -52,3 +52,76 @@ def test_map_snapshot_revision_changes_for_input_map_or_latch():
 
     pipeline.mapping_blocked_reason = "pose discontinuity"
     assert daemon.map_snapshot_revision(pipeline) != baseline
+
+
+def test_snapshot_is_persisted_during_replay_only_when_due(
+    tmp_path, monkeypatch
+):
+    daemon = load_daemon_module()
+    pipeline = SimpleNamespace(
+        last_observation_sequence=42,
+        frames_processed=7,
+        mapping_blocked_reason=None,
+    )
+    writes = []
+    monkeypatch.setattr(
+        daemon,
+        "write_map_snapshot",
+        lambda observed, out_dir: writes.append((observed, out_dir)),
+    )
+
+    last_at, revision = daemon.persist_map_snapshot_if_due(
+        pipeline,
+        tmp_path,
+        3.0,
+        10.0,
+        None,
+        now=12.9,
+    )
+    assert writes == []
+    assert (last_at, revision) == (10.0, None)
+
+    last_at, revision = daemon.persist_map_snapshot_if_due(
+        pipeline,
+        tmp_path,
+        3.0,
+        last_at,
+        revision,
+        now=13.0,
+    )
+    assert writes == [(pipeline, tmp_path)]
+    assert (last_at, revision) == (13.0, (42, 7, None))
+
+    last_at, revision = daemon.persist_map_snapshot_if_due(
+        pipeline,
+        tmp_path,
+        3.0,
+        last_at,
+        revision,
+        now=20.0,
+    )
+    assert len(writes) == 1
+    assert (last_at, revision) == (13.0, (42, 7, None))
+
+    pipeline.last_observation_sequence = 43
+    last_at, revision = daemon.persist_map_snapshot_if_due(
+        pipeline,
+        tmp_path,
+        3.0,
+        last_at,
+        revision,
+        now=20.0,
+    )
+    assert len(writes) == 2
+    assert (last_at, revision) == (20.0, (43, 7, None))
+
+
+def test_cold_replay_streams_decoded_observations():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "tools"
+        / "hub_pipeline_daemon.py"
+    ).read_text(encoding="utf-8")
+
+    assert "new = list(iter_spooled_observations" not in source
+    assert "for observation in iter_spooled_observations(" in source
