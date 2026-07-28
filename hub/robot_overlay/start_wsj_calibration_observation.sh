@@ -17,20 +17,25 @@ REANCHOR_REQUIRED_FILE="${FOCUS_WSJ_REANCHOR_REQUIRED_FILE:-$STATE_DIR/wsj-track
 FASTDDS_BUILTIN_TRANSPORTS_VALUE="${FOCUS_WSJ_FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
 TRANSFORM_VERSION=""
 CONFIRMATION=""
+OBSERVATION_PURPOSE="board_calibration"
 
 usage() {
   cat <<'EOF'
 Usage: start_wsj_calibration_observation.sh \
   --transform-version UNIQUE_RAW_TRANSFORM \
-  --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY \
-  [--session NAME] [--env FILE]
+  --operator-confirmation CONFIRMATION \
+  [--stationary-reanchor] [--session NAME] [--env FILE]
 
-This command latches navigation pause, removes receiver/planner/bridge windows,
-recovers the D435i/TinyNav sensor epoch before any board frame is captured,
-then starts only a mapping-only Hub sender and camera preview. Calibration uses
-the native rectified infra1 image, depth, intrinsics and pose in the same
-optical frame, so no RGB-to-depth mosaic can create a second board. It never
-starts a GOAL receiver or Go2 bridge.
+The default board-calibration mode requires
+OPERATOR_PRESENT_AND_BOARD_ONLY. --stationary-reanchor requires
+OPERATOR_PRESENT_AND_WSJ_STATIONARY and captures mapping-only evidence for a
+tracking-epoch handover without requiring a calibration board.
+
+Both modes latch navigation pause, remove receiver/planner/bridge windows,
+recover the D435i/TinyNav sensor epoch in the verified DDS order, then start
+only a mapping-only Hub sender and camera preview. They never start a GOAL
+receiver or Go2 bridge. Native rectified infra1/depth geometry is retained, so
+no RGB-to-depth mosaic can create a second board in board-calibration mode.
 EOF
 }
 
@@ -38,6 +43,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --transform-version) TRANSFORM_VERSION="$2"; shift 2 ;;
     --operator-confirmation) CONFIRMATION="$2"; shift 2 ;;
+    --stationary-reanchor)
+      OBSERVATION_PURPOSE="stationary_reanchor"
+      shift
+      ;;
     --session) SESSION="$2"; shift 2 ;;
     --env) ENV_FILE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -49,10 +58,17 @@ done
   echo "A filesystem-safe raw --transform-version is required." >&2
   exit 2
 }
-[[ "$CONFIRMATION" == OPERATOR_PRESENT_AND_BOARD_ONLY ]] || {
-  echo "Calibration observation requires OPERATOR_PRESENT_AND_BOARD_ONLY." >&2
-  exit 2
-}
+if [[ "$OBSERVATION_PURPOSE" == board_calibration ]]; then
+  [[ "$CONFIRMATION" == OPERATOR_PRESENT_AND_BOARD_ONLY ]] || {
+    echo "Board calibration observation requires OPERATOR_PRESENT_AND_BOARD_ONLY." >&2
+    exit 2
+  }
+else
+  [[ "$CONFIRMATION" == OPERATOR_PRESENT_AND_WSJ_STATIONARY ]] || {
+    echo "Stationary re-anchor observation requires OPERATOR_PRESENT_AND_WSJ_STATIONARY." >&2
+    exit 2
+  }
+fi
 [[ "$HUB_URL" =~ ^http://127\.0\.0\.1:[0-9]+$ ]] || {
   echo "Hub URL must remain loopback-only." >&2
   exit 2
@@ -291,6 +307,8 @@ FOCUS_MARKER="$reanchor_marker" \
 FOCUS_BOOT_ID="$tracking_boot_id" \
 FOCUS_DEPLOYMENT_COMMIT="$DEPLOYMENT_COMMIT" \
 FOCUS_SENDER_PID="$persistent_sender_pid" \
+FOCUS_OBSERVATION_PURPOSE="$OBSERVATION_PURPOSE" \
+FOCUS_OPERATOR_CONFIRMATION="$CONFIRMATION" \
 "$PYTHON_BIN" - <<'PY'
 import json
 import os
@@ -299,6 +317,8 @@ import time
 
 destination = Path(os.environ["FOCUS_MARKER"])
 destination.parent.mkdir(parents=True, exist_ok=True)
+purpose = os.environ["FOCUS_OBSERVATION_PURPOSE"]
+stationary_reanchor = purpose == "stationary_reanchor"
 payload = {
     "schema_version": "focus-wsj-tracking-reanchor-required-v1",
     "tracking_restart_boot_id": os.environ["FOCUS_BOOT_ID"],
@@ -313,8 +333,18 @@ payload = {
         "perception_restarted",
     ],
     "publisher_order_complete": False,
-    "resolution": "validated_new_board_calibration_required",
-    "classification": "source_derived_calibration_epoch_started",
+    "observation_purpose": purpose,
+    "operator_confirmation": os.environ["FOCUS_OPERATOR_CONFIRMATION"],
+    "resolution": (
+        "validated_stationary_reanchor_or_new_board_calibration_required"
+        if stationary_reanchor
+        else "validated_new_board_calibration_required"
+    ),
+    "classification": (
+        "source_derived_stationary_reanchor_epoch_started"
+        if stationary_reanchor
+        else "source_derived_calibration_epoch_started"
+    ),
     "robot_commands_issued": False,
     "written_at_ns": time.time_ns(),
 }
@@ -369,7 +399,8 @@ sleep 5
 wait_for_fresh_topic /slam/depth "stable TinyNav processed depth"
 wait_for_fresh_topic \
   /slam/odometry_visual "stable TinyNav continuous visual odometry"
-echo "WSJ_CALIBRATION_SENSOR_EPOCH_READY:" \
+echo "WSJ_MAPPING_ONLY_SENSOR_EPOCH_READY:" \
+  "purpose=$OBSERVATION_PURPOSE" \
   "camera_restarted=$camera_restarted" \
   "perception_restarted=$perception_restarted" \
   "dds_order=senders_then_camera_then_perception" \
@@ -417,5 +448,9 @@ done
   exit 1
 }
 
-echo "WSJ calibration observation ready: $initial_sequence -> $latest_sequence"
+if [[ "$OBSERVATION_PURPOSE" == stationary_reanchor ]]; then
+  echo "WSJ stationary re-anchor evidence ready: $initial_sequence -> $latest_sequence"
+else
+  echo "WSJ calibration observation ready: $initial_sequence -> $latest_sequence"
+fi
 echo "Safety: navigation paused; no planner, receiver or Go2 bridge is running."

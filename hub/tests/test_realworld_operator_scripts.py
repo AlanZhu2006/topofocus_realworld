@@ -707,3 +707,18 @@ def test_wsj_publisher_recovery_preserves_sender_and_requires_reanchor():
         'wait_for_sender_tuple_advance "$parked_tuple_baseline"'
     )
     assert "WSJ DDS sender PID changed during publisher recovery" in recovery
+
+
+def test_wsj_mapping_only_launcher_has_stationary_reanchor_mode():
+    launcher = (
+        OVERLAY / "start_wsj_calibration_observation.sh"
+    ).read_text()
+
+    assert "--stationary-reanchor" in launcher
+    assert "OPERATOR_PRESENT_AND_WSJ_STATIONARY" in launcher
+    assert 'OBSERVATION_PURPOSE="stationary_reanchor"' in launcher
+    assert "validated_stationary_reanchor_or_new_board_calibration_required" in (
+        launcher
+    )
+    assert "WSJ stationary re-anchor evidence ready" in launcher
+    assert "no planner, receiver or Go2 bridge is running" in launcher
