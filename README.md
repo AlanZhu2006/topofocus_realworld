@@ -34,10 +34,18 @@ frame. The board is then moved by at least 10 cm or rotated by at least 5°
 and re-observed as an independent holdout — the calibration is accepted
 only if it also explains this second, independently moved observation.
 
-## Scene 01 · Chair
+## Evaluation settings
 
-Both robots explore cooperatively from the same lab starting area and reach
-a white chair. All five formal experiments succeeded.
+| Scene | Target | Navigation setting |
+| --- | --- | --- |
+| Scene 01 | Chair | Short-range navigation |
+| Scene 02 | Plant | Medium-range navigation |
+| Scene 03 | Plant | Long-range cooperative exploration |
+
+## Scene 01 · Short-range Chair
+
+The short-range setting starts both robots from the same lab area and targets
+a nearby white chair. All five formal experiments succeeded.
 
 | Trials | Success | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
@@ -138,9 +146,10 @@ displacement `D` as a source-compatible reference.
 · [Media manifest](media/README.md)
 · [Run instructions](hub/docs/ONECLICK_SESSION_WORKFLOW.md)
 
-## Scene 02 · Plant
+## Scene 02 · Medium-range Plant
 
-Both robots explore cooperatively toward a plant target.
+The medium-range setting requires both robots to explore cooperatively toward
+a more distant plant target.
 
 | Trials | Success | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
@@ -242,3 +251,8 @@ the operator-provided independently measured shortest feasible path
 · [Formal 04 record](manifests/scene02_plant_formal_experiment_04_success_20260728.json)
 · [Formal 05 record](manifests/scene02_plant_formal_experiment_05_success_20260728.json)
 · [Machine-readable results](manifests/scene02_plant_formal_experiments_20260728.json)
+
+## Scene 03 · Long-range Cooperative Plant
+
+The long-range setting retains the plant target while increasing travel
+distance and requiring both robots to explore and coordinate across the route.
