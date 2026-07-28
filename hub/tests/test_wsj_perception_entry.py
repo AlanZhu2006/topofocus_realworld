@@ -2,7 +2,17 @@ from pathlib import Path
 
 import pytest
 
-from hub.robot_overlay.wsj_perception_entry import bounded_integer, sha256_file
+from hub.robot_overlay.wsj_perception_entry import (
+    DEFAULT_IMU_BUFFER_SIZE,
+    DEFAULT_IMU_QOS_DEPTH,
+    bounded_integer,
+    sha256_file,
+)
+
+
+def test_wsj_default_imu_history_keeps_dds_backlog_below_one_compute_pass() -> None:
+    assert DEFAULT_IMU_QOS_DEPTH == 50
+    assert DEFAULT_IMU_BUFFER_SIZE == 4_000
 
 
 def test_bounded_integer_uses_default(monkeypatch: pytest.MonkeyPatch) -> None:
