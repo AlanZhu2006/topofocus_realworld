@@ -272,9 +272,9 @@ def robot_map_overlay(source: RobotSource) -> RobotMapOverlay:
         trajectory = tuple(source.trajectory_xy_m)
         pose = source.last_pose_xy_m
         heading = source.last_heading_deg
-    if source.name.lower() == "yunji":
+    if source.robot_id == "robot-1":
         return RobotMapOverlay(
-            label=source.name,
+            label=source.robot_id,
             trajectory_xy_m=trajectory,
             pose_xy_m=pose,
             heading_deg=heading,
@@ -282,7 +282,7 @@ def robot_map_overlay(source: RobotSource) -> RobotMapOverlay:
             pose_bgr=(0, 130, 255),
         )
     return RobotMapOverlay(
-        label=source.name,
+        label=source.robot_id,
         trajectory_xy_m=trajectory,
         pose_xy_m=pose,
         heading_deg=heading,

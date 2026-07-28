@@ -92,6 +92,22 @@ def test_pose_scene_prefers_calibrated_robot_pose_over_camera_fallback(tmp_path)
     assert 'text: "wsj base"' in encoded
 
 
+def test_semantic_map_overlay_uses_protocol_robot_ids(tmp_path):
+    relay = load_relay_module()
+    wsj = make_source(relay, tmp_path)
+    yunji = make_source(relay, tmp_path)
+    yunji.robot_id = "robot-1"
+    yunji.name = "yunji"
+
+    wsj_overlay = relay.robot_map_overlay(wsj)
+    yunji_overlay = relay.robot_map_overlay(yunji)
+
+    assert wsj_overlay.label == "robot-0"
+    assert yunji_overlay.label == "robot-1"
+    assert wsj_overlay.pose_bgr == (0, 0, 255)
+    assert yunji_overlay.pose_bgr == (0, 130, 255)
+
+
 def test_snapshot_freshness_uses_integrated_capture_not_file_mtime(tmp_path):
     relay = load_relay_module()
     map_path = tmp_path / "central_map.npz"
