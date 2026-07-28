@@ -135,6 +135,25 @@ def occupancy_recovery_eligible(
     )
 
 
+def occupancy_recovery_renewal_health(health: RobotHealth) -> RobotHealth:
+    """Validate one same-leg renewal without reopening the velocity gate.
+
+    ``occupancy_recovery_eligible`` has already proved that localization,
+    platform authority and the command graph remain healthy; only occupancy
+    freshness is holding motion at zero.  The adapter still needs a
+    goal-capable health value to validate lease ordering, target identity and
+    provenance.  Override only the two occupancy-derived fields here, leaving
+    estop, localization and motor readiness authoritative.
+    """
+
+    return health.model_copy(
+        update={
+            "safety_state": SafetyState.READY,
+            "collision_avoidance_ready": True,
+        }
+    )
+
+
 class GoalProgressWatchdog:
     """Bound how long one fixed local goal may make no metric progress."""
 
@@ -1501,6 +1520,30 @@ def main() -> int:
             self.pause_publisher.publish(paused)
             self.authorize(expires_at_ns)
 
+        def renew_authority_while_gate_closed(
+            self, expires_at_ns: int
+        ) -> None:
+            """Extend one verified leg while occupancy keeps output at zero."""
+
+            if not live:
+                raise RuntimeError("live TinyNav output is disabled")
+            if self.motion_health_pass:
+                raise RuntimeError(
+                    "bounded recovery renewal requires a closed health gate"
+                )
+            if expires_at_ns <= time.time_ns():
+                raise RuntimeError("bounded recovery renewal already expired")
+            if self.authority_started_ns <= 0:
+                raise RuntimeError(
+                    "bounded recovery renewal lacks prior local authority"
+                )
+            # Preserve the original authority epoch and reverse-path latch.
+            # The 20 Hz gate remains closed because motion_health_pass is
+            # false; this only prevents the same authenticated leg and the
+            # local router lease from expiring before bounded map recovery.
+            self.authority_deadline_ns = expires_at_ns
+            self.authorized = True
+
         def tracking_T_map(self) -> tuple[float, ...]:
             if args.online_buildmap_world:
                 return (
@@ -2288,12 +2331,120 @@ def main() -> int:
                 and decision.leg_id == occupancy_recovery_leg_id
                 and decision.decision_id != last_decision_id
             ):
-                emit(
-                    "occupancy_recovery_decision_deferred",
-                    current_decision_id=active_decision.decision_id,
-                    pending_decision_id=decision.decision_id,
-                    leg_id=decision.leg_id,
+                renewal_result = adapter.evaluate(
+                    decision,
+                    now_ns=time.time_ns(),
+                    health=occupancy_recovery_renewal_health(health),
+                    current_position_robot_map=(pose[0], pose[1], 0.0),
                 )
+                last_decision_id = decision.decision_id
+                if (
+                    renewal_result.action != V2AdapterAction.GOAL
+                    or renewal_result.local_goal is None
+                    or renewal_result.command_preview is None
+                    or renewal_result.local_goal != active_goal
+                ):
+                    failed_decision = active_decision
+                    node.revoke()
+                    post(
+                        failed_decision,
+                        NavigationStatusV2.REJECTED,
+                        "UNSAFE",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=(
+                            "same-leg occupancy recovery renewal failed local "
+                            f"validation: {renewal_result.reason_code}"
+                        ),
+                        terminal=True,
+                    )
+                    active_decision = None
+                    active_goal = None
+                    occupancy_recovery_leg_id = None
+                    occupancy_recovery_started_ns = 0
+                    progress_watchdog.reset()
+                    emit(
+                        "occupancy_recovery_renewal_rejected",
+                        pending_decision_id=decision.decision_id,
+                        reason_code=renewal_result.reason_code,
+                    )
+                    time.sleep(
+                        max(
+                            0.0,
+                            args.poll_s
+                            - (time.monotonic() - cycle_started),
+                        )
+                    )
+                    continue
+                if not post(
+                    decision,
+                    NavigationStatusV2.RECEIVED,
+                    "DECISION_RECEIVED",
+                    pose,
+                    detail=(
+                        "authenticated same-leg renewal parsed during "
+                        "bounded occupancy recovery"
+                    ),
+                ):
+                    node.revoke()
+                    active_decision = None
+                    active_goal = None
+                    occupancy_recovery_leg_id = None
+                    occupancy_recovery_started_ns = 0
+                    progress_watchdog.reset()
+                    time.sleep(
+                        max(
+                            0.0,
+                            args.poll_s
+                            - (time.monotonic() - cycle_started),
+                        )
+                    )
+                    continue
+                node.publish_goal(
+                    renewal_result.command_preview,
+                    decision.expires_at_ns,
+                    authorize_motion=False,
+                )
+                node.renew_authority_while_gate_closed(
+                    decision.expires_at_ns
+                )
+                goal_issued_ns = time.time_ns()
+                active_decision = decision
+                active_goal = renewal_result.local_goal
+                accepted = post(
+                    decision,
+                    NavigationStatusV2.ACCEPTED,
+                    "LOCAL_OCCUPANCY_RECOVERY_WAIT",
+                    pose,
+                    zero=True,
+                    goal=active_goal,
+                    detail=(
+                        "same-leg lease renewed while the physical velocity "
+                        "gate remains closed for bounded occupancy recovery"
+                    ),
+                )
+                if not accepted:
+                    node.revoke()
+                    active_decision = None
+                    active_goal = None
+                    occupancy_recovery_leg_id = None
+                    occupancy_recovery_started_ns = 0
+                    progress_watchdog.reset()
+                    emit(
+                        "occupancy_recovery_renewal_feedback_failed",
+                        decision_id=decision.decision_id,
+                        leg_id=decision.leg_id,
+                    )
+                else:
+                    last_feedback_monotonic = time.monotonic()
+                    emit(
+                        "occupancy_recovery_lease_renewed",
+                        decision_id=decision.decision_id,
+                        leg_id=decision.leg_id,
+                        lease_sequence=decision.lease_sequence,
+                        physical_velocity_gate_closed=True,
+                    )
                 time.sleep(
                     max(
                         0.0,

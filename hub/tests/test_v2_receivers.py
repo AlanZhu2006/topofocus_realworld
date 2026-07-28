@@ -698,6 +698,27 @@ def test_occupancy_episode_recovery_is_bounded_after_motion_gate_closes():
     )
 
 
+def test_occupancy_recovery_renewal_health_only_overrides_map_gate():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    health = wsj.RobotHealth(
+        safety_state=wsj.SafetyState.HOLD,
+        localization_state=wsj.LocalizationState.TRACKING,
+        estop_engaged=False,
+        collision_avoidance_ready=False,
+        motor_controller_ready=True,
+        detail="occupancy stale",
+    )
+
+    renewal = wsj.occupancy_recovery_renewal_health(health)
+
+    assert renewal.ready_for_goal()
+    assert renewal.detail == "occupancy stale"
+    estopped = wsj.occupancy_recovery_renewal_health(
+        health.model_copy(update={"estop_engaged": True})
+    )
+    assert not estopped.ready_for_goal()
+
+
 def test_receiver_and_router_share_cached_occupancy_motion_gate():
     wsj = load_overlay("v2_wsj_receiver.py")
 
@@ -946,6 +967,10 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     )
     assert "node.router_decision_id is None" not in source
     assert '"control_telemetry"' in source
+    assert '"occupancy_recovery_lease_renewed"' in source
+    assert "renew_authority_while_gate_closed" in source
+    assert "authorize_motion=False" in source
+    assert '"occupancy_recovery_decision_deferred"' not in source
     recovery_feedback = source.split(
         "elif router_recovery_leg_id == active_decision.leg_id:", 1
     )[1].split("elif not goal_published_this_cycle:", 1)[0]
