@@ -100,16 +100,19 @@ RECOVERABLE_ROUTER_HOLD_REASONS = frozenset(
 RECOVERY_RENEWAL_REJECTED_EVENTS = {
     "occupancy": "occupancy_recovery_renewal_rejected",
     "slam": "slam_recovery_renewal_rejected",
+    "odometry": "odometry_recovery_renewal_rejected",
     "combined": "combined_recovery_renewal_rejected",
 }
 RECOVERY_RENEWAL_FEEDBACK_FAILED_EVENTS = {
     "occupancy": "occupancy_recovery_renewal_feedback_failed",
     "slam": "slam_recovery_renewal_feedback_failed",
+    "odometry": "odometry_recovery_renewal_feedback_failed",
     "combined": "combined_recovery_renewal_feedback_failed",
 }
 RECOVERY_LEASE_RENEWED_EVENTS = {
     "occupancy": "occupancy_recovery_lease_renewed",
     "slam": "slam_recovery_lease_renewed",
+    "odometry": "odometry_recovery_lease_renewed",
     "combined": "combined_recovery_lease_renewed",
 }
 
@@ -199,6 +202,36 @@ def slam_recovery_renewal_health(health: RobotHealth) -> RobotHealth:
     )
 
 
+def odometry_recovery_eligible(
+    *,
+    recovery_elapsed_s: float,
+    recovery_grace_s: float,
+    all_non_odometry_health_ready: bool,
+    odometry_observed: bool,
+) -> bool:
+    """Keep a transient odometry publication gap as a bounded stopped wait."""
+
+    if not math.isfinite(recovery_grace_s) or recovery_grace_s <= 0.0:
+        raise ValueError("odometry recovery bound must be positive")
+    return bool(
+        all_non_odometry_health_ready
+        and odometry_observed
+        and math.isfinite(recovery_elapsed_s)
+        and 0.0 <= recovery_elapsed_s <= recovery_grace_s
+    )
+
+
+def odometry_recovery_renewal_health(health: RobotHealth) -> RobotHealth:
+    """Validate the immutable leg without reopening the physical gate."""
+
+    return health.model_copy(
+        update={
+            "safety_state": SafetyState.READY,
+            "localization_state": LocalizationState.TRACKING,
+        }
+    )
+
+
 def combined_sensor_recovery_eligible(
     *,
     occupancy_recovery_elapsed_s: float,
@@ -257,6 +290,7 @@ def closed_gate_recovery_kind(
     *,
     occupancy_recovery_active: bool,
     slam_recovery_active: bool,
+    odometry_recovery_active: bool,
     combined_sensor_recovery_active: bool,
 ) -> str | None:
     """Select exactly one fail-stopped recovery owner for the active leg."""
@@ -265,6 +299,7 @@ def closed_gate_recovery_kind(
         (
             occupancy_recovery_active,
             slam_recovery_active,
+            odometry_recovery_active,
             combined_sensor_recovery_active,
         )
     )
@@ -278,6 +313,8 @@ def closed_gate_recovery_kind(
         return "occupancy"
     if slam_recovery_active:
         return "slam"
+    if odometry_recovery_active:
+        return "odometry"
     return None
 
 
@@ -1129,6 +1166,15 @@ def main() -> int:
             "incident before the active episode leg is rejected"
         ),
     )
+    parser.add_argument(
+        "--odometry-recovery-grace-s",
+        type=float,
+        default=7.0,
+        help=(
+            "maximum zero-velocity wait after control odometry crosses its "
+            "freshness gate while all independent health inputs remain ready"
+        ),
+    )
     parser.add_argument("--max-goal-distance-m", type=float, default=8.0)
     parser.add_argument(
         "--semantic-arrival-radius-m",
@@ -1198,6 +1244,7 @@ def main() -> int:
         args.trajectory_recovery_timeout_s,
         args.slam_transient_grace_s,
         args.slam_recovery_grace_s,
+        args.odometry_recovery_grace_s,
         args.max_goal_distance_m,
         args.semantic_arrival_radius_m,
         args.max_alignment_shift_m,
@@ -1960,6 +2007,8 @@ def main() -> int:
     occupancy_recovery_started_ns = 0
     slam_recovery_leg_id: str | None = None
     slam_recovery_started_ns = 0
+    odometry_recovery_leg_id: str | None = None
+    odometry_recovery_started_ns = 0
     progress_watchdog = GoalProgressWatchdog(
         timeout_s=args.no_progress_timeout_s,
         minimum_improvement_m=args.minimum_goal_progress_m,
@@ -2063,6 +2112,8 @@ def main() -> int:
                 occupancy_recovery_started_ns = 0
                 slam_recovery_leg_id = None
                 slam_recovery_started_ns = 0
+                odometry_recovery_leg_id = None
+                odometry_recovery_started_ns = 0
             now_ns = time.time_ns()
             alignment_shift, alignment_yaw = planar_transform_delta(
                 tracking_T_map, current_tracking_T_map
@@ -2121,6 +2172,14 @@ def main() -> int:
                 )
             )
             graph_ready, graph_detail = node.planner_graph_ready()
+            odometry_fresh = bool(
+                node.odom_received_ns > 0
+                and odom_age_s <= args.local_data_timeout_s
+            )
+            slam_stream_fresh = bool(
+                node.slam_received_ns > 0
+                and slam_age_s <= args.slam_data_timeout_s
+            )
             all_non_slam_health_ready = (
                 local_fresh
                 and alignment_stable
@@ -2189,6 +2248,42 @@ def main() -> int:
                     all_non_slam_health_ready and occupancy_fresh
                 ),
             )
+            all_non_odometry_health_ready = bool(
+                slam_stream_fresh
+                and node.slam_pass
+                and occupancy_fresh
+                and alignment_stable
+                and graph_ready
+                and platform_fresh
+                and node.platform_pass
+            )
+            odometry_recovery_candidate = bool(
+                active_decision is not None
+                and not odometry_fresh
+                and node.odom_received_ns > 0
+                and all_non_odometry_health_ready
+            )
+            if odometry_recovery_candidate:
+                if (
+                    odometry_recovery_started_ns <= 0
+                    or odometry_recovery_leg_id
+                    != active_decision.leg_id
+                ):
+                    odometry_recovery_started_ns = now_ns
+                odometry_recovery_elapsed_s = max(
+                    0.0,
+                    (now_ns - odometry_recovery_started_ns) / 1e9,
+                )
+            else:
+                odometry_recovery_elapsed_s = math.inf
+            odometry_recovery_active = odometry_recovery_eligible(
+                recovery_elapsed_s=odometry_recovery_elapsed_s,
+                recovery_grace_s=args.odometry_recovery_grace_s,
+                all_non_odometry_health_ready=(
+                    all_non_odometry_health_ready
+                ),
+                odometry_observed=node.odom_received_ns > 0,
+            )
             combined_sensor_recovery_candidate = bool(
                 occupancy_recovery_candidate
                 and slam_recovery_candidate
@@ -2214,6 +2309,7 @@ def main() -> int:
             recovery_kind = closed_gate_recovery_kind(
                 occupancy_recovery_active=occupancy_recovery_active,
                 slam_recovery_active=slam_recovery_active,
+                odometry_recovery_active=odometry_recovery_active,
                 combined_sensor_recovery_active=(
                     combined_sensor_recovery_active
                 ),
@@ -2226,6 +2322,16 @@ def main() -> int:
                 raise RuntimeError(
                     "closed-gate recovery owners disagree on active leg"
                 )
+            if (
+                odometry_recovery_leg_id is not None
+                and (
+                    occupancy_recovery_leg_id is not None
+                    or slam_recovery_leg_id is not None
+                )
+            ):
+                raise RuntimeError(
+                    "odometry recovery cannot overlap another recovery owner"
+                )
             previous_recovery_kind = closed_gate_recovery_kind(
                 occupancy_recovery_active=bool(
                     occupancy_recovery_leg_id is not None
@@ -2234,6 +2340,9 @@ def main() -> int:
                 slam_recovery_active=bool(
                     slam_recovery_leg_id is not None
                     and occupancy_recovery_leg_id is None
+                ),
+                odometry_recovery_active=bool(
+                    odometry_recovery_leg_id is not None
                 ),
                 combined_sensor_recovery_active=bool(
                     occupancy_recovery_leg_id is not None
@@ -2252,6 +2361,7 @@ def main() -> int:
                     leg_id=(
                         occupancy_recovery_leg_id
                         or slam_recovery_leg_id
+                        or odometry_recovery_leg_id
                     ),
                     physical_velocity_gate_closed=True,
                 )
@@ -2259,9 +2369,21 @@ def main() -> int:
             if recovery_kind == "occupancy":
                 slam_recovery_leg_id = None
                 slam_recovery_started_ns = 0
+                odometry_recovery_leg_id = None
+                odometry_recovery_started_ns = 0
             elif recovery_kind == "slam":
                 occupancy_recovery_leg_id = None
                 occupancy_recovery_started_ns = 0
+                odometry_recovery_leg_id = None
+                odometry_recovery_started_ns = 0
+            elif recovery_kind == "odometry":
+                occupancy_recovery_leg_id = None
+                occupancy_recovery_started_ns = 0
+                slam_recovery_leg_id = None
+                slam_recovery_started_ns = 0
+            elif recovery_kind == "combined":
+                odometry_recovery_leg_id = None
+                odometry_recovery_started_ns = 0
             node.update_motion_health(
                 ready=ready,
                 evaluated_ns=now_ns,
@@ -2326,6 +2448,10 @@ def main() -> int:
                         router_recovery_reason = ""
                         occupancy_recovery_leg_id = None
                         occupancy_recovery_started_ns = 0
+                        slam_recovery_leg_id = None
+                        slam_recovery_started_ns = 0
+                        odometry_recovery_leg_id = None
+                        odometry_recovery_started_ns = 0
                     emit("heartbeat_failed_local_hold", error=str(exc)[:500])
                     time.sleep(args.poll_s)
                     continue
@@ -2399,6 +2525,31 @@ def main() -> int:
                 )
                 slam_recovery_leg_id = None
                 slam_recovery_started_ns = 0
+                progress_watchdog.reset()
+            elif ready and odometry_recovery_leg_id is not None:
+                emit(
+                    "odometry_recovery_complete",
+                    decision_id=(
+                        None
+                        if active_decision is None
+                        else active_decision.decision_id
+                    ),
+                    leg_id=odometry_recovery_leg_id,
+                    recovery_duration_s=round(
+                        max(
+                            0.0,
+                            (
+                                now_ns
+                                - odometry_recovery_started_ns
+                            )
+                            / 1e9,
+                        ),
+                        3,
+                    ),
+                    odometry_age_s=round(odom_age_s, 3),
+                )
+                odometry_recovery_leg_id = None
+                odometry_recovery_started_ns = 0
                 progress_watchdog.reset()
             if not ready and active_decision is not None:
                 if recovery_kind == "combined":
@@ -2545,6 +2696,50 @@ def main() -> int:
                             progress_watchdog.reset()
                             continue
                         last_feedback_monotonic = time.monotonic()
+                elif recovery_kind == "odometry":
+                    if (
+                        odometry_recovery_leg_id
+                        != active_decision.leg_id
+                    ):
+                        odometry_recovery_leg_id = (
+                            active_decision.leg_id
+                        )
+                        emit(
+                            "odometry_stale_recovery_wait",
+                            decision_id=active_decision.decision_id,
+                            leg_id=active_decision.leg_id,
+                            odometry_age_s=round(odom_age_s, 3),
+                            freshness_timeout_s=(
+                                args.local_data_timeout_s
+                            ),
+                            recovery_elapsed_s=round(
+                                odometry_recovery_elapsed_s, 3
+                            ),
+                            recovery_grace_s=(
+                                args.odometry_recovery_grace_s
+                            ),
+                            physical_velocity_gate_closed=True,
+                        )
+                        if not post(
+                            active_decision,
+                            NavigationStatusV2.ACCEPTED,
+                            "LOCAL_ODOMETRY_RECOVERY_WAIT",
+                            pose,
+                            zero=True,
+                            goal=active_goal,
+                            detail=(
+                                "physical velocity gate closed immediately "
+                                "for bounded control-odometry recovery"
+                            ),
+                        ):
+                            node.revoke()
+                            active_decision = None
+                            active_goal = None
+                            odometry_recovery_leg_id = None
+                            odometry_recovery_started_ns = 0
+                            progress_watchdog.reset()
+                            continue
+                        last_feedback_monotonic = time.monotonic()
                 else:
                     failed_decision = active_decision
                     node.revoke()
@@ -2552,20 +2747,24 @@ def main() -> int:
                         "SENSOR_RECOVERY_TIMEOUT"
                         if combined_sensor_recovery_candidate
                         else (
-                            "OCCUPANCY_STALE_TIMEOUT"
-                            if (
-                                all_other_health_ready
-                                and not occupancy_fresh
-                            )
+                            "ODOMETRY_STALE_TIMEOUT"
+                            if odometry_recovery_candidate
                             else (
-                                "SLAM_TRANSIENT_TIMEOUT"
+                                "OCCUPANCY_STALE_TIMEOUT"
                                 if (
-                                    slam_recovery_leg_id
-                                    == failed_decision.leg_id
-                                    and node.slam_detail
-                                    in TRANSIENT_SLAM_FAILURES
+                                    all_other_health_ready
+                                    and not occupancy_fresh
                                 )
-                                else "HEALTH_NOT_READY"
+                                else (
+                                    "SLAM_TRANSIENT_TIMEOUT"
+                                    if (
+                                        slam_recovery_leg_id
+                                        == failed_decision.leg_id
+                                        and node.slam_detail
+                                        in TRANSIENT_SLAM_FAILURES
+                                    )
+                                    else "HEALTH_NOT_READY"
+                                )
                             )
                         )
                     )
@@ -2587,6 +2786,17 @@ def main() -> int:
                             ),
                             "combined_sensor_recovery_candidate": (
                                 combined_sensor_recovery_candidate
+                            ),
+                            "odometry_fresh": odometry_fresh,
+                            "odometry_recovery_elapsed_s": (
+                                odometry_recovery_elapsed_s
+                                if math.isfinite(
+                                    odometry_recovery_elapsed_s
+                                )
+                                else None
+                            ),
+                            "odometry_recovery_grace_s": (
+                                args.odometry_recovery_grace_s
                             ),
                             "alignment_stable": alignment_stable,
                             "graph_ready": graph_ready,
@@ -2631,6 +2841,8 @@ def main() -> int:
                     occupancy_recovery_started_ns = 0
                     slam_recovery_leg_id = None
                     slam_recovery_started_ns = 0
+                    odometry_recovery_leg_id = None
+                    odometry_recovery_started_ns = 0
             if not alignment_stable and active_decision is not None:
                 node.revoke()
                 post(
@@ -2688,6 +2900,7 @@ def main() -> int:
                 and active_decision is not None
                 and occupancy_recovery_leg_id != active_decision.leg_id
                 and slam_recovery_leg_id != active_decision.leg_id
+                and odometry_recovery_leg_id != active_decision.leg_id
                 and router_status_received_ns >= goal_issued_ns
                 and router_state == "HOLD"
                 and (
@@ -2855,9 +3068,13 @@ def main() -> int:
                 slam_recovery_leg_id is not None
                 and occupancy_recovery_leg_id is None
             )
+            active_odometry_recovery = bool(
+                odometry_recovery_leg_id is not None
+            )
             active_recovery_kind = closed_gate_recovery_kind(
                 occupancy_recovery_active=active_occupancy_recovery,
                 slam_recovery_active=active_slam_recovery,
+                odometry_recovery_active=active_odometry_recovery,
                 combined_sensor_recovery_active=(
                     active_combined_sensor_recovery
                 ),
@@ -2865,7 +3082,11 @@ def main() -> int:
             closed_gate_recovery_leg_id = (
                 occupancy_recovery_leg_id
                 if occupancy_recovery_leg_id is not None
-                else slam_recovery_leg_id
+                else (
+                    slam_recovery_leg_id
+                    if slam_recovery_leg_id is not None
+                    else odometry_recovery_leg_id
+                )
             )
             if (
                 closed_gate_recovery_leg_id is not None
@@ -2880,6 +3101,10 @@ def main() -> int:
                     )
                 elif active_recovery_kind == "slam":
                     renewal_health = slam_recovery_renewal_health(
+                        health
+                    )
+                elif active_recovery_kind == "odometry":
+                    renewal_health = odometry_recovery_renewal_health(
                         health
                     )
                 else:
@@ -2923,6 +3148,8 @@ def main() -> int:
                     occupancy_recovery_started_ns = 0
                     slam_recovery_leg_id = None
                     slam_recovery_started_ns = 0
+                    odometry_recovery_leg_id = None
+                    odometry_recovery_started_ns = 0
                     progress_watchdog.reset()
                     emit(
                         RECOVERY_RENEWAL_REJECTED_EVENTS[
@@ -2956,6 +3183,8 @@ def main() -> int:
                     occupancy_recovery_started_ns = 0
                     slam_recovery_leg_id = None
                     slam_recovery_started_ns = 0
+                    odometry_recovery_leg_id = None
+                    odometry_recovery_started_ns = 0
                     progress_watchdog.reset()
                     time.sleep(
                         max(
@@ -2985,7 +3214,12 @@ def main() -> int:
                         else (
                             "LOCAL_SLAM_RECOVERY_WAIT"
                             if active_recovery_kind == "slam"
-                            else "LOCAL_SENSOR_RECOVERY_WAIT"
+                            else (
+                                "LOCAL_ODOMETRY_RECOVERY_WAIT"
+                                if active_recovery_kind
+                                == "odometry"
+                                else "LOCAL_SENSOR_RECOVERY_WAIT"
+                            )
                         )
                     ),
                     pose,
@@ -3005,6 +3239,8 @@ def main() -> int:
                     occupancy_recovery_started_ns = 0
                     slam_recovery_leg_id = None
                     slam_recovery_started_ns = 0
+                    odometry_recovery_leg_id = None
+                    odometry_recovery_started_ns = 0
                     progress_watchdog.reset()
                     emit(
                         RECOVERY_RENEWAL_FEEDBACK_FAILED_EVENTS[
@@ -3518,6 +3754,31 @@ def main() -> int:
                             ),
                         )
                         last_feedback_monotonic = time.monotonic()
+                elif (
+                    odometry_recovery_leg_id
+                    == active_decision.leg_id
+                ):
+                    if (
+                        time.monotonic() - last_feedback_monotonic >= 0.5
+                    ):
+                        post(
+                            active_decision,
+                            NavigationStatusV2.ACCEPTED,
+                            "LOCAL_ODOMETRY_RECOVERY_WAIT",
+                            pose,
+                            zero=True,
+                            goal=active_goal,
+                            detail=(
+                                "physical velocity gate is closed while "
+                                "waiting for fresh control odometry; "
+                                f"odometry_age_s={odom_age_s:.3f}; "
+                                "recovery_elapsed_s="
+                                f"{odometry_recovery_elapsed_s:.3f}; "
+                                "recovery_grace_s="
+                                f"{args.odometry_recovery_grace_s:.3f}"
+                            ),
+                        )
+                        last_feedback_monotonic = time.monotonic()
                 elif router_recovery_leg_id == active_decision.leg_id:
                     # The physical velocity gate is closed during bounded
                     # online-map recovery, so this must never be reported as
@@ -3668,6 +3929,8 @@ def main() -> int:
                 occupancy_recovery_started_ns = 0
                 slam_recovery_leg_id = None
                 slam_recovery_started_ns = 0
+                odometry_recovery_leg_id = None
+                odometry_recovery_started_ns = 0
             time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
     except KeyboardInterrupt:
         node.revoke()

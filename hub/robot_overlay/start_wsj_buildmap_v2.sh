@@ -43,6 +43,12 @@ ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
 # the guarded trajectory output closes after 1.0 s and TinyNav/controller
 # watchdogs retain final authority.
 RECEIVER_LOCAL_DATA_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0}"
+# Keep the five-second physical gate unchanged.  If only the high-rate
+# odometry publisher pauses, retain the immutable leg at zero velocity for a
+# separately bounded window so it can use TinyNav's existing stopped router
+# recovery instead of turning one transient publication gap into an episode
+# failure.
+RECEIVER_ODOMETRY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_ODOMETRY_RECOVERY_GRACE_S:-7.0}"
 # Keep the cross-robot occupancy-liveness contract identical. After this wall
 # deadline, both the receiver's 20 Hz gate and the TinyNav router may use the
 # exact cached grid only until base displacement reaches
@@ -734,6 +740,7 @@ receiver=(
   --local-map-frame wsj/world
   --occupancy-topic /semantic_mapping/occupancy_bev
   --local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"
+  --odometry-recovery-grace-s "$RECEIVER_ODOMETRY_RECOVERY_GRACE_S"
   --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"

@@ -767,6 +767,53 @@ def test_slam_recovery_renewal_health_only_overrides_slam_gate():
     assert not estopped.ready_for_goal()
 
 
+def test_odometry_recovery_is_bounded_after_velocity_gate_closes():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    common = {
+        "recovery_grace_s": 7.0,
+        "all_non_odometry_health_ready": True,
+        "odometry_observed": True,
+    }
+
+    assert wsj.odometry_recovery_eligible(
+        recovery_elapsed_s=0.0, **common
+    )
+    assert wsj.odometry_recovery_eligible(
+        recovery_elapsed_s=7.0, **common
+    )
+    assert not wsj.odometry_recovery_eligible(
+        recovery_elapsed_s=7.001, **common
+    )
+    assert not wsj.odometry_recovery_eligible(
+        recovery_elapsed_s=0.1,
+        **{**common, "all_non_odometry_health_ready": False},
+    )
+    assert not wsj.odometry_recovery_eligible(
+        recovery_elapsed_s=0.1,
+        **{**common, "odometry_observed": False},
+    )
+
+
+def test_odometry_recovery_renewal_overrides_only_localization_gate():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    health = wsj.RobotHealth(
+        safety_state=wsj.SafetyState.HOLD,
+        localization_state=wsj.LocalizationState.LOST,
+        estop_engaged=False,
+        collision_avoidance_ready=True,
+        motor_controller_ready=True,
+        detail="slam_optimizer_imu_valid; odom stale",
+    )
+
+    renewal = wsj.odometry_recovery_renewal_health(health)
+
+    assert renewal.ready_for_goal()
+    assert renewal.detail == health.detail
+    assert not wsj.odometry_recovery_renewal_health(
+        health.model_copy(update={"estop_engaged": True})
+    ).ready_for_goal()
+
+
 def test_combined_sensor_recovery_keeps_both_original_bounds():
     wsj = load_overlay("v2_wsj_receiver.py")
     common = {
@@ -831,27 +878,38 @@ def test_closed_gate_recovery_kind_includes_combined_sensor_state():
     assert wsj.closed_gate_recovery_kind(
         occupancy_recovery_active=True,
         slam_recovery_active=False,
+        odometry_recovery_active=False,
         combined_sensor_recovery_active=False,
     ) == "occupancy"
     assert wsj.closed_gate_recovery_kind(
         occupancy_recovery_active=False,
         slam_recovery_active=True,
+        odometry_recovery_active=False,
         combined_sensor_recovery_active=False,
     ) == "slam"
     assert wsj.closed_gate_recovery_kind(
         occupancy_recovery_active=False,
         slam_recovery_active=False,
+        odometry_recovery_active=False,
         combined_sensor_recovery_active=True,
     ) == "combined"
     assert wsj.closed_gate_recovery_kind(
         occupancy_recovery_active=False,
         slam_recovery_active=False,
+        odometry_recovery_active=True,
+        combined_sensor_recovery_active=False,
+    ) == "odometry"
+    assert wsj.closed_gate_recovery_kind(
+        occupancy_recovery_active=False,
+        slam_recovery_active=False,
+        odometry_recovery_active=False,
         combined_sensor_recovery_active=False,
     ) is None
     with pytest.raises(RuntimeError, match="mutually exclusive"):
         wsj.closed_gate_recovery_kind(
             occupancy_recovery_active=True,
             slam_recovery_active=True,
+            odometry_recovery_active=False,
             combined_sensor_recovery_active=False,
         )
     source = (
@@ -862,9 +920,11 @@ def test_closed_gate_recovery_kind_includes_combined_sensor_state():
     assert '"closed_gate_recovery_handoff"' in source
     assert source.count(
         "physical velocity gate closed immediately"
-    ) == 3
+    ) == 4
     assert '"LOCAL_SENSOR_RECOVERY_WAIT"' in source
     assert '"combined_sensor_recovery_wait"' in source
+    assert '"LOCAL_ODOMETRY_RECOVERY_WAIT"' in source
+    assert '"odometry_stale_recovery_wait"' in source
 
 
 def test_receiver_and_router_share_cached_occupancy_motion_gate():
@@ -1396,10 +1456,16 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert '--map-timeout-s \\"$MAP_TIMEOUT_S\\"' in wsj
     assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0' in wsj
     assert 'FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0' in wsj
+    assert 'FOCUS_WSJ_RECEIVER_ODOMETRY_RECOVERY_GRACE_S:-7.0' in wsj
     assert 'FOCUS_WSJ_TRAJECTORY_STALE_TIMEOUT_S:-1.0' in wsj
     assert 'FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-5.0' in wsj
     assert (
         '--local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"'
+        in wsj
+    )
+    assert (
+        '--odometry-recovery-grace-s '
+        '"$RECEIVER_ODOMETRY_RECOVERY_GRACE_S"'
         in wsj
     )
     assert (

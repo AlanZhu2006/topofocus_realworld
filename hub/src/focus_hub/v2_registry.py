@@ -41,6 +41,21 @@ TRANSIENT_SLAM_RECOVERY_DETAILS = frozenset(
         "imu_interval_threshold",
     }
 )
+HEALTHY_SLAM_RECOVERY_DETAILS = frozenset(
+    {
+        "slam_optimizer_imu_valid",
+        "external_odometry_covariance_tracking",
+    }
+)
+
+
+def healthy_slam_during_odometry_recovery(detail: str) -> bool:
+    return bool(
+        detail in HEALTHY_SLAM_RECOVERY_DETAILS
+        or detail.startswith(
+            "slam_optimizer_imu_valid_after_overwrite_recovery:"
+        )
+    )
 
 
 @dataclass
@@ -259,6 +274,35 @@ class V2DecisionRegistry:
             and slam_detail in TRANSIENT_SLAM_RECOVERY_DETAILS
         )
 
+    @staticmethod
+    def _bounded_odometry_recovery_renewal(
+        decision: HighLevelDecisionV2,
+        state: _V2RobotState,
+        health: RobotHealth,
+    ) -> bool:
+        """Permit only a stopped same-leg lease during healthy-SLAM odometry lag."""
+
+        previous = state.latest_by_leg.get(decision.leg_id)
+        event = state.latest_event
+        slam_detail = health.detail.split(";", 1)[0].strip()
+        return bool(
+            previous is not None
+            and event is not None
+            and decision.lease_sequence == previous.lease_sequence + 1
+            and event.decision_id == previous.decision_id
+            and event.lease_sequence == previous.lease_sequence
+            and event.leg_id == previous.leg_id
+            and event.status == NavigationStatusV2.ACCEPTED
+            and event.reason_code == "LOCAL_ODOMETRY_RECOVERY_WAIT"
+            and event.velocity_zero_confirmed
+            and health.safety_state == SafetyState.HOLD
+            and health.localization_state == LocalizationState.LOST
+            and not health.estop_engaged
+            and health.collision_avoidance_ready
+            and health.motor_controller_ready
+            and healthy_slam_during_odometry_recovery(slam_detail)
+        )
+
     def _validate_lease_order(
         self,
         decision: HighLevelDecisionV2,
@@ -373,6 +417,11 @@ class V2DecisionRegistry:
                     health,
                 )
                 or self._bounded_combined_sensor_recovery_renewal(
+                    decision,
+                    state,
+                    health,
+                )
+                or self._bounded_odometry_recovery_renewal(
                     decision,
                     state,
                     health,
