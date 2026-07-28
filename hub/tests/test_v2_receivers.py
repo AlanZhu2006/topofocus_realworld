@@ -719,6 +719,54 @@ def test_occupancy_recovery_renewal_health_only_overrides_map_gate():
     assert not estopped.ready_for_goal()
 
 
+def test_slam_episode_recovery_stops_motion_but_bounds_leg_wait():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    common = {
+        "recovery_grace_s": 2.0,
+        "slam_detail": "optimizer_status=skipped_imu_invalid",
+        "all_non_slam_health_ready": True,
+    }
+
+    assert wsj.slam_recovery_eligible(
+        recovery_elapsed_s=0.0, **common
+    )
+    assert wsj.slam_recovery_eligible(
+        recovery_elapsed_s=2.0, **common
+    )
+    assert not wsj.slam_recovery_eligible(
+        recovery_elapsed_s=2.001, **common
+    )
+    assert not wsj.slam_recovery_eligible(
+        recovery_elapsed_s=0.1,
+        **{**common, "slam_detail": "optimizer_status=failed"},
+    )
+    assert not wsj.slam_recovery_eligible(
+        recovery_elapsed_s=0.1,
+        **{**common, "all_non_slam_health_ready": False},
+    )
+
+
+def test_slam_recovery_renewal_health_only_overrides_slam_gate():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    health = wsj.RobotHealth(
+        safety_state=wsj.SafetyState.HOLD,
+        localization_state=wsj.LocalizationState.LOST,
+        estop_engaged=False,
+        collision_avoidance_ready=True,
+        motor_controller_ready=True,
+        detail="optimizer_status=skipped_imu_invalid",
+    )
+
+    renewal = wsj.slam_recovery_renewal_health(health)
+
+    assert renewal.ready_for_goal()
+    assert renewal.detail == health.detail
+    estopped = wsj.slam_recovery_renewal_health(
+        health.model_copy(update={"estop_engaged": True})
+    )
+    assert not estopped.ready_for_goal()
+
+
 def test_receiver_and_router_share_cached_occupancy_motion_gate():
     wsj = load_overlay("v2_wsj_receiver.py")
 
@@ -983,8 +1031,13 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert "node.router_decision_id is None" not in source
     assert '"control_telemetry"' in source
     assert '"occupancy_recovery_lease_renewed"' in source
+    assert '"slam_recovery_lease_renewed"' in source
     assert "renew_authority_while_gate_closed" in source
     assert "authorize_motion=False" in source
+    assert "--slam-recovery-grace-s" in source
+    assert '"slam_transient_recovery_wait"' in source
+    assert '"LOCAL_SLAM_RECOVERY_WAIT"' in source
+    assert '"SLAM_TRANSIENT_TIMEOUT"' in source
     assert '"occupancy_recovery_decision_deferred"' not in source
     recovery_feedback = source.split(
         "elif router_recovery_leg_id == active_decision.leg_id:", 1
