@@ -587,21 +587,21 @@ if [[ "$park_only" == true ]]; then
   exit 0
 fi
 
-# Stop the temporary keyframe calibration uploader before activating the
-# persistent continuous sender; otherwise both could claim the same sequence.
+# Stop the temporary native-infra1 calibration uploader before activating the
+# persistent color sender; otherwise both could claim the same sequence.
 if tmux list-windows -t "$SESSION" -F '#{window_name}' \
     | grep -qx calibration-sender; then
   tmux send-keys -t "$SESSION:calibration-sender" C-c >/dev/null 2>&1 || true
   deadline=$((SECONDS + 10))
   while pgrep -af \
-      'focus_ros_sender\.py.*--depth-topic /slam/keyframe_depth' \
+      'focus_ros_sender\.py.*--rgb-topic /camera/camera/infra1/image_rect_raw' \
       >/dev/null 2>&1; do
     (( SECONDS < deadline )) || break
     sleep 1
   done
   tmux kill-window -t "$SESSION:calibration-sender" >/dev/null 2>&1 || true
   if pgrep -af \
-      'focus_ros_sender\.py.*--depth-topic /slam/keyframe_depth' \
+      'focus_ros_sender\.py.*--rgb-topic /camera/camera/infra1/image_rect_raw' \
       >/dev/null 2>&1; then
     echo "Calibration sender did not stop; runtime activation refused." >&2
     exit 1

@@ -186,9 +186,9 @@ sender=(
   --robot-id robot-0
   --transform-version "$TRANSFORM_VERSION"
   --rgb-topic /camera/camera/infra1/image_rect_raw
-  --depth-topic /slam/keyframe_depth
+  --depth-topic /slam/depth
   --info-topic /slam/camera_info
-  --pose-topic /slam/keyframe_odom
+  --pose-topic /slam/odometry_visual
   --camera-frame camera
   --capture-time-source header
   --rate-hz 2.0
@@ -200,7 +200,7 @@ tmux new-window -d -t "$SESSION" -n calibration-sender \
   "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; set -o pipefail; $sender_text 2>&1 | tee \"$sender_log\"'"
 deadline=$((SECONDS + 20))
 until pgrep -af \
-    'focus_ros_sender\.py.*--depth-topic /slam/keyframe_depth' \
+    'focus_ros_sender\.py.*--rgb-topic /camera/camera/infra1/image_rect_raw' \
     >/dev/null 2>&1; do
   if [[ "$(tmux display-message -p -t "$SESSION:calibration-sender" \
       '#{pane_dead}' 2>/dev/null || true)" == 1 ]]; then
@@ -373,16 +373,16 @@ echo "WSJ_CALIBRATION_SENSOR_EPOCH_READY:" \
   "camera_restarted=$camera_restarted" \
   "perception_restarted=$perception_restarted" \
   "dds_order=senders_then_camera_then_perception" \
-  "keyframe_tuple_gate=sender_sequence"
+  "continuous_tuple_gate=sender_sequence"
 
-# `/slam/keyframe_depth` and `/slam/keyframe_odom` are deliberately absent
-# from the continuous sensor-epoch gate above. TinyNav publishes that exact
-# pair only when `keyframe_check(...)` accepts a frame (or its sparse-keyframe
-# timeout expires), so treating either topic as a heartbeat can repeatedly
-# restart a healthy perception process while a stationary robot is waiting
-# for board calibration. The prewarmed calibration sender synchronizes the exact
-# keyframe depth/pose tuple, and the mandatory Hub sequence advance remains
-# the end-to-end proof that a fresh tuple was actually captured.
+# Board calibration must capture a new observation after each operator
+# confirmation while the robot remains stationary. TinyNav's
+# `/slam/keyframe_*` tuple can stop indefinitely in that state, so the
+# calibration sender uses the same continuous `/slam/depth` and
+# `/slam/odometry_visual` geometry stream already proven by the parked runtime
+# sender. The board image remains the native rectified infra1 frame; the
+# sender's 50 ms synchronizer and mandatory Hub sequence advance provide the
+# end-to-end freshness and pose-pairing gates.
 
 tmux kill-window -t "$SESSION:foxglove-preview" >/dev/null 2>&1 || true
 sleep 1

@@ -1298,7 +1298,7 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     persistent_sender = launcher.index(
         'bash "$SCRIPT_DIR/start_wsj_command_observation.sh"'
     )
-    keyframe_sender = launcher.index("sender=(")
+    calibration_sender = launcher.index("sender=(")
     subscribers_ready = launcher.index(
         "WSJ_DDS_SUBSCRIBERS_READY_BEFORE_PUBLISHERS"
     )
@@ -1323,10 +1323,12 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     assert "/slam/odometry_visual" in continuous_sensor_gate
     assert "/slam/keyframe_depth" not in continuous_sensor_gate
     assert "/slam/keyframe_odom" not in continuous_sensor_gate
-    assert "--depth-topic /slam/keyframe_depth" in launcher
-    assert "--pose-topic /slam/keyframe_odom" in launcher
+    assert "--depth-topic /slam/depth" in launcher
+    assert "--pose-topic /slam/odometry_visual" in launcher
+    assert "--depth-topic /slam/keyframe_depth" not in launcher
+    assert "--pose-topic /slam/keyframe_odom" not in launcher
     assert "latest_sequence > initial_sequence" in launcher
-    assert "keyframe_tuple_gate=sender_sequence" in launcher
+    assert "continuous_tuple_gate=sender_sequence" in launcher
     assert launcher.count("verify_ros_geometry_profile.py") >= 2
     assert "--image-topic /slam/depth" in launcher
     assert "--camera-info-topic /slam/camera_info" in launcher
@@ -1338,7 +1340,7 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     assert "--qos-depth 1" in launcher
     assert (
         persistent_sender
-        < keyframe_sender
+        < calibration_sender
         < subscribers_ready
         < stop_perception
         < restart_camera
