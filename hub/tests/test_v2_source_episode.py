@@ -320,6 +320,78 @@ class ReadinessClient:
         return dict(self._readiness[robot_id])
 
 
+def transient_slam_readiness(*, ready: bool = False) -> dict[str, object]:
+    return {
+        "ready_for_goal": ready,
+        "blockers": [] if ready else ["HEALTH_NOT_READY"],
+        "health": {
+            "safety_state": "READY" if ready else "HOLD",
+            "localization_state": "TRACKING" if ready else "LOST",
+            "estop_engaged": False,
+            "collision_avoidance_ready": True,
+            "motor_controller_ready": True,
+            "detail": (
+                "slam_optimizer_imu_valid"
+                if ready
+                else (
+                    "optimizer_status=skipped_imu_invalid; "
+                    "odom_age=0.693s/5.000s"
+                )
+            ),
+        },
+    }
+
+
+def test_pre_goal_readiness_waits_only_for_transient_slam_hold(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = load_module()
+
+    assert module.transient_slam_readiness_waitable(
+        transient_slam_readiness()
+    )
+    hard = transient_slam_readiness()
+    hard["health"]["detail"] = "optimizer_status=failed"
+    assert not module.transient_slam_readiness_waitable(hard)
+    stale = transient_slam_readiness()
+    stale["blockers"] = ["HEALTH_NOT_READY", "HEALTH_STALE"]
+    assert not module.transient_slam_readiness_waitable(stale)
+
+    class RecoveringClient:
+        calls = 0
+
+        def readiness(self, _robot_id: str) -> dict[str, object]:
+            self.calls += 1
+            return transient_slam_readiness(ready=self.calls >= 2)
+
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    client = RecoveringClient()
+    reports, waited_s = module.wait_for_goal_readiness(
+        client,
+        {"robot-0"},
+        timeout_s=1.0,
+        poll_s=0.01,
+    )
+
+    assert reports["robot-0"]["ready_for_goal"] is True
+    assert client.calls == 2
+    assert waited_s >= 0.0
+
+
+def test_pre_goal_readiness_rejects_nontransient_gate_immediately():
+    module = load_module()
+    hard = transient_slam_readiness()
+    hard["health"]["detail"] = "optimizer_status=failed"
+
+    with pytest.raises(RuntimeError, match="runtime readiness blocked GOAL"):
+        module.wait_for_goal_readiness(
+            ReadinessClient({"robot-0": hard}),
+            {"robot-0"},
+            timeout_s=1.0,
+            poll_s=0.01,
+        )
+
+
 def write_terminal_observation(
     spool: Path,
     observation_factory,

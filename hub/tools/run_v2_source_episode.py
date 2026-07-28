@@ -525,6 +525,79 @@ class EpisodeClient:
         return payload
 
 
+TRANSIENT_SLAM_HEALTH_DETAILS = (
+    "optimizer_status=skipped_imu_invalid",
+    "imu_intervals_invalid",
+    "imu_intervals_missing",
+    "imu_interval_invalid",
+    "imu_interval_threshold",
+)
+
+
+def transient_slam_readiness_waitable(report: dict[str, object]) -> bool:
+    """Recognize only the receiver's fail-closed transient SLAM HOLD."""
+
+    blockers = report.get("blockers")
+    health = report.get("health")
+    if blockers != ["HEALTH_NOT_READY"] or not isinstance(health, dict):
+        return False
+    detail = health.get("detail")
+    return bool(
+        health.get("safety_state") == "HOLD"
+        and health.get("localization_state") == "LOST"
+        and health.get("estop_engaged") is False
+        and health.get("collision_avoidance_ready") is True
+        and health.get("motor_controller_ready") is True
+        and isinstance(detail, str)
+        and any(
+            detail == candidate or detail.startswith(candidate + ";")
+            for candidate in TRANSIENT_SLAM_HEALTH_DETAILS
+        )
+    )
+
+
+def wait_for_goal_readiness(
+    client: EpisodeClient,
+    active: set[str],
+    *,
+    timeout_s: float,
+    poll_s: float,
+) -> tuple[dict[str, dict[str, object]], float]:
+    """Wait briefly for a transient SLAM HOLD before publishing any GOAL."""
+
+    if timeout_s <= 0.0 or poll_s <= 0.0:
+        raise ValueError("runtime readiness recovery bounds must be positive")
+    started = time.monotonic()
+    while True:
+        reports = {
+            robot_id: client.readiness(robot_id)
+            for robot_id in sorted(active)
+        }
+        blocked = {
+            robot_id: report
+            for robot_id, report in reports.items()
+            if report.get("ready_for_goal") is not True
+        }
+        elapsed_s = max(0.0, time.monotonic() - started)
+        if not blocked:
+            return reports, elapsed_s
+        if not all(
+            transient_slam_readiness_waitable(report)
+            for report in blocked.values()
+        ):
+            raise RuntimeError(
+                "robot-local runtime readiness blocked GOAL: "
+                + json.dumps(blocked, sort_keys=True)
+            )
+        if elapsed_s >= timeout_s:
+            raise RuntimeError(
+                "transient robot-local SLAM readiness did not recover before "
+                f"the {timeout_s:.3f}s zero-motion deadline: "
+                + json.dumps(blocked, sort_keys=True)
+            )
+        time.sleep(min(poll_s, max(0.0, timeout_s - elapsed_s)))
+
+
 def wait_for_hold_ack(
     client: EpisodeClient,
     hold_batch: DecisionBatchV2,
@@ -1091,6 +1164,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-runtime-s", type=float, default=600.0)
     parser.add_argument("--round-input-timeout-s", type=float, default=300.0)
     parser.add_argument("--hold-ack-timeout-s", type=float, default=8.0)
+    parser.add_argument(
+        "--runtime-readiness-recovery-s",
+        type=float,
+        default=3.0,
+        help=(
+            "zero-motion wait for a transient receiver SLAM HOLD immediately "
+            "before a GOAL publication"
+        ),
+    )
     parser.add_argument("--terminal-evidence-timeout-s", type=float, default=10.0)
     parser.add_argument("--max-input-age-s", type=float, default=60.0)
     parser.add_argument("--max-sync-skew-s", type=float, default=5.0)
@@ -1205,6 +1287,7 @@ def main() -> int:
             args.max_runtime_s,
             args.round_input_timeout_s,
             args.hold_ack_timeout_s,
+            args.runtime_readiness_recovery_s,
             args.terminal_evidence_timeout_s,
             args.max_input_age_s,
         )
@@ -1536,19 +1619,17 @@ def main() -> int:
         return states
 
     def readiness_for(active: set[str]) -> dict[str, dict[str, object]]:
-        reports = {
-            robot_id: client.readiness(robot_id)
-            for robot_id in sorted(active)
-        }
-        blocked = {
-            robot_id: report
-            for robot_id, report in reports.items()
-            if report.get("ready_for_goal") is not True
-        }
-        if blocked:
-            raise RuntimeError(
-                "robot-local runtime readiness blocked GOAL: "
-                + json.dumps(blocked, sort_keys=True)
+        reports, recovery_wait_s = wait_for_goal_readiness(
+            client,
+            active,
+            timeout_s=args.runtime_readiness_recovery_s,
+            poll_s=args.poll_s,
+        )
+        if recovery_wait_s >= args.poll_s:
+            emit(
+                "runtime_readiness_transient_recovered",
+                active_robot_ids=sorted(active),
+                zero_motion_wait_s=round(recovery_wait_s, 3),
             )
         return reports
 
