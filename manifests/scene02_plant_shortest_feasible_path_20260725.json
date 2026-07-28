@@ -15,5 +15,5 @@
   ],
   "operator_statement": "大概直线距离应该是7m 可以计算standard spl",
   "metric_formula": "standard_spl = S * L / max(L, P)",
-  "notes": "Applies to any current or future Scene 02 formal episode using the same fixed start/target placement. Only formal experiment 03 (SUCCESS) currently contributes a nonzero standard SPL; failed episodes are S=0 regardless of L."
+  "notes": "Applies to Scene 02 formal experiments using the same fixed start/target placement. Formal experiments 03-05 contribute nonzero Standard SPL; failed experiments 01-02 contribute zero because S=0."
 }

@@ -38,13 +38,13 @@
       "classification": "five operator-confirmed formal successes under the declared 0.5 m real-world protocol"
     },
     "scene02_physical_0p5m_protocol": {
-      "recorded_episodes": 3,
-      "successes": 1,
-      "sr": 0.3333333333333333,
-      "source_compatible_multi_spl_mean": 0.2883973021635285,
-      "standard_multi_spl_mean": 0.27922295634194155,
+      "recorded_episodes": 5,
+      "successes": 3,
+      "sr": 0.6,
+      "source_compatible_multi_spl_mean": 0.557366832135995,
+      "standard_multi_spl_mean": 0.531689377642298,
       "standard_multi_spl_status": "official; uses operator-provided independently measured Scene 02 shortest feasible path L=approximately 7 m",
-      "classification": "Scene 02 formal experiments 01-03: two recorded zero-contribution failures and one operator-confirmed physical plant-arrival success"
+      "classification": "Scene 02 formal experiments 01-05: two recorded zero-contribution failures and three operator-confirmed physical plant-arrival successes"
     }
   },
   "formal_scene_results": {
@@ -58,14 +58,14 @@
       "classification": "authoritative unified Scene 01 formal archive"
     },
     "scene02-plant": {
-      "path": "manifests/scene02_plant_formal_experiment_03_success_20260728.json",
-      "formal_experiments": 3,
-      "successes": 1,
-      "sr": 0.3333333333333333,
-      "mean_source_compatible_spl": 0.2883973021635285,
-      "mean_standard_spl": 0.27922295634194155,
+      "path": "manifests/scene02_plant_formal_experiments_20260728.json",
+      "formal_experiments": 5,
+      "successes": 3,
+      "sr": 0.6,
+      "mean_source_compatible_spl": 0.557366832135995,
+      "mean_standard_spl": 0.531689377642298,
       "standard_spl_status": "official; uses operator-provided independently measured Scene 02 shortest feasible path L=approximately 7 m",
-      "classification": "Scene 02 formal experiments 01-03 are indexed by the two failure manifests and the Formal 03 success manifest"
+      "classification": "authoritative unified Scene 02 formal archive covering experiments 01-05"
     }
   },
   "planned_scene_campaigns": {
@@ -73,12 +73,12 @@
       "path": "manifests/scene02_plant_preparation_20260725.json",
       "target_category": "plant",
       "planned_formal_experiments": 5,
-      "recorded_episodes": 3,
-      "successes": 1,
-      "metric_status": "three_recorded_episodes_one_success_standard_spl_official",
+      "recorded_episodes": 5,
+      "successes": 3,
+      "metric_status": "five_recorded_episodes_three_successes_campaign_complete",
       "standard_shortest_feasible_path_status": "complete; L=approximately 7 m",
       "standard_shortest_feasible_path_evidence": "manifests/scene02_plant_shortest_feasible_path_20260725.json",
-      "classification": "formal experiments 01-02 are recorded navigation-policy failures and formal experiment 03 is an operator-confirmed Yunji plant-arrival success; see the three per-run manifests"
+      "classification": "formal experiments 01-02 are recorded failures; formal experiments 03-05 are operator-confirmed plant-arrival successes; see the unified archive"
     }
   },
   "attempts_not_in_metric_track": [
@@ -808,14 +808,14 @@
       "evidence": [
         {
           "path": "manifests/scene02_plant_formal_experiment_03_success_20260728.json",
-          "size_bytes": 11866,
-          "sha256": "dd909bcf583cc5be05714051768c8512f084f14ba274c62c06b888ed75e90050",
+          "size_bytes": 12202,
+          "sha256": "0ca64cf5bc6e014220fbdf8dabd3195fd83bb0d807e684e3228f1edadd18c644",
           "classification": "authoritative machine-readable Formal 03 success archive"
         },
         {
           "path": "audit/SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md",
-          "size_bytes": 4543,
-          "sha256": "4200ccc2baac43b3ee722c5a1149ed89c2e3aef43d14b118619a7d746af34167",
+          "size_bytes": 5122,
+          "sha256": "16c1cd701d41bc02f01781bd0a15f8e67c9e031b726db5197d2b0d854dda880f",
           "classification": "human-readable provenance mirror"
         },
         {
@@ -845,7 +845,7 @@
           "classification": "source-derived H.264 public derivative"
         },
         {
-          "path": "media/video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov",
+          "path": "media/video/dashboard/experiment_2/experiment_2_success_1_dashboard.mov",
           "size_bytes": 193595030,
           "sha256": "ba360ba29117906b2e935a1726d7c5f2ed5aeaefe7011eeca25d1687da19356e",
           "duration_s": 289.368,
@@ -857,6 +857,152 @@
           "sha256": "1c9ce1a52d31ee718fdb3086b2f0b528994924c1cad29548c7d166c1eb438b84",
           "duration_s": 289.3,
           "classification": "source-derived H.264 public derivative, scaled to 1280px wide"
+        }
+      ]
+    },
+    {
+      "record_id": "scene02-plant_formal-experiment-04",
+      "formal_experiment_index": 4,
+      "formal_experiment_ordinal_source": "campaign order following the three previously archived Scene 02 experiments",
+      "session_id": "scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6",
+      "session_git_commit": "f8f232807f772c579745706070a3274189d5e108",
+      "shared_frame_calibration_id": "shared-board-odin1-scene02-plant-20260728-0720-yunjireanchor1-v1",
+      "scene_id": "scene02-plant",
+      "episode_id": "dual-rerun-03",
+      "target_category": "plant",
+      "automatic_result": {
+        "success": true,
+        "success_basis": "automatic semantic ARRIVED plus post-run operator physical-arrival confirmation",
+        "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+        "robot_id": "robot-1",
+        "target_kind": "SEMANTIC_REGION",
+        "navigation_status": "ARRIVED",
+        "reason_code": "LOCAL_PLANNER_ARRIVED",
+        "configured_semantic_arrival_radius_m": 0.15,
+        "automatic_report_official_success_verified": false
+      },
+      "physical_protocol_result": {
+        "classification": "operator-confirmed physical plant-arrival success",
+        "counts_in_metric_track": "scene02_physical_0p5m_protocol",
+        "success": true,
+        "success_radius_m": 0.5,
+        "operator_statement": "这次成功 归档数据 然后尽快下一次实验",
+        "standard_track_basis": "independently measured Scene 02 shortest feasible path L=approximately 7 m"
+      },
+      "metrics": {
+        "sr": 1.0,
+        "actual_path_length_m": 7.579080665142857,
+        "start_to_stop_displacement_m": 7.286366488561264,
+        "source_compatible_spl": 0.961378669852688,
+        "independently_measured_shortest_feasible_path_m": 7.0,
+        "standard_spl": 0.923594867144491
+      },
+      "run_summary": {
+        "source_rounds_completed": 4,
+        "high_level_batches_published": 22,
+        "robot_0_actual_path_length_m": 0.45422660044147756,
+        "robot_1_actual_path_length_m": 7.579080665142857,
+        "behavior": "route coordination held WSJ while Yunji completed the plant semantic route and ARRIVED"
+      },
+      "evidence": [
+        {
+          "path": "manifests/scene02_plant_formal_experiment_04_success_20260728.json",
+          "size_bytes": 9391,
+          "sha256": "fad9992cb30cedc95f41566e4bc8ba7ce50d634246c4a4c6f6315439c3fc9b73",
+          "classification": "authoritative machine-readable Formal 04 success archive"
+        },
+        {
+          "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6_live_scene02-plant_20260728_085730_771542972/episode_report.json",
+          "size_bytes": 21063,
+          "sha256": "eeae3fee5ed2501c00dd228095b502f4133679bc22a63a6b5f76bc57e2e6338f",
+          "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        },
+        {
+          "path": "media/video/third_view/experiment_2/experiment_2_success_2.mp4",
+          "size_bytes": 11650109,
+          "sha256": "c1ff2ac1db225bd6031840346d87d84776ee3968ab807d881daa87999c7f88f1",
+          "duration_s": 98.666667,
+          "classification": "observed user-provided external-view master; Git LFS"
+        },
+        {
+          "path": "media/video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov",
+          "size_bytes": 78617347,
+          "sha256": "5b176a9fabb4254f0132e0a067b30f3673e9af76c0c28479f48c2e1b953c45e5",
+          "duration_s": 111.549,
+          "classification": "observed user-provided Dashboard master; Git LFS"
+        }
+      ]
+    },
+    {
+      "record_id": "scene02-plant_formal-experiment-05",
+      "formal_experiment_index": 5,
+      "formal_experiment_ordinal_source": "operator-authorized Scene 02 Formal 05 live episode",
+      "session_id": "scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6",
+      "session_git_commit": "f8f232807f772c579745706070a3274189d5e108",
+      "shared_frame_calibration_id": "shared-board-odin1-scene02-plant-20260728-0720-yunjireanchor1-v1",
+      "scene_id": "scene02-plant",
+      "episode_id": "formal-05",
+      "target_category": "plant",
+      "automatic_result": {
+        "success": true,
+        "success_basis": "automatic semantic ARRIVED plus post-run operator physical-arrival confirmation",
+        "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+        "robot_id": "robot-1",
+        "target_kind": "SEMANTIC_REGION",
+        "navigation_status": "ARRIVED",
+        "reason_code": "LOCAL_PLANNER_ARRIVED",
+        "configured_semantic_arrival_radius_m": 0.15,
+        "automatic_report_official_success_verified": false
+      },
+      "physical_protocol_result": {
+        "classification": "operator-confirmed physical plant-arrival success",
+        "counts_in_metric_track": "scene02_physical_0p5m_protocol",
+        "success": true,
+        "success_radius_m": 0.5,
+        "operator_statement": "可以 成功 完整归档",
+        "standard_track_basis": "independently measured Scene 02 shortest feasible path L=approximately 7 m"
+      },
+      "metrics": {
+        "sr": 1.0,
+        "actual_path_length_m": 7.802197337382422,
+        "start_to_stop_displacement_m": 7.492165980897122,
+        "source_compatible_spl": 0.960263584336703,
+        "independently_measured_shortest_feasible_path_m": 7.0,
+        "standard_spl": 0.897183152041172
+      },
+      "run_summary": {
+        "source_rounds_completed": 5,
+        "high_level_batches_published": 25,
+        "robot_0_actual_path_length_m": 2.032181914778179,
+        "robot_1_actual_path_length_m": 7.802197337382422,
+        "behavior": "both robots moved concurrently when route corridors were clear; coordination later held WSJ while Yunji completed the plant semantic route and ARRIVED"
+      },
+      "evidence": [
+        {
+          "path": "manifests/scene02_plant_formal_experiment_05_success_20260728.json",
+          "size_bytes": 9920,
+          "sha256": "fe3b2e11b7c875f14efea9829a7e336bd9ab30af00e4beeea6c9c2dffe2f5262",
+          "classification": "authoritative machine-readable Formal 05 success archive"
+        },
+        {
+          "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6_live_scene02-plant_20260728_090607_961631496/episode_report.json",
+          "size_bytes": 21015,
+          "sha256": "89a90efe0f9bed28074a2a2d80ca7446c4d71170a11c5c4987f5b8e79ef9b1c2",
+          "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        },
+        {
+          "path": "media/video/third_view/experiment_2/experiment_2_success_3.mp4",
+          "size_bytes": 10913434,
+          "sha256": "8c1c9f56f98af43caf62c6b49ea47c05363a001256cf893f8587daf60a41ee43",
+          "duration_s": 161.1,
+          "classification": "observed user-provided external-view master; Git LFS"
+        },
+        {
+          "path": "media/video/dashboard/experiment_2/experiment_2_success_3_dashboard.mov",
+          "size_bytes": 118139204,
+          "sha256": "586398496a86ec144f8ad16bc2083ff178a3a7627b979fd748b8474a0f4ef09d",
+          "duration_s": 160.195,
+          "classification": "observed user-provided Dashboard master; Git LFS"
         }
       ]
     }

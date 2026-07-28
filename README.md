@@ -47,6 +47,12 @@ Standard SPL uses the independently measured shortest feasible path
 `L≈3.25 m`; source-compatible SPL uses the arriving robot's start-to-arrival
 displacement `D` as a source-compatible reference.
 
+### Explored semantic map
+
+<p align="center">
+  <img src="media/image/experiment_1_map.png" width="560" alt="Experiment 1 explored semantic map and robot trajectories">
+</p>
+
 ### Real-robot rollouts
 
 <table>
@@ -138,11 +144,17 @@ Both robots explore cooperatively toward a plant target.
 
 | Trials | Success | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `3` | `1` | `0.333333` | `0.288397` | `0.279223` |
+| `5` | `3` | `0.600000` | `0.557367` | `0.531689` |
 
 Both means count the two failures at zero contribution. Standard SPL uses
 the operator-provided independently measured shortest feasible path
 `L≈7 m` (Scene 01's `3.25 m` is not reused).
+
+### Explored semantic map
+
+<p align="center">
+  <img src="media/image/experiment_2_map.png" width="560" alt="Experiment 2 explored semantic map and robot trajectories">
+</p>
 
 <table>
   <tr>
@@ -174,17 +186,42 @@ the operator-provided independently measured shortest feasible path
     </td>
   </tr>
   <tr>
-    <td colspan="2" align="center">
+    <td width="50%" align="center">
       <strong>Formal 03 · SUCCESS</strong><br>
       <small>Third view</small><br>
       <img src="media/demo/scene02_formal_03_preview.gif" width="440" alt="Formal 03 rollout"><br>
       <small>Dashboard</small><br>
       <img src="media/demo/scene02_formal_03_dashboard.gif" width="440" alt="Formal 03 dashboard"><br>
       Robot 1 explores frontiers, switches to the plant semantic region and
-      auto-ARRIVED, confirmed by the operator; Robot 0 HOLDs under route
-      coordination throughout.<br>
+      auto-ARRIVED, confirmed by the operator; Robot 0 remains in HOLD
+      throughout.<br>
       <a href="media/demo/scene02_formal_03_third_view.mp4">Third view</a> ·
       <a href="media/demo/scene02_formal_03_dashboard.mp4">Dashboard</a>
+    </td>
+    <td width="50%" align="center">
+      <strong>Formal 04 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene02_formal_04_preview.gif" width="440" alt="Formal 04 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene02_formal_04_dashboard.gif" width="440" alt="Formal 04 dashboard"><br>
+      Route coordination keeps Robot 0 in HOLD while Robot 1 follows the
+      plant semantic route and auto-ARRIVED, confirmed by the operator.<br>
+      <a href="media/demo/scene02_formal_04_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene02_formal_04_dashboard.mp4">Dashboard</a>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <strong>Formal 05 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene02_formal_05_preview.gif" width="440" alt="Formal 05 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene02_formal_05_dashboard.gif" width="440" alt="Formal 05 dashboard"><br>
+      Both robots advance concurrently where their route corridors are
+      clear; Robot 1 completes the plant semantic route and auto-ARRIVED,
+      confirmed by the operator.<br>
+      <a href="media/demo/scene02_formal_05_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene02_formal_05_dashboard.mp4">Dashboard</a>
     </td>
   </tr>
 </table>
@@ -196,11 +233,15 @@ the operator-provided independently measured shortest feasible path
 | Formal 01 | FAILURE | `6.104564 m` | `1.905387 m` | `0.0` | `0.0` |
 | Formal 02 | FAILURE | `1.034858 m`* | `7.425951 m` | `0.0` | `0.0` |
 | Formal 03 | SUCCESS | `0.728655 m`* | `8.356524 m` | `0.865192` | `0.837669` |
+| Formal 04 | SUCCESS | `0.454227 m`* | `7.579081 m` | `0.961379` | `0.923595` |
+| Formal 05 | SUCCESS | `2.032182 m` | `7.802197 m` | `0.960264` | `0.897183` |
 
-\* Robot 0 HOLDs under route coordination in Formal 02/03; its accumulated
-odometry is retained as observed provenance, not commanded travel.
+\* Robot 0 is inactive or HOLDs under route coordination; its accumulated
+odometry is retained as observed provenance.
 
 [Formal 01 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
 · [Formal 02 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md)
 · [Formal 03 success record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md)
-· [Machine-readable results](manifests/realworld_experiment_progress.json)
+· [Formal 04 record](manifests/scene02_plant_formal_experiment_04_success_20260728.json)
+· [Formal 05 record](manifests/scene02_plant_formal_experiment_05_success_20260728.json)
+· [Machine-readable results](manifests/scene02_plant_formal_experiments_20260728.json)

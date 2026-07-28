@@ -3,6 +3,8 @@
 Scene 01 contains five formal successful real-robot experiments. User-provided
 master videos are byte-preserved under `media/video/**` through Git LFS;
 browser-ready H.264 files and inline GIF previews are under `media/demo/`.
+The explored semantic map is
+[`experiment_1_map.png`](image/experiment_1_map.png).
 
 | Run | Third-view master | Dashboard master | README previews |
 | --- | --- | --- | --- |
@@ -25,16 +27,20 @@ evidence and indexed in
 
 # Scene 02 media
 
-Scene 02 currently contains three archived formal episodes: two failures and
-one operator-confirmed success. User-provided master videos are
+Scene 02 contains five archived formal episodes: two failures and three
+operator-confirmed successes. User-provided master videos are
 byte-preserved under `media/video/**` through Git LFS; browser-ready H.264
 files and inline GIF previews are under `media/demo/`.
+The explored semantic map is
+[`experiment_2_map.png`](image/experiment_2_map.png).
 
 | Run | Third-view master | Dashboard master | README previews |
 | --- | --- | --- | --- |
 | Formal 01 · FAILURE | [`experiment_2_failure_1.mp4`](video/third_view/experiment_2/experiment_2_failure_1.mp4) | [`experiment_2_failure_1_dashboard.mov`](video/dashboard/experiment_2/experiment_2_failure_1_dashboard.mov) | [Third view](demo/scene02_formal_01_preview.gif) · [Dashboard](demo/scene02_formal_01_dashboard.gif) |
 | Formal 02 · FAILURE | [`experiment_2_failure_2.mp4`](video/third_view/experiment_2/experiment_2_failure_2.mp4) | [`experiment_2_failure_2_dashboard.mov`](video/dashboard/experiment_2/experiment_2_failure_2_dashboard.mov) | [Third view](demo/scene02_formal_02_preview.gif) · [Dashboard](demo/scene02_formal_02_dashboard.gif) |
-| Formal 03 · SUCCESS | [`experiment_2_success_1.mp4`](video/third_view/experiment_2/experiment_2_success_1.mp4) | [`experiment_2_success_2_dashboard.mov`](video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov) | [Third view](demo/scene02_formal_03_preview.gif) · [Dashboard](demo/scene02_formal_03_dashboard.gif) |
+| Formal 03 · SUCCESS | [`experiment_2_success_1.mp4`](video/third_view/experiment_2/experiment_2_success_1.mp4) | [`experiment_2_success_1_dashboard.mov`](video/dashboard/experiment_2/experiment_2_success_1_dashboard.mov) | [Third view](demo/scene02_formal_03_preview.gif) · [Dashboard](demo/scene02_formal_03_dashboard.gif) |
+| Formal 04 · SUCCESS | [`experiment_2_success_2.mp4`](video/third_view/experiment_2/experiment_2_success_2.mp4) | [`experiment_2_success_2_dashboard.mov`](video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov) | [Third view](demo/scene02_formal_04_preview.gif) · [Dashboard](demo/scene02_formal_04_dashboard.gif) |
+| Formal 05 · SUCCESS | [`experiment_2_success_3.mp4`](video/third_view/experiment_2/experiment_2_success_3.mp4) | [`experiment_2_success_3_dashboard.mov`](video/dashboard/experiment_2/experiment_2_success_3_dashboard.mov) | [Third view](demo/scene02_formal_05_preview.gif) · [Dashboard](demo/scene02_formal_05_dashboard.gif) |
 
 Formal 02 was replaced: the operator designated a later Yunji-only run
 (algorithmic exploration failure, 13 rounds without a plant semantic
@@ -55,3 +61,5 @@ sizes, durations, SHA-256 values and evidence classes are recorded in
 and
 [`scene02_plant_formal_experiment_03_success_20260728.json`](../manifests/scene02_plant_formal_experiment_03_success_20260728.json) /
 [`SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md`](../audit/SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md).
+Formal 04/05 and the unified campaign totals are recorded in
+[`scene02_plant_formal_experiments_20260728.json`](../manifests/scene02_plant_formal_experiments_20260728.json).

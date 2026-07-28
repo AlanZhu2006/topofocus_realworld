@@ -1,0 +1,205 @@
+{
+  "schema_version": "focus-scene-formal-experiment-v1",
+  "scene_id": "scene02-plant",
+  "target_category": "plant",
+  "formal_index": 4,
+  "result": "SUCCESS",
+  "session_id": "scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6",
+  "episode_id": "dual-rerun-03",
+  "episode_id_note": "internal episode label; this is the fourth recorded Scene 02 formal experiment",
+  "session_git_commit": "f8f232807f772c579745706070a3274189d5e108",
+  "calibration_id": "shared-board-odin1-scene02-plant-20260728-0720-yunjireanchor1-v1",
+  "execution_scope": {
+    "mode": "dual_robot_live_run",
+    "authorized_robot_ids": [
+      "robot-0",
+      "robot-1"
+    ],
+    "arriving_robot_id": "robot-1",
+    "coordination_result": "the route-conflict guard serialized WSJ to HOLD in all four source rounds while Yunji retained the semantic route"
+  },
+  "operator_evidence": {
+    "motion_authorization": "已到本轮启动位置；当前操作者在场，两台机器人已站立且周围净空，允许 Scene 02 Dual Rerun 03 本轮真机运动。",
+    "post_run_success_confirmation": "这次成功 归档数据 然后尽快下一次实验",
+    "classification": "observed operator authorization and post-run physical-success confirmation"
+  },
+  "automatic_result": {
+    "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+    "automatic_terminal_candidate_complete": true,
+    "automatic_report_official_success_verified": false,
+    "automatic_report_boundary": "the immutable runtime report was sealed before the operator's post-run physical-success confirmation",
+    "arriving_robot_id": "robot-1",
+    "arrival_target_kind": "SEMANTIC_REGION",
+    "navigation_status": "ARRIVED",
+    "reason_code": "LOCAL_PLANNER_ARRIVED",
+    "local_planner_stopped": true,
+    "velocity_zero_confirmed": true,
+    "configured_semantic_arrival_radius_m": 0.15
+  },
+  "physical_protocol_result": {
+    "classification": "operator-confirmed physical plant-arrival success",
+    "counts_in_scene02_metric_track": true,
+    "success": true,
+    "success_radius_m": 0.5,
+    "target_evidence": "plant is directly visible in the time-aligned robot-1 terminal RGB and the onsite operator confirmed physical arrival",
+    "standard_track_eligible": true,
+    "standard_track_status": "official; operator-provided independently measured shortest feasible path L=approximately 7 m"
+  },
+  "metrics": {
+    "success": 1,
+    "sr": 1.0,
+    "arriving_robot_id": "robot-1",
+    "actual_path_length_m": 7.579080665142857,
+    "start_xy_m": [
+      0.007781997996825135,
+      0.033062883523998554
+    ],
+    "stop_xy_m": [
+      7.163833659645839,
+      -1.3388194807620177
+    ],
+    "start_to_stop_displacement_m": 7.286366488561264,
+    "source_compatible_spl_formula": "S * D / max(D, P)",
+    "source_compatible_spl": 0.961378669852688,
+    "independently_measured_shortest_feasible_path_m": 7.0,
+    "shortest_path_measurement_precision": "approximate",
+    "standard_spl_formula": "S * L / max(L, P)",
+    "standard_spl": 0.923594867144491,
+    "standard_spl_status": "official_operator_confirmed_independently_measured_shortest_feasible_path",
+    "scene02_campaign_after_formal_04": {
+      "recorded_episodes": 4,
+      "successes": 2,
+      "sr": 0.5,
+      "mean_source_compatible_spl_with_failures_zero": 0.456642644085818,
+      "mean_standard_spl_with_failures_zero": 0.440315934042579
+    }
+  },
+  "execution": {
+    "source_rounds_completed": 4,
+    "source_steps": [
+      0,
+      24,
+      49,
+      74
+    ],
+    "high_level_batches_published": 22,
+    "bounded_replanning": {
+      "semantic_path_stale_events": 3,
+      "result": "each rejection transitioned through an acknowledged HOLD and a fresh source round; the fourth semantic leg arrived"
+    },
+    "robots": {
+      "robot-0": {
+        "name": "WSJ",
+        "actual_path_length_m": 0.45422660044147756,
+        "start_to_stop_net_displacement_m": 0.000721246382235,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD",
+        "velocity_zero_confirmed": true
+      },
+      "robot-1": {
+        "name": "Yunji",
+        "actual_path_length_m": 7.579080665142857,
+        "start_to_stop_net_displacement_m": 7.286366488561264,
+        "final_status": "ARRIVED",
+        "final_reason": "LOCAL_PLANNER_ARRIVED",
+        "terminal_observation_sequence": 313256,
+        "velocity_zero_confirmed": true
+      }
+    }
+  },
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6_live_scene02-plant_20260728_085730_771542972/episode_report.json",
+      "size_bytes": 21063,
+      "sha256": "eeae3fee5ed2501c00dd228095b502f4133679bc22a63a6b5f76bc57e2e6338f",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6_live_scene02-plant_20260728_085730_771542972/controller_events.jsonl",
+      "size_bytes": 38525,
+      "sha256": "d79106aaa0de211d4f838d366098e9c2db8f7bb3acec4be26d84d6a7a6769e1b",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6_live_scene02-plant_20260728_085730_771542972/terminal/terminal_evidence.json",
+      "size_bytes": 10862,
+      "sha256": "d42807588a84264ece6ca7a5f9c149a65dd38c351122a4fe157d4a6767759cdb",
+      "classification": "source-derived terminal evidence index; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6_live_scene02-plant_20260728_085730_771542972/terminal/robot-1/rgb.jpg",
+      "size_bytes": 115092,
+      "sha256": "62ca645e09ebb55df354f3e077f6b2b2b44a55a9a83fc9708d813355604bd1cd",
+      "classification": "observed post-arrival RGB visibly containing the plant; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6_live_scene02-plant_20260728_085730_771542972/terminal/robot-1/depth.png",
+      "size_bytes": 198364,
+      "sha256": "b1bd8840b860897b339cf95a3e5606486267e51c127f5e90e705877afefe304a",
+      "classification": "observed terminal aligned depth; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene02-plant-20260728-0720-yunjireanchor1-dual-rerun1-r6/session.json",
+      "size_bytes": 4506,
+      "sha256": "3af80faf427380d07e3433fca787ff34c035c92e8451f99603bfce95f1bd6d8c",
+      "classification": "source-derived exact session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene02-plant-20260728-0720-yunjireanchor1/shared_frame.json",
+      "size_bytes": 22423,
+      "sha256": "30a746b251aeca417e13cbfcdb53ff302104489517f56342963b163e3789e622",
+      "classification": "observed and source-derived shared-frame calibration; runtime file ignored by Git"
+    }
+  ],
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_2/experiment_2_success_2.mp4",
+      "size_bytes": 11650109,
+      "sha256": "c1ff2ac1db225bd6031840346d87d84776ee3968ab807d881daa87999c7f88f1",
+      "duration_s": 98.666667,
+      "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS"
+    },
+    {
+      "path": "media/demo/scene02_formal_04_third_view.mp4",
+      "size_bytes": 10005415,
+      "sha256": "2208d9bd031bbf8629deb0ed6cb6067eac83ec1b95e8db291c0e38483f17239a",
+      "duration_s": 98.667,
+      "classification": "source-derived H.264 public derivative"
+    },
+    {
+      "path": "media/demo/scene02_formal_04_preview.gif",
+      "size_bytes": 9037238,
+      "sha256": "5ca6ec712356a9089032175bcbe3d1c18927ea035c4d476499a09dd9b0ef0c2c",
+      "duration_s": 8.01,
+      "classification": "source-derived full-clip time-lapse preview; 64 frames at 8 fps"
+    },
+    {
+      "path": "media/video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov",
+      "size_bytes": 78617347,
+      "sha256": "5b176a9fabb4254f0132e0a067b30f3673e9af76c0c28479f48c2e1b953c45e5",
+      "duration_s": 111.549,
+      "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS"
+    },
+    {
+      "path": "media/demo/scene02_formal_04_dashboard.mp4",
+      "size_bytes": 1369913,
+      "sha256": "630645e2ee937fb64892233a1000cd15b9a1769db674736f7fb03837e012d6a0",
+      "duration_s": 111.5,
+      "classification": "source-derived H.264 public derivative scaled to 1280 px wide"
+    },
+    {
+      "path": "media/demo/scene02_formal_04_dashboard.gif",
+      "size_bytes": 1561038,
+      "sha256": "f9bc704fe4196bf99800e4d226bf6dc6fde46f5fbeec507fe8bef4d03d82fe89",
+      "duration_s": 8.01,
+      "classification": "source-derived full-clip time-lapse preview; 64 frames at 8 fps"
+    }
+  ],
+  "media_status": "third-view and Dashboard masters, browser-ready derivatives and inline GIF previews archived",
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "cleanup_state": "semantic arrival completed with both robots HOLDING; Hub GOAL output was disabled for robot-0 and robot-1",
+    "post_episode_motion_authority": false
+  }
+}

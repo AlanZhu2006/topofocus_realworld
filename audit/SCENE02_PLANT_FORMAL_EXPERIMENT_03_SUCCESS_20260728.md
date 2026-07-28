@@ -73,7 +73,7 @@ episode 无论 `L` 为何均因 `S=0` 而 Standard SPL 恒为 `0`。
 | 素材 | 字节 | 时长 | SHA-256 |
 | --- | ---: | ---: | --- |
 | `media/video/third_view/experiment_2/experiment_2_success_1.mp4` | 15,100,041 | 199.1 s | `69ce83683ca33775fbc1c9af1a1239671b7776ad3c2f3413cebbc40a1e8d65ef` |
-| `media/video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov` | 193,595,030 | 289.368 s | `ba360ba29117906b2e935a1726d7c5f2ed5aeaefe7011eeca25d1687da19356e` |
+| `media/video/dashboard/experiment_2/experiment_2_success_1_dashboard.mov` | 193,595,030 | 289.368 s | `ba360ba29117906b2e935a1726d7c5f2ed5aeaefe7011eeca25d1687da19356e` |
 | `media/demo/scene02_formal_03_third_view.mp4` | 19,119,038 | 199.1 s | `1fa34b70f29ed75829dde9ed0f95d88e346eed7fed39f27f985ad089137a062e` |
 | `media/demo/scene02_formal_03_dashboard.mp4` | 3,496,392 | 289.3 s | `1c9ce1a52d31ee718fdb3086b2f0b528994924c1cad29548c7d166c1eb438b84` |
 | `media/demo/scene02_formal_03_preview.gif` | 10,365,072 | 8.01 s | `5e049f1c7759c04f5a9381a914e8dc4c495016491c6b4c872a82cbab6d7acbea` |

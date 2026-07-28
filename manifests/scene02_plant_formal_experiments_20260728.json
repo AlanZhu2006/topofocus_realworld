@@ -1,0 +1,124 @@
+{
+  "schema_version": "focus-scene-formal-experiments-v1",
+  "scene_id": "scene02-plant",
+  "target_category": "plant",
+  "campaign_status": "complete",
+  "formal_experiments": 5,
+  "successes": 3,
+  "failures": 2,
+  "sr": 0.6,
+  "metric_protocol": {
+    "physical_success_radius_m": 0.5,
+    "source_compatible_spl_formula": "S * D / max(D, P)",
+    "standard_spl_formula": "S * L / max(L, P)",
+    "independently_measured_shortest_feasible_path_m": 7.0,
+    "shortest_path_measurement_precision": "approximate",
+    "shortest_path_evidence": {
+      "path": "manifests/scene02_plant_shortest_feasible_path_20260725.json",
+      "size_bytes": 1035,
+      "sha256": "cc9ed2e521a0e2c862f1f62ff89ef8e410d7f2d161f63f0387fd92b7fd3cee05",
+      "classification": "observed operator-provided independent measurement"
+    }
+  },
+  "aggregate_metrics": {
+    "mean_source_compatible_spl_with_failures_zero": 0.557366832135995,
+    "mean_standard_spl_with_failures_zero": 0.531689377642298
+  },
+  "experiments": [
+    {
+      "formal_index": 1,
+      "result": "FAILURE",
+      "arriving_robot_id": null,
+      "robot_0_actual_path_length_m": 6.104564264724331,
+      "robot_1_actual_path_length_m": 1.905386508178905,
+      "source_compatible_spl": 0.0,
+      "standard_spl": 0.0,
+      "record": {
+        "path": "manifests/scene02_plant_formal_experiment_01_failure_20260728.json",
+        "size_bytes": 8378,
+        "sha256": "2e4471af36f0c5827565b757af1ced844b449e4c3d549d6237d8c20780013912",
+        "classification": "authoritative machine-readable Formal 01 archive"
+      }
+    },
+    {
+      "formal_index": 2,
+      "result": "FAILURE",
+      "arriving_robot_id": null,
+      "robot_0_actual_path_length_m": 1.034858,
+      "robot_1_actual_path_length_m": 7.425951045282793,
+      "source_compatible_spl": 0.0,
+      "standard_spl": 0.0,
+      "record": {
+        "path": "manifests/scene02_plant_formal_experiment_02_failure_20260728.json",
+        "size_bytes": 12577,
+        "sha256": "4bc50dcf27171a741fbf0f5c3836174574a7c4caae24f6110b3ac9e591741b8a",
+        "classification": "authoritative machine-readable Formal 02 archive"
+      }
+    },
+    {
+      "formal_index": 3,
+      "result": "SUCCESS",
+      "arriving_robot_id": "robot-1",
+      "robot_0_actual_path_length_m": 0.7286547575023636,
+      "robot_1_actual_path_length_m": 8.356523990369512,
+      "start_to_stop_displacement_m": 7.229996922862113,
+      "source_compatible_spl": 0.8651919064905854,
+      "standard_spl": 0.8376688690258246,
+      "record": {
+        "path": "manifests/scene02_plant_formal_experiment_03_success_20260728.json",
+        "size_bytes": 12202,
+        "sha256": "0ca64cf5bc6e014220fbdf8dabd3195fd83bb0d807e684e3228f1edadd18c644",
+        "classification": "authoritative machine-readable Formal 03 archive"
+      }
+    },
+    {
+      "formal_index": 4,
+      "result": "SUCCESS",
+      "arriving_robot_id": "robot-1",
+      "robot_0_actual_path_length_m": 0.45422660044147756,
+      "robot_1_actual_path_length_m": 7.579080665142857,
+      "start_to_stop_displacement_m": 7.286366488561264,
+      "source_compatible_spl": 0.961378669852688,
+      "standard_spl": 0.923594867144491,
+      "record": {
+        "path": "manifests/scene02_plant_formal_experiment_04_success_20260728.json",
+        "size_bytes": 9391,
+        "sha256": "fad9992cb30cedc95f41566e4bc8ba7ce50d634246c4a4c6f6315439c3fc9b73",
+        "classification": "authoritative machine-readable Formal 04 archive"
+      }
+    },
+    {
+      "formal_index": 5,
+      "result": "SUCCESS",
+      "arriving_robot_id": "robot-1",
+      "robot_0_actual_path_length_m": 2.032181914778179,
+      "robot_1_actual_path_length_m": 7.802197337382422,
+      "start_to_stop_displacement_m": 7.492165980897122,
+      "source_compatible_spl": 0.960263584336703,
+      "standard_spl": 0.897183152041172,
+      "record": {
+        "path": "manifests/scene02_plant_formal_experiment_05_success_20260728.json",
+        "size_bytes": 9920,
+        "sha256": "fe3b2e11b7c875f14efea9829a7e336bd9ab30af00e4beeea6c9c2dffe2f5262",
+        "classification": "authoritative machine-readable Formal 05 archive"
+      }
+    }
+  ],
+  "scene_map_media": {
+    "path": "media/image/experiment_2_map.png",
+    "size_bytes": 75190,
+    "sha256": "10d9f3a85002d08337d2fc2b761913a5e551bcdf7bcb590245a27acbd3da0e1c",
+    "classification": "observed user-provided explored semantic map for Experiment 2"
+  },
+  "media_convention": {
+    "master_storage": "media/video/** through Git LFS",
+    "browser_video": "H.264 yuv420p MP4 under media/demo/",
+    "inline_preview": "complete master time-lapsed to 64 frames at 8 fps",
+    "formal_03_dashboard_rename": "the original Formal 03 Dashboard master is retained byte-for-byte as experiment_2_success_1_dashboard.mov so success_N third-view and Dashboard names align"
+  },
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "post_episode_motion_authority": false
+  }
+}
