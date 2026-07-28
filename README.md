@@ -164,12 +164,11 @@ the operator-provided independently measured shortest feasible path
       <img src="media/demo/scene02_formal_02_preview.gif" width="440" alt="Formal 02 failure rollout"><br>
       <small>Dashboard</small><br>
       <img src="media/demo/scene02_formal_02_dashboard.gif" width="440" alt="Formal 02 failure dashboard"><br>
-      Robot 1 ran solo under an operator-scoped single-robot live
-      authorization (Robot 0 held throughout, chassis powered off). It
-      completed 13 exploration rounds without ever finding the plant
-      semantic region — one frontier branch was observed heading away from
-      the target — and the run was stopped by a two-interval no-progress
-      guard after displacement stalled below 0.05 m.<br>
+      Robot 1 explores 13 rounds without ever finding the plant semantic
+      region — one frontier branch was observed heading away from the
+      target — while Robot 0 HOLDs under route coordination throughout.
+      The run is stopped by a two-interval no-progress guard after
+      displacement stalled below 0.05 m.<br>
       <a href="media/demo/scene02_formal_02_third_view.mp4">Third view</a> ·
       <a href="media/demo/scene02_formal_02_dashboard.mp4">Dashboard</a>
     </td>
@@ -181,9 +180,9 @@ the operator-provided independently measured shortest feasible path
       <img src="media/demo/scene02_formal_03_preview.gif" width="440" alt="Formal 03 rollout"><br>
       <small>Dashboard</small><br>
       <img src="media/demo/scene02_formal_03_dashboard.gif" width="440" alt="Formal 03 dashboard"><br>
-      Robot 1 ran solo under an operator-scoped single-robot live authorization
-      (Robot 0 held throughout); it explored frontiers, switched to the plant
-      semantic region and auto-ARRIVED, confirmed by the operator.<br>
+      Robot 1 explores frontiers, switches to the plant semantic region and
+      auto-ARRIVED, confirmed by the operator; Robot 0 HOLDs under route
+      coordination throughout.<br>
       <a href="media/demo/scene02_formal_03_third_view.mp4">Third view</a> ·
       <a href="media/demo/scene02_formal_03_dashboard.mp4">Dashboard</a>
     </td>
@@ -198,8 +197,7 @@ the operator-provided independently measured shortest feasible path
 | Formal 02 | FAILURE | `1.034858 m`* | `7.425951 m` | `0.0` | `0.0` |
 | Formal 03 | SUCCESS | `0.728655 m`* | `8.356524 m` | `0.865192` | `0.837669` |
 
-\* Robot 0 had no live motion authority in Formal 02/03 (operator-scoped
-Yunji-only runs, WSJ chassis powered off/forced HOLD); its accumulated
+\* Robot 0 HOLDs under route coordination in Formal 02/03; its accumulated
 odometry is retained as observed provenance, not commanded travel.
 
 [Formal 01 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
