@@ -1242,7 +1242,10 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert "--reject-reverse-trajectory" in source
     assert "--controller-pause-service" in source
     assert "--controller-pause-ack-timeout-s" in source
+    assert "--controller-pause-startup-timeout-s" in source
     assert "self.pause_client.call_async(request)" in source
+    assert "node.set_controller_paused_confirmed(" in source
+    assert 'phase="startup"' in source
     assert "set_controller_paused_confirmed(False)" in source
     assert '"controller_pause_acknowledged"' in source
     assert '"controller_pause_ack_timeout"' in source

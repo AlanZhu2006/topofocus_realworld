@@ -118,6 +118,7 @@ RECOVERY_LEASE_RENEWED_EVENTS = {
 DEFAULT_CONTROLLER_PAUSE_SERVICE = "/focus/set_navigation_paused"
 DEFAULT_CONTROLLER_PAUSE_ACK_TIMEOUT_S = 1.0
 DEFAULT_CONTROLLER_PAUSE_RETRY_S = 0.10
+DEFAULT_CONTROLLER_PAUSE_STARTUP_TIMEOUT_S = 15.0
 
 
 def recoverable_router_hold(
@@ -1102,6 +1103,15 @@ def main() -> int:
         default=DEFAULT_CONTROLLER_PAUSE_ACK_TIMEOUT_S,
     )
     parser.add_argument(
+        "--controller-pause-startup-timeout-s",
+        type=float,
+        default=DEFAULT_CONTROLLER_PAUSE_STARTUP_TIMEOUT_S,
+        help=(
+            "one-time live startup bound for discovering the controller "
+            "service and acknowledging paused=true before readiness"
+        ),
+    )
+    parser.add_argument(
         "--controller-pause-retry-s",
         type=float,
         default=DEFAULT_CONTROLLER_PAUSE_RETRY_S,
@@ -1326,6 +1336,7 @@ def main() -> int:
         args.slam_recovery_grace_s,
         args.odometry_recovery_grace_s,
         args.controller_pause_ack_timeout_s,
+        args.controller_pause_startup_timeout_s,
         args.controller_pause_retry_s,
         args.max_goal_distance_m,
         args.semantic_arrival_radius_m,
@@ -1838,13 +1849,24 @@ def main() -> int:
                     self.pause_publisher.publish(paused)
             return True
 
-        def set_controller_paused_confirmed(self, paused: bool) -> None:
+        def set_controller_paused_confirmed(
+            self,
+            paused: bool,
+            *,
+            timeout_s: float | None = None,
+            phase: str = "runtime",
+        ) -> None:
             """Change pause state only after the controller acknowledges it."""
 
             if not live:
                 raise RuntimeError("live TinyNav output is disabled")
+            effective_timeout_s = (
+                args.controller_pause_ack_timeout_s
+                if timeout_s is None
+                else timeout_s
+            )
             started = time.monotonic()
-            deadline = started + args.controller_pause_ack_timeout_s
+            deadline = started + effective_timeout_s
             attempts = 0
             last_error = "service unavailable"
             while time.monotonic() < deadline:
@@ -1885,6 +1907,7 @@ def main() -> int:
                         paused=bool(paused),
                         attempts=attempts,
                         latency_s=round(time.monotonic() - started, 4),
+                        phase=phase,
                         detail=str(response.message)[:256],
                     )
                     return
@@ -1899,7 +1922,8 @@ def main() -> int:
                 "controller_pause_ack_timeout",
                 paused=bool(paused),
                 attempts=attempts,
-                timeout_s=args.controller_pause_ack_timeout_s,
+                timeout_s=effective_timeout_s,
+                phase=phase,
                 error=last_error,
             )
             raise RuntimeError(
@@ -2037,6 +2061,19 @@ def main() -> int:
         daemon=True,
     )
     ros_spin_thread.start()
+    if live:
+        # Fast DDS discovery for a newly created service client can lag behind
+        # topic discovery after a controller/receiver lifecycle change. Prime
+        # the persistent client with the only safe startup state before this
+        # receiver can advertise readiness or receive a GOAL. Runtime unpause
+        # acknowledgements then reuse the already discovered connection and
+        # retain their short one-second bound.
+        node.guarded_publisher.publish(Twist())
+        node.set_controller_paused_confirmed(
+            True,
+            timeout_s=args.controller_pause_startup_timeout_s,
+            phase="startup",
+        )
     hub = HubV2RobotClient(args.base_url, args.robot_id, token)
 
     tracking_T_map: tuple[float, ...] | None = None
