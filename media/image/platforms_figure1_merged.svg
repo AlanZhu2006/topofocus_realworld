@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="2486"
+     height="1280"
+     viewBox="0 0 2486 1280">
+  <title>Dual-robot platforms, merged</title>
+  <desc>Robot identity arrows plus sensor callouts on the original platform photograph.</desc>
+  <defs>
+    <marker id="arrow-yellow"
+            markerWidth="8"
+            markerHeight="8"
+            refX="7"
+            refY="4"
+            orient="auto"
+            markerUnits="strokeWidth">
+      <path d="M 0 0 L 8 4 L 0 8 Z" fill="#f4c400"/>
+    </marker>
+  </defs>
+
+  <image x="0"
+         y="0"
+         width="2486"
+         height="1280"
+         preserveAspectRatio="none"
+         xlink:href="showcase_2.jpg"/>
+
+  <g fill="none"
+     stroke="#171717"
+     stroke-width="15"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     opacity="0.72">
+    <path d="M 550 142 C 540 260 490 390 402 535"/>
+    <path d="M 2020 142 C 2010 250 1958 365 1872 500"/>
+  </g>
+  <g fill="none"
+     stroke="#f4c400"
+     stroke-width="8"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     marker-end="url(#arrow-yellow)">
+    <path d="M 550 142 C 540 260 490 390 402 535"/>
+    <path d="M 2020 142 C 2010 250 1958 365 1872 500"/>
+  </g>
+
+  <g font-family="DejaVu Sans, sans-serif"
+     font-size="38"
+     font-weight="700"
+     fill="#111111">
+    <rect x="108"
+          y="48"
+          width="620"
+          height="94"
+          rx="14"
+          fill="#ffffff"
+          fill-opacity="0.94"
+          stroke="#f4c400"
+          stroke-width="6"/>
+    <text x="140" y="109">ROBOT 0 · UNITREE GO2</text>
+
+    <rect x="1718"
+          y="48"
+          width="704"
+          height="94"
+          rx="14"
+          fill="#ffffff"
+          fill-opacity="0.94"
+          stroke="#f4c400"
+          stroke-width="6"/>
+    <text x="1750" y="109">ROBOT 1 · WHEELED CHASSIS</text>
+  </g>
+
+  <!-- Sensor callouts -->
+  <g fill="none" stroke="#d6285a" stroke-width="5" stroke-dasharray="16,11">
+    <rect x="98" y="545" width="150" height="88"/>
+    <rect x="1655" y="493" width="138" height="170"/>
+    <path d="M 200 633 L 520 730"/>
+    <path d="M 1724 663 L 1420 730"/>
+  </g>
+
+  <g font-family="DejaVu Sans, sans-serif" fill="#111111">
+    <rect x="380" y="695" width="365" height="112" rx="10"
+          fill="#fce3ea" stroke="#d6285a" stroke-width="5"/>
+    <text x="402" y="740" font-size="34" font-weight="700">RealSense D435i</text>
+    <text x="402" y="781" font-size="26" font-weight="400">RGB-D camera</text>
+
+    <rect x="1250" y="695" width="440" height="112" rx="10"
+          fill="#fce3ea" stroke="#d6285a" stroke-width="5"/>
+    <text x="1272" y="740" font-size="34" font-weight="700">Odin1</text>
+    <text x="1272" y="781" font-size="26" font-weight="400">RGB-D camera + LiDAR + IMU</text>
+  </g>
+</svg>
