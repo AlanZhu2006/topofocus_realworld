@@ -18,6 +18,12 @@ jittering first path segment from changing the turn sign on every replan.  If
 either recovery does not resolve before the bounded deadline, the existing
 receiver rejection remains fail-closed.
 
+Rotation-only paths can also contain a minute negative base translation from
+the measured camera lever arm.  When that specific geometry coincides with a
+non-local heading error, the same opt-in stabilizer performs a bounded,
+zero-linear heading alignment instead of repeatedly suppressing both velocity
+components.
+
 Keep the source controller immutable.  The two pinned source histories do not
 have identical guards, so this shared subclass adds the common denominator:
 exact source verification, stale-pose/path stops and a bounded pose-jump
@@ -67,6 +73,10 @@ DEFAULT_STABLE_TURN_LOOKAHEAD_M = 0.35
 DEFAULT_STABLE_TURN_MIN_TARGET_M = 0.10
 DEFAULT_STABLE_TURN_ENTER_RAD = math.radians(75.0)
 DEFAULT_STABLE_TURN_EXIT_RAD = math.radians(35.0)
+DEFAULT_TINY_REVERSE_ALIGNMENT_ENTER_RAD = math.radians(15.0)
+DEFAULT_TINY_REVERSE_ALIGNMENT_EXIT_RAD = math.radians(8.0)
+DEFAULT_TINY_REVERSE_ALIGNMENT_GAIN = 0.5
+DEFAULT_SOURCE_ARRIVAL_FRESHNESS_S = 1.0
 DEFAULT_ROUTER_TARGET_TIMEOUT_S = 2.0
 DEFAULT_CONTROLLER_POSE_TIMEOUT_S = 0.8
 DEFAULT_CONTROLLER_PATH_TIMEOUT_S = 1.0
@@ -504,7 +514,7 @@ def path_turn_recovery_required(
     requested_linear_mps: float,
     requested_angular_radps: float,
 ) -> bool:
-    """Stabilize a turn only when the path does not require reverse."""
+    """Stabilize a turn only on a positively traversable path segment."""
 
     if segment_action not in {
         "allow",
@@ -513,13 +523,133 @@ def path_turn_recovery_required(
         "unknown",
     }:
         raise ValueError(f"unknown segment action: {segment_action}")
-    if segment_action == "reject_reverse":
+    if segment_action in {"reject_reverse", "zero_tiny_reverse"}:
         return False
     return large_turn_stabilization_required(
         heading_error_rad,
         recovery_active=recovery_active,
         requested_linear_mps=requested_linear_mps,
         requested_angular_radps=requested_angular_radps,
+    )
+
+
+def tiny_reverse_alignment_required(
+    segment_action: str,
+    heading_error_rad: float | None,
+    *,
+    recovery_active: bool,
+    paused: bool,
+    enter_rad: float = DEFAULT_TINY_REVERSE_ALIGNMENT_ENTER_RAD,
+    exit_rad: float = DEFAULT_TINY_REVERSE_ALIGNMENT_EXIT_RAD,
+) -> bool:
+    """Break a zero-command path deadlock with bounded heading alignment.
+
+    A rotation-only TinyNav path can acquire a minute negative translation
+    from the measured camera-to-base lever arm.  The pinned controller then
+    intermittently emits zero yaw, while treating the path as navigating.
+    Permit zero-linear alignment only when the collision-scored path has this
+    specific sub-threshold geometry and a non-local heading remains available.
+    Hysteresis keeps the recovery continuous down to TinyNav's eight-degree
+    yaw deadband.
+    """
+
+    if segment_action not in {
+        "unknown",
+        "reject_reverse",
+        "zero_tiny_reverse",
+        "allow",
+    }:
+        raise ValueError("unknown forward-component classification")
+    if heading_error_rad is not None and not math.isfinite(heading_error_rad):
+        raise ValueError("alignment heading error must be finite")
+    if not all(math.isfinite(value) for value in (enter_rad, exit_rad)):
+        raise ValueError("alignment angular thresholds must be finite")
+    if not 0.0 < exit_rad < enter_rad <= math.pi:
+        raise ValueError("alignment angular thresholds are invalid")
+    if (
+        paused
+        or segment_action != "zero_tiny_reverse"
+        or heading_error_rad is None
+    ):
+        return False
+    threshold = exit_rad if recovery_active else enter_rad
+    return abs(heading_error_rad) >= threshold
+
+
+def bounded_heading_alignment_angular(
+    heading_error_rad: float,
+    *,
+    gain: float = DEFAULT_TINY_REVERSE_ALIGNMENT_GAIN,
+    minimum_radps: float = DEFAULT_ROTATE_FIRST_MIN_ANGULAR_RADPS,
+    maximum_radps: float = DEFAULT_ROTATE_FIRST_MAX_ANGULAR_RADPS,
+) -> float:
+    """Return a tapered, zero-linear yaw request toward a stable heading."""
+
+    values = (heading_error_rad, gain, minimum_radps, maximum_radps)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("heading-alignment values must be finite")
+    if gain <= 0.0 or minimum_radps <= 0.0:
+        raise ValueError("heading-alignment gain and minimum must be positive")
+    if maximum_radps < minimum_radps:
+        raise ValueError("heading-alignment angular bounds are invalid")
+    if heading_error_rad == 0.0:
+        return 0.0
+    magnitude = min(
+        maximum_radps,
+        max(minimum_radps, gain * abs(heading_error_rad)),
+    )
+    return math.copysign(magnitude, heading_error_rad)
+
+
+def latched_heading_target_crossed(
+    heading_error_rad: float | None,
+    *,
+    latched_direction: int,
+    crossing_window_rad: float = (
+        DEFAULT_TINY_REVERSE_ALIGNMENT_ENTER_RAD
+    ),
+) -> bool:
+    """Stop a latched alignment after a small, genuine zero crossing."""
+
+    if heading_error_rad is not None and not math.isfinite(heading_error_rad):
+        raise ValueError("crossing heading error must be finite")
+    if latched_direction not in {-1, 0, 1}:
+        raise ValueError("latched_direction must be -1, 0 or 1")
+    if (
+        not math.isfinite(crossing_window_rad)
+        or not 0.0 < crossing_window_rad <= math.pi
+    ):
+        raise ValueError("crossing window is invalid")
+    return bool(
+        heading_error_rad is not None
+        and latched_direction != 0
+        and abs(heading_error_rad) < crossing_window_rad
+        and heading_error_rad * latched_direction <= 0.0
+    )
+
+
+def source_arrival_stop_active(
+    goal_distance_m: float | None,
+    *,
+    goal_distance_age_s: float,
+    arrival_radius_m: float,
+    freshness_s: float = DEFAULT_SOURCE_ARRIVAL_FRESHNESS_S,
+) -> bool:
+    """Preserve the pinned controller's fresh final-arrival stop."""
+
+    values = (goal_distance_age_s, arrival_radius_m, freshness_s)
+    if goal_distance_m is not None:
+        values = (*values, goal_distance_m)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("source-arrival values must be finite")
+    if goal_distance_age_s < 0.0:
+        raise ValueError("source-arrival age cannot be negative")
+    if arrival_radius_m <= 0.0 or freshness_s <= 0.0:
+        raise ValueError("source-arrival limits must be positive")
+    return bool(
+        goal_distance_m is not None
+        and goal_distance_age_s < freshness_s
+        and goal_distance_m < arrival_radius_m
     )
 
 
@@ -812,6 +942,7 @@ def main(args: list[str] | None = None) -> None:
                 "consecutive_duplicate_path_pose_filter",
                 "reverse_segment_fail_closed",
                 "stable_large_turn",
+                "bounded_tiny_reverse_heading_alignment",
                 "measured_base_pose_for_stable_heading",
                 "common_pose_path_stale_stop",
                 "common_pose_jump_freeze",
@@ -1169,6 +1300,35 @@ def main(args: list[str] | None = None) -> None:
             requested_angular = float(self.latest_cmd.angular.z)
             now = time.monotonic()
             self._focus_path_received_monotonic = now
+            source_goal_distance = getattr(self, "goal_dist", None)
+            source_goal_distance_time = float(
+                getattr(self, "goal_dist_time", 0.0)
+            )
+            source_arrival_radius = float(
+                getattr(self, "arrival_radius", 0.5)
+            )
+            try:
+                source_arrival_stop = source_arrival_stop_active(
+                    (
+                        None
+                        if source_goal_distance is None
+                        else float(source_goal_distance)
+                    ),
+                    goal_distance_age_s=max(
+                        0.0,
+                        now - source_goal_distance_time,
+                    ),
+                    arrival_radius_m=source_arrival_radius,
+                )
+            except (TypeError, ValueError):
+                source_arrival_stop = True
+            if source_arrival_stop:
+                self._reset_focus_rotation_recovery()
+                self._reverse_required_publisher.publish(Bool(data=False))
+                self.latest_cmd = Twist()
+                self.prev_cmd = Twist()
+                self.cmd_pub.publish(Twist())
+                return
             recovery_active = (
                 self._focus_rotation_recovery_started is not None
             )
@@ -1188,8 +1348,30 @@ def main(args: list[str] | None = None) -> None:
                     requested_angular_radps=requested_angular,
                 )
             )
-            tiny_reverse_recovery_requested = (
-                tiny_reverse_recovery_continuation_required(
+            tiny_reverse_alignment_requested = bool(
+                deployment_args.stabilize_large_turn
+                and tiny_reverse_alignment_required(
+                    segment_action,
+                    stable_heading_error_rad,
+                    recovery_active=recovery_active,
+                    paused=bool(self._paused),
+                )
+            )
+            alignment_target_crossed = bool(
+                segment_action == "zero_tiny_reverse"
+                and recovery_active
+                and latched_heading_target_crossed(
+                    stable_heading_error_rad,
+                    latched_direction=(
+                        self._focus_rotation_turn_direction
+                    ),
+                )
+            )
+            if alignment_target_crossed:
+                tiny_reverse_alignment_requested = False
+            tiny_reverse_recovery_requested = bool(
+                not alignment_target_crossed
+                and tiny_reverse_recovery_continuation_required(
                     segment_action,
                     stable_heading_error_rad,
                     recovery_active=recovery_active,
@@ -1202,6 +1384,7 @@ def main(args: list[str] | None = None) -> None:
             if (
                 reverse_recovery_requested
                 or large_turn_recovery_requested
+                or tiny_reverse_alignment_requested
                 or tiny_reverse_recovery_requested
             ):
                 if self._focus_rotation_recovery_started is None:
@@ -1222,17 +1405,29 @@ def main(args: list[str] | None = None) -> None:
                     now_monotonic=now,
                     timeout_s=deployment_args.rotate_first_timeout_s,
                 )
-                continuation_request = rotate_first_continuation_request(
-                    requested_angular,
-                    continuation_required=bool(
-                        tiny_reverse_recovery_requested
-                        or (
-                            recovery_active
-                            and large_turn_recovery_requested
+                if tiny_reverse_alignment_requested:
+                    continuation_request = (
+                        bounded_heading_alignment_angular(
+                            stable_heading_error_rad,
+                            maximum_radps=(
+                                deployment_args.rotate_first_max_angular_radps
+                            ),
                         )
-                    ),
-                    latched_direction=self._focus_rotation_turn_direction,
-                )
+                    )
+                else:
+                    continuation_request = rotate_first_continuation_request(
+                        requested_angular,
+                        continuation_required=bool(
+                            tiny_reverse_recovery_requested
+                            or (
+                                recovery_active
+                                and large_turn_recovery_requested
+                            )
+                        ),
+                        latched_direction=(
+                            self._focus_rotation_turn_direction
+                        ),
+                    )
                 rotate_angular = bounded_rotate_first_angular(
                     continuation_request,
                     latched_direction=self._focus_rotation_turn_direction,
@@ -1257,9 +1452,13 @@ def main(args: list[str] | None = None) -> None:
                             "reverse_segment"
                             if reverse_recovery_requested
                             else (
-                                "tiny_reverse_continuation"
-                                if tiny_reverse_recovery_requested
-                                else "large_turn"
+                                "tiny_reverse_alignment"
+                                if tiny_reverse_alignment_requested
+                                else (
+                                    "tiny_reverse_continuation"
+                                    if tiny_reverse_recovery_requested
+                                    else "large_turn"
+                                )
                             )
                         )
                         heading_text = (

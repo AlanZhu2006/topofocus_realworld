@@ -403,12 +403,109 @@ def test_reverse_segment_cannot_enter_generic_large_turn_recovery():
         requested_linear_mps=0.0,
         requested_angular_radps=0.7,
     )
+    assert not MODULE.path_turn_recovery_required(
+        "zero_tiny_reverse",
+        math.radians(90.0),
+        recovery_active=False,
+        requested_linear_mps=0.0,
+        requested_angular_radps=0.7,
+    )
     assert MODULE.path_turn_recovery_required(
         "allow",
         math.radians(90.0),
         recovery_active=False,
         requested_linear_mps=0.0,
         requested_angular_radps=0.7,
+    )
+
+
+def test_restart14_tiny_reverse_alignment_recovers_from_zero_yaw():
+    # Observed robot-1 router-heading sequence after the source controller
+    # entered its exact-zero/tiny-reverse deadlock in Scene 03 Restart 14.
+    heading_degrees = (68.5, 59.4, 44.4, 34.5, 22.1)
+    recovery_active = False
+    commands = []
+    for heading_degrees_value in heading_degrees:
+        heading_error = math.radians(heading_degrees_value)
+        assert MODULE.tiny_reverse_alignment_required(
+            "zero_tiny_reverse",
+            heading_error,
+            recovery_active=recovery_active,
+            paused=False,
+        )
+        commands.append(
+            MODULE.bounded_heading_alignment_angular(heading_error)
+        )
+        recovery_active = True
+
+    assert commands[0] == pytest.approx(0.35)
+    assert commands[-1] == pytest.approx(math.radians(22.1) * 0.5)
+    assert all(0.10 <= command <= 0.35 for command in commands)
+    assert not MODULE.tiny_reverse_alignment_required(
+        "zero_tiny_reverse",
+        math.radians(7.9),
+        recovery_active=True,
+        paused=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("segment_action", "heading_error", "paused"),
+    [
+        ("allow", math.radians(65.0), False),
+        ("reject_reverse", math.radians(65.0), False),
+        ("zero_tiny_reverse", None, False),
+        ("zero_tiny_reverse", math.radians(65.0), True),
+    ],
+)
+def test_tiny_reverse_alignment_remains_narrowly_gated(
+    segment_action,
+    heading_error,
+    paused,
+):
+    assert not MODULE.tiny_reverse_alignment_required(
+        segment_action,
+        heading_error,
+        recovery_active=False,
+        paused=paused,
+    )
+
+
+def test_latched_alignment_stops_only_after_a_small_target_crossing():
+    assert MODULE.latched_heading_target_crossed(
+        math.radians(-5.0),
+        latched_direction=1,
+    )
+    assert not MODULE.latched_heading_target_crossed(
+        math.radians(-179.0),
+        latched_direction=1,
+    )
+    assert not MODULE.latched_heading_target_crossed(
+        math.radians(5.0),
+        latched_direction=1,
+    )
+
+
+def test_tiny_reverse_alignment_cannot_override_fresh_source_arrival():
+    assert MODULE.source_arrival_stop_active(
+        0.49,
+        goal_distance_age_s=0.2,
+        arrival_radius_m=0.5,
+    )
+    assert not MODULE.source_arrival_stop_active(
+        0.51,
+        goal_distance_age_s=0.2,
+        arrival_radius_m=0.5,
+    )
+    assert not MODULE.source_arrival_stop_active(
+        0.49,
+        goal_distance_age_s=1.0,
+        arrival_radius_m=0.5,
+    )
+    assert not MODULE.source_arrival_stop_active(
+        None,
+        goal_distance_age_s=100.0,
+        arrival_radius_m=0.5,
     )
 
 
