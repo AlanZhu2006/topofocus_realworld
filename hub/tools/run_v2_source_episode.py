@@ -96,6 +96,9 @@ HOLD_FEEDBACK = {"HOLDING"}
 SAFE_REASON = re.compile(r"[^a-zA-Z0-9_.-]+")
 DEFAULT_CROSS_ROUND_MIN_PROGRESS_M = 0.05
 DEFAULT_MAX_CONSECUTIVE_STAGNANT_INTERVALS = 2
+SEMANTIC_PATH_REPLAN_REASON = (
+    "semantic approach was locally blocked; continue with a fresh source round"
+)
 
 
 @dataclass(frozen=True)
@@ -115,6 +118,28 @@ class RoundResult:
     semantic_arrivals: dict[str, dict[str, object]]
     latest_events: dict[str, dict[str, object]]
     feedback_counts: dict[str, int]
+
+
+def progress_memory_after_round(
+    result: RoundResult,
+    *,
+    active_robot_ids: set[str],
+    stagnant_intervals: dict[str, int],
+) -> tuple[set[str], dict[str, int]]:
+    """Carry no-progress evidence only across comparable full intervals.
+
+    A semantic path rejection immediately HOLDs the pair. The peer therefore
+    did not receive a normal source-round motion interval, and charging its
+    near-zero displacement as another stagnant interval can terminate the
+    episode before it has had an opportunity to move.
+    """
+
+    if (
+        result.status == "replan"
+        and result.reason == SEMANTIC_PATH_REPLAN_REASON
+    ):
+        return set(), {}
+    return set(active_robot_ids), dict(stagnant_intervals)
 
 
 def sha256_file(path: Path) -> str:
@@ -1648,8 +1673,7 @@ def main() -> int:
                     )
                     return RoundResult(
                         "replan",
-                        "semantic approach was locally blocked; continue "
-                        "with a fresh source round",
+                        SEMANTIC_PATH_REPLAN_REASON,
                         final_states,
                         {},
                         round_latest,
@@ -2135,6 +2159,22 @@ def main() -> int:
             rounds.append(round_record)
             atomic_write_json(scene_manifest_path, scene_manifest)
             emit("round_completed", **round_record)
+            (
+                previous_active_robot_ids,
+                stagnant_intervals,
+            ) = progress_memory_after_round(
+                round_result,
+                active_robot_ids=previous_active_robot_ids,
+                stagnant_intervals=stagnant_intervals,
+            )
+            if (
+                round_result.status == "replan"
+                and round_result.reason == SEMANTIC_PATH_REPLAN_REASON
+            ):
+                emit(
+                    "cross_round_progress_baseline_reset",
+                    reason="peer semantic path rejection shortened the round",
+                )
             previous_continuity_batch = (
                 guarded_batch
                 if (

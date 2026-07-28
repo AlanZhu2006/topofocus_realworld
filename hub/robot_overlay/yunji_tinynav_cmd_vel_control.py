@@ -56,6 +56,8 @@ from tinynav_source_contract import (  # noqa: E402
 
 
 MEANINGFUL_REVERSE_SEGMENT_M = 0.02
+MINIMUM_DISTINCT_PATH_POSE_M = 0.01
+MINIMUM_DISTINCT_PATH_POSE_ROTATION_RAD = math.radians(1.0)
 DEFAULT_LINEAR_COMMAND_FLOOR_MPS = 0.18
 MAX_DEPLOYMENT_LINEAR_COMMAND_FLOOR_MPS = 0.20
 DEFAULT_ROTATE_FIRST_MAX_ANGULAR_RADPS = 0.35
@@ -120,6 +122,101 @@ def validate_controller_path_message(
                 f"trajectory pose {index} has a zero quaternion"
             )
     return len(poses)
+
+
+def distinct_controller_path_pose_indices(
+    message: object,
+    *,
+    minimum_translation_m: float = MINIMUM_DISTINCT_PATH_POSE_M,
+    minimum_rotation_rad: float = (
+        MINIMUM_DISTINCT_PATH_POSE_ROTATION_RAD
+    ),
+) -> tuple[int, ...]:
+    """Drop consecutive duplicate transforms before source control.
+
+    TinyNav can repeat its measured start pose before the first traversed grid
+    cell. Passing that duplicate pair to the pinned controller makes its first
+    control segment look like a tiny negative translation even when the
+    remaining collision-scored path is forward. Removing only poses whose
+    translation *and* rotation are both negligible preserves legitimate
+    rotate-in-place trajectories while ensuring the immutable controller sees
+    the first meaningful segment.
+    """
+
+    if (
+        not math.isfinite(minimum_translation_m)
+        or minimum_translation_m <= 0.0
+    ):
+        raise ValueError(
+            "minimum path-pose translation must be positive"
+        )
+    if (
+        not math.isfinite(minimum_rotation_rad)
+        or minimum_rotation_rad <= 0.0
+    ):
+        raise ValueError("minimum path-pose rotation must be positive")
+    poses = getattr(message, "poses", None)
+    if poses is None or len(poses) < 2:
+        raise ValueError("trajectory must contain at least two poses")
+
+    def transform_values(pose_stamped: object) -> tuple[
+        tuple[float, float, float],
+        tuple[float, float, float, float],
+    ]:
+        pose = pose_stamped.pose
+        position = pose.position
+        orientation = pose.orientation
+        translation = (
+            float(position.x),
+            float(position.y),
+            float(position.z),
+        )
+        quaternion = (
+            float(orientation.x),
+            float(orientation.y),
+            float(orientation.z),
+            float(orientation.w),
+        )
+        norm = math.sqrt(sum(value * value for value in quaternion))
+        return translation, tuple(value / norm for value in quaternion)
+
+    selected = [0]
+    previous_translation, previous_quaternion = transform_values(poses[0])
+    for index, pose_stamped in enumerate(poses[1:], start=1):
+        translation, quaternion = transform_values(pose_stamped)
+        translation_distance = math.sqrt(
+            sum(
+                (current - previous) ** 2
+                for current, previous in zip(
+                    translation, previous_translation
+                )
+            )
+        )
+        quaternion_dot = min(
+            1.0,
+            abs(
+                sum(
+                    current * previous
+                    for current, previous in zip(
+                        quaternion, previous_quaternion
+                    )
+                )
+            ),
+        )
+        rotation_distance = 2.0 * math.acos(quaternion_dot)
+        if (
+            translation_distance < minimum_translation_m
+            and rotation_distance < minimum_rotation_rad
+        ):
+            continue
+        selected.append(index)
+        previous_translation = translation
+        previous_quaternion = quaternion
+    if len(selected) < 2:
+        raise ValueError(
+            "trajectory has fewer than two geometrically distinct poses"
+        )
+    return tuple(selected)
 
 
 def command_components_finite(message: object) -> bool:
@@ -690,6 +787,7 @@ def main(args: list[str] | None = None) -> None:
             "adaptations": [
                 "linear_engagement_floor",
                 "bounded_deployment_linear_floor",
+                "consecutive_duplicate_path_pose_filter",
                 "reverse_segment_fail_closed",
                 "stable_large_turn",
                 "measured_base_pose_for_stable_heading",
@@ -953,6 +1051,9 @@ def main(args: list[str] | None = None) -> None:
         def path_callback(self, message) -> None:
             try:
                 validate_controller_path_message(message)
+                distinct_indices = distinct_controller_path_pose_indices(
+                    message
+                )
             except ValueError as exc:
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
@@ -961,6 +1062,10 @@ def main(args: list[str] | None = None) -> None:
                     f"trajectory_contract_invalid:{exc}"
                 )
                 return
+            if len(distinct_indices) != len(message.poses):
+                message.poses = [
+                    message.poses[index] for index in distinct_indices
+                ]
             if self.pose is None:
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()

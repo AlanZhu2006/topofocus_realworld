@@ -516,3 +516,45 @@ def test_cross_round_progress_guard_resets_after_real_progress_or_inactivity():
     assert progressed["robots"]["robot-1"]["status"] == "progressed"
     assert baseline["robots"]["robot-1"]["status"] == "baseline_only"
     assert counts == {"robot-1": 0}
+
+
+def test_semantic_path_replan_does_not_charge_peer_stagnation():
+    module = load_module()
+    result = module.RoundResult(
+        status="replan",
+        reason=module.SEMANTIC_PATH_REPLAN_REASON,
+        final_states={},
+        semantic_arrivals={},
+        latest_events={},
+        feedback_counts={"robot-0": 3, "robot-1": 3},
+    )
+
+    active, counts = module.progress_memory_after_round(
+        result,
+        active_robot_ids={"robot-0", "robot-1"},
+        stagnant_intervals={"robot-0": 1, "robot-1": 0},
+    )
+
+    assert active == set()
+    assert counts == {}
+
+
+def test_completed_round_preserves_cross_round_progress_memory():
+    module = load_module()
+    result = module.RoundResult(
+        status="replan",
+        reason="source-derived 25-tick round completed",
+        final_states={},
+        semantic_arrivals={},
+        latest_events={},
+        feedback_counts={"robot-0": 25},
+    )
+
+    active, counts = module.progress_memory_after_round(
+        result,
+        active_robot_ids={"robot-0"},
+        stagnant_intervals={"robot-0": 1},
+    )
+
+    assert active == {"robot-0"}
+    assert counts == {"robot-0": 1}

@@ -318,12 +318,77 @@ def trajectory_message_summary(
             raise ValueError(
                 f"trajectory pose {index} is invalid: {exc}"
             ) from exc
-    first = poses[0].pose.position
-    lookahead = poses[1].pose.position
+    first_pose = poses[0].pose
+    first = first_pose.position
+    first_orientation = first_pose.orientation
+    first_xy = (float(first.x), float(first.y))
+    first_xyz = (*first_xy, float(first.z))
+    first_quaternion = (
+        float(first_orientation.x),
+        float(first_orientation.y),
+        float(first_orientation.z),
+        float(first_orientation.w),
+    )
+    first_quaternion_norm = math.sqrt(
+        sum(value * value for value in first_quaternion)
+    )
+    normalized_first_quaternion = tuple(
+        value / first_quaternion_norm for value in first_quaternion
+    )
+    lookahead_xy = None
+    for pose_stamped in poses[1:]:
+        candidate_pose = pose_stamped.pose
+        position = candidate_pose.position
+        orientation = candidate_pose.orientation
+        candidate = (float(position.x), float(position.y))
+        candidate_xyz = (*candidate, float(position.z))
+        quaternion = (
+            float(orientation.x),
+            float(orientation.y),
+            float(orientation.z),
+            float(orientation.w),
+        )
+        quaternion_norm = math.sqrt(
+            sum(value * value for value in quaternion)
+        )
+        normalized_quaternion = tuple(
+            value / quaternion_norm for value in quaternion
+        )
+        quaternion_dot = min(
+            1.0,
+            abs(
+                sum(
+                    current * first_value
+                    for current, first_value in zip(
+                        normalized_quaternion,
+                        normalized_first_quaternion,
+                    )
+                )
+            ),
+        )
+        rotation_distance = 2.0 * math.acos(quaternion_dot)
+        translation_distance = math.sqrt(
+            sum(
+                (current - first_value) ** 2
+                for current, first_value in zip(
+                    candidate_xyz, first_xyz
+                )
+            )
+        )
+        if (
+            translation_distance >= 0.01
+            or rotation_distance >= math.radians(1.0)
+        ):
+            lookahead_xy = candidate
+            break
+    if lookahead_xy is None:
+        raise ValueError(
+            "trajectory must contain two geometrically distinct poses"
+        )
     return (
         len(poses),
-        (float(first.x), float(first.y)),
-        (float(lookahead.x), float(lookahead.y)),
+        first_xy,
+        lookahead_xy,
     )
 
 

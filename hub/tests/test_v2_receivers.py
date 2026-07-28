@@ -751,6 +751,21 @@ def test_receiver_trajectory_contract_rejects_stale_geometry_inputs():
     assert wsj.trajectory_message_summary(
         valid, expected_frame="world"
     ) == (2, (0.0, 0.0), (0.2, 0.0))
+    valid.poses.insert(
+        1,
+        SimpleNamespace(pose=pose(x=0.0, y=0.0)),
+    )
+    assert wsj.trajectory_message_summary(
+        valid, expected_frame="world"
+    ) == (3, (0.0, 0.0), (0.2, 0.0))
+    valid.poses[2].pose.position.x = 0.005
+    with pytest.raises(ValueError, match="geometrically distinct"):
+        wsj.trajectory_message_summary(valid, expected_frame="world")
+    valid.poses[1].pose = pose(x=0.0, y=0.0, yaw=math.radians(10.0))
+    assert wsj.trajectory_message_summary(
+        valid, expected_frame="world"
+    ) == (3, (0.0, 0.0), (0.0, 0.0))
+    valid.poses[2].pose.position.x = 0.2
     valid.header.frame_id = "map"
     with pytest.raises(ValueError, match="frame"):
         wsj.trajectory_message_summary(valid, expected_frame="world")

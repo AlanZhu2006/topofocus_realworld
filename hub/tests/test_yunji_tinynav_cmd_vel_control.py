@@ -104,6 +104,42 @@ def test_controller_path_contract_accepts_only_finite_world_geometry():
         )
 
 
+def test_controller_path_filter_skips_duplicate_start_poses():
+    path = _path(
+        _pose_stamped(0.0, 0.0),
+        _pose_stamped(0.0, 0.0),
+        _pose_stamped(0.05, 0.0),
+        _pose_stamped(0.10, 0.0),
+    )
+
+    assert MODULE.distinct_controller_path_pose_indices(path) == (0, 2, 3)
+
+
+def test_controller_path_filter_rejects_all_duplicate_geometry():
+    path = _path(
+        _pose_stamped(0.0, 0.0),
+        _pose_stamped(0.005, 0.0),
+        _pose_stamped(0.009, 0.0),
+    )
+
+    with pytest.raises(ValueError, match="geometrically distinct"):
+        MODULE.distinct_controller_path_pose_indices(path)
+
+
+def test_controller_path_filter_preserves_rotate_in_place_geometry():
+    yaw = math.radians(10.0)
+    path = _path(
+        _pose_stamped(0.0, 0.0),
+        _pose_stamped(
+            0.0,
+            0.0,
+            quaternion=(0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)),
+        ),
+    )
+
+    assert MODULE.distinct_controller_path_pose_indices(path) == (0, 1)
+
+
 def test_controller_rejects_nonfinite_twist_components():
     assert MODULE.command_components_finite(
         _twist(linear_x=0.1, angular_z=-0.2)
