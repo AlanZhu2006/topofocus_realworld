@@ -30,10 +30,10 @@ Usage: bash hub/scripts/calibrate_realworld_session.sh \
 
 The robots must remain stationary. The script:
   1. starts raw mapping-only observation streams and one Foxglove preview;
-  2. waits until both camera previews are live, then asks for Enter once the
-     complete 7x10 board is visible in both views;
+  2. validates and captures the complete 7x10 board from the fresh sensor
+     epoch covered by the command-line operator confirmation;
   3. computes the initial fit, asks the operator to move only the board, then
-     waits for a second Enter and validates the independent holdout;
+     waits for Enter and validates the independent holdout;
   4. copies the checksummed calibration to both robots through existing SSH/tmux;
   5. starts calibrated read-only stacks and completely fresh central maps;
   6. saves hub/runtime/sessions/<id>/session.json and makes it current;
@@ -699,6 +699,8 @@ calibration_cleanup_required="true"
 echo "Starting fail-closed raw calibration observation."
 start_hub_config "$raw_config"
 ensure_calibration_relay
+fit_after_wsj="$(latest_sequence robot-0)"
+fit_after_yunji="$(latest_sequence robot-1)"
 raw_start_s="$SECONDS"
 remote_pair \
   "FOCUS_WSJ_ENV_FILE='$WSJ_ENV_FILE' FOCUS_HUB_BASE_URL=http://127.0.0.1:18089 FOCUS_FOXGLOVE_PREVIEW_URL=http://127.0.0.1:18766 FOCUS_DEPLOYMENT_COMMIT='$code_commit' bash '$WSJ_ROOT/hub/robot_overlay/start_wsj_calibration_observation.sh' --transform-version '$wsj_raw_transform' --operator-confirmation OPERATOR_PRESENT_AND_BOARD_ONLY" \
@@ -709,9 +711,7 @@ echo "Foxglove: ws://$(hostname -I | awk '{print $1}'):8765"
 wait_for_calibration_cameras
 echo "CALIBRATION_PREVIEW_READY: both WSJ and Yunji camera previews are live."
 echo "WSJ intentionally uses the native grayscale infra1 calibration view (no RGB/depth mosaic)."
-read -r -p "Confirm the COMPLETE 7x10 board is clearly visible and reasonably large in BOTH previews, then press Enter to compute the initial fit. "
-fit_after_wsj="$(latest_sequence robot-0)"
-fit_after_yunji="$(latest_sequence robot-1)"
+echo "Capturing the initial fit from this fresh read-only sensor epoch."
 capture_pair fit "$fit_pair" "$fit_after_wsj" "$fit_after_yunji"
 
 read -r fit_wsj fit_yunji < <(
@@ -755,9 +755,9 @@ print(
 )
 PY
 
-read -r -p "Move ONLY the board, preferably at least 30 cm sideways without tilting it. When the COMPLETE board is again clearly visible and large in BOTH previews, press Enter to validate and finish. "
 holdout_after_wsj="$(latest_sequence robot-0)"
 holdout_after_yunji="$(latest_sequence robot-1)"
+read -r -p "Move ONLY the board, preferably at least 30 cm sideways without tilting it. When the COMPLETE board is again clearly visible and large in BOTH previews, press Enter to validate and finish. "
 capture_pair holdout "$holdout_pair" "$holdout_after_wsj" "$holdout_after_yunji"
 
 read -r holdout_wsj holdout_yunji < <(

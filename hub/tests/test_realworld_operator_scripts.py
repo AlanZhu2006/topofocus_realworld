@@ -121,7 +121,8 @@ def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
     assert source.index("INITIAL_BOARD_FIT_READY") < source.index(
         "CALIBRATION_HOLDOUT_PASSED"
     )
-    assert source.count("read -r -p") == 2
+    assert source.count("read -r -p") == 1
+    assert "Capturing the initial fit from this fresh read-only sensor epoch." in source
     assert 'row.get("camera_ready") is not True' in source
     assert "--min-board-spacing-px" in source
     assert "BOARD_TOO_SMALL" in source

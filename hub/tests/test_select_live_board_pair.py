@@ -28,7 +28,7 @@ def row(robot_id: str, sequence: int, capture_time_ns: int) -> dict:
     }
 
 
-def test_choose_pair_prefers_smallest_skew_then_newest():
+def test_choose_pair_prefers_newest_synchronized_pair():
     module = load_module()
     reference = [
         row("robot-0", 10, 10_000_000_000),
@@ -46,6 +46,26 @@ def test_choose_pair_prefers_smallest_skew_then_newest():
     assert selected_reference["sequence"] == 11
     assert selected_other["sequence"] == 21
     assert skew_s == pytest.approx(0.1)
+
+
+def test_choose_pair_prefers_newer_pair_over_smaller_old_skew():
+    module = load_module()
+    reference = [
+        row("robot-0", 10, 10_000_000_000),
+        row("robot-0", 11, 11_000_000_000),
+    ]
+    other = [
+        row("robot-1", 20, 10_000_000_000),
+        row("robot-1", 21, 11_200_000_000),
+    ]
+
+    selected_reference, selected_other, skew_s = module.choose_pair(
+        reference, other, max_sync_skew_s=0.25
+    )
+
+    assert selected_reference["sequence"] == 11
+    assert selected_other["sequence"] == 21
+    assert skew_s == pytest.approx(0.2)
 
 
 def test_choose_pair_rejects_unsynchronized_detections():

@@ -238,7 +238,11 @@ def synchronized_candidate_pairs(
                 int(other_row["capture_time_ns"]),
             )
             pairs.append((skew_s, -newest_common_ns, reference_row, other_row))
-    pairs.sort(key=lambda item: (item[0], item[1]))
+    # Every candidate already passed the strict synchronization gate. Prefer
+    # the newest pair so an interactive moved-board holdout cannot select an
+    # older, lower-skew frame from before the operator finished repositioning
+    # the board.
+    pairs.sort(key=lambda item: (item[1], item[0]))
     return [
         (skew_s, reference_row, other_row)
         for skew_s, _, reference_row, other_row in pairs
@@ -405,7 +409,7 @@ def choose_pair(
             "visible to both cameras and capture again"
         )
     skew_s, _, reference_row, other_row = min(
-        candidates, key=lambda item: (item[0], item[1])
+        candidates, key=lambda item: (item[1], item[0])
     )
     return reference_row, other_row, skew_s
 
