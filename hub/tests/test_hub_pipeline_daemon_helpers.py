@@ -125,3 +125,7 @@ def test_cold_replay_streams_decoded_observations():
 
     assert "new = list(iter_spooled_observations" not in source
     assert "for observation in iter_spooled_observations(" in source
+    assert "saw_new_observation = False" in source
+    assert "saw_new_observation = True" in source
+    assert "if not saw_new_observation:" in source
+    assert "if not new:" not in source

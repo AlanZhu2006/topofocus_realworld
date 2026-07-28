@@ -687,6 +687,7 @@ def main() -> int:
     import httpx
 
     while running:
+        saw_new_observation = False
         # Stream decoded RGB-D observations.  Materializing this iterator kept
         # every historical RGB/depth array resident during a cold replay
         # (multiple GiB in long scenes) and delayed all periodic work until the
@@ -696,6 +697,7 @@ def main() -> int:
             args.robot_id,
             after_sequence=highest_sequence,
         ):
+            saw_new_observation = True
             highest_sequence = max(highest_sequence, observation.sequence)
             observations_total += 1
             last_metadata = observation.metadata
@@ -1115,7 +1117,7 @@ def main() -> int:
             except Exception as exc:  # noqa: BLE001
                 emit("decision_publish_error", error=str(exc)[:300])
 
-        if not new:
+        if not saw_new_observation:
             time.sleep(0.5)
 
     if pipeline is not None:
