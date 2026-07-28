@@ -97,6 +97,18 @@ def gpu_mib() -> int:
     return int(out.stdout.split()[0]) if out.returncode == 0 else -1
 
 
+def startup_transform_matches(
+    expected_transform_version: str | None,
+    observed_transform_version: str,
+) -> bool:
+    """Reject stale handover frames without binding the new map to them."""
+
+    return bool(
+        expected_transform_version is None
+        or observed_transform_version == expected_transform_version
+    )
+
+
 def atomic_write_bytes(path: Path, payload: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -703,16 +715,26 @@ def main() -> int:
             last_metadata = observation.metadata
             if pipeline is None:
                 observation_version = observation.metadata.pose.transform_version
-                if (
-                    args.expected_transform_version is not None
-                    and observation_version != args.expected_transform_version
+                if not startup_transform_matches(
+                    args.expected_transform_version,
+                    observation_version,
                 ):
-                    raise ValueError(
-                        "startup observation transform version mismatch: "
-                        f"expected={args.expected_transform_version!r}, "
-                        f"observed={observation_version!r}, "
-                        f"sequence={observation.sequence}"
+                    # A sender handover can leave one already-uploaded frame
+                    # beyond the session boundary.  Never integrate or bind
+                    # the new map to that stale transform.  Keep tailing until
+                    # the expected publisher epoch arrives; the orchestrator's
+                    # existing map-readiness deadline remains the fail-closed
+                    # bound if it never does.
+                    emit(
+                        "startup_transform_observation_skipped",
+                        expected=args.expected_transform_version,
+                        observed=observation_version,
+                        sequence=observation.sequence,
                     )
+                    startup_gate.reset()
+                    startup_pending.clear()
+                    startup_transform_version = None
+                    continue
                 if (
                     startup_transform_version is not None
                     and observation_version != startup_transform_version

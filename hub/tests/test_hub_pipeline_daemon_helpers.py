@@ -33,6 +33,14 @@ def test_map_snapshot_revision_does_not_change_with_wall_clock():
     assert first == second == (42, 7, None)
 
 
+def test_startup_transform_gate_skips_only_mismatched_handover_frames():
+    daemon = load_daemon_module()
+
+    assert daemon.startup_transform_matches(None, "epoch-a")
+    assert daemon.startup_transform_matches("epoch-a", "epoch-a")
+    assert not daemon.startup_transform_matches("epoch-a", "epoch-old")
+
+
 def test_map_snapshot_revision_changes_for_input_map_or_latch():
     daemon = load_daemon_module()
     pipeline = SimpleNamespace(
@@ -129,3 +137,5 @@ def test_cold_replay_streams_decoded_observations():
     assert "saw_new_observation = True" in source
     assert "if not saw_new_observation:" in source
     assert "if not new:" not in source
+    assert '"startup_transform_observation_skipped"' in source
+    assert "startup observation transform version mismatch" not in source
