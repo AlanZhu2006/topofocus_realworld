@@ -10,11 +10,17 @@ forever.
 
 Keep the pinned source immutable.  This wrapper removes only that one reverse
 vocabulary and the single exact ``(v=0, omega=0)`` lattice candidate before
-constructing ``PlanningNode``.  Zero-linear, nonzero-angular in-place turns
-remain available; the source footprint/ESDF scoring, depth map, stale-input
-behavior and all-candidates-in-collision stop remain final local authority.
-It also applies Yunji's measured geometry when requested and preserves the
-source Go2 geometry for WSJ.
+constructing ``PlanningNode``.  It also adds stopped copies of each actionable
+trajectory at short horizons.  The original three-second candidates stay
+first and win in open space; a short prefix is available when the full
+three-second arc eventually intersects an obstacle.  Every published prefix
+is still scored in full by the source footprint/ESDF function, and a scene
+with no collision-free prefix still stops.
+
+Zero-linear, nonzero-angular in-place turns remain available.  The source
+depth map, stale-input behavior and all-candidates-in-collision stop remain
+final local authority.  The wrapper also applies Yunji's measured geometry
+when requested and preserves the source Go2 geometry for WSJ.
 """
 from __future__ import annotations
 
@@ -25,6 +31,7 @@ import json
 import math
 from pathlib import Path
 import sys
+import time
 
 
 OVERLAY = Path(__file__).resolve().parent
@@ -35,6 +42,11 @@ from tinynav_source_contract import (  # noqa: E402
     ROBOT_PROFILES,
     verify_tinynav_source,
 )
+
+
+SOURCE_DEFAULT_TRAJECTORY_DT_S = 0.1
+STOPPED_PREFIX_HORIZONS_S = (0.5, 1.0, 2.0)
+SCORE_OBSERVABILITY_INTERVAL_S = 30.0
 
 
 def forward_only_predefined_trajectory_vocabularies(
@@ -93,18 +105,146 @@ def remove_stationary_trajectory_candidate(
     return trajectories[moving_or_turning], parameters[moving_or_turning]
 
 
+def source_trajectory_dt_s(
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
+) -> float:
+    """Resolve ``dt`` from the pinned generator's unchanged call contract."""
+
+    value = (
+        kwargs["dt"]
+        if "dt" in kwargs
+        else (
+            args[2]
+            if len(args) >= 3
+            else SOURCE_DEFAULT_TRAJECTORY_DT_S
+        )
+    )
+    try:
+        dt_s = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("source trajectory dt must be numeric") from exc
+    if not math.isfinite(dt_s) or dt_s <= 0.0:
+        raise ValueError("source trajectory dt must be finite and positive")
+    return dt_s
+
+
+def append_stopped_prefix_trajectories(
+    trajectories,
+    parameters,
+    *,
+    dt_s: float,
+    horizons_s: tuple[float, ...] = STOPPED_PREFIX_HORIZONS_S,
+):
+    """Append collision-scorable paths that stop at shorter safe horizons.
+
+    A prefix retains the source trajectory through its horizon and repeats its
+    final pose for the rest of the source-shaped array.  The immutable planner
+    therefore evaluates the complete stopped path with its normal footprint
+    and ESDF scorer, while its existing 10-step publication cadence remains
+    shape-compatible.
+    """
+
+    import numpy as np
+
+    trajectories = np.asarray(trajectories)
+    parameters = np.asarray(parameters)
+    if (
+        trajectories.ndim != 3
+        or trajectories.shape[2] != 7
+        or trajectories.shape[1] < 2
+        or parameters.ndim != 2
+        or parameters.shape[1] != 2
+        or trajectories.shape[0] != parameters.shape[0]
+    ):
+        raise ValueError("source trajectory lattice has incompatible shapes")
+    if not math.isfinite(dt_s) or dt_s <= 0.0:
+        raise ValueError("trajectory dt must be finite and positive")
+
+    prefix_last_indices: list[int] = []
+    for horizon_s in horizons_s:
+        if not math.isfinite(horizon_s) or horizon_s <= 0.0:
+            raise ValueError(
+                "stopped-prefix horizons must be finite and positive"
+            )
+        last_index = max(1, int(round(horizon_s / dt_s)))
+        if (
+            last_index < trajectories.shape[1] - 1
+            and last_index not in prefix_last_indices
+        ):
+            prefix_last_indices.append(last_index)
+
+    if not prefix_last_indices:
+        return trajectories, parameters
+
+    trajectory_groups = [trajectories]
+    parameter_groups = [parameters]
+    for last_index in prefix_last_indices:
+        stopped = trajectories.copy()
+        stopped[:, last_index + 1 :, :] = stopped[
+            :, last_index : last_index + 1, :
+        ]
+        trajectory_groups.append(stopped)
+        parameter_groups.append(parameters.copy())
+    return (
+        np.concatenate(trajectory_groups, axis=0),
+        np.concatenate(parameter_groups, axis=0),
+    )
+
+
 def progress_capable_trajectory_library(
     source_generator: Callable[..., tuple[object, object]],
     *args,
+    stopped_prefix_horizons_s: tuple[float, ...] = (
+        STOPPED_PREFIX_HORIZONS_S
+    ),
     **kwargs,
 ):
-    """Generate the pinned lattice, then drop its exact no-action row."""
+    """Generate the pinned lattice and add safe stopped-prefix candidates."""
 
     trajectories, parameters = source_generator(*args, **kwargs)
-    return remove_stationary_trajectory_candidate(
+    trajectories, parameters = remove_stationary_trajectory_candidate(
         trajectories,
         parameters,
     )
+    return append_stopped_prefix_trajectories(
+        trajectories,
+        parameters,
+        dt_s=source_trajectory_dt_s(args, kwargs),
+        horizons_s=stopped_prefix_horizons_s,
+    )
+
+
+def trajectory_score_summary(
+    scores,
+    parameters,
+) -> dict[str, object]:
+    """Summarize source ESDF results without changing planner selection."""
+
+    import numpy as np
+
+    score_array = np.asarray(scores, dtype=np.float64)
+    parameter_array = np.asarray(parameters, dtype=np.float64)
+    if (
+        score_array.ndim != 1
+        or parameter_array.ndim != 2
+        or parameter_array.shape[1] != 2
+        or len(score_array) != len(parameter_array)
+        or len(score_array) == 0
+    ):
+        raise ValueError("source trajectory scores have incompatible shapes")
+    finite = np.isfinite(score_array)
+    in_place = np.abs(parameter_array[:, 0]) <= 1e-12
+    return {
+        "event": "focus_planner_candidate_scores",
+        "classification": "observed_source_esdf_scores",
+        "candidate_count": int(len(score_array)),
+        "finite_candidate_count": int(np.count_nonzero(finite)),
+        "finite_in_place_candidate_count": int(
+            np.count_nonzero(finite & in_place)
+        ),
+        "all_candidates_in_collision": bool(not np.any(finite)),
+    }
 
 
 def planner_source_provenance(source_path: str | Path) -> dict[str, object]:
@@ -195,17 +335,51 @@ def main() -> int:
     source_trajectory_generator = (
         planning_node.generate_trajectory_library_3d
     )
+    source_trajectory_scorer = planning_node.score_trajectories_by_ESDF
+    latest_parameters: list[object | None] = [None]
+    last_score_state: tuple[bool, bool] | None = None
+    last_score_log_monotonic = 0.0
 
-    def generate_progress_capable_trajectory_library(*args, **kwargs):
-        return progress_capable_trajectory_library(
+    def score_with_observability(*args, **kwargs):
+        nonlocal last_score_state, last_score_log_monotonic
+        scores, occupied_points = source_trajectory_scorer(*args, **kwargs)
+        # The immutable scorer receives trajectories first; parameters are
+        # unavailable there.  Preserve behavior and report the collision
+        # state using the wrapper's most recently generated lattice.
+        parameters = latest_parameters[0]
+        if parameters is None:
+            raise RuntimeError(
+                "source scorer ran before trajectory generation"
+            )
+        summary = trajectory_score_summary(scores, parameters)
+        state = (
+            bool(summary["all_candidates_in_collision"]),
+            int(summary["finite_in_place_candidate_count"]) > 0,
+        )
+        now = time.monotonic()
+        if (
+            state != last_score_state
+            or now - last_score_log_monotonic
+            >= SCORE_OBSERVABILITY_INTERVAL_S
+        ):
+            print(json.dumps(summary, sort_keys=True), flush=True)
+            last_score_state = state
+            last_score_log_monotonic = now
+        return scores, occupied_points
+
+    def generate_observable_trajectory_library(*args, **kwargs):
+        trajectories, parameters = progress_capable_trajectory_library(
             source_trajectory_generator,
             *args,
             **kwargs,
         )
+        latest_parameters[0] = parameters
+        return trajectories, parameters
 
     planning_node.generate_trajectory_library_3d = (
-        generate_progress_capable_trajectory_library
+        generate_observable_trajectory_library
     )
+    planning_node.score_trajectories_by_ESDF = score_with_observability
     provenance = verify_tinynav_source(
         planning_node.__file__,
         robot_profile=args.robot_profile,
@@ -213,12 +387,15 @@ def main() -> int:
     )
     provenance.update(
         {
-            "schema_version": "focus-progress-capable-tinynav-planner-v3",
+            "schema_version": "focus-progress-capable-tinynav-planner-v4",
             "adaptation": (
-                "source_reverse_and_exact_stationary_vocabularies_removed"
+                "source_reverse_and_exact_stationary_vocabularies_removed_"
+                "with_source_scored_stopped_prefixes"
             ),
             "in_place_turns_preserved": True,
-            "forward_lattice_and_esdf_unchanged": True,
+            "original_trajectory_lattice_preserved_first": True,
+            "stopped_prefix_horizons_s": STOPPED_PREFIX_HORIZONS_S,
+            "source_footprint_and_esdf_scorer_unchanged": True,
         }
     )
     print(json.dumps(provenance, sort_keys=True), flush=True)

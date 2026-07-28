@@ -97,6 +97,99 @@ def test_progress_capable_library_calls_source_with_unchanged_arguments():
     assert parameters.tolist() == [[0.0, -0.2], [0.1, 0.0]]
 
 
+def test_stopped_prefixes_preserve_full_paths_and_repeat_safe_end_pose():
+    trajectories = np.arange(
+        2 * 31 * 7,
+        dtype=np.float64,
+    ).reshape(2, 31, 7)
+    parameters = np.asarray([[0.0, 0.5], [0.2, 0.0]])
+
+    augmented_trajectories, augmented_parameters = (
+        MODULE.append_stopped_prefix_trajectories(
+            trajectories,
+            parameters,
+            dt_s=0.1,
+        )
+    )
+
+    assert augmented_trajectories.shape == (8, 31, 7)
+    assert augmented_parameters.tolist() == parameters.tolist() * 4
+    assert np.array_equal(augmented_trajectories[:2], trajectories)
+    for group_index, last_index in enumerate((5, 10, 20), start=1):
+        group = augmented_trajectories[
+            group_index * 2 : (group_index + 1) * 2
+        ]
+        assert np.array_equal(
+            group[:, : last_index + 1],
+            trajectories[:, : last_index + 1],
+        )
+        expected_tail = np.repeat(
+            trajectories[:, last_index : last_index + 1],
+            31 - last_index - 1,
+            axis=1,
+        )
+        assert np.array_equal(group[:, last_index + 1 :], expected_tail)
+
+
+def test_progress_library_removes_noop_before_adding_stopped_prefixes():
+    source_trajectories = np.zeros((3, 31, 7), dtype=np.float64)
+    source_trajectories[0, :, 0] = np.arange(31)
+    source_trajectories[1, :, 1] = np.arange(31)
+    source_trajectories[2, :, 2] = np.arange(31)
+    source_parameters = np.asarray(
+        [[0.0, -0.5], [0.0, 0.0], [0.2, 0.0]],
+        dtype=np.float64,
+    )
+
+    trajectories, parameters = MODULE.progress_capable_trajectory_library(
+        lambda **_kwargs: (source_trajectories, source_parameters),
+        dt=0.1,
+    )
+
+    assert trajectories.shape == (8, 31, 7)
+    assert parameters.tolist() == [
+        [0.0, -0.5],
+        [0.2, 0.0],
+    ] * 4
+    assert not np.any(np.all(parameters == 0.0, axis=1))
+
+
+@pytest.mark.parametrize(
+    ("dt_s", "horizons_s"),
+    [
+        (0.0, (0.5,)),
+        (float("nan"), (0.5,)),
+        (0.1, (0.0,)),
+        (0.1, (float("nan"),)),
+    ],
+)
+def test_stopped_prefixes_reject_invalid_timing(dt_s, horizons_s):
+    with pytest.raises(ValueError):
+        MODULE.append_stopped_prefix_trajectories(
+            np.zeros((2, 31, 7)),
+            np.zeros((2, 2)),
+            dt_s=dt_s,
+            horizons_s=horizons_s,
+        )
+
+
+def test_score_summary_exposes_all_collision_and_in_place_recovery():
+    all_collision = MODULE.trajectory_score_summary(
+        [float("inf"), float("inf")],
+        np.asarray([[0.0, -0.5], [0.2, 0.0]]),
+    )
+    recovered = MODULE.trajectory_score_summary(
+        [0.0, float("inf")],
+        np.asarray([[0.0, -0.5], [0.2, 0.0]]),
+    )
+
+    assert all_collision["all_candidates_in_collision"] is True
+    assert all_collision["finite_candidate_count"] == 0
+    assert recovered["all_candidates_in_collision"] is False
+    assert recovered["finite_candidate_count"] == 1
+    assert recovered["finite_in_place_candidate_count"] == 1
+
+
 @pytest.mark.parametrize(
     ("trajectories", "parameters"),
     [
