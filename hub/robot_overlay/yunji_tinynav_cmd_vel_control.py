@@ -73,6 +73,7 @@ DEFAULT_CONTROLLER_PATH_TIMEOUT_S = 1.0
 DEFAULT_CONTROLLER_POSE_JUMP_M = 0.40
 DEFAULT_CONTROLLER_POSE_JUMP_FREEZE_S = 0.60
 EXPECTED_CONTROLLER_PATH_FRAME = "world"
+DEFAULT_CONTROLLER_PAUSE_SERVICE = "/focus/set_navigation_paused"
 
 
 class DegenerateControllerPathError(ValueError):
@@ -674,6 +675,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="measured base_link_T_camera artifact used for control geometry",
     )
     parser.add_argument(
+        "--pause-service",
+        default=DEFAULT_CONTROLLER_PAUSE_SERVICE,
+        help=(
+            "acknowledged local service used by the v2 receiver to change "
+            "the source controller pause state"
+        ),
+    )
+    parser.add_argument(
         "--rotate-first-on-reverse",
         action="store_true",
         help=(
@@ -786,6 +795,7 @@ def main(args: list[str] | None = None) -> None:
     from rclpy.executors import ExternalShutdownException
     from scipy.spatial.transform import Rotation as R
     from std_msgs.msg import Bool
+    from std_srvs.srv import SetBool
     from tinynav.platforms import cmd_vel_control as source_controller
 
     provenance = verify_tinynav_source(
@@ -805,6 +815,7 @@ def main(args: list[str] | None = None) -> None:
                 "measured_base_pose_for_stable_heading",
                 "common_pose_path_stale_stop",
                 "common_pose_jump_freeze",
+                "acknowledged_pause_service",
             ],
             "linear_command_floor_mps": (
                 deployment_args.linear_command_floor_mps
@@ -853,6 +864,11 @@ def main(args: list[str] | None = None) -> None:
                 self._on_focus_router_target,
                 10,
             )
+            self._focus_pause_service = self.create_service(
+                SetBool,
+                deployment_args.pause_service,
+                self._on_focus_set_paused,
+            )
 
         def _reset_focus_rotation_recovery(self) -> None:
             self._focus_rotation_recovery_started = None
@@ -872,6 +888,16 @@ def main(args: list[str] | None = None) -> None:
                 # A path from the previous authority must not become live when
                 # a later lease unpauses the controller.
                 self._focus_path_received_monotonic = 0.0
+
+        def _on_focus_set_paused(self, request, response):
+            requested = bool(request.data)
+            self._on_paused(Bool(data=requested))
+            response.success = bool(self._paused) == requested
+            response.message = (
+                f"robot_id={deployment_args.robot_id};"
+                f"paused={str(bool(self._paused)).lower()}"
+            )
+            return response
 
         def pose_callback(self, message) -> None:
             try:

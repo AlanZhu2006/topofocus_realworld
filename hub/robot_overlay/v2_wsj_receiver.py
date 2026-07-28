@@ -115,6 +115,9 @@ RECOVERY_LEASE_RENEWED_EVENTS = {
     "odometry": "odometry_recovery_lease_renewed",
     "combined": "combined_recovery_lease_renewed",
 }
+DEFAULT_CONTROLLER_PAUSE_SERVICE = "/focus/set_navigation_paused"
+DEFAULT_CONTROLLER_PAUSE_ACK_TIMEOUT_S = 1.0
+DEFAULT_CONTROLLER_PAUSE_RETRY_S = 0.10
 
 
 def recoverable_router_hold(
@@ -1085,6 +1088,24 @@ def main() -> int:
         "--router-status-topic", default="/mapping/buildmap_online_status"
     )
     parser.add_argument("--pause-topic", default="/nav/paused")
+    parser.add_argument(
+        "--controller-pause-service",
+        default=DEFAULT_CONTROLLER_PAUSE_SERVICE,
+        help=(
+            "robot-local acknowledged controller pause service; GOAL motion "
+            "stays closed until an unpause response is received"
+        ),
+    )
+    parser.add_argument(
+        "--controller-pause-ack-timeout-s",
+        type=float,
+        default=DEFAULT_CONTROLLER_PAUSE_ACK_TIMEOUT_S,
+    )
+    parser.add_argument(
+        "--controller-pause-retry-s",
+        type=float,
+        default=DEFAULT_CONTROLLER_PAUSE_RETRY_S,
+    )
     parser.add_argument("--raw-cmd-topic", default="/cmd_vel")
     parser.add_argument("--guarded-cmd-topic", default="/focus_guarded_cmd_vel")
     parser.add_argument(
@@ -1304,12 +1325,22 @@ def main() -> int:
         args.slam_transient_grace_s,
         args.slam_recovery_grace_s,
         args.odometry_recovery_grace_s,
+        args.controller_pause_ack_timeout_s,
+        args.controller_pause_retry_s,
         args.max_goal_distance_m,
         args.semantic_arrival_radius_m,
         args.max_alignment_shift_m,
         args.max_alignment_yaw_deg,
     ) <= 0:
         parser.error("timeouts, limits and poll interval must be positive")
+    if (
+        args.controller_pause_retry_s
+        > args.controller_pause_ack_timeout_s
+    ):
+        parser.error(
+            "--controller-pause-retry-s must not exceed "
+            "--controller-pause-ack-timeout-s"
+        )
     if (
         args.trajectory_recovery_timeout_s
         <= args.trajectory_stale_timeout_s
@@ -1405,6 +1436,7 @@ def main() -> int:
     from rclpy.qos import DurabilityPolicy, QoSProfile
     from rclpy.time import Time
     from std_msgs.msg import Bool, String
+    from std_srvs.srv import SetBool
     from tf2_ros import Buffer, TransformListener
 
     class WsjReceiverNode(Node):
@@ -1470,6 +1502,9 @@ def main() -> int:
             )
             self.pause_publisher = self.create_publisher(
                 Bool, args.pause_topic, pause_qos
+            )
+            self.pause_client = self.create_client(
+                SetBool, args.controller_pause_service
             )
             self.guarded_publisher = self.create_publisher(
                 Twist, args.guarded_cmd_topic, 10
@@ -1803,6 +1838,76 @@ def main() -> int:
                     self.pause_publisher.publish(paused)
             return True
 
+        def set_controller_paused_confirmed(self, paused: bool) -> None:
+            """Change pause state only after the controller acknowledges it."""
+
+            if not live:
+                raise RuntimeError("live TinyNav output is disabled")
+            started = time.monotonic()
+            deadline = started + args.controller_pause_ack_timeout_s
+            attempts = 0
+            last_error = "service unavailable"
+            while time.monotonic() < deadline:
+                remaining_s = deadline - time.monotonic()
+                if not self.pause_client.wait_for_service(
+                    timeout_sec=min(
+                        args.controller_pause_retry_s,
+                        max(0.0, remaining_s),
+                    )
+                ):
+                    attempts += 1
+                    continue
+                request = SetBool.Request()
+                request.data = bool(paused)
+                future = self.pause_client.call_async(request)
+                attempts += 1
+                response_deadline = min(
+                    deadline,
+                    time.monotonic() + args.controller_pause_retry_s,
+                )
+                while (
+                    not future.done()
+                    and time.monotonic() < response_deadline
+                ):
+                    time.sleep(0.01)
+                if not future.done():
+                    future.cancel()
+                    last_error = "service response timed out"
+                    continue
+                try:
+                    response = future.result()
+                except Exception as exc:  # noqa: BLE001 - bounded local RPC
+                    last_error = str(exc)[:256]
+                    continue
+                if response is not None and bool(response.success):
+                    emit(
+                        "controller_pause_acknowledged",
+                        paused=bool(paused),
+                        attempts=attempts,
+                        latency_s=round(time.monotonic() - started, 4),
+                        detail=str(response.message)[:256],
+                    )
+                    return
+                last_error = (
+                    "empty response"
+                    if response is None
+                    else str(response.message)[:256]
+                )
+            self.guarded_publisher.publish(Twist())
+            self.latest_guard_reason = "controller_pause_ack_timeout"
+            emit(
+                "controller_pause_ack_timeout",
+                paused=bool(paused),
+                attempts=attempts,
+                timeout_s=args.controller_pause_ack_timeout_s,
+                error=last_error,
+            )
+            raise RuntimeError(
+                "controller pause acknowledgement timed out: "
+                f"paused={bool(paused)} attempts={attempts} "
+                f"error={last_error}"
+            )
+
         def publish_goal(
             self,
             payload: str,
@@ -1814,9 +1919,7 @@ def main() -> int:
                 raise RuntimeError("live TinyNav output is disabled")
             self.nav_done = False
             if authorize_motion:
-                paused = Bool()
-                paused.data = False
-                self.pause_publisher.publish(paused)
+                self.set_controller_paused_confirmed(False)
             message = String()
             message.data = payload
             self.poi_publisher.publish(message)
@@ -1826,9 +1929,7 @@ def main() -> int:
         def resume_existing_goal(self, expires_at_ns: int) -> None:
             if not live:
                 raise RuntimeError("live TinyNav output is disabled")
-            paused = Bool()
-            paused.data = False
-            self.pause_publisher.publish(paused)
+            self.set_controller_paused_confirmed(False)
             self.authorize(expires_at_ns)
 
         def renew_authority_while_gate_closed(

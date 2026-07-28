@@ -1240,6 +1240,12 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert "--semantic-arrival-radius-m" in source
     assert "--reverse-required-topic" in source
     assert "--reject-reverse-trajectory" in source
+    assert "--controller-pause-service" in source
+    assert "--controller-pause-ack-timeout-s" in source
+    assert "self.pause_client.call_async(request)" in source
+    assert "set_controller_paused_confirmed(False)" in source
+    assert '"controller_pause_acknowledged"' in source
+    assert '"controller_pause_ack_timeout"' in source
     assert '"LOCAL_PATH_REVERSE_REQUIRED"' in source
     assert '"reverse_trajectory_rejected"' in source
     assert '"trajectory_missing_or_stale"' in source

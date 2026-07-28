@@ -498,8 +498,25 @@ def test_controller_profile_is_required_and_common_guards_are_enabled():
     assert parsed.path_timeout_s == pytest.approx(1.0)
     assert parsed.pose_jump_m == pytest.approx(0.4)
     assert parsed.pose_jump_freeze_s == pytest.approx(0.6)
+    assert (
+        parsed.pause_service
+        == MODULE.DEFAULT_CONTROLLER_PAUSE_SERVICE
+    )
     assert parsed.robot_id == "robot-0"
     assert parsed.base_camera_frame == "camera"
+
+
+def test_controller_exposes_acknowledged_pause_service():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+
+    assert "from std_srvs.srv import SetBool" in source
+    assert "self.create_service(" in source
+    assert "self._on_focus_set_paused" in source
+    callback = source.split(
+        "def _on_focus_set_paused", 1
+    )[1].split("def pose_callback", 1)[0]
+    assert "self._on_paused(Bool(data=requested))" in callback
+    assert "response.success = bool(self._paused) == requested" in callback
 
 
 def test_common_controller_input_guard_fails_closed():
