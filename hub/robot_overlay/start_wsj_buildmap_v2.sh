@@ -78,6 +78,7 @@ mode="debug"
 confirmation=""
 reuse_verified_debug_core="false"
 startup_complete="false"
+online_stack_started="false"
 
 fail_closed_on_error() {
   local rc=$?
@@ -255,6 +256,7 @@ if [[ ${#missing_windows[@]} -eq 1 \
     --repair-online-stack
 elif [[ ${#missing_windows[@]} -eq ${#required_windows[@]} ]]; then
   bash "$SCRIPT_DIR/start_tinynav_buildmap_online_nav.sh" --session "$SESSION"
+  online_stack_started="true"
 elif [[ ${#missing_windows[@]} -ne 0 ]]; then
   echo "Refusing ambiguous partial online stack; missing: ${missing_windows[*]}" >&2
   exit 1
@@ -275,6 +277,19 @@ component_contract_sha256() {
     "$BASE_CAMERA_CALIBRATION_SHA256" \
     | sha256sum | awk '{print $1}'
 }
+
+online_map_contract="$(
+  printf '%s\0%s\0%s\0' \
+    "continuous-depth-online-map-v1" \
+    "$(sha256sum \
+      "$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py" \
+      | awk '{print $1}')" \
+    "$(sha256sum \
+      "$SCRIPT_DIR/ros_continuous_depth_geometry_rgb.py" \
+      | awk '{print $1}')" \
+    | sha256sum \
+    | awk '{print $1}'
+)"
 
 mark_component_contract() {
   local window="$1" command="$2"
@@ -414,7 +429,25 @@ recover_online_map_publisher() {
     sleep 1
   done
   echo "WSJ online-map publisher recovered publisher-last: $new_pid"
+  mark_component_contract online-map "$online_map_contract"
 }
+
+# A persistent BuildMap session can outlive a deployment.  Bind the
+# non-actuating online-map process to the same checked release as the
+# planner/controller instead of accepting whichever Python bytes happened to
+# be loaded when the session was first created.
+if [[ "$online_stack_started" == true ]]; then
+  mark_component_contract online-map "$online_map_contract"
+elif ! component_contract_matches \
+    online-map "$online_map_contract" \
+    "run_tinynav_buildmap_online_mapping.py"; then
+  if [[ "$reuse_verified_debug_core" == true ]]; then
+    echo "WSJ warm online-map does not match the verified deployment contract." >&2
+    exit 1
+  fi
+  echo "WSJ online-map contract changed; reloading its non-actuating publisher."
+  recover_online_map_publisher
+fi
 
 # This single verifier replaces the former three serial `ros2 topic echo`
 # witnesses. It subscribes to those same two CameraInfo streams and visual

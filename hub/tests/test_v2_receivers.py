@@ -1074,10 +1074,28 @@ def test_wsj_stale_occupancy_recovery_is_publisher_last_and_no_bridge() -> None:
         < recovery.index("respawn-pane")
         < recovery.index("occupancy_mapper_node")
     )
+    assert (
+        'mark_component_contract online-map "$online_map_contract"'
+        in recovery
+    )
+    assert "continuous-depth-online-map-v1" in launcher
+    assert (
+        'component_contract_matches \\\n'
+        '    online-map "$online_map_contract"'
+        in launcher
+    )
+    assert (
+        "WSJ warm online-map does not match the verified "
+        "deployment contract."
+        in launcher
+    )
     fast_probe = launcher.index(
         '"${sensor_map_verifier[@]}" --timeout-s 8'
     )
-    recovery_call = launcher.index("\n  recover_online_map_publisher\n")
+    recovery_call = launcher.index(
+        "\n  recover_online_map_publisher\n",
+        fast_probe,
+    )
     full_probe = launcher.index(
         '"${sensor_map_verifier[@]}" --timeout-s 35'
     )
