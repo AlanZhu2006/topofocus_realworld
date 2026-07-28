@@ -25,6 +25,15 @@ def test_oneclick_is_session_bound_and_has_no_forensic_bypass():
     assert "FOCUS_YUNJI_REMOTE_CALIBRATION" in source
     assert "--allow-stale-shadow-input" not in source
     assert "--allow-blocked-shadow-input" not in source
+    assert "retire_other_managed_map_sessions" in source
+    assert 'session" == shared_maps_*' in source
+    assert 'session" != "$MAP_SESSION"' in source
+    assert "Retiring stale read-only map workers" in source
+    assert "A retired map worker survived its managed tmux session" in source
+    assert source.index("retire_other_managed_map_sessions\n") < source.index(
+        "if map_window_matches"
+    )
+    assert "rm -r" not in source
     assert "map_out_wsj_20260724" not in source
     assert "shared-board-odin1-20260723-v3" not in source
     assert '"${map_resume_args[@]}"' in source

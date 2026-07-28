@@ -571,9 +571,61 @@ map_window_matches() {
      && "$start" == *"--semantic-backend '$FOCUS_SEMANTIC_BACKEND'"* ]]
 }
 
+retire_other_managed_map_sessions() {
+  local rows session start deadline process_rows stale
+  local -A retired_sessions=()
+  local -a retired_map_dirs=()
+  rows="$(
+    tmux list-panes -a \
+      -F $'#{session_name}\t#{pane_start_command}' 2>/dev/null || true
+  )"
+  while IFS=$'\t' read -r session start; do
+    [[ "$session" == shared_maps_* && "$session" != "$MAP_SESSION" ]] \
+      || continue
+    [[ "$start" == *"$HUB_DIR"* \
+       && "$start" == *"hub_pipeline_daemon.py"* \
+       && "$start" == *"--spool runtime/spool"* \
+       && "$start" == *"--admin-token-file runtime/admin_token"* ]] \
+      || continue
+    retired_sessions["$session"]=1
+    if [[ "$start" =~ --out-dir\ \'([^\']+)\' ]]; then
+      retired_map_dirs+=("${BASH_REMATCH[1]}")
+    fi
+  done <<<"$rows"
+
+  for session in "${!retired_sessions[@]}"; do
+    echo "Retiring stale read-only map workers: $session"
+    tmux kill-session -t "$session"
+  done
+  (( ${#retired_sessions[@]} > 0 )) || return 0
+
+  deadline=$((SECONDS + 20))
+  while (( SECONDS < deadline )); do
+    process_rows="$(
+      pgrep -af 'hub_pipeline_daemon[.]py' 2>/dev/null || true
+    )"
+    stale=false
+    for map_dir in "${retired_map_dirs[@]}"; do
+      if grep -F -- "$map_dir" <<<"$process_rows" >/dev/null; then
+        stale=true
+        break
+      fi
+    done
+    [[ "$stale" == true ]] || return 0
+    sleep 1
+  done
+  echo "A retired map worker survived its managed tmux session." >&2
+  return 1
+}
+
 ensure_maps() {
   local rows session start deadline
   local -a map_resume_args=()
+  # Map artifacts remain immutable provenance, but only this session's two
+  # read-only daemons may consume inference resources. Without this retirement
+  # gate every code-bound retry leaves another SegFormer/YOLO pair running and
+  # makes later preflights progressively slower.
+  retire_other_managed_map_sessions
   if map_window_matches \
       wsj robot-0 "$WSJ_MAP" "$FOCUS_WSJ_TRANSFORM" \
       "$FOCUS_WSJ_START_AFTER" \
