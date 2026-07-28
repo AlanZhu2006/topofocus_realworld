@@ -97,6 +97,21 @@ RECOVERABLE_ROUTER_HOLD_REASONS = frozenset(
         "OCCUPANCY_STALE_AFTER_MOTION",
     }
 )
+RECOVERY_RENEWAL_REJECTED_EVENTS = {
+    "occupancy": "occupancy_recovery_renewal_rejected",
+    "slam": "slam_recovery_renewal_rejected",
+    "combined": "combined_recovery_renewal_rejected",
+}
+RECOVERY_RENEWAL_FEEDBACK_FAILED_EVENTS = {
+    "occupancy": "occupancy_recovery_renewal_feedback_failed",
+    "slam": "slam_recovery_renewal_feedback_failed",
+    "combined": "combined_recovery_renewal_feedback_failed",
+}
+RECOVERY_LEASE_RENEWED_EVENTS = {
+    "occupancy": "occupancy_recovery_lease_renewed",
+    "slam": "slam_recovery_lease_renewed",
+    "combined": "combined_recovery_lease_renewed",
+}
 
 
 def recoverable_router_hold(
@@ -184,17 +199,81 @@ def slam_recovery_renewal_health(health: RobotHealth) -> RobotHealth:
     )
 
 
-def exclusive_closed_gate_recovery_kind(
+def combined_sensor_recovery_eligible(
+    *,
+    occupancy_recovery_elapsed_s: float,
+    occupancy_recovery_grace_s: float,
+    slam_recovery_elapsed_s: float,
+    slam_recovery_grace_s: float,
+    slam_detail: str,
+    all_non_sensor_health_ready: bool,
+    occupancy_observed: bool,
+) -> bool:
+    """Bound a simultaneous occupancy and transient-SLAM zero-velocity wait.
+
+    Each sensor retains its own original timer, so entering this combined
+    state cannot extend either single-sensor recovery budget.  Motion remains
+    closed by the independent 20 Hz gate throughout.
+    """
+
+    if (
+        not math.isfinite(occupancy_recovery_grace_s)
+        or occupancy_recovery_grace_s <= 0.0
+    ):
+        raise ValueError("occupancy recovery bound must be positive")
+    if (
+        not math.isfinite(slam_recovery_grace_s)
+        or slam_recovery_grace_s <= 0.0
+    ):
+        raise ValueError("SLAM recovery bound must be positive")
+    return bool(
+        all_non_sensor_health_ready
+        and occupancy_observed
+        and slam_detail in TRANSIENT_SLAM_FAILURES
+        and math.isfinite(occupancy_recovery_elapsed_s)
+        and 0.0
+        <= occupancy_recovery_elapsed_s
+        <= occupancy_recovery_grace_s
+        and math.isfinite(slam_recovery_elapsed_s)
+        and 0.0 <= slam_recovery_elapsed_s <= slam_recovery_grace_s
+    )
+
+
+def combined_sensor_recovery_renewal_health(
+    health: RobotHealth,
+) -> RobotHealth:
+    """Validate the immutable leg while both sensor gates remain closed."""
+
+    return health.model_copy(
+        update={
+            "safety_state": SafetyState.READY,
+            "localization_state": LocalizationState.TRACKING,
+            "collision_avoidance_ready": True,
+        }
+    )
+
+
+def closed_gate_recovery_kind(
     *,
     occupancy_recovery_active: bool,
     slam_recovery_active: bool,
+    combined_sensor_recovery_active: bool,
 ) -> str | None:
-    """Select one fail-stopped recovery owner for the active leg."""
+    """Select exactly one fail-stopped recovery owner for the active leg."""
 
-    if occupancy_recovery_active and slam_recovery_active:
-        raise RuntimeError(
-            "occupancy and SLAM recovery cannot own one leg simultaneously"
+    active_count = sum(
+        (
+            occupancy_recovery_active,
+            slam_recovery_active,
+            combined_sensor_recovery_active,
         )
+    )
+    if active_count > 1:
+        raise RuntimeError(
+            "closed-gate recovery predicates must be mutually exclusive"
+        )
+    if combined_sensor_recovery_active:
+        return "combined"
     if occupancy_recovery_active:
         return "occupancy"
     if slam_recovery_active:
@@ -2053,11 +2132,16 @@ def main() -> int:
                 all_non_slam_health_ready and node.slam_pass
             )
             ready = all_other_health_ready and occupancy_fresh
+            transient_slam_failure = bool(
+                not node.slam_pass
+                and node.slam_detail in TRANSIENT_SLAM_FAILURES
+            )
             occupancy_recovery_candidate = bool(
                 active_decision is not None
                 and not occupancy_fresh
                 and node.occupancy is not None
-                and all_other_health_ready
+                and all_non_slam_health_ready
+                and (node.slam_pass or transient_slam_failure)
             )
             if occupancy_recovery_candidate:
                 if (
@@ -2081,9 +2165,9 @@ def main() -> int:
             slam_recovery_candidate = bool(
                 active_decision is not None
                 and not node.slam_pass
-                and occupancy_fresh
                 and all_non_slam_health_ready
-                and node.slam_detail in TRANSIENT_SLAM_FAILURES
+                and transient_slam_failure
+                and (occupancy_fresh or node.occupancy is not None)
             )
             if slam_recovery_candidate:
                 if (
@@ -2105,38 +2189,79 @@ def main() -> int:
                     all_non_slam_health_ready and occupancy_fresh
                 ),
             )
-            recovery_kind = exclusive_closed_gate_recovery_kind(
+            combined_sensor_recovery_candidate = bool(
+                occupancy_recovery_candidate
+                and slam_recovery_candidate
+            )
+            combined_sensor_recovery_active = bool(
+                combined_sensor_recovery_candidate
+                and combined_sensor_recovery_eligible(
+                    occupancy_recovery_elapsed_s=(
+                        occupancy_recovery_elapsed_s
+                    ),
+                    occupancy_recovery_grace_s=(
+                        args.occupancy_recovery_grace_s
+                    ),
+                    slam_recovery_elapsed_s=slam_recovery_elapsed_s,
+                    slam_recovery_grace_s=args.slam_recovery_grace_s,
+                    slam_detail=node.slam_detail,
+                    all_non_sensor_health_ready=(
+                        all_non_slam_health_ready
+                    ),
+                    occupancy_observed=node.occupancy is not None,
+                )
+            )
+            recovery_kind = closed_gate_recovery_kind(
                 occupancy_recovery_active=occupancy_recovery_active,
                 slam_recovery_active=slam_recovery_active,
+                combined_sensor_recovery_active=(
+                    combined_sensor_recovery_active
+                ),
             )
             if (
-                recovery_kind == "occupancy"
+                occupancy_recovery_leg_id is not None
                 and slam_recovery_leg_id is not None
+                and occupancy_recovery_leg_id != slam_recovery_leg_id
+            ):
+                raise RuntimeError(
+                    "closed-gate recovery owners disagree on active leg"
+                )
+            previous_recovery_kind = closed_gate_recovery_kind(
+                occupancy_recovery_active=bool(
+                    occupancy_recovery_leg_id is not None
+                    and slam_recovery_leg_id is None
+                ),
+                slam_recovery_active=bool(
+                    slam_recovery_leg_id is not None
+                    and occupancy_recovery_leg_id is None
+                ),
+                combined_sensor_recovery_active=bool(
+                    occupancy_recovery_leg_id is not None
+                    and slam_recovery_leg_id is not None
+                ),
+            )
+            if (
+                previous_recovery_kind is not None
+                and recovery_kind is not None
+                and previous_recovery_kind != recovery_kind
             ):
                 emit(
                     "closed_gate_recovery_handoff",
-                    from_kind="slam",
-                    to_kind="occupancy",
-                    leg_id=slam_recovery_leg_id,
+                    from_kind=previous_recovery_kind,
+                    to_kind=recovery_kind,
+                    leg_id=(
+                        occupancy_recovery_leg_id
+                        or slam_recovery_leg_id
+                    ),
                     physical_velocity_gate_closed=True,
                 )
+                progress_watchdog.reset()
+            if recovery_kind == "occupancy":
                 slam_recovery_leg_id = None
                 slam_recovery_started_ns = 0
-                progress_watchdog.reset()
-            elif (
-                recovery_kind == "slam"
-                and occupancy_recovery_leg_id is not None
-            ):
-                emit(
-                    "closed_gate_recovery_handoff",
-                    from_kind="occupancy",
-                    to_kind="slam",
-                    leg_id=occupancy_recovery_leg_id,
-                    physical_velocity_gate_closed=True,
-                )
+            elif recovery_kind == "slam":
                 occupancy_recovery_leg_id = None
                 occupancy_recovery_started_ns = 0
-                progress_watchdog.reset()
             node.update_motion_health(
                 ready=ready,
                 evaluated_ns=now_ns,
@@ -2204,7 +2329,44 @@ def main() -> int:
                     emit("heartbeat_failed_local_hold", error=str(exc)[:500])
                     time.sleep(args.poll_s)
                     continue
-            if ready and occupancy_recovery_leg_id is not None:
+            if (
+                ready
+                and occupancy_recovery_leg_id is not None
+                and slam_recovery_leg_id is not None
+            ):
+                emit(
+                    "combined_sensor_recovery_complete",
+                    decision_id=(
+                        None
+                        if active_decision is None
+                        else active_decision.decision_id
+                    ),
+                    leg_id=occupancy_recovery_leg_id,
+                    occupancy_recovery_duration_s=round(
+                        max(
+                            0.0,
+                            (
+                                now_ns
+                                - occupancy_recovery_started_ns
+                            )
+                            / 1e9,
+                        ),
+                        3,
+                    ),
+                    slam_recovery_duration_s=round(
+                        max(
+                            0.0,
+                            (now_ns - slam_recovery_started_ns) / 1e9,
+                        ),
+                        3,
+                    ),
+                )
+                occupancy_recovery_leg_id = None
+                occupancy_recovery_started_ns = 0
+                slam_recovery_leg_id = None
+                slam_recovery_started_ns = 0
+                progress_watchdog.reset()
+            elif ready and occupancy_recovery_leg_id is not None:
                 emit(
                     "occupancy_recovery_complete",
                     decision_id=(
@@ -2218,7 +2380,7 @@ def main() -> int:
                 occupancy_recovery_leg_id = None
                 occupancy_recovery_started_ns = 0
                 progress_watchdog.reset()
-            if ready and slam_recovery_leg_id is not None:
+            elif ready and slam_recovery_leg_id is not None:
                 emit(
                     "slam_recovery_complete",
                     decision_id=(
@@ -2239,7 +2401,69 @@ def main() -> int:
                 slam_recovery_started_ns = 0
                 progress_watchdog.reset()
             if not ready and active_decision is not None:
-                if recovery_kind == "occupancy":
+                if recovery_kind == "combined":
+                    if (
+                        occupancy_recovery_leg_id
+                        != active_decision.leg_id
+                        or slam_recovery_leg_id
+                        != active_decision.leg_id
+                    ):
+                        occupancy_recovery_leg_id = (
+                            active_decision.leg_id
+                        )
+                        slam_recovery_leg_id = active_decision.leg_id
+                        emit(
+                            "combined_sensor_recovery_wait",
+                            decision_id=active_decision.decision_id,
+                            leg_id=active_decision.leg_id,
+                            slam_detail=node.slam_detail,
+                            occupancy_age_s=round(
+                                occupancy_age_s, 3
+                            ),
+                            cached_occupancy_motion_m=(
+                                cached_occupancy_motion_m
+                            ),
+                            max_cached_occupancy_motion_m=(
+                                args.max_cached_occupancy_motion_m
+                            ),
+                            occupancy_recovery_elapsed_s=round(
+                                occupancy_recovery_elapsed_s, 3
+                            ),
+                            occupancy_recovery_grace_s=(
+                                args.occupancy_recovery_grace_s
+                            ),
+                            slam_recovery_elapsed_s=round(
+                                slam_recovery_elapsed_s, 3
+                            ),
+                            slam_recovery_grace_s=(
+                                args.slam_recovery_grace_s
+                            ),
+                            physical_velocity_gate_closed=True,
+                        )
+                        if not post(
+                            active_decision,
+                            NavigationStatusV2.ACCEPTED,
+                            "LOCAL_SENSOR_RECOVERY_WAIT",
+                            pose,
+                            zero=True,
+                            goal=active_goal,
+                            detail=(
+                                "physical velocity gate closed immediately "
+                                "for bounded combined occupancy and "
+                                "transient-SLAM recovery"
+                            ),
+                        ):
+                            node.revoke()
+                            active_decision = None
+                            active_goal = None
+                            occupancy_recovery_leg_id = None
+                            occupancy_recovery_started_ns = 0
+                            slam_recovery_leg_id = None
+                            slam_recovery_started_ns = 0
+                            progress_watchdog.reset()
+                            continue
+                        last_feedback_monotonic = time.monotonic()
+                elif recovery_kind == "occupancy":
                     if (
                         occupancy_recovery_leg_id
                         != active_decision.leg_id
@@ -2325,17 +2549,24 @@ def main() -> int:
                     failed_decision = active_decision
                     node.revoke()
                     reason_code = (
-                        "OCCUPANCY_STALE_TIMEOUT"
-                        if all_other_health_ready and not occupancy_fresh
+                        "SENSOR_RECOVERY_TIMEOUT"
+                        if combined_sensor_recovery_candidate
                         else (
-                            "SLAM_TRANSIENT_TIMEOUT"
+                            "OCCUPANCY_STALE_TIMEOUT"
                             if (
-                                slam_recovery_leg_id
-                                == failed_decision.leg_id
-                                and node.slam_detail
-                                in TRANSIENT_SLAM_FAILURES
+                                all_other_health_ready
+                                and not occupancy_fresh
                             )
-                            else "HEALTH_NOT_READY"
+                            else (
+                                "SLAM_TRANSIENT_TIMEOUT"
+                                if (
+                                    slam_recovery_leg_id
+                                    == failed_decision.leg_id
+                                    and node.slam_detail
+                                    in TRANSIENT_SLAM_FAILURES
+                                )
+                                else "HEALTH_NOT_READY"
+                            )
                         )
                     )
                     emit(
@@ -2353,6 +2584,9 @@ def main() -> int:
                             ),
                             "slam_recovery_grace_s": (
                                 args.slam_recovery_grace_s
+                            ),
+                            "combined_sensor_recovery_candidate": (
+                                combined_sensor_recovery_candidate
                             ),
                             "alignment_stable": alignment_stable,
                             "graph_ready": graph_ready,
@@ -2609,18 +2843,28 @@ def main() -> int:
                 time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
                 continue
 
-            closed_gate_recovery_kind = (
-                "occupancy"
-                if occupancy_recovery_leg_id is not None
-                else (
-                    "slam"
-                    if slam_recovery_leg_id is not None
-                    else None
-                )
+            active_combined_sensor_recovery = bool(
+                occupancy_recovery_leg_id is not None
+                and slam_recovery_leg_id is not None
+            )
+            active_occupancy_recovery = bool(
+                occupancy_recovery_leg_id is not None
+                and slam_recovery_leg_id is None
+            )
+            active_slam_recovery = bool(
+                slam_recovery_leg_id is not None
+                and occupancy_recovery_leg_id is None
+            )
+            active_recovery_kind = closed_gate_recovery_kind(
+                occupancy_recovery_active=active_occupancy_recovery,
+                slam_recovery_active=active_slam_recovery,
+                combined_sensor_recovery_active=(
+                    active_combined_sensor_recovery
+                ),
             )
             closed_gate_recovery_leg_id = (
                 occupancy_recovery_leg_id
-                if closed_gate_recovery_kind == "occupancy"
+                if occupancy_recovery_leg_id is not None
                 else slam_recovery_leg_id
             )
             if (
@@ -2630,11 +2874,20 @@ def main() -> int:
                 and decision.leg_id == closed_gate_recovery_leg_id
                 and decision.decision_id != last_decision_id
             ):
-                renewal_health = (
-                    occupancy_recovery_renewal_health(health)
-                    if closed_gate_recovery_kind == "occupancy"
-                    else slam_recovery_renewal_health(health)
-                )
+                if active_recovery_kind == "occupancy":
+                    renewal_health = (
+                        occupancy_recovery_renewal_health(health)
+                    )
+                elif active_recovery_kind == "slam":
+                    renewal_health = slam_recovery_renewal_health(
+                        health
+                    )
+                else:
+                    renewal_health = (
+                        combined_sensor_recovery_renewal_health(
+                            health
+                        )
+                    )
                 renewal_result = adapter.evaluate(
                     decision,
                     now_ns=time.time_ns(),
@@ -2658,7 +2911,7 @@ def main() -> int:
                         zero=True,
                         goal=active_goal,
                         detail=(
-                            f"same-leg {closed_gate_recovery_kind} recovery "
+                            f"same-leg {active_recovery_kind} recovery "
                             "renewal failed local "
                             f"validation: {renewal_result.reason_code}"
                         ),
@@ -2672,11 +2925,9 @@ def main() -> int:
                     slam_recovery_started_ns = 0
                     progress_watchdog.reset()
                     emit(
-                        (
-                            "occupancy_recovery_renewal_rejected"
-                            if closed_gate_recovery_kind == "occupancy"
-                            else "slam_recovery_renewal_rejected"
-                        ),
+                        RECOVERY_RENEWAL_REJECTED_EVENTS[
+                            active_recovery_kind
+                        ],
                         pending_decision_id=decision.decision_id,
                         reason_code=renewal_result.reason_code,
                     )
@@ -2695,7 +2946,7 @@ def main() -> int:
                     pose,
                     detail=(
                         "authenticated same-leg renewal parsed during "
-                        f"bounded {closed_gate_recovery_kind} recovery"
+                        f"bounded {active_recovery_kind} recovery"
                     ),
                 ):
                     node.revoke()
@@ -2730,8 +2981,12 @@ def main() -> int:
                     NavigationStatusV2.ACCEPTED,
                     (
                         "LOCAL_OCCUPANCY_RECOVERY_WAIT"
-                        if closed_gate_recovery_kind == "occupancy"
-                        else "LOCAL_SLAM_RECOVERY_WAIT"
+                        if active_recovery_kind == "occupancy"
+                        else (
+                            "LOCAL_SLAM_RECOVERY_WAIT"
+                            if active_recovery_kind == "slam"
+                            else "LOCAL_SENSOR_RECOVERY_WAIT"
+                        )
                     ),
                     pose,
                     zero=True,
@@ -2739,7 +2994,7 @@ def main() -> int:
                     detail=(
                         "same-leg lease renewed while the physical velocity "
                         "gate remains closed for bounded "
-                        f"{closed_gate_recovery_kind} recovery"
+                        f"{active_recovery_kind} recovery"
                     ),
                 )
                 if not accepted:
@@ -2752,22 +3007,18 @@ def main() -> int:
                     slam_recovery_started_ns = 0
                     progress_watchdog.reset()
                     emit(
-                        (
-                            "occupancy_recovery_renewal_feedback_failed"
-                            if closed_gate_recovery_kind == "occupancy"
-                            else "slam_recovery_renewal_feedback_failed"
-                        ),
+                        RECOVERY_RENEWAL_FEEDBACK_FAILED_EVENTS[
+                            active_recovery_kind
+                        ],
                         decision_id=decision.decision_id,
                         leg_id=decision.leg_id,
                     )
                 else:
                     last_feedback_monotonic = time.monotonic()
                     emit(
-                        (
-                            "occupancy_recovery_lease_renewed"
-                            if closed_gate_recovery_kind == "occupancy"
-                            else "slam_recovery_lease_renewed"
-                        ),
+                        RECOVERY_LEASE_RENEWED_EVENTS[
+                            active_recovery_kind
+                        ],
                         decision_id=decision.decision_id,
                         leg_id=decision.leg_id,
                         lease_sequence=decision.lease_sequence,
@@ -3191,6 +3442,35 @@ def main() -> int:
                     router_recovery_leg_id = None
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
+                elif (
+                    occupancy_recovery_leg_id
+                    == active_decision.leg_id
+                    and slam_recovery_leg_id
+                    == active_decision.leg_id
+                ):
+                    if (
+                        time.monotonic() - last_feedback_monotonic >= 0.5
+                    ):
+                        post(
+                            active_decision,
+                            NavigationStatusV2.ACCEPTED,
+                            "LOCAL_SENSOR_RECOVERY_WAIT",
+                            pose,
+                            zero=True,
+                            goal=active_goal,
+                            detail=(
+                                "physical velocity gate is closed while "
+                                "waiting for fresh occupancy and the next "
+                                "healthy SLAM report; "
+                                f"occupancy_age_s={occupancy_age_s:.3f}; "
+                                f"slam_detail={node.slam_detail}; "
+                                "occupancy_recovery_elapsed_s="
+                                f"{occupancy_recovery_elapsed_s:.3f}; "
+                                "slam_recovery_elapsed_s="
+                                f"{slam_recovery_elapsed_s:.3f}"
+                            ),
+                        )
+                        last_feedback_monotonic = time.monotonic()
                 elif occupancy_recovery_leg_id == active_decision.leg_id:
                     # Occupancy freshness has crossed the hard motion bound,
                     # so the 20 Hz gate is already publishing zero. Preserve
@@ -3386,6 +3666,8 @@ def main() -> int:
                 progress_watchdog.reset()
                 occupancy_recovery_leg_id = None
                 occupancy_recovery_started_ns = 0
+                slam_recovery_leg_id = None
+                slam_recovery_started_ns = 0
             time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
     except KeyboardInterrupt:
         node.revoke()

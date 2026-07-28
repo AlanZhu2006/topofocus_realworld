@@ -767,25 +767,92 @@ def test_slam_recovery_renewal_health_only_overrides_slam_gate():
     assert not estopped.ready_for_goal()
 
 
-def test_closed_gate_recovery_kind_is_exclusive():
+def test_combined_sensor_recovery_keeps_both_original_bounds():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    common = {
+        "occupancy_recovery_grace_s": 7.0,
+        "slam_recovery_grace_s": 2.0,
+        "slam_detail": "optimizer_status=skipped_imu_invalid",
+        "all_non_sensor_health_ready": True,
+        "occupancy_observed": True,
+    }
+
+    assert wsj.combined_sensor_recovery_eligible(
+        occupancy_recovery_elapsed_s=6.9,
+        slam_recovery_elapsed_s=1.9,
+        **common,
+    )
+    assert not wsj.combined_sensor_recovery_eligible(
+        occupancy_recovery_elapsed_s=7.001,
+        slam_recovery_elapsed_s=0.1,
+        **common,
+    )
+    assert not wsj.combined_sensor_recovery_eligible(
+        occupancy_recovery_elapsed_s=0.1,
+        slam_recovery_elapsed_s=2.001,
+        **common,
+    )
+    assert not wsj.combined_sensor_recovery_eligible(
+        occupancy_recovery_elapsed_s=0.1,
+        slam_recovery_elapsed_s=0.1,
+        **{**common, "slam_detail": "optimizer_status=failed"},
+    )
+    assert not wsj.combined_sensor_recovery_eligible(
+        occupancy_recovery_elapsed_s=0.1,
+        slam_recovery_elapsed_s=0.1,
+        **{**common, "occupancy_observed": False},
+    )
+
+
+def test_combined_sensor_recovery_renewal_overrides_only_sensor_gates():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    health = wsj.RobotHealth(
+        safety_state=wsj.SafetyState.HOLD,
+        localization_state=wsj.LocalizationState.LOST,
+        estop_engaged=False,
+        collision_avoidance_ready=False,
+        motor_controller_ready=True,
+        detail="optimizer_status=skipped_imu_invalid; occupancy stale",
+    )
+
+    renewal = wsj.combined_sensor_recovery_renewal_health(health)
+
+    assert renewal.ready_for_goal()
+    assert renewal.detail == health.detail
+    estopped = wsj.combined_sensor_recovery_renewal_health(
+        health.model_copy(update={"estop_engaged": True})
+    )
+    assert not estopped.ready_for_goal()
+
+
+def test_closed_gate_recovery_kind_includes_combined_sensor_state():
     wsj = load_overlay("v2_wsj_receiver.py")
 
-    assert wsj.exclusive_closed_gate_recovery_kind(
+    assert wsj.closed_gate_recovery_kind(
         occupancy_recovery_active=True,
         slam_recovery_active=False,
+        combined_sensor_recovery_active=False,
     ) == "occupancy"
-    assert wsj.exclusive_closed_gate_recovery_kind(
+    assert wsj.closed_gate_recovery_kind(
         occupancy_recovery_active=False,
         slam_recovery_active=True,
+        combined_sensor_recovery_active=False,
     ) == "slam"
-    assert wsj.exclusive_closed_gate_recovery_kind(
+    assert wsj.closed_gate_recovery_kind(
         occupancy_recovery_active=False,
         slam_recovery_active=False,
+        combined_sensor_recovery_active=True,
+    ) == "combined"
+    assert wsj.closed_gate_recovery_kind(
+        occupancy_recovery_active=False,
+        slam_recovery_active=False,
+        combined_sensor_recovery_active=False,
     ) is None
-    with pytest.raises(RuntimeError, match="cannot own one leg simultaneously"):
-        wsj.exclusive_closed_gate_recovery_kind(
+    with pytest.raises(RuntimeError, match="mutually exclusive"):
+        wsj.closed_gate_recovery_kind(
             occupancy_recovery_active=True,
             slam_recovery_active=True,
+            combined_sensor_recovery_active=False,
         )
     source = (
         Path(__file__).resolve().parents[1]
@@ -795,7 +862,9 @@ def test_closed_gate_recovery_kind_is_exclusive():
     assert '"closed_gate_recovery_handoff"' in source
     assert source.count(
         "physical velocity gate closed immediately"
-    ) == 2
+    ) == 3
+    assert '"LOCAL_SENSOR_RECOVERY_WAIT"' in source
+    assert '"combined_sensor_recovery_wait"' in source
 
 
 def test_receiver_and_router_share_cached_occupancy_motion_gate():

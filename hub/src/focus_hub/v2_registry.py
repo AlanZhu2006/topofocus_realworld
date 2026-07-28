@@ -174,6 +174,7 @@ class V2DecisionRegistry:
             in {
                 "LOCAL_OCCUPANCY_RECOVERY_WAIT",
                 "LOCAL_SLAM_RECOVERY_WAIT",
+                "LOCAL_SENSOR_RECOVERY_WAIT",
             }
             and event.velocity_zero_confirmed
             and health.safety_state == SafetyState.HOLD
@@ -213,12 +214,47 @@ class V2DecisionRegistry:
             in {
                 "LOCAL_SLAM_RECOVERY_WAIT",
                 "LOCAL_OCCUPANCY_RECOVERY_WAIT",
+                "LOCAL_SENSOR_RECOVERY_WAIT",
             }
             and event.velocity_zero_confirmed
             and health.safety_state == SafetyState.HOLD
             and health.localization_state == LocalizationState.LOST
             and not health.estop_engaged
             and health.collision_avoidance_ready
+            and health.motor_controller_ready
+            and slam_detail in TRANSIENT_SLAM_RECOVERY_DETAILS
+        )
+
+    @staticmethod
+    def _bounded_combined_sensor_recovery_renewal(
+        decision: HighLevelDecisionV2,
+        state: _V2RobotState,
+        health: RobotHealth,
+    ) -> bool:
+        """Permit only the fail-stopped joint occupancy/SLAM recovery lease."""
+
+        previous = state.latest_by_leg.get(decision.leg_id)
+        event = state.latest_event
+        slam_detail = health.detail.split(";", 1)[0].strip()
+        return bool(
+            previous is not None
+            and event is not None
+            and decision.lease_sequence == previous.lease_sequence + 1
+            and event.decision_id == previous.decision_id
+            and event.lease_sequence == previous.lease_sequence
+            and event.leg_id == previous.leg_id
+            and event.status == NavigationStatusV2.ACCEPTED
+            and event.reason_code
+            in {
+                "LOCAL_SENSOR_RECOVERY_WAIT",
+                "LOCAL_OCCUPANCY_RECOVERY_WAIT",
+                "LOCAL_SLAM_RECOVERY_WAIT",
+            }
+            and event.velocity_zero_confirmed
+            and health.safety_state == SafetyState.HOLD
+            and health.localization_state == LocalizationState.LOST
+            and not health.estop_engaged
+            and not health.collision_avoidance_ready
             and health.motor_controller_ready
             and slam_detail in TRANSIENT_SLAM_RECOVERY_DETAILS
         )
@@ -332,6 +368,11 @@ class V2DecisionRegistry:
                     health,
                 )
                 or self._bounded_slam_recovery_renewal(
+                    decision,
+                    state,
+                    health,
+                )
+                or self._bounded_combined_sensor_recovery_renewal(
                     decision,
                     state,
                     health,
