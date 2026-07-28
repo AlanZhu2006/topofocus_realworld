@@ -1958,7 +1958,8 @@ def main() -> int:
         ros_executor.shutdown(timeout_sec=2.0)
         ros_spin_thread.join(timeout=2.0)
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
         log.close()
         return 3
 
@@ -4109,7 +4110,8 @@ def main() -> int:
         ros_executor.shutdown(timeout_sec=2.0)
         ros_spin_thread.join(timeout=2.0)
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
         log.close()
     return exit_code
 

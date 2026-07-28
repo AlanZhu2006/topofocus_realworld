@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the pinned TinyNav local planner as a forward-only deployment.
+"""Run the pinned TinyNav local planner as a progress-capable deployment.
 
 The pinned planner always appends one fixed ``-0.20 m/s`` reverse trajectory.
 When any dilated obstacle falls within its front-clearance gate, that reverse
@@ -9,15 +9,17 @@ trajectory into rotate-first recovery can otherwise make the two layers fight
 forever.
 
 Keep the pinned source immutable.  This wrapper removes only that one reverse
-vocabulary before constructing ``PlanningNode``.  The source forward lattice
-still contains zero-linear, in-place turns; its full footprint/ESDF scoring,
-depth map, stale-input behavior and no-path stop remain final local authority.
+vocabulary and the single exact ``(v=0, omega=0)`` lattice candidate before
+constructing ``PlanningNode``.  Zero-linear, nonzero-angular in-place turns
+remain available; the source footprint/ESDF scoring, depth map, stale-input
+behavior and all-candidates-in-collision stop remain final local authority.
 It also applies Yunji's measured geometry when requested and preserves the
 source Go2 geometry for WSJ.
 """
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import hashlib
 import json
 import math
@@ -54,6 +56,54 @@ def forward_only_predefined_trajectory_vocabularies(
     return (
         np.empty((0, num_steps, 7), dtype=np.float64),
         np.empty((0, 2), dtype=np.float64),
+    )
+
+
+def remove_stationary_trajectory_candidate(
+    trajectories,
+    parameters,
+    *,
+    zero_tolerance: float = 1e-12,
+):
+    """Remove only lattice rows with zero linear and angular velocity."""
+
+    import numpy as np
+
+    trajectories = np.asarray(trajectories)
+    parameters = np.asarray(parameters)
+    if (
+        trajectories.ndim != 3
+        or trajectories.shape[2] != 7
+        or parameters.ndim != 2
+        or parameters.shape[1] != 2
+        or trajectories.shape[0] != parameters.shape[0]
+    ):
+        raise ValueError("source trajectory lattice has incompatible shapes")
+    if (
+        not math.isfinite(zero_tolerance)
+        or zero_tolerance < 0.0
+    ):
+        raise ValueError("zero tolerance must be finite and non-negative")
+    moving_or_turning = np.logical_or(
+        np.abs(parameters[:, 0]) > zero_tolerance,
+        np.abs(parameters[:, 1]) > zero_tolerance,
+    )
+    if not np.any(moving_or_turning):
+        raise ValueError("source trajectory lattice contains no actionable row")
+    return trajectories[moving_or_turning], parameters[moving_or_turning]
+
+
+def progress_capable_trajectory_library(
+    source_generator: Callable[..., tuple[object, object]],
+    *args,
+    **kwargs,
+):
+    """Generate the pinned lattice, then drop its exact no-action row."""
+
+    trajectories, parameters = source_generator(*args, **kwargs)
+    return remove_stationary_trajectory_candidate(
+        trajectories,
+        parameters,
     )
 
 
@@ -142,6 +192,20 @@ def main() -> int:
     planning_node.generate_predefined_trajectory_vocabularies = (
         forward_only_predefined_trajectory_vocabularies
     )
+    source_trajectory_generator = (
+        planning_node.generate_trajectory_library_3d
+    )
+
+    def generate_progress_capable_trajectory_library(*args, **kwargs):
+        return progress_capable_trajectory_library(
+            source_trajectory_generator,
+            *args,
+            **kwargs,
+        )
+
+    planning_node.generate_trajectory_library_3d = (
+        generate_progress_capable_trajectory_library
+    )
     provenance = verify_tinynav_source(
         planning_node.__file__,
         robot_profile=args.robot_profile,
@@ -149,8 +213,11 @@ def main() -> int:
     )
     provenance.update(
         {
-            "schema_version": "focus-forward-only-tinynav-planner-v2",
-            "adaptation": "source_reverse_vocabulary_removed",
+            "schema_version": "focus-progress-capable-tinynav-planner-v3",
+            "adaptation": (
+                "source_reverse_and_exact_stationary_vocabularies_removed"
+            ),
+            "in_place_turns_preserved": True,
             "forward_lattice_and_esdf_unchanged": True,
         }
     )
