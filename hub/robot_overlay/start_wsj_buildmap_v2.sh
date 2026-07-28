@@ -65,14 +65,12 @@ SLAM_DATA_TIMEOUT_S="${FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0}"
 START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 # The source semantic mask keeps its radius-10-cell approach region unchanged.
-# On 2026-07-25 the local planner stopped producing a multi-pose trajectory at
-# 0.32 m from the selected approach point, before the source-exact 0.15 m
-# receiver terminal check. Use an explicit 0.50 m physical demo terminal
-# radius; independent surveyed goal-region membership remains authoritative for
-# reported SR/SPL.
-SEMANTIC_ARRIVAL_RADIUS_M="${FOCUS_WSJ_SEMANTIC_ARRIVAL_RADIUS_M:-0.50}"
-# Plan 0.15 m inside that unchanged terminal radius. Formal-05 otherwise
-# selected 0.4507-0.4952 m boundary cells and oscillated before crossing it.
+# The selected semantic approach point is already on the source radius-10-cell
+# (0.50 m) dilation around the raw object mask. Keep only the source FMM's
+# three-cell (0.15 m) terminal tolerance around that point; a second 0.50 m
+# tolerance can stop the base about 1 m before the semantic region.
+SEMANTIC_ARRIVAL_RADIUS_M="${FOCUS_WSJ_SEMANTIC_ARRIVAL_RADIUS_M:-0.15}"
+# Plan inside the terminal radius so boundary cells cannot chatter.
 SEMANTIC_TERMINAL_PLANNING_MARGIN_M="${FOCUS_WSJ_SEMANTIC_TERMINAL_PLANNING_MARGIN_M:-0.15}"
 MAX_PLAN_EXPANSIONS="${FOCUS_TINYNAV_MAX_PLAN_EXPANSIONS:-20000}"
 MAX_PLAN_DURATION_S="${FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50}"

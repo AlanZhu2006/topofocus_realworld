@@ -65,13 +65,11 @@ MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # rejected immediately instead of being converted into another recovery loop.
 REVERSE_ROTATE_MAX_ANGULAR_RADPS="${FOCUS_YUNJI_REVERSE_ROTATE_MAX_ANGULAR_RADPS:-0.35}"
 REVERSE_ROTATE_TIMEOUT_S="${FOCUS_YUNJI_REVERSE_ROTATE_TIMEOUT_S:-12.0}"
-# Keep the transported/source-derived semantic approach mask unchanged, but
-# align the physical terminal check with TinyNav's observed short-path limit.
-# In the 2026-07-25 chair run the planner stopped emitting a multi-pose path at
-# 0.32 m from the selected approach point; 0.50 m records that supervised demo
-# terminal tolerance explicitly. Formal SR/SPL still requires the independent
-# surveyed goal-region check.
-SEMANTIC_ARRIVAL_RADIUS_M="${FOCUS_YUNJI_SEMANTIC_ARRIVAL_RADIUS_M:-0.50}"
+# The selected semantic approach point is already on the source radius-10-cell
+# (0.50 m) dilation around the raw object mask. Keep only the source FMM's
+# three-cell (0.15 m) terminal tolerance around that point; a second 0.50 m
+# tolerance can stop the base about 1 m before the semantic region.
+SEMANTIC_ARRIVAL_RADIUS_M="${FOCUS_YUNJI_SEMANTIC_ARRIVAL_RADIUS_M:-0.15}"
 # Odin's full 800 px, radius-1 projection performs nine indexed depth
 # reductions per cloud.  After a cold Odin boot this was observed to pin one
 # CPU core for minutes before the first /slam/depth sample, while the same

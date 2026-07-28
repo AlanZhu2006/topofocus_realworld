@@ -34,12 +34,12 @@ def test_oneclick_is_session_bound_and_has_no_forensic_bypass():
     assert "--ground-drift-min-duration-s 5.0" in fresh_maps
     wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
     yunji = (OVERLAY / "start_yunji_v2.sh").read_text()
-    assert "FOCUS_WSJ_SEMANTIC_ARRIVAL_RADIUS_M:-0.50" in wsj
+    assert "FOCUS_WSJ_SEMANTIC_ARRIVAL_RADIUS_M:-0.15" in wsj
     assert (
         "FOCUS_WSJ_SEMANTIC_TERMINAL_PLANNING_MARGIN_M:-0.15"
         in wsj
     )
-    assert "FOCUS_YUNJI_SEMANTIC_ARRIVAL_RADIUS_M:-0.50" in yunji
+    assert "FOCUS_YUNJI_SEMANTIC_ARRIVAL_RADIUS_M:-0.15" in yunji
     assert "FOCUS_YUNJI_LINEAR_COMMAND_FLOOR_MPS:-0.18" in yunji
     assert '--linear-command-floor-mps "$LINEAR_COMMAND_FLOOR_MPS"' in yunji
     assert "--max-linear-mps 0.20" in yunji
