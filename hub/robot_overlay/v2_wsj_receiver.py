@@ -3778,16 +3778,14 @@ def main() -> int:
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
                 elif (
-                    # A semantic approach that cannot produce a collision-free
-                    # local path cannot legitimately become ARRIVED, so fail
-                    # that episode leg closed.  A frontier is different: the
-                    # immutable source advances to a fresh VLM decision after
-                    # its bounded step window.  Keep its physical gate closed
-                    # and report ACCEPTED (never NAVIGATING) until that round
-                    # boundary, allowing the next image/map decision to choose
-                    # another frontier instead of hanging at the wall.
-                    active_goal.target_kind == "SEMANTIC_REGION"
-                    and
+                    # Once the bounded republish window expires, a missing
+                    # collision-free local path is explicit robot-local
+                    # infeasibility for this fixed leg, regardless of whether
+                    # its target is semantic or a frontier.  Rejecting the leg
+                    # lets the Hub HOLD and start a fresh source/VLM round
+                    # immediately; reporting ACCEPTED for a blocked frontier
+                    # would incorrectly consume the entire 24/25-tick window
+                    # while the physical gate is already closed.
                     node.authorized
                     and node.authority_started_ns > 0
                     and trajectory_failed

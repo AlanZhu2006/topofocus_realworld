@@ -1244,7 +1244,12 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert '"reverse_trajectory_rejected"' in source
     assert '"trajectory_missing_or_stale"' in source
     assert '"LOCAL_PLANNER_PATH_STALE"' in source
-    assert 'active_goal.target_kind == "SEMANTIC_REGION"' in source
+    path_stale_branch = source.split(
+        'NavigationStatusV2.REJECTED,\n                        "LOCAL_PLANNER_PATH_STALE"',
+        1,
+    )[0].rsplit("elif (", 1)[1]
+    assert "active_goal.target_kind" not in path_stale_branch
+    assert "and trajectory_failed" in path_stale_branch
     assert '"frontier_no_path_rejected"' in source
     assert '"LOCAL_GOAL_UNREACHABLE"' in source
     assert "NavigationStatusV2.REJECTED" in source
