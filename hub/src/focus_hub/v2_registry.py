@@ -32,6 +32,16 @@ from .transport_v2 import (
     SemanticRegionTargetV2,
 )
 
+TRANSIENT_SLAM_RECOVERY_DETAILS = frozenset(
+    {
+        "optimizer_status=skipped_imu_invalid",
+        "imu_intervals_invalid",
+        "imu_intervals_missing",
+        "imu_interval_invalid",
+        "imu_interval_threshold",
+    }
+)
+
 
 @dataclass
 class _V2RobotState:
@@ -160,13 +170,57 @@ class V2DecisionRegistry:
             and event.lease_sequence == previous.lease_sequence
             and event.leg_id == previous.leg_id
             and event.status == NavigationStatusV2.ACCEPTED
-            and event.reason_code == "LOCAL_OCCUPANCY_RECOVERY_WAIT"
+            and event.reason_code
+            in {
+                "LOCAL_OCCUPANCY_RECOVERY_WAIT",
+                "LOCAL_SLAM_RECOVERY_WAIT",
+            }
             and event.velocity_zero_confirmed
             and health.safety_state == SafetyState.HOLD
             and health.localization_state == LocalizationState.TRACKING
             and not health.estop_engaged
             and not health.collision_avoidance_ready
             and health.motor_controller_ready
+        )
+
+    @staticmethod
+    def _bounded_slam_recovery_renewal(
+        decision: HighLevelDecisionV2,
+        state: _V2RobotState,
+        health: RobotHealth,
+    ) -> bool:
+        """Permit only the receiver's fail-stopped transient-SLAM lease.
+
+        The receiver has already closed its physical velocity gate and emitted
+        a zero-velocity receipt.  A renewal may therefore preserve only the
+        same immutable leg while one exact, bounded SLAM diagnostic recovers.
+        Platform, occupancy, motor, event identity and zero confirmation stay
+        authoritative; any other localization failure remains rejected.
+        """
+
+        previous = state.latest_by_leg.get(decision.leg_id)
+        event = state.latest_event
+        slam_detail = health.detail.split(";", 1)[0].strip()
+        return bool(
+            previous is not None
+            and event is not None
+            and decision.lease_sequence == previous.lease_sequence + 1
+            and event.decision_id == previous.decision_id
+            and event.lease_sequence == previous.lease_sequence
+            and event.leg_id == previous.leg_id
+            and event.status == NavigationStatusV2.ACCEPTED
+            and event.reason_code
+            in {
+                "LOCAL_SLAM_RECOVERY_WAIT",
+                "LOCAL_OCCUPANCY_RECOVERY_WAIT",
+            }
+            and event.velocity_zero_confirmed
+            and health.safety_state == SafetyState.HOLD
+            and health.localization_state == LocalizationState.LOST
+            and not health.estop_engaged
+            and health.collision_avoidance_ready
+            and health.motor_controller_ready
+            and slam_detail in TRANSIENT_SLAM_RECOVERY_DETAILS
         )
 
     def _validate_lease_order(
@@ -269,14 +323,22 @@ class V2DecisionRegistry:
             raise UnsafeDecision(
                 f"{decision.robot_id} health does not permit a GOAL: health is absent"
             )
-        if not health.ready_for_goal() and not (
+        bounded_recovery_renewal = bool(
             is_renewal
-            and self._bounded_occupancy_recovery_renewal(
-                decision,
-                state,
-                health,
+            and (
+                self._bounded_occupancy_recovery_renewal(
+                    decision,
+                    state,
+                    health,
+                )
+                or self._bounded_slam_recovery_renewal(
+                    decision,
+                    state,
+                    health,
+                )
             )
-        ):
+        )
+        if not health.ready_for_goal() and not bounded_recovery_renewal:
             raise UnsafeDecision(
                 f"{decision.robot_id} health does not permit a GOAL: "
                 f"safety={health.safety_state.value} "

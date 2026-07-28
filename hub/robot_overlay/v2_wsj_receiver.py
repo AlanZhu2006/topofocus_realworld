@@ -184,6 +184,24 @@ def slam_recovery_renewal_health(health: RobotHealth) -> RobotHealth:
     )
 
 
+def exclusive_closed_gate_recovery_kind(
+    *,
+    occupancy_recovery_active: bool,
+    slam_recovery_active: bool,
+) -> str | None:
+    """Select one fail-stopped recovery owner for the active leg."""
+
+    if occupancy_recovery_active and slam_recovery_active:
+        raise RuntimeError(
+            "occupancy and SLAM recovery cannot own one leg simultaneously"
+        )
+    if occupancy_recovery_active:
+        return "occupancy"
+    if slam_recovery_active:
+        return "slam"
+    return None
+
+
 class GoalProgressWatchdog:
     """Bound how long one fixed local goal may make no metric progress."""
 
@@ -2087,6 +2105,38 @@ def main() -> int:
                     all_non_slam_health_ready and occupancy_fresh
                 ),
             )
+            recovery_kind = exclusive_closed_gate_recovery_kind(
+                occupancy_recovery_active=occupancy_recovery_active,
+                slam_recovery_active=slam_recovery_active,
+            )
+            if (
+                recovery_kind == "occupancy"
+                and slam_recovery_leg_id is not None
+            ):
+                emit(
+                    "closed_gate_recovery_handoff",
+                    from_kind="slam",
+                    to_kind="occupancy",
+                    leg_id=slam_recovery_leg_id,
+                    physical_velocity_gate_closed=True,
+                )
+                slam_recovery_leg_id = None
+                slam_recovery_started_ns = 0
+                progress_watchdog.reset()
+            elif (
+                recovery_kind == "slam"
+                and occupancy_recovery_leg_id is not None
+            ):
+                emit(
+                    "closed_gate_recovery_handoff",
+                    from_kind="occupancy",
+                    to_kind="slam",
+                    leg_id=occupancy_recovery_leg_id,
+                    physical_velocity_gate_closed=True,
+                )
+                occupancy_recovery_leg_id = None
+                occupancy_recovery_started_ns = 0
+                progress_watchdog.reset()
             node.update_motion_health(
                 ready=ready,
                 evaluated_ns=now_ns,
@@ -2189,7 +2239,7 @@ def main() -> int:
                 slam_recovery_started_ns = 0
                 progress_watchdog.reset()
             if not ready and active_decision is not None:
-                if occupancy_recovery_active:
+                if recovery_kind == "occupancy":
                     if (
                         occupancy_recovery_leg_id
                         != active_decision.leg_id
@@ -2217,7 +2267,27 @@ def main() -> int:
                             ),
                             physical_velocity_gate_closed=True,
                         )
-                elif slam_recovery_active:
+                        if not post(
+                            active_decision,
+                            NavigationStatusV2.ACCEPTED,
+                            "LOCAL_OCCUPANCY_RECOVERY_WAIT",
+                            pose,
+                            zero=True,
+                            goal=active_goal,
+                            detail=(
+                                "physical velocity gate closed immediately "
+                                "for bounded occupancy recovery"
+                            ),
+                        ):
+                            node.revoke()
+                            active_decision = None
+                            active_goal = None
+                            occupancy_recovery_leg_id = None
+                            occupancy_recovery_started_ns = 0
+                            progress_watchdog.reset()
+                            continue
+                        last_feedback_monotonic = time.monotonic()
+                elif recovery_kind == "slam":
                     if slam_recovery_leg_id != active_decision.leg_id:
                         slam_recovery_leg_id = active_decision.leg_id
                         emit(
@@ -2231,6 +2301,26 @@ def main() -> int:
                             recovery_grace_s=args.slam_recovery_grace_s,
                             physical_velocity_gate_closed=True,
                         )
+                        if not post(
+                            active_decision,
+                            NavigationStatusV2.ACCEPTED,
+                            "LOCAL_SLAM_RECOVERY_WAIT",
+                            pose,
+                            zero=True,
+                            goal=active_goal,
+                            detail=(
+                                "physical velocity gate closed immediately "
+                                "for bounded transient SLAM recovery"
+                            ),
+                        ):
+                            node.revoke()
+                            active_decision = None
+                            active_goal = None
+                            slam_recovery_leg_id = None
+                            slam_recovery_started_ns = 0
+                            progress_watchdog.reset()
+                            continue
+                        last_feedback_monotonic = time.monotonic()
                 else:
                     failed_decision = active_decision
                     node.revoke()

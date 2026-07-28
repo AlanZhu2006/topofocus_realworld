@@ -767,6 +767,37 @@ def test_slam_recovery_renewal_health_only_overrides_slam_gate():
     assert not estopped.ready_for_goal()
 
 
+def test_closed_gate_recovery_kind_is_exclusive():
+    wsj = load_overlay("v2_wsj_receiver.py")
+
+    assert wsj.exclusive_closed_gate_recovery_kind(
+        occupancy_recovery_active=True,
+        slam_recovery_active=False,
+    ) == "occupancy"
+    assert wsj.exclusive_closed_gate_recovery_kind(
+        occupancy_recovery_active=False,
+        slam_recovery_active=True,
+    ) == "slam"
+    assert wsj.exclusive_closed_gate_recovery_kind(
+        occupancy_recovery_active=False,
+        slam_recovery_active=False,
+    ) is None
+    with pytest.raises(RuntimeError, match="cannot own one leg simultaneously"):
+        wsj.exclusive_closed_gate_recovery_kind(
+            occupancy_recovery_active=True,
+            slam_recovery_active=True,
+        )
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "robot_overlay"
+        / "v2_wsj_receiver.py"
+    ).read_text(encoding="utf-8")
+    assert '"closed_gate_recovery_handoff"' in source
+    assert source.count(
+        "physical velocity gate closed immediately"
+    ) == 2
+
+
 def test_receiver_and_router_share_cached_occupancy_motion_gate():
     wsj = load_overlay("v2_wsj_receiver.py")
 
