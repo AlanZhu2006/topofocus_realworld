@@ -807,6 +807,7 @@ def physical_velocity_gate_reason(
     platform_received_ns: int,
     platform_timeout_s: float,
     platform_pass: bool,
+    router_recovery_gate_closed: bool = False,
 ) -> str | None:
     """Evaluate every final velocity-authority input at control rate."""
 
@@ -824,6 +825,8 @@ def physical_velocity_gate_reason(
         return "authority_closed"
     if authority_deadline_ns <= 0 or now_ns >= authority_deadline_ns:
         return "authority_expired"
+    if router_recovery_gate_closed:
+        return "router_recovery_gate_closed"
     if not health_pass:
         return "health_not_ready"
     if (
@@ -1501,6 +1504,7 @@ def main() -> int:
             self.authority_deadline_ns = 0
             self.authority_started_ns = 0
             self.authorized = False
+            self.router_recovery_gate_closed = False
             self.motion_health_pass = False
             self.motion_health_evaluated_ns = 0
             self.cached_occupancy_motion_valid = False
@@ -1802,6 +1806,9 @@ def main() -> int:
                 platform_received_ns=self.platform_received_ns,
                 platform_timeout_s=args.local_data_timeout_s,
                 platform_pass=self.platform_pass,
+                router_recovery_gate_closed=(
+                    self.router_recovery_gate_closed
+                ),
             )
 
         def update_motion_health(
@@ -1830,24 +1837,41 @@ def main() -> int:
 
         def authorize(self, expires_at_ns: int) -> None:
             if live:
+                if self.router_recovery_gate_closed:
+                    raise RuntimeError(
+                        "cannot authorize while router recovery gate is closed"
+                    )
                 if not self.authorized:
                     self.authority_started_ns = time.time_ns()
                     self.reverse_required_for_authority = False
                 self.authority_deadline_ns = expires_at_ns
                 self.authorized = True
 
-        def revoke(self, *, pause: bool = True) -> bool:
+        def revoke(self) -> bool:
             self.authorized = False
             self.authority_deadline_ns = 0
             self.authority_started_ns = 0
+            self.router_recovery_gate_closed = False
             self.latest_guard_reason = "revoked"
             if live:
                 self.guarded_publisher.publish(Twist())
-                if pause:
-                    paused = Bool()
-                    paused.data = True
-                    self.pause_publisher.publish(paused)
+                paused = Bool()
+                paused.data = True
+                self.pause_publisher.publish(paused)
             return True
+
+        def close_router_recovery_gate(self) -> None:
+            """Stop physical output without destroying the active leg epoch."""
+
+            if not live:
+                raise RuntimeError("live TinyNav output is disabled")
+            # This flag is an independent final velocity gate.  Preserve the
+            # authority epoch, deadline and reverse-path latch so an overlapping
+            # bounded sensor recovery can renew the exact same authenticated
+            # leg.  TinyNav remains unpaused to consume queued map/odometry.
+            self.router_recovery_gate_closed = True
+            self.latest_guard_reason = "router_recovery_gate_closed"
+            self.guarded_publisher.publish(Twist())
 
         def set_controller_paused_confirmed(
             self,
@@ -1953,13 +1977,22 @@ def main() -> int:
         def resume_existing_goal(self, expires_at_ns: int) -> None:
             if not live:
                 raise RuntimeError("live TinyNav output is disabled")
+            if self.authority_started_ns <= 0:
+                raise RuntimeError(
+                    "router recovery lacks prior local authority"
+                )
             self.set_controller_paused_confirmed(False)
-            self.authorize(expires_at_ns)
+            # Keep the independent recovery gate closed until every authority
+            # field is restored; clearing it last avoids a transient open gate
+            # between the pause acknowledgement and lease renewal.
+            self.authority_deadline_ns = expires_at_ns
+            self.authorized = True
+            self.router_recovery_gate_closed = False
 
         def renew_authority_while_gate_closed(
             self, expires_at_ns: int
         ) -> None:
-            """Extend one verified leg while occupancy keeps output at zero."""
+            """Extend one verified leg while sensor health keeps output at zero."""
 
             if not live:
                 raise RuntimeError("live TinyNav output is disabled")
@@ -3247,10 +3280,11 @@ def main() -> int:
                     receiver_runtime_ready=ready,
                 ):
                     if router_recovery_leg_id != held_decision.leg_id:
-                        # Close only the physical velocity gate. Keep TinyNav
-                        # unpaused so its router can consume queued odometry;
-                        # enforce_gate continues publishing zero meanwhile.
-                        node.revoke(pause=False)
+                        # Close only the independent physical velocity gate.
+                        # Keep TinyNav unpaused and preserve the authority epoch
+                        # so an overlapping sensor recovery can renew this exact
+                        # leg without manufacturing new local authority.
+                        node.close_router_recovery_gate()
                         router_recovery_leg_id = held_decision.leg_id
                         router_recovery_started_ns = now_ns
                         router_recovery_reason = router_reason
@@ -3489,13 +3523,56 @@ def main() -> int:
                         )
                     )
                     continue
+                try:
+                    node.renew_authority_while_gate_closed(
+                        decision.expires_at_ns
+                    )
+                except RuntimeError as exc:
+                    # A local authority invariant must fail closed, but it must
+                    # not kill the long-lived receiver and strand the Hub
+                    # waiting for a HOLD acknowledgement.
+                    node.revoke()
+                    post(
+                        decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_AUTHORITY_LOST",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=str(exc),
+                        terminal=True,
+                    )
+                    emit(
+                        "recovery_authority_lost_local_hold",
+                        decision_id=decision.decision_id,
+                        leg_id=decision.leg_id,
+                        recovery_kind=active_recovery_kind,
+                        error=str(exc),
+                    )
+                    active_decision = None
+                    active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
+                    occupancy_recovery_leg_id = None
+                    occupancy_recovery_started_ns = 0
+                    slam_recovery_leg_id = None
+                    slam_recovery_started_ns = 0
+                    odometry_recovery_leg_id = None
+                    odometry_recovery_started_ns = 0
+                    progress_watchdog.reset()
+                    time.sleep(
+                        max(
+                            0.0,
+                            args.poll_s
+                            - (time.monotonic() - cycle_started),
+                        )
+                    )
+                    continue
                 node.publish_goal(
                     renewal_result.command_preview,
                     decision.expires_at_ns,
                     authorize_motion=False,
-                )
-                node.renew_authority_while_gate_closed(
-                    decision.expires_at_ns
                 )
                 goal_issued_ns = time.time_ns()
                 active_decision = decision
@@ -4097,6 +4174,7 @@ def main() -> int:
                             NavigationStatusV2.ACCEPTED,
                             "LOCAL_ROUTER_RECOVERY_WAIT",
                             pose,
+                            zero=True,
                             goal=active_goal,
                             detail=(
                                 "physical velocity gate is closed while the "

@@ -628,6 +628,7 @@ def test_final_velocity_gate_rechecks_all_health_at_control_rate():
         "platform_received_ns": 9_800_000_000,
         "platform_timeout_s": 2.0,
         "platform_pass": True,
+        "router_recovery_gate_closed": False,
     }
 
     assert wsj.physical_velocity_gate_reason(**base) is None
@@ -661,6 +662,10 @@ def test_final_velocity_gate_rechecks_all_health_at_control_rate():
         "platform_pass": (False, "platform_health_not_ready"),
         "reverse_required": (True, "reverse_trajectory_rejected"),
         "trajectory_fresh": (False, "trajectory_missing_or_stale"),
+        "router_recovery_gate_closed": (
+            True,
+            "router_recovery_gate_closed",
+        ),
     }
     for field, (value, expected) in cases.items():
         assert wsj.physical_velocity_gate_reason(
@@ -1274,6 +1279,16 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert '"slam_recovery_lease_renewed"' in source
     assert "renew_authority_while_gate_closed" in source
     assert "authorize_motion=False" in source
+    assert "self.router_recovery_gate_closed = True" in source
+    assert "node.close_router_recovery_gate()" in source
+    assert "node.revoke(pause=False)" not in source
+    router_gate_method = source.split(
+        "def close_router_recovery_gate(self)", 1
+    )[1].split("def set_controller_paused_confirmed(", 1)[0]
+    assert "self.authority_started_ns =" not in router_gate_method
+    assert "self.authority_deadline_ns =" not in router_gate_method
+    assert '"LOCAL_AUTHORITY_LOST"' in source
+    assert '"recovery_authority_lost_local_hold"' in source
     assert "--slam-recovery-grace-s" in source
     assert '"slam_transient_recovery_wait"' in source
     assert '"LOCAL_SLAM_RECOVERY_WAIT"' in source
