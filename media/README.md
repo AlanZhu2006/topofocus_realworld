@@ -1,3 +1,13 @@
+# System architecture
+
+`image/system_architecture.png` is a source-derived visualization generated
+from `hub/config/deployments/realworld_dual_robot_v1.json` and manually checked
+against its Hub/Robot 0/Robot 1 authority flow.
+
+| Path | Size | SHA-256 | Classification |
+| --- | ---: | --- | --- |
+| `image/system_architecture.png` | `1,124,950 B` | `333baf2ab81cb1c24acebf89737b12442abf84cee8ed1980e85cc7c6b7dd63df` | source-derived generated visualization |
+
 # Scene 01 media
 
 Scene 01 contains five formal successful real-robot experiments. User-provided
@@ -42,7 +52,7 @@ The explored semantic map is
 | Formal 04 · SUCCESS | [`experiment_2_success_2.mp4`](video/third_view/experiment_2/experiment_2_success_2.mp4) | [`experiment_2_success_2_dashboard.mov`](video/dashboard/experiment_2/experiment_2_success_2_dashboard.mov) | [Third view](demo/scene02_formal_04_preview.gif) · [Dashboard](demo/scene02_formal_04_dashboard.gif) |
 | Formal 05 · SUCCESS | [`experiment_2_success_3.mp4`](video/third_view/experiment_2/experiment_2_success_3.mp4) | [`experiment_2_success_3_dashboard.mov`](video/dashboard/experiment_2/experiment_2_success_3_dashboard.mov) | [Third view](demo/scene02_formal_05_preview.gif) · [Dashboard](demo/scene02_formal_05_dashboard.gif) |
 
-Formal 02 was replaced: the operator designated a later Yunji-only run
+Formal 02 was replaced: the operator designated a later Robot 1-only run
 (algorithmic exploration failure, 13 rounds without a plant semantic
 arrival) as the official formal experiment 02. Its third-view and Dashboard
 masters reuse the original `experiment_2_failure_2.*` filenames with

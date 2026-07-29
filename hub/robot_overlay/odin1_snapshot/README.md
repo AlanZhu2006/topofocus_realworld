@@ -1,6 +1,6 @@
 # Odin1 driver deployment snapshot
 
-This directory preserves only the Yunji deployment delta, not a copy of the
+This directory preserves only the Robot 1 deployment delta, not a copy of the
 vendor repository. The observed upstream is
 `https://github.com/manifoldsdk/odin_ros_driver.git`, tag `v0.13.0`, commit
 `13aa528b1da581e2168ac858f8b144f0b4438a7a`.

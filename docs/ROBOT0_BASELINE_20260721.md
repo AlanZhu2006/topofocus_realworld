@@ -1,10 +1,11 @@
-# WSJ 基线（2026-07-21）
+# Robot 0 基线（2026-07-21）
 
 > 这是 2026-07-21 的历史基线。之后已经加入实测 body-camera 外参、
 > 在线 BuildMap 目标路由和 v2 租约门控；当前状态以
 > [`../CURRENT_STATUS.md`](../CURRENT_STATUS.md) 为准。
 
-以下均为 **observed**，除非明确标注 source-derived。它描述被检查的 WSJ，不保证另一台 Jetson 自动相同。
+以下均为 **observed**，除非明确标注 source-derived。它描述被检查的
+Robot 0，不保证另一台 Jetson 自动相同。
 
 ## 主机与中间件
 
@@ -27,7 +28,7 @@
 | 项目 | 已观察值 |
 | --- | --- |
 | TinyNav upstream base | `UniflexAI/tinynav@576c082e69580f618a5ff313a3e74f3672abb69f` |
-| WSJ deployment head | `933fce54ae65e775a1262c346180341f5657c0e4` |
+| Robot 0 deployment head | `933fce54ae65e775a1262c346180341f5657c0e4` |
 | IMU fix head | `29f26bc058886ff450f02cdc0d6e9977e1c57010` |
 | `pyproject.toml` SHA-256 | `17037c48b5bcf5c0eb8346ef1338c73e334cd4295af9825f6b561405663ca926` |
 | `uv.lock` SHA-256 | `b9b451020635612b3900d73d193ab439206089fd37d8a5b4e2b3be6a463daa79` |

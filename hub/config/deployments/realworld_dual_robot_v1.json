@@ -25,7 +25,7 @@
       }
     },
     "robot-0": {
-      "name": "WSJ",
+      "name": "Robot 0",
       "compute": "NVIDIA Jetson Orin NX Engineering Reference Developer Kit",
       "operating_system": "Ubuntu 22.04.5 LTS, JetPack 6.2.1, L4T 36.4.7, aarch64",
       "platform": "Unitree Go2 with Intel RealSense D435i",
@@ -36,7 +36,7 @@
       }
     },
     "robot-1": {
-      "name": "Yunji",
+      "name": "Robot 1",
       "compute": "ASUS NUC 12 Pro NUC12WSK-B, Intel Core i7-1260P, 16 GB RAM",
       "operating_system": "Ubuntu 22.04.5 LTS, x86_64",
       "platform": "wheeled delivery chassis with Manifold Tech Odin1",
@@ -82,7 +82,7 @@
       "realsense_ros": "4.58.1",
       "camera_firmware": "5.17.0.10",
       "classification": "observed",
-      "source": "docs/WSJ_BASELINE_20260721.md"
+      "source": "docs/ROBOT0_BASELINE_20260721.md"
     }
   },
   "planning": {
@@ -190,8 +190,8 @@
   "file_contracts": [
     {
       "path": "audit/DEPLOYMENT_HARDWARE_20260730.json",
-      "size_bytes": 2585,
-      "sha256": "bccdec5d7af00c223b104a87a0ecf66ff0ae1a833032c1169223fdff0addd94f",
+      "size_bytes": 2594,
+      "sha256": "55d24e6d3af2d9592532f61c0e6d75c4c5cd0bed8f5b3dbf2a52ecfc759b75ae",
       "classification": "observed"
     },
     {

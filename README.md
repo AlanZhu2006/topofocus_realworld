@@ -13,8 +13,8 @@ Robot 0 and Robot 1 handle planning, control and safety stops locally.
 | Role | Compute | Platform and sensing | Primary runtime |
 | --- | --- | --- | --- |
 | GPU Hub | Intel Core i9-14900K, 64 GB RAM, NVIDIA GeForce RTX 4090 | ASUS workstation, Ubuntu 22.04 | Semantic inference, shared-map fusion, VLM decisions and route coordination |
-| Robot 0 · WSJ | NVIDIA Jetson Orin NX, JetPack 6.2.1 | Unitree Go2 + Intel RealSense D435i | TinyNav perception, online occupancy, planning/control and guarded Unitree SDK2 output |
-| Robot 1 · Yunji | ASUS NUC 12 Pro NUC12WSK-B, Core i7-1260P, 16 GB RAM | Wheeled chassis + [Manifold Tech Odin1](https://www.manifoldtech.cn/) | Odin localization, TinyNav planning/control and guarded WATER output |
+| Robot 0 | NVIDIA Jetson Orin NX, JetPack 6.2.1 | Unitree Go2 + Intel RealSense D435i | TinyNav perception, online occupancy, planning/control and guarded Unitree SDK2 output |
+| Robot 1 | ASUS NUC 12 Pro NUC12WSK-B, Core i7-1260P, 16 GB RAM | Wheeled chassis + [Manifold Tech Odin1](https://www.manifoldtech.cn/) | Odin localization, TinyNav planning/control and guarded WATER output |
 
 These are the observed reference machines. The Hub publishes only versioned,
 expiring high-level targets; each robot retains final stop and target-rejection
@@ -22,77 +22,30 @@ authority.
 
 ## System architecture
 
-```mermaid
-flowchart LR
-    O["Dual RGB-D observations<br/>and robot-local poses"] --> H
-    H["RTX 4090 Hub<br/>semantics · map fusion · VLM · coordination"]
-    H -->|"expiring GOAL / HOLD / STOP"| G
-    G["robot-local lease and freshness gate"] --> A
-    A["known-free A* route"] --> T
-    T["TinyNav local planner<br/>ESDF + platform footprint"] --> C
-    C["TinyNav controller"] --> V["raw /cmd_vel"]
-    V --> G
-    G --> Q["guarded /focus_guarded_cmd_vel"]
-    Q --> B["Unitree SDK2 / WATER bridge"]
-```
+<p align="center">
+  <img src="media/image/system_architecture.png" width="1000" alt="TopoFocus architecture: RTX 4090 Hub coordinating Robot 0 and Robot 1 while planning, control and safety remain robot-local">
+</p>
 
 ## Real-world deployment
 
 The physical system follows the main method's two-agent navigation pipeline:
 shared semantic mapping, source-compatible frontier and history candidates,
-and the Perception–Judgment–Decision VLM cascade over one consistent A–D
-candidate set. The GPU hub runs RedNet MP3D-40 together with the
-source-referenced Detectron2 Mask R-CNN semantic composition, fuses the
-robots' obstacle, explored and semantic layers, and coordinates
-non-conflicting high-level targets.
+and a Perception–Judgment–Decision VLM cascade over one shared A–D candidate
+set. The Hub runs RedNet and Detectron2 semantics, map fusion, VLM decisions
+and route coordination.
 
-| Main-method component | Physical deployment |
-| --- | --- |
-| RGB-D observation and agent pose | D435i/Odin1 RGB-D with each robot's local SLAM |
-| RedNet + Mask R-CNN semantics | Source-compatible semantic inference on the GPU hub |
-| Shared frontier/history exploration | Fused dual-robot map with stable A–D candidates |
-| Perception–Judgment–Decision policy | CogVLM2-based shared decision cascade |
-| Simulator navigation actions | Robot-local planning and control from expiring high-level targets |
-
-The local planner on each platform retains final collision, stop and target
-rejection authority throughout execution.
-
-### Robot-local planning and control
-
-Each high-level target is first routed on the latest known-free occupancy grid
-with bounded 8-connected A*: unknown/occupied cells are blocked, diagonal
-corner cutting is forbidden, and frontier targets may advance safely to the
-known-map edge. A rolling waypoint is then evaluated by TinyNav's local
-trajectory lattice and ESDF footprint scorer. Forward arcs, in-place yaw and
-collision-scored short stopped prefixes are available; reverse candidates are
-excluded, and an all-collision result is a stop.
-
-TinyNav's path follower uses the measured base-to-camera transform and
-rotate-first handling. Raw velocity never reaches a chassis directly: the v2
-robot receiver checks target lease, calibration, odometry, occupancy,
-trajectory freshness, reachability and controller pause acknowledgement before
-publishing guarded velocity. The Go2 and WATER bridges add independent stale
-command watchdogs.
-
-### Reproducible WSJ baseline
-
-The WSJ reference path is explicitly packaged for an RTX 4090 Hub + Unitree
-Go2 + Jetson Orin NX:
+Each robot routes an expiring target with bounded known-free A*, then uses
+TinyNav's ESDF-scored local planner and path follower. Lease, calibration,
+reachability and data-freshness checks gate raw `/cmd_vel` before an
+independent Unitree SDK2 or WATER watchdog. Any invalid or all-collision state
+stops locally.
 
 ```bash
-bash hub/scripts/bootstrap_dev.sh
 python3 hub/tools/verify_public_baseline.py --workspace .
-bash hub/robot_overlay/bootstrap_go2.sh \
-  --destination /tmp/tinynav-topofocus
 ```
 
-The last command reconstructs the pinned TinyNav/Go2 source tree and does not
-start ROS or connect to a robot. Hardware setup, software versions,
-planner/controller parameters, expected Git objects and staged acceptance
-tests are in the
-[WSJ reproducible deployment baseline](docs/WSJ_REPRODUCIBLE_BASELINE.md).
-The exact machine-readable contract is
-[`realworld_dual_robot_v1.json`](hub/config/deployments/realworld_dual_robot_v1.json).
+[Robot 0 reproducibility guide](docs/ROBOT0_REPRODUCIBLE_BASELINE.md) ·
+[Machine-readable deployment contract](hub/config/deployments/realworld_dual_robot_v1.json)
 
 ## Cross-robot calibration
 

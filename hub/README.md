@@ -18,8 +18,8 @@
 - Foxglove camera/map relay；
 - Foxglove 位姿、轨迹、像素语义、标签与前沿合成 2-D overview；
 - 版本化、可过期 `GOAL/HOLD/STOP` 与机器人端 fail-closed GoalGuard；
-- v2 原子双机目标、独立续租/到达反馈、WSJ TinyNav 在线
-  BuildMap + guarded `cmd_vel` 接收器以及 Yunji Odin/TinyNav 在线地图与
+- v2 原子双机目标、独立续租/到达反馈、Robot 0 TinyNav 在线
+  BuildMap + guarded `cmd_vel` 接收器以及 Robot 1 Odin/TinyNav 在线地图与
   guarded WATER 速度桥；
   正式入口已组合为有明确 HOLD 边界的源码节拍多轮 episode，并在语义
   `ARRIVED` 后自动封存终点 RGB-D/地图；Scene 01 已归档五次正式成功及
@@ -27,7 +27,8 @@
 - 发布前的共享坐标路线冲突门控：保留源码式双机 VLM candidate，直线
   corridor 小于 `0.9 m` 或共享位姿缺失时降低为单机执行/双机 HOLD；
   本机 replay 与测试已通过，仍待新 session 真机验证；
-- WSJ ROS 2 sender、云迹 ROS1/RealSense 回滚 sender、Odin1 ROS 2 适配器和 Go2 可复现部署层。
+- Robot 0 ROS 2 sender、Robot 1 ROS1/RealSense 回滚 sender、Odin1
+  ROS 2 适配器和 Go2 可复现部署层。
 
 默认配置始终 `allow_goal=false`。Scene 01 的五次正式成功均有操作者确认
 与运行证据；任何新场景仍不能只凭“能建图”或 `ARRIVED` 判定成功。
@@ -96,7 +97,8 @@ bash hub/scripts/focus_hub_down.sh
 
 ## Go2
 
-新 Go2 从 `robot_overlay/bootstrap_go2.sh` 开始。它从固定 TinyNav 上游 commit 重建 WSJ 已验证源码，不修改现有生产 checkout，也不启动 ROS/控制。
+新 Go2 从 `robot_overlay/bootstrap_go2.sh` 开始。它从固定 TinyNav 上游
+commit 重建 Robot 0 已验证源码，不修改现有生产 checkout，也不启动 ROS/控制。
 
 ```bash
 bash hub/robot_overlay/bootstrap_go2.sh \
@@ -106,7 +108,7 @@ bash hub/robot_overlay/verify_go2.sh --hardware --tests
 
 RTX 4090 Hub + Unitree Go2 + Jetson Orin NX 的硬件、TinyNav
 规划/控制链、确定性 Git 对象和分级验收见
-[WSJ 可复现部署基线](../docs/WSJ_REPRODUCIBLE_BASELINE.md)；完整资产与
+[Robot 0 可复现部署基线](../docs/ROBOT0_REPRODUCIBLE_BASELINE.md)；完整资产与
 双机流程见[复现手册](../docs/REPRODUCE.md)。
 
 ## 协议与坐标
@@ -117,7 +119,7 @@ RTX 4090 Hub + Unitree Go2 + Jetson Orin NX 的硬件、TinyNav
 - [坐标系](docs/COORDINATE_FRAMES.md)
 - [TinyNav 原生地图适配](docs/TINYNAV_NATIVE_MAP_ADAPTER.md)
 - [实时地图、Foxglove 与融合契约](docs/LIVE_MAPPING.md)
-- [Yunji Odin1 部署](docs/YUNJI_ODIN1_DEPLOYMENT.md)
+- [Robot 1 Odin1 部署](docs/YUNJI_ODIN1_DEPLOYMENT.md)
 - [v2 双机真机最短上线清单](docs/V2_PHYSICAL_QUICKSTART.md)
 - [离线地图诊断、移动验收与既有标定脚本复用](docs/OFFLINE_MAP_VALIDATION.md)
-- [WSJ 初始审计](docs/ROBOT_WSJ_AUDIT.md)
+- [Robot 0 初始审计](docs/ROBOT_WSJ_AUDIT.md)

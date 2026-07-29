@@ -13,15 +13,15 @@ current. For the authoritative project state, read
   recovery/quarantine and the current no-session runtime boundary.
 - [`SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md`](SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md):
   replacement Scene 02 formal experiment 02 algorithmic-exploration failure,
-  exact Yunji path, zero-valued SR/SPL contribution, terminal two-interval
+  exact Robot 1 path, zero-valued SR/SPL contribution, terminal two-interval
   progress guard and superseded-record provenance.
 - [`SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md`](SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md):
   Scene 02 formal experiment 01 failure, exact dual-robot paths, zero-valued
-  SR/SPL contribution, VLM/non-VLM attribution and the observed WSJ
+  SR/SPL contribution, VLM/non-VLM attribution and the observed Robot 0
   `LOCAL_PLANNER_PATH_STALE` terminal evidence.
 - [`ONECLICK_RELIABILITY_AND_LATENCY_20260725.md`](ONECLICK_RELIABILITY_AND_LATENCY_20260725.md):
   post-experiment calibration/debug/live/cleanup audit, bounded self-recovery,
-  safe startup parallelism, per-phase timing and the current Yunji
+  safe startup parallelism, per-phase timing and the current Robot 1
   synchronization boundary.
 - [`SCENE02_PLANT_PREPARATION_20260725.md`](SCENE02_PLANT_PREPARATION_20260725.md):
   strict no-motion Scene 02 campaign preparation, plant-category path
@@ -37,10 +37,10 @@ current. For the authoritative project state, read
   local verification boundary.
 - [`FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md`](FORMAL_EXPERIMENT_05_PREFLIGHT_ABORT_20260725.md):
   earlier experiment-05 preparation stopped inside strict no-motion debug
-  after WSJ tracking output froze; no live, GOAL, episode, movement or SR/SPL
+  after Robot 0 tracking output froze; no live, GOAL, episode, movement or SR/SPL
   row; retained only as an engineering preparation record.
 - [`SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md`](SCENE01_CHAIR_FORMAL_EXPERIMENT_04_SUCCESS_20260725.md):
-  operator-designated formal experiment 04 success, automatic Yunji
+  operator-designated formal experiment 04 success, automatic Robot 1
   `LOCAL_PLANNER_ARRIVED`, exact SR/source-compatible SPL, the operator's
   independently measured approximate `L≈3.25 m` and standard `SPL=1.0`,
   strict-debug and
@@ -54,7 +54,7 @@ current. For the authoritative project state, read
   frozen-map geometry diagnosis, exclusion from SR/SPL and the required fresh
   calibration gate.
 - [`SCENE01_CHAIR_SUCCESS_R5_20260725.md`](SCENE01_CHAIR_SUCCESS_R5_20260725.md):
-  second normal Scene 01 success, automatic WSJ
+  second normal Scene 01 success, automatic Robot 0
   `LOCAL_PLANNER_ARRIVED`, exact SR/source-compatible SPL and paired
   external/Dashboard media provenance.
 - [`SCENE01_MEDIA_PUBLICATION_20260725.md`](SCENE01_MEDIA_PUBLICATION_20260725.md):
@@ -75,7 +75,7 @@ current. For the authoritative project state, read
   intersection replay, network-causality boundary and the locally verified
   post-incident serialization guard.
 - [`YUNJI_TINYNAV_MIGRATION_20260724.md`](YUNJI_TINYNAV_MIGRATION_20260724.md):
-  Yunji's migration from WATER saved-map navigation to online TinyNav with a
+  Robot 1's migration from WATER saved-map navigation to online TinyNav with a
   guarded WATER velocity-only bridge, including pinned-source provenance and
   the current physical-verification boundary.
 - [`REPOSITORY_AND_ONECLICK_AUDIT_20260724.md`](REPOSITORY_AND_ONECLICK_AUDIT_20260724.md):
@@ -85,7 +85,7 @@ current. For the authoritative project state, read
   receiver implementation, online BuildMap routing, official-run engineering
   attempts, exact failures and retry3 follow-up.
 - [`DUAL_ROBOT_CODE_SYNC_20260723.md`](DUAL_ROBOT_CODE_SYNC_20260723.md):
-  byte-verified WSJ/Yunji deployment snapshots, including the final retry3
+  byte-verified Robot 0/Robot 1 deployment snapshots, including the final retry3
   fixes.
 - [`MINIMAL_ONECLICK_DEPLOYMENT_20260723.md`](MINIMAL_ONECLICK_DEPLOYMENT_20260723.md):
   initial one-click debug deployment and its boundary.
@@ -97,7 +97,7 @@ current. For the authoritative project state, read
 - [`WSJ_CONTINUOUS_OBSERVATION_RECOVERY_20260727.md`](WSJ_CONTINUOUS_OBSERVATION_RECOVERY_20260727.md):
   formal-sender sparse-keyframe root cause, continuous geometry plus
   timestamp-gated cached-color repair, and the preserved Scene 02 calibration
-  boundary for the planned stationary Yunji power cycle.
+  boundary for the planned stationary Robot 1 power cycle.
 - [`WSJ_COMMAND_OBSERVATION_STARTUP_GATE_20260727.md`](WSJ_COMMAND_OBSERVATION_STARTUP_GATE_20260727.md):
   observed 17-second stationary first-tuple latency, the residual 15-second
   strict-debug false failure and the bounded startup-gate repair.
@@ -114,13 +114,13 @@ current. For the authoritative project state, read
   observed RGB-live/depth-stale calibration failure, coordinated pre-board
   recovery, and the post-calibration tracking-epoch guard.
 - [`SHARED_FRAME_ODIN1_20260723.md`](SHARED_FRAME_ODIN1_20260723.md): current
-  WSJ/Odin board calibration session and holdout.
+  Robot 0/Odin board calibration session and holdout.
 - [`YUNJI_REBOOT_CALIBRATION_REVALIDATION_20260723.md`](YUNJI_REBOOT_CALIBRATION_REVALIDATION_20260723.md):
   calibration reuse decision after power cycling.
 - [`YUNJI_ODIN1_INTEGRATION_20260722.md`](YUNJI_ODIN1_INTEGRATION_20260722.md):
   Odin1 hardware/source integration.
 - [`WSJ_POST_REBOOT_READINESS_20260722.md`](WSJ_POST_REBOOT_READINESS_20260722.md):
-  WSJ USB and observation readiness.
+  Robot 0 USB and observation readiness.
 - [`WSJ_IMU_SCHEDULING_FIX_20260721.md`](WSJ_IMU_SCHEDULING_FIX_20260721.md):
   TinyNav perception/IMU repair provenance.
 

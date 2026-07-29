@@ -1,6 +1,6 @@
-# WSJ TinyNav reproducibility snapshot
+# Robot 0 TinyNav reproducibility snapshot
 
-This directory preserves the source state that was actually used by WSJ on
+This directory preserves the source state that was actually used by Robot 0 on
 2026-07-21 without vendoring the full TinyNav repository or publishing old
 credentials.
 
@@ -18,8 +18,8 @@ Start from the Apache-2.0 upstream repository and commit:
   `99b1e98c16fc2f1c23a2ec853c9e4fef6d50526487c75a62837d6d11d99390cf`
 
 The patch is source-derived from the exact final tree at the observed local
-WSJ commit `29f26bc058886ff450f02cdc0d6e9977e1c57010`. It includes these five
-WSJ-only commits, none of which was reachable from the inspected
+Robot 0 commit `29f26bc058886ff450f02cdc0d6e9977e1c57010`. It includes these five
+Robot 0-only commits, none of which was reachable from the inspected
 `AlanZhu2006/go2_tinynav` remote on 2026-07-21:
 
 1. `9647f55f0ebc67987bdea8279656a439a9cbe8aa` — Jetson/Go2 deployment.

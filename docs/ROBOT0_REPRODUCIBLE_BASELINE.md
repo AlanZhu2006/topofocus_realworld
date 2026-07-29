@@ -1,6 +1,6 @@
-# WSJ reproducible deployment baseline
+# Robot 0 reproducible deployment baseline
 
-This baseline defines the reproducible WSJ path used by the real-world
+This baseline defines the reproducible Robot 0 path used by the real-world
 system: an RTX 4090 Hub performs semantic inference and high-level
 coordination, while a Jetson Orin NX mounted on a Unitree Go2 performs
 perception, mapping, planning, control, and the final motion-safety checks.
@@ -22,8 +22,8 @@ open a robot connection, or publish a command.
 | Role | Reference compute | Platform and sensor | Runtime responsibility |
 | --- | --- | --- | --- |
 | Hub | Intel Core i9-14900K, 64 GB RAM, NVIDIA GeForce RTX 4090, Ubuntu 22.04.5 | Central workstation | RedNet/Detectron2 semantics, shared-map fusion, CogVLM2 decisions, route coordination |
-| Robot 0 · WSJ | NVIDIA Jetson Orin NX, JetPack 6.2.1/L4T 36.4.7, Ubuntu 22.04.5 | Unitree Go2 + Intel RealSense D435i | TinyNav perception/SLAM, online occupancy, route and local planning, controller, guarded Unitree SDK2 bridge |
-| Robot 1 · Yunji | ASUS NUC 12 Pro NUC12WSK-B, Core i7-1260P, 16 GB RAM, Ubuntu 22.04.5 | Wheeled chassis + Manifold Tech Odin1 | Odin localization, online occupancy, the same TinyNav planning/controller contract, guarded WATER bridge |
+| Robot 0 | NVIDIA Jetson Orin NX, JetPack 6.2.1/L4T 36.4.7, Ubuntu 22.04.5 | Unitree Go2 + Intel RealSense D435i | TinyNav perception/SLAM, online occupancy, route and local planning, controller, guarded Unitree SDK2 bridge |
+| Robot 1 | ASUS NUC 12 Pro NUC12WSK-B, Core i7-1260P, 16 GB RAM, Ubuntu 22.04.5 | Wheeled chassis + Manifold Tech Odin1 | Odin localization, online occupancy, the same TinyNav planning/controller contract, guarded WATER bridge |
 
 The values above are observed deployment values, not minimum requirements.
 Their read-only evidence sources are recorded in
@@ -40,19 +40,9 @@ Vendor references:
 
 ## Authority and data flow
 
-```mermaid
-flowchart LR
-    S["D435i / Odin1 RGB-D<br/>robot-local pose"] --> H
-    H["RTX 4090 Hub<br/>semantics · fusion · VLM · coordination"]
-    H -->|"versioned, expiring<br/>GOAL / HOLD / STOP"| G
-    G["robot-local lease and freshness gate"] --> R
-    R["known-free A* route<br/>rolling local waypoint"] --> P
-    P["TinyNav trajectory lattice<br/>ESDF + platform footprint"] --> C
-    C["TinyNav path follower<br/>stale/jump stop"] --> V["raw /cmd_vel"]
-    V --> G
-    G --> Q["/focus_guarded_cmd_vel"]
-    Q --> U["Go2: Unitree SDK2 SportClient.Move<br/>Yunji: WATER /api/joy_control"]
-```
+<p align="center">
+  <img src="../media/image/system_architecture.png" width="1000" alt="TopoFocus architecture with a central RTX 4090 Hub and robot-local planning, control and safety on Robot 0 and Robot 1">
+</p>
 
 The Hub never owns wheel, leg, or body velocity. Each target carries a lease;
 the robot may reject it, HOLD, or stop. Expired authority, stale odometry,
@@ -76,14 +66,14 @@ The physical navigation stack has four explicit stages.
 
 Robot-specific geometry remains local:
 
-- WSJ retains TinyNav's Go2 rectangular footprint. Its route lookahead is
+- Robot 0 retains TinyNav's Go2 rectangular footprint. Its route lookahead is
   1.0 m, route clearance is 0.05 m, and the bounded start seed uses a 0.35 m
   footprint override within 0.75 m.
-- Yunji uses a measured 0.283 m circular body radius plus 0.05 m planner
+- Robot 1 uses a measured 0.283 m circular body radius plus 0.05 m planner
   margin. Its route lookahead is 0.35 m, route clearance is 0.30 m, and the
   bounded start seed uses a 0.34 m override within 1.0 m.
 
-The WSJ actuator bridge subscribes only to
+The Robot 0 actuator bridge subscribes only to
 `/focus_guarded_cmd_vel`, caps velocity at 0.20 m/s forward, 0.00 m/s lateral,
 and 0.50 rad/s yaw, and independently stops after 0.35 s without a command.
 It calls Unitree SDK2 `SportClient.Move`; it never subscribes directly to raw
@@ -94,16 +84,16 @@ It calls Unitree SDK2 `SportClient.Move`; it never subscribes directly to raw
 | Component | Locked baseline |
 | --- | --- |
 | TinyNav | `UniflexAI/tinynav@576c082e69580f618a5ff313a3e74f3672abb69f` |
-| Reconstructed WSJ tree | commit `a6290559b13cedf19c05f7ec64ff91a29b685cbd`, tree `5281e70451f2f9cc1d5f5464315d803f6f0972bd` |
+| Reconstructed Robot 0 tree | commit `a6290559b13cedf19c05f7ec64ff91a29b685cbd`, tree `5281e70451f2f9cc1d5f5464315d803f6f0972bd` |
 | Unitree SDK2 Python | BSD-3-Clause; resolved revision `800103eab7e045336b1c40186cda5023dbd05821` |
 | ROS | ROS 2 Humble |
 | RealSense | librealsense 2.58.1, realsense-ros 4.58.1, D435i firmware 5.17.0.10 |
 | Hub semantic runtime | Python 3.10.20, PyTorch 2.8.0+cu128, torchvision 0.23.0, Detectron2 0.6 |
 
-`bootstrap_go2.sh` reconstructs the WSJ TinyNav tree from the Apache-2.0
+`bootstrap_go2.sh` reconstructs the Robot 0 TinyNav tree from the Apache-2.0
 upstream base plus two checksummed patches:
 
-1. the WSJ deployment, Go2 bridge, and IMU recovery state;
+1. the Robot 0 deployment, Go2 bridge, and IMU recovery state;
 2. the formal 0.35 s bridge-watchdog runtime contract.
 
 The optional experimental semantic archive is not required by the formal
@@ -136,7 +126,7 @@ a6290559b13cedf19c05f7ec64ff91a29b685cbd
 The bootstrap validates all patch manifests, refuses a dirty destination, and
 prints `No ROS process or robot command was started.`
 
-## Prepare a new WSJ Jetson
+## Prepare a new Robot 0 Jetson
 
 Start from an Ubuntu 22.04/JetPack 6 Jetson with ROS 2 Humble. Install the
 vendor/upstream prerequisites described by TinyNav: GTSAM, the message-filter
@@ -193,7 +183,7 @@ Start and save a native map:
 
 ```bash
 bash hub/robot_overlay/start_go2_buildmap.sh \
-  --output /home/nvidia/.local/share/topofocus/maps/wsj-baseline
+  --output /home/nvidia/.local/share/topofocus/maps/robot0-baseline
 bash hub/robot_overlay/save_go2_buildmap.sh
 ```
 

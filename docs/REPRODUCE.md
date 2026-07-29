@@ -1,10 +1,10 @@
 # 从零复现
 
-本手册区分三个层次：代码复现、外部资产复现、真机行为复现。仓库可以完整重建代码和 WSJ 部署差异；模型权重、录包和硬件固件因体积或授权原因必须单独提供并校验。
+本手册区分三个层次：代码复现、外部资产复现、真机行为复现。仓库可以完整重建代码和 Robot 0 部署差异；模型权重、录包和硬件固件因体积或授权原因必须单独提供并校验。
 
 RTX 4090 Hub + Unitree Go2 + Jetson Orin NX 的硬件表、规划/控制逻辑、
 确定性源码对象和分级验收入口见
-[`WSJ_REPRODUCIBLE_BASELINE.md`](WSJ_REPRODUCIBLE_BASELINE.md)。
+[`ROBOT0_REPRODUCIBLE_BASELINE.md`](ROBOT0_REPRODUCIBLE_BASELINE.md)。
 
 当前真机版本、标定 ID、地图目录和未完成门禁见
 [`CURRENT_STATUS.md`](../CURRENT_STATUS.md)。本文中的旧日期路径只用于复现
@@ -12,7 +12,7 @@ RTX 4090 Hub + Unitree Go2 + Jetson Orin NX 的硬件表、规划/控制逻辑�
 
 文档中的证据标签：
 
-- **observed**：在本机或 WSJ 实际读取/运行得到；
+- **observed**：在本机或 Robot 0 实际读取/运行得到；
 - **source-derived**：由固定源码、Git diff 或配置推导；
 - **unverified**：尚未在第二台硬件上执行。
 
@@ -64,7 +64,9 @@ hub/.venv/bin/python hub/tools/g1_preflight.py --workspace "$PWD"
 
 ## 3. 新 Go2/Jetson 的硬件前提
 
-WSJ 的已观察基线是 Jetson Orin NX、Ubuntu 22.04、JetPack 6.2.1/L4T 36.4.7、ROS 2 Humble、D435i 固件 5.17.0.10。另一台机器允许小版本不同，但每个差异必须记录并重跑预检。
+Robot 0 的已观察基线是 Jetson Orin NX、Ubuntu 22.04、JetPack
+6.2.1/L4T 36.4.7、ROS 2 Humble、D435i 固件 5.17.0.10。另一台机器允许
+小版本不同，但每个差异必须记录并重跑预检。
 
 本仓库不会自动安装 JetPack，也不会下载 TinyNav 模型。先按厂商/上游方式准备：
 
@@ -74,9 +76,10 @@ WSJ 的已观察基线是 Jetson Orin NX、Ubuntu 22.04、JetPack 6.2.1/L4T 36.4
 4. librealsense `v2.58.1` 与 realsense-ros `4.58.1`；
 5. TinyNav Python 3.10 环境及其模型资产。
 
-WSJ 的精确版本和哈希见 [基线文档](WSJ_BASELINE_20260721.md)。
+Robot 0 的精确版本和哈希见
+[基线文档](ROBOT0_BASELINE_20260721.md)。
 
-## 4. 重建 WSJ TinyNav 源码
+## 4. 重建 Robot 0 TinyNav 源码
 
 不要在已有生产 checkout 上套补丁。创建一个新目录：
 
@@ -102,7 +105,8 @@ bash hub/robot_overlay/bootstrap_go2.sh \
 `5281e70451f2f9cc1d5f5464315d803f6f0972bd`；第二个补丁把正式部署使用的
 Go2 `0.35 s` 独立命令 watchdog 纳入默认重建合同。
 
-可选的 `--with-experimental-semantic` 会再恢复 WSJ 主 checkout 中尚未提交的语义包。它不是原生 BuildMap 必需条件，不应作为首次部署默认项。
+可选的 `--with-experimental-semantic` 会再恢复 Robot 0 主 checkout
+中尚未提交的语义包。它不是原生 BuildMap 必需条件，不应作为首次部署默认项。
 
 补丁应用后，使用重建 checkout 中的 `DEPLOYMENT.md` 完成上游 build。复制并调整环境入口：
 
@@ -126,7 +130,9 @@ sudo bash hub/robot_overlay/install_go2_host_config.sh --apply
 - 通过 vendor/product 匹配 D435i 与 USB3 hub 的 udev 规则；
 - 可在 RealSense driver bind 后再次调用的 power-policy service。
 
-WSJ 上已观察到 udev 初始事件之后 driver bind 仍可能把 `power/control` 改回 `auto`。因此 `start_go2_observation.sh` 会在相机启动后重新运行 service，并在状态不是 `on` 时停止整个启动流程。
+Robot 0 上已观察到 udev 初始事件之后 driver bind 仍可能把
+`power/control` 改回 `auto`。因此 `start_go2_observation.sh` 会在相机
+启动后重新运行 service，并在状态不是 `on` 时停止整个启动流程。
 
 ## 6. 只读预检
 
@@ -180,9 +186,9 @@ bash hub/robot_overlay/stop_go2_observation.sh
 
 禁止直接断电或 kill BuildMap 后把残缺目录当成有效地图。
 
-## 9. Yunji Odin1 当前路径与 RealSense 回滚
+## 9. Robot 1 Odin1 当前路径与 RealSense 回滚
 
-Yunji 当前替换传感器是 Odin1 `O1-P070100205`。先从固定驱动 commit
+Robot 1 当前替换传感器是 Odin1 `O1-P070100205`。先从固定驱动 commit
 重建并应用仓库保存的 mode-1 补丁，再用设备自身的 serial-specific
 `calib.yaml`；完整路径、hash 和 systemd 单元见
 [Odin1 部署文档](../hub/docs/YUNJI_ODIN1_DEPLOYMENT.md)。只读检查为：
@@ -205,8 +211,8 @@ WATER saved map、`accessible_point_query`、`make_plan` 或 `/api/move`。
 现场 predecessor 会话使用：
 
 - shared ID `shared-board-odin1-20260723-v3`;
-- WSJ transform `wsj-tinynav-depth-20260723-powercycle-v3`;
-- Yunji transform `yunji-odin1-board-20260723-powercycle-v6`.
+- Robot 0 transform `wsj-tinynav-depth-20260723-powercycle-v3`;
+- Robot 1 transform `yunji-odin1-board-20260723-powercycle-v6`.
 
 这些实测 JSON 位于机器人/Hub 的 runtime state，因包含会话路径而不进入
 Git。它们保留为历史证据，但旧 v3 artifact 没有新的定量
@@ -217,7 +223,7 @@ Git。它们保留为历史证据，但旧 v3 artifact 没有新的定量
 [`audit/YUNJI_REBOOT_CALIBRATION_REVALIDATION_20260723.md`](../audit/YUNJI_REBOOT_CALIBRATION_REVALIDATION_20260723.md)。
 
 这个结果只适用于记录中的相机安装和两端 odom 会话。新的现场摆位、另一台
-Go2/Yunji、传感器拆装或无法证明 origin 未变时，运行：
+Robot 0/Robot 1、传感器拆装或无法证明 origin 未变时，运行：
 
 ```bash
 bash hub/scripts/calibrate_realworld_session.sh \
@@ -234,7 +240,8 @@ source-derived 分类。完整操作见
 
 以下 D455 内容保留为回滚/历史复现路径：
 
-Yunji 的外接 D455 不在底盘 `/tf` 树中。不要只把口头测量写成新的源码常量；发送器支持显式版本化文件：
+Robot 1 的外接 D455 不在底盘 `/tf` 树中。不要只把口头测量写成新的
+源码常量；发送器支持显式版本化文件：
 
 ```bash
 python3 hub/robot_overlay/yunji_sender.py --help
@@ -251,7 +258,9 @@ python3 hub/robot_overlay/yunji_sender.py --help
 - `hub/config/calibration/yunji_d455_ground_extrinsic_20260722.json`：九个双朝向地面帧推导；
 - `hub/config/calibration/shared_board_gravity_20260722_v3.json`：标定板 yaw-only 共享变换，含独立移动板留出结果。
 
-这些 D455 文件只能复现其记录时的 Yunji、安装位置和 odom 会话，不能证明另一台机器的机械安装相同。相机被拆装、机器人姿态基准改变或 odom 重置后，按
+这些 D455 文件只能复现其记录时的 Robot 1、安装位置和 odom 会话，不能
+证明另一台机器的机械安装相同。相机被拆装、机器人姿态基准改变或 odom
+重置后，按
 [离线标定流程](../hub/docs/OFFLINE_MAP_VALIDATION.md) 重新运行：先用多朝向地面帧执行
 `derive_ground_camera_extrinsic.py`，再用同步标定板和独立移动板留出执行
 `calibrate_gravity_shared_frame_via_board.py`。
@@ -286,13 +295,14 @@ daemon 显式使用同一个、独立验证过的
 
 观测层完成：相机/IMU 频率连续、perception health 正常、静止测试无持续漂移、BuildMap 能收到正向保存确认。
 
-Yunji Odin 的操作者低速移动地图门禁已通过（1.193 m 有效路径、85 个新增关键帧、无位姿跳变或地面拒绝）。
+Robot 1 Odin 的操作者低速移动地图门禁已通过（1.193 m 有效路径、85
+个新增关键帧、无位姿跳变或地面拒绝）。
 
 双机代码层还应核对 persistent-session publication 对应的部署快照：
 
 ```text
-WSJ   /home/nvidia/topofocus_buildmap_v2_20260723
-Yunji /home/nyu/topofocus_buildmap_v2_20260723
+Robot 0 /home/nvidia/topofocus_buildmap_v2_20260723
+Robot 1 /home/nyu/topofocus_buildmap_v2_20260723
 ```
 
 当前 persistent-session 实现提交为

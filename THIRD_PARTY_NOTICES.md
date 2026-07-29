@@ -5,7 +5,7 @@ This repository contains audited snapshots or patches of third-party research so
 - `dependencies/habitat-lab/`: Habitat Lab snapshot; its included `LICENSE` is MIT.
 - `source/Focus_realworld/CogVLM2/`: CogVLM2 source snapshot; see its included `LICENSE` and `MODEL_LICENSE`.
 - `hub/robot_overlay/tinynav_snapshot/`: patches against `UniflexAI/tinynav`, whose pinned base contains the Apache License 2.0.
-- The reconstructed WSJ TinyNav lock resolves `unitree-sdk2py` from
+- The reconstructed Robot 0 TinyNav lock resolves `unitree-sdk2py` from
   `junlinp/unitree_sdk2_python@800103eab7e045336b1c40186cda5023dbd05821`;
   the [official Unitree SDK2 Python repository](https://github.com/unitreerobotics/unitree_sdk2_python)
   and the resolved fork retain the BSD 3-Clause license and their own notices.

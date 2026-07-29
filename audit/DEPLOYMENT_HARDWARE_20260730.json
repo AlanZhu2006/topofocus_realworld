@@ -32,7 +32,7 @@
     "corroborating_repository_path": "audit/SOURCE_SEMANTIC_STACK_PREFLIGHT_20260730.json"
   },
   "robot-0": {
-    "name": "WSJ",
+    "name": "Robot 0",
     "classification": "observed",
     "hostname": "tegra-ubuntu",
     "compute": "NVIDIA Jetson Orin NX Engineering Reference Developer Kit",
@@ -49,10 +49,10 @@
       "/proc/device-tree/model",
       "/etc/nv_tegra_release"
     ],
-    "corroborating_repository_path": "docs/WSJ_BASELINE_20260721.md"
+    "corroborating_repository_path": "docs/ROBOT0_BASELINE_20260721.md"
   },
   "robot-1": {
-    "name": "Yunji",
+    "name": "Robot 1",
     "classification": "observed",
     "hostname": "nyush-nuc",
     "system_vendor": "ASUSTeK COMPUTER INC.",
