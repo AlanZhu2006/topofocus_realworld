@@ -66,6 +66,9 @@ def make_grid() -> np.ndarray:
     # Explored free box with an obstacle wall on its right edge.
     grid[1, 5:25, 5:25] = 1.0
     grid[0, 5:25, 24] = 1.0
+    # This top-edge obstacle splits the source contour into a second region;
+    # the executable source skips its first scan-ordered region.
+    grid[0, 3:10, 10:14] = 1.0
     return grid
 
 
@@ -74,8 +77,7 @@ def test_extract_frontiers_finds_free_unknown_boundary():
     frontiers = extract_frontiers(grid, (0.0, 0.0), 0.1, min_cluster_cells=5)
     assert frontiers, "expected at least one frontier"
     assert frontiers[0].frontier_id == "A"
-    # Frontier cells must be free and explored, adjacent to unknown; the wall
-    # column (col 24) is an obstacle, so no frontier may sit on it.
+    # The retained source contour centroid cannot lie on an obstacle.
     for frontier in frontiers:
         assert grid[0, frontier.row, frontier.col] <= 0.5
     # World coordinates map back into the grid extent.

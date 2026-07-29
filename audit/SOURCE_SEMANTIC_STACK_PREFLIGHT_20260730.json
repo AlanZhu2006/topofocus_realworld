@@ -1,0 +1,99 @@
+{
+  "schema_version": "focus-source-semantic-preflight-v1",
+  "date": "2026-07-30",
+  "classification": "observed offline model execution; source-derived composition; semantic accuracy unverified",
+  "safety_scope": "historical spooled RGB-D only; no robot command or target publication",
+  "runtime": {
+    "python": "3.10.20",
+    "torch": "2.8.0+cu128",
+    "torchvision": "0.23.0+cu128",
+    "detectron2": "0.6",
+    "detectron2_upstream_commit": "b4a4a3bd136852dae5fb1de37978dee412653e31",
+    "cuda": "12.8",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "gpu_compute_capability": "8.9",
+    "detectron2_cuda_extension": {
+      "path": "hub/.venv/lib/python3.10/site-packages/detectron2/_C.cpython-310-x86_64-linux-gnu.so",
+      "size_bytes": 1316592,
+      "sha256": "cee80d47202fff97a29fc59410058ee787bfab3c2101074cff98eb6bf9684d18",
+      "classification": "observed local compatibility build"
+    }
+  },
+  "inputs": [
+    {
+      "robot_id": "robot-0",
+      "sequence": 117985,
+      "shape_hwc": [480, 848, 3],
+      "metadata": {
+        "path": "hub/runtime/spool/robot-0/00000000000000117985/metadata.json",
+        "size_bytes": 2577,
+        "sha256": "5625962ccc99978efff57a126dfdb1d8ec18b53f20268d672e2659ad3adb677f"
+      },
+      "rgb": {
+        "path": "hub/runtime/spool/robot-0/00000000000000117985/rgb.jpg",
+        "size_bytes": 80276,
+        "sha256": "637252f1344e2ddaf0ecfb09e50858ac26eb1bbef8a6f0d4a7cd9f9f8228c9d1"
+      },
+      "depth": {
+        "path": "hub/runtime/spool/robot-0/00000000000000117985/depth.png",
+        "size_bytes": 87585,
+        "sha256": "10722ecf5b2026d83fb7f155edb8a7a7275181deeb64450d401ecb3e80fd6d25"
+      }
+    },
+    {
+      "robot_id": "robot-1",
+      "sequence": 348447,
+      "shape_hwc": [648, 800, 3],
+      "metadata": {
+        "path": "hub/runtime/spool/robot-1/00000000000000348447/metadata.json",
+        "size_bytes": 3272,
+        "sha256": "9312dd667758bd2e49fb00f8bee062d84dbfc0b5b22d56752112c5a69283735b"
+      },
+      "rgb": {
+        "path": "hub/runtime/spool/robot-1/00000000000000348447/rgb.jpg",
+        "size_bytes": 133528,
+        "sha256": "affaee69346b959b087b5b65386fee10c4ee8a11f9af8e94d128aaa59474113f"
+      },
+      "depth": {
+        "path": "hub/runtime/spool/robot-1/00000000000000348447/depth.png",
+        "size_bytes": 197314,
+        "sha256": "d7f4a57362dff68e6eb83e563eb92953bc8fbf4e7c588de785e885ff0de7fe41"
+      }
+    }
+  ],
+  "observations": {
+    "maskrcnn_single_frame": {
+      "robot_id": "robot-1",
+      "sequence": 348447,
+      "output_shape": [648, 800, 15],
+      "model_load_seconds": 1.95,
+      "inference_seconds": 0.328,
+      "accumulated_mask_pixels": 3043,
+      "first_six_nonzero_pixels": [3043, 0, 0, 0, 0, 0]
+    },
+    "composite_single_frame": {
+      "robot_id": "robot-1",
+      "sequence": 348447,
+      "output_shape": [648, 800, 15],
+      "model_load_seconds": 2.377,
+      "inference_seconds": 0.384,
+      "first_six_nonzero_pixels": [0, 0, 0, 0, 0, 0]
+    },
+    "dual_instance": {
+      "sequences": [117985, 348447],
+      "output_shapes": [[480, 848, 15], [648, 800, 15]],
+      "finite_outputs": [true, true],
+      "nonzero_values": [0, 0],
+      "two_model_load_seconds": 3.105,
+      "two_frame_inference_seconds": 0.438,
+      "gpu_free_mib_before": 15456.2,
+      "gpu_free_mib_after_models_and_inference": 13872.2,
+      "classification": "observed dual-instance compatibility and capacity check, not semantic-success evidence"
+    }
+  },
+  "regression": {
+    "focused_semantic_and_contract_tests": "passed",
+    "full_hub_test_count": 722,
+    "full_hub_test_status": "passed"
+  }
+}

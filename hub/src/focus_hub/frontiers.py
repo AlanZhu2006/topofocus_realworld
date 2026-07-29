@@ -9,13 +9,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from typing import Sequence
 
 import cv2
 import numpy as np
-from scipy import ndimage
+from skimage import measure, morphology
 
 
 FRONTIER_LABELS = ("A", "B", "C", "D")
+SOURCE_FRONTIER_MIN_COMPONENT_CELLS = 5
 
 
 @dataclass(frozen=True)
@@ -90,33 +92,29 @@ def extract_frontiers(
     resolution_m: float,
     *,
     max_candidates: int = 4,
-    min_cluster_cells: int = 20,
+    min_cluster_cells: int = SOURCE_FRONTIER_MIN_COMPONENT_CELLS,
 ) -> list[Frontier]:
-    """Return up to max_candidates frontier centroids, largest cluster first."""
-    obstacle = grid[0] > 0.5
-    explored = grid[1] > 0.5
-    free = explored & ~obstacle
-    unknown = ~explored
+    """Run the executable source ``main.py::Frontiers`` geometry.
 
-    # A frontier cell is free with at least one unknown 4-neighbour.
-    unknown_neighbor = ndimage.binary_dilation(
-        unknown, structure=np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=bool)
+    The source closes the explored mask, keeps the contour of its largest
+    connected region, subtracts a 3x3-dilated obstacle mask, labels the
+    resulting boundary with 8-connectivity and sorts accepted components by
+    area.  Its loop starts at region-property index 1, so the first
+    scan-ordered component is skipped.  That looks accidental, but it is
+    observable source behavior and is preserved here.
+
+    Source Habitat maps are square.  The real-world fused grid can be
+    rectangular, so only the array allocation/border slicing is generalized;
+    every morphological and component-selection operation is unchanged.
+    """
+
+    geometry = _source_frontier_geometry(
+        grid,
+        max_candidates=max_candidates,
+        min_cluster_cells=min_cluster_cells,
     )
-    frontier_cells = free & unknown_neighbor
-    if not frontier_cells.any():
-        return []
-
-    labels, count = ndimage.label(frontier_cells, structure=np.ones((3, 3), dtype=bool))
-    sizes = ndimage.sum_labels(np.ones_like(labels), labels, index=range(1, count + 1))
-    order = np.argsort(sizes)[::-1]
-
     frontiers: list[Frontier] = []
-    for rank, cluster_index in enumerate(order):
-        size = int(sizes[cluster_index])
-        if size < min_cluster_cells or len(frontiers) >= max_candidates:
-            break
-        rows, cols = np.nonzero(labels == cluster_index + 1)
-        row, col = int(np.round(rows.mean())), int(np.round(cols.mean()))
+    for rank, (row, col, size) in enumerate(geometry["components"]):
         frontiers.append(
             Frontier(
                 frontier_id=chr(ord("A") + rank),
@@ -129,6 +127,96 @@ def extract_frontiers(
         )
     validate_frontier_candidates(frontiers, require_prefix=True)
     return frontiers
+
+
+def _source_frontier_geometry(
+    grid: np.ndarray,
+    *,
+    max_candidates: int,
+    min_cluster_cells: int,
+) -> dict[str, object]:
+    if (
+        not isinstance(grid, np.ndarray)
+        or grid.ndim != 3
+        or grid.shape[0] < 2
+        or grid.shape[1] < 1
+        or grid.shape[2] < 1
+    ):
+        raise ValueError("frontier grid must be CxHxW with at least 2x1x1")
+    if (
+        isinstance(max_candidates, bool)
+        or not isinstance(max_candidates, int)
+        or not 1 <= max_candidates <= len(FRONTIER_LABELS)
+    ):
+        raise ValueError("frontier candidate limit must be within 1..4")
+    if (
+        isinstance(min_cluster_cells, bool)
+        or not isinstance(min_cluster_cells, int)
+        or min_cluster_cells < 1
+    ):
+        raise ValueError("frontier component threshold must be positive")
+
+    obstacle = np.asarray(grid[0], dtype=np.float32)
+    explored = np.asarray(grid[1], dtype=np.float32)
+    if not np.isfinite(obstacle).all() or not np.isfinite(explored).all():
+        raise ValueError("frontier obstacle/explored channels must be finite")
+    h, w = obstacle.shape
+    obstacle_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    dilated_obstacle = cv2.dilate(obstacle, obstacle_kernel)
+    explored_u8 = cv2.inRange(explored, 0.1, 1.0)
+    closed_explored = cv2.morphologyEx(
+        explored_u8,
+        cv2.MORPH_CLOSE,
+        np.ones((5, 5), dtype=np.uint8),
+    )
+    contours, _ = cv2.findContours(
+        closed_explored,
+        cv2.RETR_TREE,
+        cv2.CHAIN_APPROX_NONE,
+    )
+    explored_boundary = np.zeros((h, w), dtype=np.float32)
+    if contours:
+        contour = max(contours, key=cv2.contourArea)
+        cv2.drawContours(
+            explored_boundary,
+            [contour],
+            -1,
+            1.0,
+            1,
+        )
+    explored_boundary[:2, :] = 0.0
+    explored_boundary[-2:, :] = 0.0
+    explored_boundary[:, :2] = 0.0
+    explored_boundary[:, -2:] = 0.0
+
+    target_edge = explored_boundary - dilated_obstacle
+    target_edge[target_edge > 0.8] = 1.0
+    target_edge[target_edge != 1.0] = 0.0
+    labels, _ = measure.label(
+        target_edge,
+        connectivity=2,
+        return_num=True,
+    )
+    properties = measure.regionprops(labels)
+    # Exact source indexing: ``range(1, len(props))`` intentionally omits
+    # properties[0], then maps property index i back to label i+1.
+    costs = [
+        (index, int(properties[index].area))
+        for index in range(1, len(properties))
+        if properties[index].area >= min_cluster_cells
+    ]
+    costs.sort(key=lambda item: item[1], reverse=True)
+    selected = costs[:max_candidates]
+    selected_edge = np.zeros_like(target_edge, dtype=np.uint8)
+    components: list[tuple[int, int, int]] = []
+    for property_index, area in selected:
+        selected_edge[labels == property_index + 1] = 1
+        row_f, col_f = properties[property_index].centroid
+        components.append((int(row_f), int(col_f), area))
+    return {
+        "components": components,
+        "selected_edge_mask": selected_edge,
+    }
 
 
 def render_annotated_bev(
@@ -181,20 +269,75 @@ def render_annotated_bev(
     return image.copy()
 
 
-def _category_palette(n: int) -> np.ndarray:
-    """Deterministic, visually distinct BGR palette, one row per category.
+_SOURCE_COLOR_PALETTE_RGB = np.asarray(
+    [
+        (1.0, 1.0, 1.0),
+        (0.6, 0.6, 0.6),
+        (0.95, 0.95, 0.95),
+        (0.96, 0.36, 0.26),
+        (0.12156862745098039, 0.47058823529411764, 0.7058823529411765),
+        (0.9400000000000001, 0.7818, 0.66),
+        (0.9400000000000001, 0.8868, 0.66),
+        (0.8882000000000001, 0.9400000000000001, 0.66),
+        (0.7832000000000001, 0.9400000000000001, 0.66),
+        (0.6782000000000001, 0.9400000000000001, 0.66),
+        (0.66, 0.9400000000000001, 0.7468000000000001),
+        (0.66, 0.9400000000000001, 0.8518000000000001),
+        (0.66, 0.9232, 0.9400000000000001),
+        (0.66, 0.8182, 0.9400000000000001),
+        (0.66, 0.7132, 0.9400000000000001),
+        (0.7117999999999999, 0.66, 0.9400000000000001),
+        (0.8168, 0.66, 0.9400000000000001),
+        (0.9218, 0.66, 0.9400000000000001),
+        (0.9400000000000001, 0.66, 0.8531999999999998),
+        (0.9400000000000001, 0.66, 0.748199999999999),
+    ],
+    dtype=np.float64,
+)
 
-    Upstream (`Decision_Generation_Vis`) uses a fixed hand-picked
-    `color_palette` array tied to Habitat's own category indexing; the exact
-    color VALUES are not semantically load-bearing (the prompts never
-    reference a category's color, only frontier=black/history=green/
-    pose=red/prev-goal=blue, which ARE preserved exactly below) — this is a
-    reasonable, explicitly-labelled substitute, not a fabricated fidelity
-    claim.
+
+def _source_palette_bgr(category_count: int) -> np.ndarray:
+    required = 5 + category_count
+    if category_count < 0 or required > len(_SOURCE_COLOR_PALETTE_RGB):
+        raise ValueError("source palette does not cover the category set")
+    # PIL's source palette path truncates with ``int(x * 255)``.
+    rgb = (_SOURCE_COLOR_PALETTE_RGB[:required] * 255.0).astype(np.uint8)
+    return rgb[:, ::-1].copy()
+
+
+def _category_palette(category_count: int) -> np.ndarray:
+    """Return the stable operator-map semantic colors in BGR order.
+
+    This is deliberately separate from the exact source VLM palette above:
+    Foxglove/operator maps have an existing display contract, while only the
+    rendered image supplied to the source Decision prompt must use the source
+    palette.
     """
-    hues = (np.arange(n, dtype=np.float32) * (179.0 / max(1, n))).astype(np.uint8)
-    hsv = np.stack([hues, np.full(n, 200, np.uint8), np.full(n, 230, np.uint8)], axis=-1)
-    return cv2.cvtColor(hsv.reshape(1, n, 3), cv2.COLOR_HSV2BGR).reshape(n, 3)
+
+    if (
+        isinstance(category_count, bool)
+        or not isinstance(category_count, int)
+        or category_count < 0
+    ):
+        raise ValueError("category count must be a non-negative integer")
+    if category_count == 0:
+        return np.empty((0, 3), dtype=np.uint8)
+    hues = (
+        np.arange(category_count, dtype=np.float32)
+        * (179.0 / category_count)
+    ).astype(np.uint8)
+    hsv = np.stack(
+        [
+            hues,
+            np.full(category_count, 200, np.uint8),
+            np.full(category_count, 230, np.uint8),
+        ],
+        axis=-1,
+    )
+    return cv2.cvtColor(
+        hsv.reshape(1, category_count, 3),
+        cv2.COLOR_HSV2BGR,
+    ).reshape(category_count, 3)
 
 
 def render_semantic_decision_map(
@@ -207,64 +350,176 @@ def render_semantic_decision_map(
     history_nodes: list[tuple[int, int]] | None = None,
     pre_goal_rc: tuple[int, int] | None = None,
     semantic_labels: list[tuple[str, int, int]] | None = None,
-    scale: int = 2,
+    goal_category: str | None = None,
+    visited_paths_rc: Sequence[Sequence[tuple[int, int]]] | None = None,
+    scale: int | None = None,
+    canvas_size_px: int = 480,
 ) -> np.ndarray:
     """Ported from `Decision_Generation_Vis` (main.py), adapted to this
     project's grid convention (grid[0]=obstacle, grid[1]=explored,
     grid[2:2+len(category_names)]=per-category channels, all in [0,1]).
 
-    Colors match upstream exactly where the prompts reference them: black
-    circles+uppercase letters for frontier points, green circles+lowercase
-    letters for historical observation points (only drawn when
-    ``history_nodes`` is given — this is upstream's ``sem_map``, used for
-    the Judgment/FN VLM; omit it to get upstream's ``sem_map_frontier``,
-    used for the Decision VLM), a red arrow for the robot's pose+heading,
-    a blue dot for the previous goal point. Per-category background
-    coloring uses a substitute palette — see `_category_palette`.
+    The tracked source palette, 480x480 canvas, frontier edge layer, black
+    A-D markers, green history markers, red pose arrow, blue previous-goal
+    marker and optional target-component highlight are reproduced.  Source
+    assumes a square 480-cell Habitat map; real-world grids can be
+    rectangular, so coordinates are geometrically scaled onto the same
+    480x480 VLM canvas.  Passing ``scale`` retains a small native-grid canvas
+    only for deterministic unit/debug rendering.
     """
     validate_frontier_candidates(frontiers)
-    obstacle = grid[0] > 0.5
-    explored = grid[1] > 0.5
+    # Decision_Generation_Vis uses ``np.rint(channel) == 1`` rather than a
+    # generic probability comparison.
+    obstacle = np.rint(grid[0]) == 1
+    explored = np.rint(grid[1]) == 1
     cat = grid[2:2 + len(category_names)]
     h, w = obstacle.shape
-
-    image = np.full((h, w, 3), 96, dtype=np.uint8)          # unknown: dark grey
-    image[explored] = (235, 235, 235)                        # explored free: light
-    image[obstacle] = (40, 40, 40)                            # obstacles: near-black
-
-    if len(category_names) > 0:
-        palette = _category_palette(len(category_names))
-        has_category = cat.max(axis=0) > 0.1
+    if cat.shape[0] != len(category_names):
+        raise ValueError("semantic decision grid lacks source categories")
+    palette = _source_palette_bgr(len(category_names))
+    semantic_indices = np.zeros((h, w), dtype=np.uint8)
+    semantic_indices[explored] = 2
+    semantic_indices[obstacle] = 1
+    if category_names:
+        # Source renders the semantic argmax wherever a non-void category has
+        # any positive map evidence.  The Hub grid omits source's explicit
+        # void channel, so all-zero cells are the equivalent no-category mask.
+        has_category = cat.max(axis=0) > 0.0
         best_category = cat.argmax(axis=0)
-        image[has_category] = palette[best_category[has_category]]
+        semantic_indices[has_category] = (
+            best_category[has_category] + 5
+        ).astype(np.uint8)
+    if visited_paths_rc is not None:
+        for robot_index, path in enumerate(visited_paths_rc):
+            palette_index = 3 + robot_index
+            if palette_index >= len(palette):
+                raise ValueError("source palette lacks a visited-path color")
+            visited = _source_visited_path_mask(path, (h, w))
+            semantic_indices[visited] = palette_index
+    frontier_geometry = _source_frontier_geometry(
+        grid,
+        max_candidates=len(FRONTIER_LABELS),
+        min_cluster_cells=SOURCE_FRONTIER_MIN_COMPONENT_CELLS,
+    )
+    semantic_indices[
+        np.asarray(frontier_geometry["selected_edge_mask"], dtype=bool)
+    ] = 3
+    if goal_category is not None:
+        if goal_category not in category_names:
+            raise ValueError("goal category is outside the semantic grid")
+        goal_index = category_names.index(goal_category)
+        goal_binary = np.asarray(cat[goal_index] > 0.0, dtype=bool)
+        labels, count = measure.label(
+            goal_binary,
+            connectivity=2,
+            return_num=True,
+        )
+        if count > 0:
+            properties = measure.regionprops(labels)
+            largest = max(properties, key=lambda item: item.area)
+            goal_component = labels == largest.label
+            goal_display = morphology.binary_dilation(
+                goal_component,
+                footprint=morphology.disk(4),
+            )
+            semantic_indices[goal_display] = 4
+    # Source then paints a disk around every A-D component back to explored
+    # color before drawing the black marker and letter.
+    for frontier in frontiers:
+        frontier_seed = np.zeros((h, w), dtype=bool)
+        frontier_seed[frontier.row, frontier.col] = True
+        frontier_display = morphology.binary_dilation(
+            frontier_seed,
+            footprint=morphology.disk(4),
+        )
+        semantic_indices[frontier_display] = 2
+    image = palette[semantic_indices]
 
     # Flip the background only, before any drawing — see render_annotated_bev's
     # docstring for why flipping the finished canvas (with text on it) is wrong.
     image = np.flipud(image)
-    image = cv2.resize(image, (w * scale, h * scale), interpolation=cv2.INTER_NEAREST)
+    if scale is not None:
+        if (
+            isinstance(scale, bool)
+            or not isinstance(scale, int)
+            or scale < 1
+        ):
+            raise ValueError("semantic debug scale must be positive")
+        output_w = w * scale
+        output_h = h * scale
+        marker_scale = scale
+    else:
+        if (
+            isinstance(canvas_size_px, bool)
+            or not isinstance(canvas_size_px, int)
+            or canvas_size_px < 64
+        ):
+            raise ValueError("source VLM canvas size must be at least 64 px")
+        output_w = canvas_size_px
+        output_h = canvas_size_px
+        marker_scale = 1
+    image = cv2.resize(
+        image,
+        (output_w, output_h),
+        interpolation=cv2.INTER_NEAREST,
+    )
+    x_scale = output_w / w
+    y_scale = output_h / h
 
     def to_px(row: int, col: int) -> tuple[int, int]:
-        return int((col + 0.5) * scale), int((h - 1 - row + 0.5) * scale)
+        # main.py's ``d240`` is exactly ``480-row`` and frontier/history
+        # coordinates are drawn without a half-cell offset. Generalize only
+        # the width/height scale for rectangular real-world maps.
+        return (
+            int(col * x_scale),
+            int((h - row) * y_scale),
+        )
 
     for frontier in frontiers:
         center = to_px(frontier.row, frontier.col)
-        cv2.circle(image, center, 5 * scale, (0, 0, 0), -1)
-        cv2.putText(image, frontier.frontier_id, (center[0] + 5 * scale, center[1] + 5 * scale),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5 * scale, (0, 0, 0), max(1, scale))
+        cv2.circle(image, center, 5 * marker_scale, (0, 0, 0), -1)
+        cv2.putText(
+            image,
+            frontier.frontier_id,
+            (
+                center[0] + 5 * marker_scale,
+                center[1] + 5 * marker_scale,
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5 * marker_scale,
+            (0, 0, 0),
+            marker_scale,
+        )
 
     if history_nodes:
         letters = [chr(ord("a") + i) for i in range(26)] + [chr(ord("A") + i) for i in range(26)]
         for i, (row, col) in enumerate(history_nodes[:52]):
             center = to_px(row, col)
-            cv2.circle(image, center, 5 * scale, (0, 255, 0), -1)
+            cv2.circle(
+                image,
+                center,
+                5 * marker_scale,
+                (0, 255, 0),
+                -1,
+            )
             label = letters[i] if i < len(letters) else "?"
-            cv2.putText(image, label, (center[0] + 5 * scale, center[1] + 5 * scale),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5 * scale, (0, 255, 0), max(1, scale))
+            cv2.putText(
+                image,
+                label,
+                (
+                    center[0] + 5 * marker_scale,
+                    center[1] + 5 * marker_scale,
+                ),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5 * marker_scale,
+                (0, 255, 0),
+                marker_scale,
+            )
 
     # Upstream writes each semantic category name at the first point of every
     # extracted polygon on both the Judgment and Decision maps.  Without these
-    # labels our substitute category palette has no legend and therefore drops
-    # source information that the VLM relies on.
+    # labels the palette alone would drop source information supplied to the
+    # VLM.
     if semantic_labels:
         for category, row, col in semantic_labels:
             if (
@@ -278,28 +533,97 @@ def render_semantic_decision_map(
                 category,
                 to_px(row, col),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.5 * scale,
+                0.5 * marker_scale,
                 (0, 0, 0),
-                max(1, scale),
+                marker_scale,
                 cv2.LINE_AA,
             )
 
     if robot_rc is not None:
         center = to_px(*robot_rc)
-        # A simple triangular heading arrow — a labelled substitute for
-        # upstream's vu.get_contour_points helper (not ported: Habitat-
-        # utils-specific), same visual effect (position + heading), not
-        # byte-identical polygon vertices.
-        theta = np.deg2rad(heading_deg or 0.0)
-        size = 8 * scale
-        tip = (int(center[0] + size * np.cos(theta)), int(center[1] - size * np.sin(theta)))
-        left = (int(center[0] + size * 0.5 * np.cos(theta + 2.6)),
-                int(center[1] - size * 0.5 * np.sin(theta + 2.6)))
-        right = (int(center[0] + size * 0.5 * np.cos(theta - 2.6)),
-                 int(center[1] - size * 0.5 * np.sin(theta - 2.6)))
-        cv2.drawContours(image, [np.array([tip, left, right])], 0, (0, 0, 255), -1)
+        theta = -np.deg2rad(heading_deg or 0.0)
+        size = 15 * marker_scale
+        arrow = np.asarray(
+            [
+                center,
+                (
+                    int(
+                        center[0]
+                        + size / 1.5 * np.cos(theta + np.pi * 4 / 3)
+                    ),
+                    int(
+                        center[1]
+                        + size / 1.5 * np.sin(theta + np.pi * 4 / 3)
+                    ),
+                ),
+                (
+                    int(center[0] + size * np.cos(theta)),
+                    int(center[1] + size * np.sin(theta)),
+                ),
+                (
+                    int(
+                        center[0]
+                        + size / 1.5 * np.cos(theta - np.pi * 4 / 3)
+                    ),
+                    int(
+                        center[1]
+                        + size / 1.5 * np.sin(theta - np.pi * 4 / 3)
+                    ),
+                ),
+            ],
+            dtype=np.int32,
+        )
+        cv2.drawContours(image, [arrow], 0, (0, 0, 255), -1)
 
     if pre_goal_rc is not None:
-        cv2.circle(image, to_px(*pre_goal_rc), 8 * scale, (255, 0, 0), -1)
+        cv2.circle(
+            image,
+            to_px(*pre_goal_rc),
+            8 * marker_scale,
+            (255, 0, 0),
+            -1,
+        )
 
     return image.copy()
+
+
+def _source_visited_path_mask(
+    path: Sequence[tuple[int, int]],
+    shape_hw: tuple[int, int],
+) -> np.ndarray:
+    """Rasterize source ``utils.visualization.draw_line`` segments."""
+
+    height, width = shape_hw
+    mask = np.zeros((height, width), dtype=bool)
+    points: list[tuple[int, int]] = []
+    for value in path:
+        if (
+            not isinstance(value, (tuple, list))
+            or len(value) != 2
+            or any(
+                isinstance(item, bool)
+                or not isinstance(item, int)
+                for item in value
+            )
+        ):
+            raise ValueError("visited path cell is malformed")
+        row, col = int(value[0]), int(value[1])
+        if not 0 <= row < height or not 0 <= col < width:
+            raise ValueError("visited path cell is outside the decision grid")
+        points.append((row, col))
+    if not points:
+        return mask
+    if len(points) == 1:
+        points = [points[0], points[0]]
+    for start, end in zip(points, points[1:]):
+        for index in range(26):
+            row = int(
+                np.rint(start[0] + (end[0] - start[0]) * index / 25)
+            )
+            col = int(
+                np.rint(start[1] + (end[1] - start[1]) * index / 25)
+            )
+            # Preserve ``utils.visualization.draw_line`` slicing literally,
+            # including its empty negative-start slice at the zero border.
+            mask[row - 1 : row + 1, col - 1 : col + 1] = True
+    return mask

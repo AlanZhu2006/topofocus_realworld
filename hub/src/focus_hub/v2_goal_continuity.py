@@ -1,10 +1,14 @@
 """Shared frontier-goal continuity guard for physical execution.
 
 The immutable source still produces a fresh VLM allocation at every source
-decision boundary.  This real-world adapter prevents either robot from
-abandoning a safe, unfinished frontier leg while it is making measured
-progress.  Semantic targets, completed legs, stalled legs, and small source
-target updates always pass through unchanged.
+decision boundary.  Its ``main.py`` logical-analysis block retains the
+previous frontier while the robot remains at least 25 source map cells from
+that previous goal.  This is a *remaining-distance* rule, not an inter-round
+progress threshold.  The following source rule independently replaces a goal
+when the robot moved no more than 2.5 cells between boundaries; that separate
+stationary rule is implemented by :mod:`focus_hub.v2_source_replan`.
+
+Semantic targets and explicitly rejected previous legs always pass through.
 """
 from __future__ import annotations
 
@@ -15,12 +19,15 @@ from typing import Mapping
 from .transport_v2 import (
     DecisionBatchV2,
     HighLevelDecisionV2,
-    V2_MAP_RESOLUTION_M,
 )
 
 
-GOAL_CONTINUITY_SCHEMA_VERSION = "focus-v2-goal-continuity-guard-v1"
-DEFAULT_MINIMUM_TARGET_SWITCH_M = 0.75
+GOAL_CONTINUITY_SCHEMA_VERSION = "focus-v2-goal-continuity-guard-v2"
+SOURCE_CONTINUITY_RETAIN_DISTANCE_CELLS = 25.0
+SOURCE_MAP_RESOLUTION_M = 0.05
+SOURCE_CONTINUITY_RETAIN_DISTANCE_M = (
+    SOURCE_CONTINUITY_RETAIN_DISTANCE_CELLS * SOURCE_MAP_RESOLUTION_M
+)
 Point2 = tuple[float, float]
 
 
@@ -73,34 +80,134 @@ def _retained_decision(
     )
     raw["reason"] = (
         "shared real-world continuity guard retained the previous safe "
-        "unfinished frontier while this robot was making measured progress"
+        "unfinished frontier while it remained beyond the source 25-cell "
+        "remaining-distance boundary"
     )
     return HighLevelDecisionV2.model_validate(raw)
+
+
+def source_continuity_memory_batch(
+    clearance_batch: DecisionBatchV2,
+    *,
+    clearance_report: Mapping[str, object],
+) -> tuple[DecisionBatchV2, dict[str, object]]:
+    """Restore pre-projection source targets for the next source boundary.
+
+    The physical clearance guard may project a frontier onto a reachable
+    arrival disk.  Source ``pre_g_points`` remembers the selected frontier,
+    not that robot-specific execution projection.  Source-ranked fallback
+    frontiers are also preserved through the guard's explicit lineage.
+    This batch is memory-only and must never be published as a command.
+    """
+
+    raw_lineage = clearance_report.get("execution_lineage")
+    if not isinstance(raw_lineage, Mapping):
+        raise ValueError("clearance report lacks execution lineage")
+    replacements: dict[str, HighLevelDecisionV2] = {}
+    records: dict[str, dict[str, object]] = {}
+    for decision in clearance_batch.decisions:
+        target = decision.target
+        if (
+            decision.mode.value != "GOAL"
+            or target is None
+            or target.kind != "FRONTIER_POINT"
+        ):
+            records[decision.robot_id] = {
+                "status": "not_an_executed_frontier",
+                "mode": decision.mode.value,
+                "target_kind": None if target is None else target.kind,
+            }
+            continue
+        lineage = raw_lineage.get(decision.robot_id)
+        if not isinstance(lineage, Mapping):
+            raise ValueError(
+                f"{decision.robot_id} frontier lacks clearance lineage"
+            )
+        source_id = lineage.get("source_frontier_id")
+        execution_id = lineage.get("execution_frontier_id")
+        source_xy = _finite_point(lineage.get("source_target_xy_m"))
+        execution_xy = _finite_point(lineage.get("execution_target_xy_m"))
+        decision_xy = _frontier_xy(decision)
+        if (
+            not isinstance(source_id, str)
+            or not source_id
+            or execution_id != target.frontier_id
+            or source_xy is None
+            or execution_xy is None
+            or decision_xy is None
+            or math.dist(execution_xy, decision_xy) > 1e-9
+            or lineage.get("execution_mode") != "GOAL"
+        ):
+            raise ValueError(
+                f"{decision.robot_id} clearance lineage differs from its "
+                "execution target"
+            )
+        raw = decision.model_dump(mode="json")
+        raw["target"]["frontier_id"] = source_id
+        raw["target"]["pose"]["x"] = source_xy[0]
+        raw["target"]["pose"]["y"] = source_xy[1]
+        restored = HighLevelDecisionV2.model_validate(raw)
+        replacements[decision.robot_id] = restored
+        records[decision.robot_id] = {
+            "status": "source_target_restored_for_memory",
+            "source_frontier_id": source_id,
+            "source_target_xy_m": list(source_xy),
+            "execution_frontier_id": target.frontier_id,
+            "execution_target_xy_m": list(execution_xy),
+            "projection_removed_from_memory": (
+                math.dist(source_xy, execution_xy) > 1e-9
+            ),
+            "selection_source": lineage.get("selection_source"),
+        }
+    memory_batch = DecisionBatchV2(
+        decisions=tuple(
+            replacements.get(decision.robot_id, decision)
+            for decision in clearance_batch.decisions
+        )
+    )
+    return memory_batch, {
+        "schema_version": "focus-v2-source-continuity-memory-v1",
+        "classification": (
+            "source-derived memory-only batch; never physical authority"
+        ),
+        "policy": (
+            "remember each source-selected frontier before robot-specific "
+            "clearance projection; retain semantic and HOLD decisions "
+            "unchanged"
+        ),
+        "robots": records,
+        "batch": memory_batch.model_dump(mode="json"),
+    }
 
 
 def apply_frontier_goal_continuity(
     batch: DecisionBatchV2,
     *,
     previous_batch: DecisionBatchV2 | None,
-    previous_shared_positions: Mapping[str, object],
     current_shared_positions: Mapping[str, object],
-    minimum_progress_m: float,
-    minimum_target_switch_m: float = DEFAULT_MINIMUM_TARGET_SWITCH_M,
+    minimum_remaining_distance_m: float = (
+        SOURCE_CONTINUITY_RETAIN_DISTANCE_M
+    ),
+    previous_rejected_robot_ids: frozenset[str] = frozenset(),
 ) -> tuple[DecisionBatchV2, dict[str, object]]:
-    """Retain a progressing unfinished frontier leg for either platform.
+    """Retain a source frontier that is still at least 25 cells away.
 
     The returned target is still checked by the current round's per-robot
     footprint/reachability guard before publication.  This function never
     retains a frontier over a semantic-region target.
     """
 
-    if not math.isfinite(minimum_progress_m) or minimum_progress_m <= 0.0:
-        raise ValueError("minimum progress must be positive and finite")
     if (
-        not math.isfinite(minimum_target_switch_m)
-        or minimum_target_switch_m <= 0.0
+        not math.isfinite(minimum_remaining_distance_m)
+        or minimum_remaining_distance_m <= 0.0
     ):
-        raise ValueError("minimum target switch must be positive and finite")
+        raise ValueError(
+            "minimum remaining distance must be positive and finite"
+        )
+    if not previous_rejected_robot_ids.issubset(
+        {decision.robot_id for decision in batch.decisions}
+    ):
+        raise ValueError("previous rejected robot is outside the current batch")
 
     current_by_robot = {
         decision.robot_id: decision for decision in batch.decisions
@@ -135,7 +242,6 @@ def apply_frontier_goal_continuity(
             _frontier_xy(previous) if previous is not None else None
         )
         current_xy = _finite_point(current_shared_positions.get(robot_id))
-        previous_xy = _finite_point(previous_shared_positions.get(robot_id))
         check: dict[str, object] = {
             "robot_id": robot_id,
             "retained": False,
@@ -143,6 +249,9 @@ def apply_frontier_goal_continuity(
         }
         checks[robot_id] = check
         if previous is None:
+            continue
+        if robot_id in previous_rejected_robot_ids:
+            check["reason"] = "previous_frontier_leg_explicitly_rejected"
             continue
         if current.mode.value != "GOAL":
             check["reason"] = "current_robot_not_active"
@@ -157,47 +266,38 @@ def apply_frontier_goal_continuity(
         ):
             check["reason"] = "frontier_leg_not_comparable"
             continue
-        if current_xy is None or previous_xy is None:
+        if current_xy is None:
             check["reason"] = "shared_pose_unavailable"
             continue
 
-        displacement_m = math.dist(previous_xy, current_xy)
         distance_to_previous_target_m = math.dist(
             current_xy, previous_target_xy
         )
-        previous_arrival_radius_m = (
-            previous.target.source_goal_dilation_cells
-            * V2_MAP_RESOLUTION_M
-        )
-        target_switch_m = math.dist(
-            current_target_xy, previous_target_xy
-        )
         check.update(
             {
-                "previous_position_xy_m": list(previous_xy),
                 "current_position_xy_m": list(current_xy),
-                "measured_displacement_m": displacement_m,
-                "minimum_progress_m": minimum_progress_m,
                 "previous_target_xy_m": list(previous_target_xy),
                 "candidate_target_xy_m": list(current_target_xy),
                 "distance_to_previous_target_m": (
                     distance_to_previous_target_m
                 ),
-                "previous_arrival_radius_m": previous_arrival_radius_m,
-                "target_switch_m": target_switch_m,
-                "minimum_target_switch_m": minimum_target_switch_m,
+                "minimum_remaining_distance_m": (
+                    minimum_remaining_distance_m
+                ),
                 "previous_frontier_id": previous.target.frontier_id,
                 "candidate_frontier_id": current.target.frontier_id,
             }
         )
-        if displacement_m < minimum_progress_m:
-            check["reason"] = "previous_leg_not_making_minimum_progress"
+        if (
+            distance_to_previous_target_m
+            < minimum_remaining_distance_m
+        ):
+            check["reason"] = (
+                "previous_goal_inside_source_25_cell_switch_boundary"
+            )
             continue
-        if distance_to_previous_target_m <= previous_arrival_radius_m:
-            check["reason"] = "previous_frontier_arrival_disk_reached"
-            continue
-        if target_switch_m < minimum_target_switch_m:
-            check["reason"] = "source_target_update_is_small"
+        if math.dist(current_target_xy, previous_target_xy) <= 1e-9:
+            check["reason"] = "source_target_already_continuous"
             continue
 
         retained = _retained_decision(
@@ -209,7 +309,9 @@ def apply_frontier_goal_continuity(
         check.update(
             {
                 "retained": True,
-                "reason": "progressing_unfinished_frontier_retained",
+                "reason": (
+                    "previous_frontier_beyond_source_25_cell_boundary_retained"
+                ),
                 "execution_frontier_id": retained.target.frontier_id,
                 "execution_target_xy_m": list(previous_target_xy),
             }
@@ -227,7 +329,7 @@ def apply_frontier_goal_continuity(
     return guarded, {
         "schema_version": GOAL_CONTINUITY_SCHEMA_VERSION,
         "status": (
-            "progressing_frontiers_retained"
+            "distant_previous_frontiers_retained"
             if retained_robot_ids
             else (
                 "initial_round_no_continuity_candidate"
@@ -240,19 +342,29 @@ def apply_frontier_goal_continuity(
             "shared-frame robot poses and the prior published frontier leg"
         ),
         "policy": (
-            "apply identically to both robots: retain a materially changed "
-            "frontier only while the prior leg is active, outside its arrival "
-            "disk, and making minimum shared-frame progress; semantic targets "
-            "and stalled, completed, or small-update legs pass through"
+            "apply identically to both robots: retain the prior active "
+            "frontier when the current shared-frame base pose remains at "
+            "least 25 source cells from it; the independent 2.5-cell "
+            "stationary rule runs afterward in source order; semantic "
+            "targets and rejected prior legs pass through"
         ),
         "retained_robot_ids": retained_robot_ids,
-        "minimum_progress_m": minimum_progress_m,
-        "minimum_target_switch_m": minimum_target_switch_m,
+        "minimum_remaining_distance_m": minimum_remaining_distance_m,
+        "source_retain_distance_cells": (
+            SOURCE_CONTINUITY_RETAIN_DISTANCE_CELLS
+        ),
+        "source_map_resolution_m": SOURCE_MAP_RESOLUTION_M,
+        "previous_rejected_robot_ids": sorted(
+            previous_rejected_robot_ids
+        ),
         "checks": checks,
         "source_fidelity": (
             "the current VLM candidate batch is preserved separately; every "
             "retained execution target is an exact prior-round source-derived "
-            "frontier coordinate and must pass the current robot-local frozen-"
-            "map clearance guard before publication"
+            "frontier coordinate; the default 1.25 m threshold measures "
+            "current-position-to-previous-goal distance exactly as "
+            "source/Focus_realworld/main.py:1833, not inter-round motion; the "
+            "retained target must pass the current robot-local frozen-map "
+            "clearance guard before publication"
         ),
     }

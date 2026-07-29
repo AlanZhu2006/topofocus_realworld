@@ -111,9 +111,11 @@ class RuntimeIdentity(StrictModel):
     foxglove_port: int = Field(ge=1024, le=65535)
     preview_port: int = Field(ge=1024, le=65535)
     map_goal_category: Literal["chair", "bed", "plant", "toilet", "tv", "sofa"]
-    semantic_backend: Literal["rednet", "segformer-ade20k"] = (
-        "segformer-ade20k"
-    )
+    semantic_backend: Literal[
+        "source-rednet-detectron2",
+        "rednet",
+        "segformer-ade20k",
+    ] = "source-rednet-detectron2"
     spool_dir: str = Field(min_length=1, max_length=2048)
     admin_token_file: str = Field(min_length=1, max_length=2048)
     debug_robot_config: ArtifactIdentity

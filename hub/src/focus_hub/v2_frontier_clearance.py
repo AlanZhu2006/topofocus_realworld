@@ -20,7 +20,7 @@ from .map_snapshot import MapSnapshot
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
 
-FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v5"
+FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v6"
 MINIMUM_PROJECTED_TRAVEL_M = 0.10
 MINIMUM_SOURCE_PROGRESS_M = 0.25
 
@@ -604,14 +604,31 @@ def _normalize_fallback_frontiers(
                 f"remaining frontier {frontier_id!r} was already selected"
             )
         seen.add(frontier_id)
-        normalized.append(
-            {
-                "source_rank": rank,
-                "frontier_id": frontier_id,
-                "x_m": float(x_m),
-                "y_m": float(y_m),
-            }
-        )
+        source_rank = frontier.get("source_rank", rank)
+        if (
+            isinstance(source_rank, bool)
+            or not isinstance(source_rank, int)
+            or source_rank < 0
+        ):
+            raise ValueError(
+                f"remaining frontier {frontier_id!r} has invalid source rank"
+            )
+        record: dict[str, object] = {
+            "source_rank": source_rank,
+            "frontier_id": frontier_id,
+            "x_m": float(x_m),
+            "y_m": float(y_m),
+        }
+        for optional in (
+            "source_probability",
+            "history_score",
+            "source_candidate_kind",
+            "source_order",
+        ):
+            value = frontier.get(optional)
+            if isinstance(value, (str, int, float)) or value is None:
+                record[optional] = value
+        normalized.append(record)
     return normalized
 
 
@@ -658,6 +675,11 @@ def apply_frontier_clearance_guard(
     *,
     clearance_by_robot_m: Mapping[str, float],
     fallback_frontiers: Sequence[Mapping[str, object]] | None = None,
+    fallback_frontiers_by_robot: Mapping[
+        str, Sequence[Mapping[str, object]]
+    ]
+    | None = None,
+    pre_rejected_robot_ids: frozenset[str] = frozenset(),
     robot_xy_by_robot: Mapping[str, tuple[float, float]] | None = None,
     execution_snapshots_by_robot: Mapping[str, MapSnapshot] | None = None,
     start_seed_snap_radius_by_robot_m: Mapping[str, float] | None = None,
@@ -676,6 +698,17 @@ def apply_frontier_clearance_guard(
         if batch.decisions
         else ()
     )
+    if not pre_rejected_robot_ids.issubset(set(active_ids)):
+        raise ValueError(
+            "pre-rejected frontier robot is outside the active batch"
+        )
+    if fallback_frontiers_by_robot is not None:
+        unknown = set(fallback_frontiers_by_robot).difference(active_ids)
+        if unknown:
+            raise ValueError(
+                "per-robot fallback candidates contain inactive robots: "
+                f"{sorted(unknown)}"
+            )
     checks: dict[str, dict[str, object]] = {}
     rejected: set[str] = set()
     selected_frontier_ids: set[str] = set()
@@ -818,7 +851,15 @@ def apply_frontier_clearance_guard(
             ),
         )
         checks[decision.robot_id] = check
-        if check["passed"] is True:
+        if decision.robot_id in pre_rejected_robot_ids:
+            check["map_guard_passed_before_failure_memory"] = bool(
+                check["passed"]
+            )
+            check["failure_memory_rejected"] = True
+            check["pass_mode"] = "rejected_by_navigation_failure_memory"
+            check["passed"] = False
+            rejected.add(decision.robot_id)
+        elif check["passed"] is True:
             projected = maybe_project(
                 decision,
                 check,
@@ -834,6 +875,16 @@ def apply_frontier_clearance_guard(
         fallback_frontiers,
         selected_frontier_ids=selected_frontier_ids,
     )
+    candidates_by_robot: dict[str, list[dict[str, object]]] = {}
+    for robot_id in active_ids:
+        candidates_by_robot[robot_id] = (
+            candidates
+            if fallback_frontiers_by_robot is None
+            else _normalize_fallback_frontiers(
+                fallback_frontiers_by_robot.get(robot_id, ()),
+                selected_frontier_ids=selected_frontier_ids,
+            )
+        )
     fallback_checks: dict[str, list[dict[str, object]]] = {}
     assignments: list[dict[str, object]] = []
     fallback_options: dict[
@@ -876,7 +927,7 @@ def apply_frontier_clearance_guard(
                 dict[str, object],
             ]
         ] = []
-        for candidate in candidates:
+        for candidate in candidates_by_robot[decision.robot_id]:
             replacement = _fallback_decision(
                 decision,
                 frontier=candidate,
@@ -938,7 +989,12 @@ def apply_frontier_clearance_guard(
     ) -> None:
         nonlocal best_matching, best_key
         if index >= len(rejected_decisions):
-            sentinel = len(candidates) + 1
+            all_ranks = [
+                int(candidate["source_rank"])
+                for options in candidates_by_robot.values()
+                for candidate in options
+            ]
+            sentinel = (max(all_ranks) + 1) if all_ranks else 1
             ranks = tuple(
                 int(current[decision.robot_id][0]["source_rank"])
                 if decision.robot_id in current
@@ -1008,6 +1064,79 @@ def apply_frontier_clearance_guard(
         if guarded.decisions
         else ()
     )
+    guarded_by_robot = {
+        decision.robot_id: decision for decision in guarded.decisions
+    }
+    assignment_by_robot = {
+        str(item["robot_id"]): item for item in assignments
+    }
+    projection_by_robot = {
+        str(item["robot_id"]): item for item in approach_projections
+    }
+    execution_lineage: dict[str, dict[str, object]] = {}
+    for original in batch.decisions:
+        original_target = original.target
+        if (
+            original_target is None
+            or original_target.kind != "FRONTIER_POINT"
+        ):
+            continue
+        executed = guarded_by_robot[original.robot_id]
+        executed_target = executed.target
+        source_frontier_id = original_target.frontier_id
+        source_target_xy_m: list[float] = [
+            float(original_target.pose.x),
+            float(original_target.pose.y),
+        ]
+        selection_source = "guard_input"
+        assignment = assignment_by_robot.get(original.robot_id)
+        if assignment is not None:
+            fallback_id = str(assignment["fallback_frontier_id"])
+            fallback_report = next(
+                (
+                    item
+                    for item in fallback_checks.get(
+                        original.robot_id, []
+                    )
+                    if item.get("frontier_id") == fallback_id
+                ),
+                None,
+            )
+            if fallback_report is not None:
+                source_frontier_id = fallback_id
+                source_target_xy_m = list(
+                    fallback_report["target_xy_m"]
+                )
+                selection_source = "source_ranked_fallback"
+        projection = projection_by_robot.get(original.robot_id)
+        execution_lineage[original.robot_id] = {
+            "input_frontier_id": original_target.frontier_id,
+            "input_target_xy_m": [
+                float(original_target.pose.x),
+                float(original_target.pose.y),
+            ],
+            "source_frontier_id": source_frontier_id,
+            "source_target_xy_m": source_target_xy_m,
+            "selection_source": selection_source,
+            "projected": projection is not None,
+            "projection": projection,
+            "execution_mode": executed.mode.value,
+            "execution_frontier_id": (
+                None
+                if executed_target is None
+                or executed_target.kind != "FRONTIER_POINT"
+                else executed_target.frontier_id
+            ),
+            "execution_target_xy_m": (
+                None
+                if executed_target is None
+                or executed_target.kind != "FRONTIER_POINT"
+                else [
+                    float(executed_target.pose.x),
+                    float(executed_target.pose.y),
+                ]
+            ),
+        }
     return guarded, {
         "schema_version": FRONTIER_CLEARANCE_SCHEMA_VERSION,
         "status": (
@@ -1054,9 +1183,12 @@ def apply_frontier_clearance_guard(
         "blocked_robot_ids": sorted(held),
         "checks": checks,
         "fallback_candidates": candidates,
+        "fallback_candidates_by_robot": candidates_by_robot,
         "fallback_checks": fallback_checks,
         "fallback_assignments": assignments,
         "approach_projections": approach_projections,
+        "pre_rejected_robot_ids": sorted(pre_rejected_robot_ids),
+        "execution_lineage": execution_lineage,
         "start_seed_snap_radius_by_robot_m": {
             robot_id: start_seed_snap_radius(robot_id)
             for robot_id in active_ids
@@ -1098,7 +1230,8 @@ def apply_frontier_clearance_guard(
             "producing minimum bounded progress toward the same source "
             "frontier; any "
             "execution fallback is an unused frontier from the same frozen "
-            "source manifest and must independently pass the same physical-"
+            "source manifest, ordered by that robot's preserved source score "
+            "when supplied, and must independently pass the same physical-"
             "clearance guard"
         ),
     }

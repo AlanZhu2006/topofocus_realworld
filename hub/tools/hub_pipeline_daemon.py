@@ -48,6 +48,9 @@ from focus_hub.pose_gate import (  # noqa: E402
 )
 from focus_hub.semantic_yolo import SemanticYoloConfig  # noqa: E402
 from focus_hub.segformer_ade20k import SegformerAde20kSegmenter  # noqa: E402
+from focus_hub.source_semantics import (  # noqa: E402
+    SourceRedNetDetectron2Segmenter,
+)
 from focus_hub.vlm_decision import choose_frontier_fallback, choose_frontier_glm, run_decision_cascade  # noqa: E402
 from focus_hub.vlm_prompts import (  # noqa: E402
     extract_scene_objects,
@@ -360,11 +363,38 @@ def main() -> int:
                         default=WORKSPACE / "artifacts" / "vision" / "yolov10m.pt")
     parser.add_argument(
         "--semantic-backend",
-        choices=("rednet", "segformer-ade20k"),
-        default="rednet",
+        choices=(
+            "source-rednet-detectron2",
+            "rednet",
+            "segformer-ade20k",
+        ),
+        default="source-rednet-detectron2",
         help=(
-            "rednet preserves the upstream MP3D-40 backend; segformer-ade20k "
-            "is the checksum-pinned real-camera pixel-mask deployment adapter"
+            "source-rednet-detectron2 reproduces the executable source pixel "
+            "stack; rednet is the backbone-only diagnostic; "
+            "segformer-ade20k is the real-camera deployment adapter"
+        ),
+    )
+    parser.add_argument(
+        "--source-maskrcnn-weight",
+        type=Path,
+        default=(
+            WORKSPACE
+            / "artifacts"
+            / "checkpoints"
+            / "detectron2_mask_rcnn_R_50_FPN_3x_model_final_f10217.pkl"
+        ),
+    )
+    parser.add_argument(
+        "--source-maskrcnn-config",
+        type=Path,
+        default=(
+            WORKSPACE
+            / "source"
+            / "Focus_realworld"
+            / "configs"
+            / "COCO-InstanceSegmentation"
+            / "mask_rcnn_R_50_FPN_3x.yaml"
         ),
     )
     parser.add_argument(
@@ -613,6 +643,16 @@ def main() -> int:
         parser.error("--semantic-winner-margin-hits must be non-negative")
     if args.semantic_yolo_evidence_only and not args.semantic_yolo:
         parser.error("--semantic-yolo-evidence-only requires --semantic-yolo")
+    if (
+        args.semantic_backend == "source-rednet-detectron2"
+        and args.semantic_yolo
+        and not args.semantic_yolo_evidence_only
+    ):
+        parser.error(
+            "the exact source pixel backend requires YOLO to remain "
+            "evidence-only; source does not project YOLO boxes into its "
+            "semantic pixel map"
+        )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     log = args.log.open("a", buffering=1)
@@ -629,7 +669,16 @@ def main() -> int:
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
-    if args.semantic_backend == "rednet":
+    if args.semantic_backend == "source-rednet-detectron2":
+        segmenter = SourceRedNetDetectron2Segmenter(
+            WORKSPACE
+            / "artifacts"
+            / "checkpoints"
+            / "rednet_semmap_mp3d_40.pth",
+            args.source_maskrcnn_weight,
+            args.source_maskrcnn_config,
+        )
+    elif args.semantic_backend == "rednet":
         segmenter = RedNetSegmenter(
             WORKSPACE
             / "artifacts"
@@ -1052,7 +1101,13 @@ def main() -> int:
                 if args.glm_url and not args.no_cascade and robot_rc is not None and pipeline.last_rgb_bgr is not None:
                     try:
                         scene_objects_dict = extract_scene_objects(grid[2:2 + len(HM3D_CATEGORY_NAMES)], HM3D_CATEGORY_NAMES)
-                        scene_objects_str = format_scene_objects_for_prompt(scene_objects_dict)
+                        scene_objects_str = format_scene_objects_for_prompt(
+                            scene_objects_dict,
+                            shape_hw=(
+                                int(grid.shape[1]),
+                                int(grid.shape[2]),
+                            ),
+                        )
                         scene_labels = semantic_label_points(scene_objects_dict)
                         detections = yolo.detect(pipeline.last_rgb_bgr) if yolo else {}
                         heading = (
@@ -1063,10 +1118,12 @@ def main() -> int:
                         judgment_map = render_semantic_decision_map(
                             grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading,
                             history_nodes=memory.history_nodes,
-                            semantic_labels=scene_labels)
+                            semantic_labels=scene_labels,
+                            goal_category=args.goal_category)
                         decision_map = render_semantic_decision_map(
                             grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading,
-                            semantic_labels=scene_labels)
+                            semantic_labels=scene_labels,
+                            goal_category=args.goal_category)
                         cascade = run_decision_cascade(
                             rgb_bgr=pipeline.last_rgb_bgr, judgment_map_bgr=judgment_map,
                             decision_map_bgr=decision_map, frontiers=frontiers,

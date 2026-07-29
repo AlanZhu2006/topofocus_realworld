@@ -80,7 +80,7 @@ def test_render_semantic_decision_map_history_row_ordering_not_mirrored():
     # range; more importantly, verify via direct pixel lookup that the
     # LARGER-row node (h-5) lands at the SMALLER pixel y.
     def to_px(row, col, scale=4):
-        return int((col + 0.5) * scale), int((h - 1 - row + 0.5) * scale)
+        return int(col * scale), int((h - row) * scale)
 
     x_lo, y_lo = to_px(5, 30)
     x_hi, y_hi = to_px(h - 5, 30)
@@ -89,11 +89,105 @@ def test_render_semantic_decision_map_history_row_ordering_not_mirrored():
     assert tuple(img[y_hi, x_hi]) == (0, 255, 0)
 
 
-def test_extract_frontiers_finds_boundary_between_explored_and_unknown():
+def test_semantic_decision_map_uses_source_canvas_palette_and_visited_path():
     grid = _grid()
+    image = render_semantic_decision_map(
+        grid,
+        tuple(f"cat{i}" for i in range(15)),
+        [],
+        robot_rc=None,
+        heading_deg=None,
+        visited_paths_rc=[[(20, 20), (30, 20)]],
+    )
+
+    assert image.shape == (480, 480, 3)
+    x = int((20 + 0.5) * (480 / 60))
+    y = int((60 - 1 - 25 + 0.5) * (480 / 60))
+    # Source palette index 3 is RGB (0.96, 0.36, 0.26), converted to BGR
+    # with int(x*255) truncation.
+    assert tuple(image[y, x]) == (66, 91, 244)
+
+
+def test_source_visited_path_keeps_zero_border_slice_behavior():
+    grid = _grid()
+    image = render_semantic_decision_map(
+        grid,
+        tuple(f"cat{i}" for i in range(15)),
+        [],
+        robot_rc=None,
+        heading_deg=None,
+        visited_paths_rc=[[(0, 0)]],
+        scale=1,
+    )
+
+    # Source draw_line writes [-1:1, -1:1], an empty NumPy slice, rather
+    # than clipping it into the map.
+    assert tuple(image[-1, 0]) == (255, 255, 255)
+
+
+def test_decision_render_does_not_apply_local_planner_tv_dilation():
+    names = (
+        "chair",
+        "sofa",
+        "plant",
+        "bed",
+        "toilet",
+        "tv",
+        "bathtub",
+        "shower",
+        "fireplace",
+        "appliances",
+        "towel",
+        "sink",
+        "chest_of_drawers",
+        "table",
+        "stairs",
+    )
+    chair_grid = _grid()
+    tv_grid = _grid()
+    chair_grid[2, 30, 30] = 1.0
+    tv_grid[2 + names.index("tv"), 30, 30] = 1.0
+
+    chair = render_semantic_decision_map(
+        chair_grid,
+        names,
+        [],
+        robot_rc=None,
+        heading_deg=None,
+        goal_category="chair",
+        scale=1,
+    )
+    tv = render_semantic_decision_map(
+        tv_grid,
+        names,
+        [],
+        robot_rc=None,
+        heading_deg=None,
+        goal_category="tv",
+        scale=1,
+    )
+
+    # Decision_Generation_Vis treats every target channel identically.  The
+    # 7x7 TV dilation belongs only to vlm_agents.py::act's local FMM mask.
+    assert np.array_equal(tv, chair)
+
+
+def test_extract_frontiers_matches_source_contour_component_pipeline():
+    grid = _grid()
+    # Split the source explored-contour boundary into multiple components.
+    # main.py::Frontiers skips the first scan-ordered component and retains
+    # the next source component.
+    grid[0, 8:15, 18:23] = 1.0
+    grid[0, 45:52, 35:40] = 1.0
     frontiers = extract_frontiers(grid, (0.0, 0.0), 0.05, min_cluster_cells=5)
     assert len(frontiers) >= 1
     assert all(f.frontier_id in "ABCD" for f in frontiers)
+
+
+def test_extract_frontiers_preserves_source_first_component_skip():
+    grid = _grid()
+
+    assert extract_frontiers(grid, (0.0, 0.0), 0.05) == []
 
 
 def test_frontier_candidate_contract_accepts_stable_subset_only():

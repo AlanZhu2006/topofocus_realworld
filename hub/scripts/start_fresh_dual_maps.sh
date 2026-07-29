@@ -13,7 +13,7 @@ wsj_start_after=""
 yunji_start_after=""
 goal_category="chair"
 hub_url="http://127.0.0.1:8188"
-semantic_backend="segformer-ade20k"
+semantic_backend="source-rednet-detectron2"
 semantic_min_hits="2"
 semantic_winner_margin_hits="1"
 resume_existing="false"
@@ -27,7 +27,7 @@ Usage: bash hub/scripts/start_fresh_dual_maps.sh \
   --wsj-transform wsj-tinynav-depth-20260723-session-v1 \
   --yunji-transform yunji-odin1-board-20260723-v1 \
   --wsj-start-after N --yunji-start-after N [--goal-category chair] \
-  [--semantic-backend rednet|segformer-ade20k] \
+  [--semantic-backend source-rednet-detectron2|rednet|segformer-ade20k] \
   [--code-commit GIT_SHA] \
   [--resume-existing] \
   [--hub-url http://127.0.0.1:8188]
@@ -36,10 +36,10 @@ Creates new runtime map directories and a new tmux session. It never replaces
 an old directory, changes Hub policy, starts a receiver, or contacts a robot.
 --resume-existing is only for restarting the same calibration/session after a
 Hub-computer reboot; existing artifacts must match the exact session contract.
-The default real-camera semantic adapter emits pixel masks and requires two
-keyframe votes. Real YOLOv10 runs at the source conf=0.2 threshold and is
-persisted as separate Stage-1 Perception-VLM evidence; its boxes are not
-projected into the BEV by this mapping-only launcher.
+The default backend is the executable source RedNet + Detectron2 pixel stack.
+Real YOLOv10 runs at the source conf=0.2 threshold and is persisted as
+separate Stage-1 Perception-VLM evidence; its boxes are not projected into
+the BEV by this mapping-only launcher.
 EOF
 }
 
@@ -83,9 +83,28 @@ if [[ ! "$hub_url" =~ ^http://127\.0\.0\.1:[0-9]+$ ]]; then
   echo "--hub-url must remain loopback-only." >&2
   exit 2
 fi
-if [[ "$semantic_backend" != "rednet" && "$semantic_backend" != "segformer-ade20k" ]]; then
+if [[ "$semantic_backend" != "source-rednet-detectron2" \
+   && "$semantic_backend" != "rednet" \
+   && "$semantic_backend" != "segformer-ade20k" ]]; then
   echo "Invalid --semantic-backend: $semantic_backend" >&2
   exit 2
+fi
+if [[ "$semantic_backend" == "source-rednet-detectron2" ]]; then
+  PYTHONPATH="$hub_dir/src:$workspace/dependencies:$workspace/source/Focus_realworld" \
+    "$python_bin" - <<'PY'
+import detectron2
+import detectron2._C
+assert detectron2.__version__ == "0.6", detectron2.__version__
+PY
+  for artifact in \
+    "$workspace/artifacts/checkpoints/rednet_semmap_mp3d_40.pth" \
+    "$workspace/artifacts/checkpoints/detectron2_mask_rcnn_R_50_FPN_3x_model_final_f10217.pkl"; do
+    [[ -f "$artifact" ]] || {
+      echo "Missing source semantic artifact: $artifact" >&2
+      echo "Run: bash hub/scripts/install_source_semantic_stack.sh" >&2
+      exit 1
+    }
+  done
 fi
 
 tmux_session="shared_maps_${session_tag}"
@@ -166,7 +185,14 @@ for directory, map_relative, robot_id, transform, boundary in (
     os.replace(temporary, path)
 PY
 
-common="--spool runtime/spool --hub-url '$hub_url' --admin-token-file runtime/admin_token --no-cascade --semantic-backend '$semantic_backend' --semantic-fusion-mode multi_view --semantic-min-hits '$semantic_min_hits' --semantic-winner-margin-hits '$semantic_winner_margin_hits' --semantic-yolo --semantic-yolo-evidence-only --semantic-yolo-confidence 0.2 --goal-category '$goal_category' --decision-interval 86400 --snapshot-interval-s 3.0 --shared-frame-calibration-id '$calibration_id' --ground-drift-consecutive-frames 3 --ground-drift-min-duration-s 5.0 --ground-drift-stationary-translation-m 0.03 --ground-drift-stationary-rotation-deg 2.0 --allow-ground-height-translation-for-2d --obstacle-band-high-m 0.75 --obstacle-min-hits 2 --startup-stable-frames 3 --startup-max-pose-delta-m 0.05 --startup-max-rotation-delta-deg 5"
+if [[ "$semantic_backend" == "source-rednet-detectron2" ]]; then
+  semantic_fusion_mode="max"
+  semantic_min_hits="1"
+  semantic_winner_margin_hits="0"
+else
+  semantic_fusion_mode="multi_view"
+fi
+common="--spool runtime/spool --hub-url '$hub_url' --admin-token-file runtime/admin_token --no-cascade --semantic-backend '$semantic_backend' --semantic-fusion-mode '$semantic_fusion_mode' --semantic-min-hits '$semantic_min_hits' --semantic-winner-margin-hits '$semantic_winner_margin_hits' --semantic-yolo --semantic-yolo-evidence-only --semantic-yolo-confidence 0.2 --goal-category '$goal_category' --decision-interval 86400 --snapshot-interval-s 3.0 --shared-frame-calibration-id '$calibration_id' --ground-drift-consecutive-frames 3 --ground-drift-min-duration-s 5.0 --ground-drift-stationary-translation-m 0.03 --ground-drift-stationary-rotation-deg 2.0 --allow-ground-height-translation-for-2d --obstacle-band-high-m 0.75 --obstacle-min-hits 2 --startup-stable-frames 3 --startup-max-pose-delta-m 0.05 --startup-max-rotation-delta-deg 5"
 # WSJ publishes observation keyframes sparsely while stationary.  Preserve the
 # three-frame stability gate but allow those verified-near-identical samples to
 # span one minute; Yunji's 1 Hz stream keeps the stricter ten-second interval.

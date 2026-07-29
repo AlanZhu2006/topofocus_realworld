@@ -20,6 +20,27 @@ Robot 0 and Robot 1 handle planning, control and safety stops locally.
   the GPU hub only publishes high-level, expiring semantic navigation
   targets and never issues low-level velocity commands.
 
+## Real-world deployment
+
+The physical system follows the main method's two-agent navigation pipeline:
+shared semantic mapping, source-compatible frontier and history candidates,
+and the Perception–Judgment–Decision VLM cascade over one consistent A–D
+candidate set. The GPU hub runs RedNet MP3D-40 together with the
+source-referenced Detectron2 Mask R-CNN semantic composition, fuses the
+robots' obstacle, explored and semantic layers, and coordinates
+non-conflicting high-level targets.
+
+| Main-method component | Physical deployment |
+| --- | --- |
+| RGB-D observation and agent pose | D435i/Odin1 RGB-D with each robot's local SLAM |
+| RedNet + Mask R-CNN semantics | Source-compatible semantic inference on the GPU hub |
+| Shared frontier/history exploration | Fused dual-robot map with stable A–D candidates |
+| Perception–Judgment–Decision policy | CogVLM2-based shared decision cascade |
+| Simulator navigation actions | Robot-local planning and control from expiring high-level targets |
+
+The local planner on each platform retains final collision, stop and target
+rejection authority throughout execution.
+
 ## Cross-robot calibration
 
 <p align="center">

@@ -7,8 +7,8 @@ scene worth exploring?") -> register the current shared-history visit ->
 Judgment VLM ("explore a new frontier or revisit a historical point?") ->
 gate -> either Decision VLM over lettered frontiers or deterministic first
 argmax over the shared history-score snapshot. Each VLM stage reads the local server's deterministic
-string-probability extension (temperature 0, one token, softmax sliced to
-the candidate strings) — this module owns the request/parse mechanics;
+string-probability extension (source temperature/top-p, one consumed token,
+softmax sliced to the candidate strings) — this module owns the request/parse mechanics;
 `vlm_prompts.py` owns the prompt text and pure parsing/scoring helpers.
 
 If the VLM server is unreachable and the caller explicitly allowed a
@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass, field
+import io
 import math
 
 import cv2
 import numpy as np
+from PIL import Image
 
 from .directional_memory import DirectionalMemory
 from .frontiers import Frontier, validate_frontier_candidates
@@ -80,25 +82,28 @@ def validate_glm_server_contract(
 
 
 def _call_glm(
-    image_bgr: np.ndarray,
+    source_image_array: np.ndarray,
     prompt: str,
     candidates: list[str],
     *,
     base_url: str,
     timeout_s: float,
 ) -> tuple[dict[str, object], str]:
-    """Shared request/parse mechanics for all three stages: encode the
-    image, ask for `return_string_probabilities` over `candidates`, return
-    (probabilities, raw_text_content).
+    """Shared request/parse mechanics for all three source VLM stages.
+
+    ``src/vlm.py::encode_image`` uses ``Image.fromarray`` and PNG bytes, then
+    places those bytes under a historical ``data:image/jpeg`` URI.  Preserve
+    that executable contract: camera callers supply an RGB array, while the
+    source semantic-map callers supply their already-BGR display array
+    unchanged.
     """
     import httpx
 
-    ok, jpeg = cv2.imencode(".jpg", image_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-    if not ok:
-        raise RuntimeError("failed to encode image")
-    encoded = base64.b64encode(jpeg.tobytes()).decode("ascii")
+    encoded = base64.b64encode(
+        _encode_source_image_png(source_image_array)
+    ).decode("ascii")
     payload = {
-        "model": "THUDM/glm-4v-9b",
+        "model": "cogvlm2",
         "messages": [
             {
                 "role": "user",
@@ -109,7 +114,8 @@ def _call_glm(
                 "return_string_probabilities": "[" + ", ".join(candidates) + "]",
             }
         ],
-        "temperature": 0.0,
+        "temperature": 0.8,
+        "top_p": 0.8,
         "max_tokens": 1,
         "stream": False,
     }
@@ -139,6 +145,19 @@ def _call_glm(
     else:
         probabilities = {}
     return probabilities, content
+
+
+def _encode_source_image_png(source_image_array: np.ndarray) -> bytes:
+    image = np.asarray(source_image_array)
+    if (
+        image.dtype != np.uint8
+        or image.ndim != 3
+        or image.shape[2] != 3
+    ):
+        raise ValueError("source VLM image must be HxWx3 uint8")
+    stream = io.BytesIO()
+    Image.fromarray(image).save(stream, format="PNG")
+    return stream.getvalue()
 
 
 def _require_candidate_scores(
@@ -196,7 +215,16 @@ def choose_scene_worth_exploring_glm(
     exactly, including its "Neither" -> raw-logit fallback).
     """
     prompt = build_perception_prompt(target, detections)
-    probabilities, content = _call_glm(rgb_bgr, prompt, ["Yes", "No"], base_url=base_url, timeout_s=timeout_s)
+    # Habitat supplies source Perception with RGB.  Frozen real-camera files
+    # are loaded by OpenCV as BGR, so restore the same source array first.
+    rgb_source = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB)
+    probabilities, content = _call_glm(
+        rgb_source,
+        prompt,
+        ["Yes", "No"],
+        base_url=base_url,
+        timeout_s=timeout_s,
+    )
     probabilities = _require_candidate_scores(
         probabilities,
         ["Yes", "No"],

@@ -18,11 +18,16 @@ from typing import Any, Iterable
 import cv2
 import numpy as np
 
+from .central_mapping import HM3D_CATEGORY_NAMES
 from .map_snapshot import MapSnapshot, load_map_snapshot
 from .models import ObservationMetadata
 from .shadow_coordination import (
     heading_deg_from_base_pose,
     shared_base_pose_from_camera,
+)
+from .source_behavior_contract import (
+    SOURCE_BEHAVIOR_CONTRACT_VERSION,
+    validate_source_artifact_records,
 )
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 from .vlm_decision import GLM_SERVER_MODEL_ID
@@ -352,6 +357,83 @@ def _validated_frontier_list(
     return records
 
 
+def _validated_history_list(
+    raw: object,
+    *,
+    context: str,
+    origin_xy_m: tuple[float, float],
+    resolution_m: float,
+    shape_hw: tuple[int, int],
+) -> list[dict[str, object]]:
+    if not isinstance(raw, list):
+        raise ValueError(f"{context} history list is malformed")
+    records: list[dict[str, object]] = []
+    seen: set[int] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError(f"{context} history record is malformed")
+        history_index = item.get("history_index")
+        row = item.get("row")
+        col = item.get("col")
+        score = item.get("history_score")
+        frontier_id = item.get("frontier_id")
+        if (
+            isinstance(history_index, bool)
+            or not isinstance(history_index, int)
+            or history_index < 0
+            or history_index in seen
+            or frontier_id != f"history-{history_index}"
+        ):
+            raise ValueError(f"{context} history identity is invalid")
+        if (
+            isinstance(row, bool)
+            or isinstance(col, bool)
+            or not isinstance(row, int)
+            or not isinstance(col, int)
+            or not 0 <= row < shape_hw[0]
+            or not 0 <= col < shape_hw[1]
+        ):
+            raise ValueError(f"{context} history cell is invalid")
+        if (
+            isinstance(score, bool)
+            or not isinstance(score, (int, float))
+            or not math.isfinite(float(score))
+        ):
+            raise ValueError(f"{context} history score is invalid")
+        expected_x = origin_xy_m[0] + (col + 0.5) * resolution_m
+        expected_y = origin_xy_m[1] + (row + 0.5) * resolution_m
+        x_m = item.get("x_m")
+        y_m = item.get("y_m")
+        if (
+            isinstance(x_m, bool)
+            or isinstance(y_m, bool)
+            or not isinstance(x_m, (int, float))
+            or not isinstance(y_m, (int, float))
+            or not math.isclose(
+                float(x_m), expected_x, rel_tol=0.0, abs_tol=1e-9
+            )
+            or not math.isclose(
+                float(y_m), expected_y, rel_tol=0.0, abs_tol=1e-9
+            )
+        ):
+            raise ValueError(
+                f"{context} history world/grid binding is invalid"
+            )
+        seen.add(history_index)
+        records.append(
+            {
+                "frontier_id": frontier_id,
+                "history_index": history_index,
+                "row": row,
+                "col": col,
+                "x_m": float(x_m),
+                "y_m": float(y_m),
+                "history_score": float(score),
+            }
+        )
+    return records
+
+
 def _fused_grid_geometry(
     manifest: dict[str, Any],
 ) -> tuple[tuple[float, float], float, tuple[int, int]]:
@@ -532,6 +614,106 @@ def _frontier_record_matches(
     )
 
 
+def _validate_semantic_input_contract(
+    manifest: dict[str, Any],
+    *,
+    robot_ids: set[str],
+    required: bool = False,
+) -> None:
+    """Validate the optional v1 semantic-provenance contract.
+
+    Older frozen rounds predate this record and remain replayable.  New
+    rounds must prove that both sides used the same pixel backend, temporal
+    fusion policy and YOLO map-mutation policy before their channels were
+    max-fused.
+    """
+
+    contract = manifest.get("semantic_input_contract")
+    if contract is None:
+        if required:
+            raise ValueError(
+                "new source behavior contract requires semantic input "
+                "provenance"
+            )
+        return
+    robots = (
+        contract.get("robots") if isinstance(contract, dict) else None
+    )
+    backend = (
+        contract.get("pixel_segmenter_backend")
+        if isinstance(contract, dict)
+        else None
+    )
+    fusion_mode = (
+        contract.get("semantic_fusion_mode")
+        if isinstance(contract, dict)
+        else None
+    )
+    reinforcement = (
+        contract.get("yolo_map_reinforcement_enabled")
+        if isinstance(contract, dict)
+        else None
+    )
+    expected_maskrcnn_availability = (
+        backend == "source_rednet_detectron2_hm3d15"
+    )
+    if (
+        not isinstance(contract, dict)
+        or contract.get("schema_version")
+        != "focus-vlm-semantic-input-contract-v1"
+        or contract.get("uniform_across_robots") is not True
+        or not isinstance(backend, str)
+        or not backend
+        or fusion_mode not in {"max", "multi_view"}
+        or not isinstance(reinforcement, bool)
+        or contract.get("hm3d_category_order")
+        != list(HM3D_CATEGORY_NAMES)
+        or contract.get("source_maskrcnn_override_available_in_hub")
+        is not expected_maskrcnn_availability
+        or not isinstance(
+            contract.get("pixel_model_classification"), str
+        )
+        or not isinstance(robots, dict)
+        or set(robots) != robot_ids
+    ):
+        raise ValueError("shadow semantic input contract is malformed")
+    for robot_id, record in robots.items():
+        if (
+            not isinstance(record, dict)
+            or record.get("pixel_segmenter_backend") != backend
+            or record.get("semantic_fusion_mode") != fusion_mode
+            or record.get("yolo_map_reinforcement_enabled")
+            is not reinforcement
+        ):
+            raise ValueError(
+                f"{robot_id} semantic input differs from the shared contract"
+            )
+
+
+def _validate_source_behavior_contract(
+    manifest: dict[str, Any],
+) -> bool:
+    """Validate a new pinned source contract; identify legacy replay input."""
+
+    version = manifest.get("source_behavior_contract_version")
+    if version is None:
+        modern_fields = {
+            "source_code_artifacts",
+            "source_execution_profile",
+            "semantic_input_contract",
+        }
+        if modern_fields.intersection(manifest):
+            raise ValueError(
+                "shadow manifest has modern source records without their "
+                "versioned behavior contract"
+            )
+        return False
+    if version != SOURCE_BEHAVIOR_CONTRACT_VERSION:
+        raise ValueError("shadow source behavior contract version is unsupported")
+    validate_source_artifact_records(manifest.get("source_code_artifacts"))
+    return True
+
+
 def _validate_vlm_selection_bindings(
     manifest: dict[str, Any],
     robot_results_raw: list[dict[str, Any]],
@@ -554,6 +736,86 @@ def _validate_vlm_selection_bindings(
         raise ValueError(
             "shadow manifest lacks the reviewed GLM candidate-score contract"
         )
+    pinned_source_contract = _validate_source_behavior_contract(manifest)
+    _validate_semantic_input_contract(
+        manifest,
+        robot_ids={
+            str(record.get("robot_id", ""))
+            for record in robot_results_raw
+        },
+        required=pinned_source_contract,
+    )
+    execution_profile = manifest.get("source_execution_profile")
+    if pinned_source_contract and execution_profile is None:
+        raise ValueError(
+            "new source behavior contract requires an execution profile"
+        )
+    if execution_profile is not None:
+        optional = (
+            execution_profile.get(
+                "optional_mechanisms_without_selection_effect"
+            )
+            if isinstance(execution_profile, dict)
+            else None
+        )
+        image_transport = (
+            execution_profile.get("vlm_image_transport")
+            if isinstance(execution_profile, dict)
+            else None
+        )
+        generation_request = (
+            execution_profile.get("vlm_generation_request")
+            if isinstance(execution_profile, dict)
+            else None
+        )
+        if (
+            not isinstance(execution_profile, dict)
+            or execution_profile.get("profile")
+            != "authoritative_default_unpruned_path"
+            or execution_profile.get("enable_pruning") is not False
+            or not isinstance(optional, dict)
+            or set(optional)
+            != {
+                "room_segmentation_and_room_semantics",
+                "attention_dod",
+                "active_patches",
+            }
+            or execution_profile.get("source_paths")
+            != [
+                "source/Focus_realworld/arguments.py",
+                "source/Focus_realworld/main.py",
+            ]
+            or (
+                pinned_source_contract
+                and image_transport
+                != {
+                    "byte_encoding": "PNG",
+                    "data_uri_media_type": "image/jpeg",
+                    "camera_array": "RGB",
+                    "semantic_map_array": (
+                        "source BGR passed to PIL unchanged"
+                    ),
+                }
+            )
+            or (
+                pinned_source_contract
+                and generation_request
+                != {
+                    "model": "cogvlm2",
+                    "temperature": 0.8,
+                    "top_p": 0.8,
+                    "max_tokens": 1,
+                    "source_max_tokens": 2048,
+                    "max_tokens_adaptation": (
+                        "consume only the first generated label token and "
+                        "its first-step candidate scores"
+                    ),
+                }
+            )
+        ):
+            raise ValueError(
+                "shadow manifest has an unsupported source execution profile"
+            )
     contract = manifest.get("vlm_frontier_contract")
     if not isinstance(contract, dict):
         raise ValueError("shadow manifest lacks the VLM frontier contract")
@@ -566,8 +828,72 @@ def _validate_vlm_selection_bindings(
         or contract.get("allocation")
         != "selected frontier removed before the next robot"
         or contract.get("duplicate_physical_frontier_targets") is not False
+        or (
+            "source_later_agent_image_prompt_mismatch_corrected" in contract
+            and contract.get(
+                "source_later_agent_image_prompt_mismatch_corrected"
+            )
+            is not True
+        )
     ):
         raise ValueError("shadow manifest has an unsupported VLM frontier contract")
+    source_geometry_fields = {
+        "extraction",
+        "minimum_component_cells",
+        "source_first_region_property_skipped",
+        "decision_canvas_px",
+        "decision_palette",
+        "stable_id_binding",
+        "source_later_agent_image_prompt_mismatch_corrected",
+        "semantic_polygon_binding",
+        "history_label_binding",
+        "source_history_image_prompt_mismatch_corrected",
+        "source_single_frontier_reuse_suppressed",
+    }
+    if (
+        pinned_source_contract
+        or source_geometry_fields.intersection(contract)
+    ) and (
+        contract.get("extraction")
+        != (
+            "source main.py::Frontiers largest explored contour, 5x5 "
+            "close, 3x3 obstacle dilation, 8-connected components"
+        )
+        or contract.get("minimum_component_cells") != 5
+        or contract.get("source_first_region_property_skipped") is not True
+        or contract.get("decision_canvas_px") != 480
+        or contract.get("decision_palette")
+        != "source constants.py color_palette"
+        or contract.get("stable_id_binding")
+        != (
+            "one shared component ID is preserved across rendered letter, "
+            "prompt coordinate, requested score token, selected target "
+            "and transport provenance"
+        )
+        or contract.get(
+            "source_later_agent_image_prompt_mismatch_corrected"
+        )
+        is not True
+        or contract.get("semantic_polygon_binding")
+        != (
+            "prompt polygons and rendered labels share source-flipped "
+            "480px display coordinates"
+        )
+        or contract.get("history_label_binding")
+        != (
+            "a-z then A-Z IDs are stable across Judgment image, prompt "
+            "and source-score selection"
+        )
+        or contract.get(
+            "source_history_image_prompt_mismatch_corrected"
+        )
+        is not True
+        or contract.get("source_single_frontier_reuse_suppressed")
+        is not True
+    ):
+        raise ValueError(
+            "shadow manifest has unsupported source frontier geometry"
+        )
 
     shared = _validated_frontier_list(
         manifest.get("frontiers"),
@@ -585,6 +911,7 @@ def _validate_vlm_selection_bindings(
         str(record["frontier_id"]): record
         for record in shared
     }
+    remaining_history: list[dict[str, object]] | None = None
     expected_orders = list(range(1, len(robot_results_raw) + 1))
     actual_orders = [record.get("allocation_order") for record in robot_results_raw]
     if actual_orders != expected_orders:
@@ -616,6 +943,22 @@ def _validate_vlm_selection_bindings(
         probabilities = result.get("choice_probabilities")
         if not isinstance(probabilities, dict):
             raise ValueError(f"{robot_id} VLM choice probabilities are malformed")
+        history_candidates: list[dict[str, object]] | None = None
+        if "candidate_history_nodes" in result:
+            history_candidates = _validated_history_list(
+                result.get("candidate_history_nodes"),
+                context=f"{robot_id} candidate",
+                origin_xy_m=origin_xy_m,
+                resolution_m=resolution_m,
+                shape_hw=shape_hw,
+            )
+            if remaining_history is None:
+                remaining_history = list(history_candidates)
+            elif history_candidates != remaining_history:
+                raise ValueError(
+                    f"{robot_id} history candidates do not match the "
+                    "remaining shared source-history snapshot"
+                )
         allocated: dict[str, object] | None = None
         if allocated_raw is not None:
             allocated = _validated_frontier_record(
@@ -716,6 +1059,42 @@ def _validate_vlm_selection_bindings(
                 raise ValueError(
                     f"{robot_id} history target differs from the source gate choice"
                 )
+            if history_candidates is not None:
+                validated_selection = _validated_history_list(
+                    [selection],
+                    context=f"{robot_id} selected",
+                    origin_xy_m=origin_xy_m,
+                    resolution_m=resolution_m,
+                    shape_hw=shape_hw,
+                )[0]
+                selected_index = validated_selection["history_index"]
+                selected = next(
+                    (
+                        item
+                        for item in history_candidates
+                        if item["history_index"] == selected_index
+                    ),
+                    None,
+                )
+                if (
+                    selected is None
+                    or validated_selection != selected
+                    or selection.get("target_id")
+                    != validated_selection["frontier_id"]
+                ):
+                    raise ValueError(
+                        f"{robot_id} history target is outside its frozen "
+                        "source-history candidates"
+                    )
+                if (
+                    remaining_history is not None
+                    and len(remaining_history) > 1
+                ):
+                    remaining_history = [
+                        item
+                        for item in remaining_history
+                        if item["history_index"] != selected_index
+                    ]
         else:
             raise ValueError(f"{robot_id} has unsupported VLM selection kind")
 
@@ -732,6 +1111,18 @@ def _validate_vlm_selection_bindings(
         )
     ):
         raise ValueError("remaining VLM frontier set does not match allocations")
+    if "remaining_history_nodes" in manifest:
+        recorded_history = _validated_history_list(
+            manifest.get("remaining_history_nodes"),
+            context="remaining VLM",
+            origin_xy_m=origin_xy_m,
+            resolution_m=resolution_m,
+            shape_hw=shape_hw,
+        )
+        if recorded_history != (remaining_history or []):
+            raise ValueError(
+                "remaining VLM history set does not match allocations"
+            )
 
 
 def build_batch_from_shadow_manifest(

@@ -210,3 +210,22 @@ def test_interval_geometry_refresh_does_not_confirm_semantics():
 
     mapper.integrate(frame, semantic_pred)
     assert mapper.map.grid[(2,) + rc] == pytest.approx(1.0)
+
+
+def test_source_multihot_channels_retain_overlapping_semantics():
+    mapper, frame, _ = _make_single_point_mapper(
+        ray_trace_steps=0,
+        cat_pred_threshold=1.0,
+    )
+    semantic_channels = np.zeros((1, 10, 15), dtype=np.float32)
+    semantic_channels[0, 6, 0] = 1.0  # chair
+    semantic_channels[0, 6, 2] = 1.0  # plant at the same source pixel
+    endpoint_row, endpoint_col = mapper.map.world_to_cell(
+        np.array([6.0]), np.array([0.0])
+    )
+    rc = (endpoint_row[0], endpoint_col[0])
+
+    mapper.integrate(frame, semantic_channels)
+
+    assert mapper.map.grid[(2,) + rc] == pytest.approx(1.0)
+    assert mapper.map.grid[(4,) + rc] == pytest.approx(1.0)

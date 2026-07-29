@@ -9,6 +9,10 @@ import numpy as np
 import pytest
 
 from focus_hub.models import ObservationMetadata
+from focus_hub.source_behavior_contract import (
+    SOURCE_BEHAVIOR_CONTRACT_VERSION,
+    expected_source_artifact_records,
+)
 from focus_hub.v2_scene_batch import (
     build_batch_from_shadow_manifest,
     sha256_file,
@@ -219,6 +223,92 @@ def prepare_round(
         },
         "safety": {"robot_commands_sent": False},
         "source_episode": {"logical_l_step": 24, "next_round_index": 2},
+        "source_behavior_contract_version": (
+            SOURCE_BEHAVIOR_CONTRACT_VERSION
+        ),
+        "source_code_artifacts": expected_source_artifact_records(),
+        "source_execution_profile": {
+            "profile": "authoritative_default_unpruned_path",
+            "enable_pruning": False,
+            "vlm_image_transport": {
+                "byte_encoding": "PNG",
+                "data_uri_media_type": "image/jpeg",
+                "camera_array": "RGB",
+                "semantic_map_array": (
+                    "source BGR passed to PIL unchanged"
+                ),
+            },
+            "vlm_generation_request": {
+                "model": "cogvlm2",
+                "temperature": 0.8,
+                "top_p": 0.8,
+                "max_tokens": 1,
+                "source_max_tokens": 2048,
+                "max_tokens_adaptation": (
+                    "consume only the first generated label token and its "
+                    "first-step candidate scores"
+                ),
+            },
+            "optional_mechanisms_without_selection_effect": {
+                "room_segmentation_and_room_semantics": (
+                    "test source-derived selection-neutral record"
+                ),
+                "attention_dod": (
+                    "test source-derived selection-neutral record"
+                ),
+                "active_patches": (
+                    "test source-derived selection-neutral record"
+                ),
+            },
+            "source_paths": [
+                "source/Focus_realworld/arguments.py",
+                "source/Focus_realworld/main.py",
+            ],
+        },
+        "semantic_input_contract": {
+            "schema_version": "focus-vlm-semantic-input-contract-v1",
+            "uniform_across_robots": True,
+            "pixel_segmenter_backend": (
+                "segformer_b0_ade20k_to_mp3d40"
+            ),
+            "semantic_fusion_mode": "multi_view",
+            "yolo_map_reinforcement_enabled": False,
+            "hm3d_category_order": [
+                "chair",
+                "sofa",
+                "plant",
+                "bed",
+                "toilet",
+                "tv",
+                "bathtub",
+                "shower",
+                "fireplace",
+                "appliances",
+                "towel",
+                "sink",
+                "chest_of_drawers",
+                "table",
+                "stairs",
+            ],
+            "pixel_model_classification": (
+                "checksum-pinned real-camera deployment adapter; not the "
+                "executable source pixel model"
+            ),
+            "source_maskrcnn_override_available_in_hub": False,
+            "robots": {
+                robot_id: {
+                    "pixel_segmenter_backend": (
+                        "segformer_b0_ade20k_to_mp3d40"
+                    ),
+                    "semantic_fusion_mode": "multi_view",
+                    "yolo_map_reinforcement_enabled": False,
+                    "pixel_segmenter_status": (
+                        "deployment_adapter_model_inference_unverified"
+                    ),
+                }
+                for robot_id in ROBOTS
+            },
+        },
         "frontiers": [frontier_a_record, frontier_b_record],
         "remaining_frontiers": [],
         "vlm_frontier_contract": {
@@ -231,6 +321,30 @@ def prepare_round(
             ),
             "allocation": "selected frontier removed before the next robot",
             "duplicate_physical_frontier_targets": False,
+            "stable_id_binding": (
+                "one shared component ID is preserved across rendered letter, "
+                "prompt coordinate, requested score token, selected target "
+                "and transport provenance"
+            ),
+            "source_later_agent_image_prompt_mismatch_corrected": True,
+            "semantic_polygon_binding": (
+                "prompt polygons and rendered labels share source-flipped "
+                "480px display coordinates"
+            ),
+            "history_label_binding": (
+                "a-z then A-Z IDs are stable across Judgment image, prompt "
+                "and source-score selection"
+            ),
+            "source_history_image_prompt_mismatch_corrected": True,
+            "source_single_frontier_reuse_suppressed": True,
+            "extraction": (
+                "source main.py::Frontiers largest explored contour, 5x5 "
+                "close, 3x3 obstacle dilation, 8-connected components"
+            ),
+            "minimum_component_cells": 5,
+            "source_first_region_property_skipped": True,
+            "decision_canvas_px": 480,
+            "decision_palette": "source constants.py color_palette",
         },
         "input_artifacts": artifacts,
         "decision_map_artifact": artifact(
@@ -413,6 +527,32 @@ def test_rejects_abcd_score_labels_that_do_not_match_candidate_view(
         )
 
 
+def test_rejects_later_agent_image_prompt_binding_regression(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path,
+        observation_factory,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["vlm_frontier_contract"][
+        "source_later_agent_image_prompt_mismatch_corrected"
+    ] = False
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="frontier contract"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-trial-1",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+        )
+
+
 def test_rejects_abcd_cell_world_coordinate_mismatch(
     tmp_path,
     observation_factory,
@@ -450,6 +590,128 @@ def test_rejects_vlm_red_arrow_that_uses_camera_instead_of_base_pose(
     write_json(manifest_path, manifest)
 
     with pytest.raises(ValueError, match="measured base pose"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-trial-1",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+        )
+
+
+def test_rejects_mixed_robot_semantic_contract(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path,
+        observation_factory,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["semantic_input_contract"]["robots"]["robot-1"][
+        "pixel_segmenter_backend"
+    ] = "rednet_mp3d40"
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="semantic input differs"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-trial-1",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+        )
+
+
+def test_new_source_contract_rejects_missing_semantic_provenance(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path,
+        observation_factory,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["semantic_input_contract"]
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="semantic input provenance"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-trial-1",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+        )
+
+
+def test_new_source_contract_rejects_source_identity_drift(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path,
+        observation_factory,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["source_code_artifacts"][0]["sha256"] = "0" * 64
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="differs from review"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-trial-1",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+        )
+
+
+def test_new_source_contract_cannot_be_downgraded_by_removing_version(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path,
+        observation_factory,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["source_behavior_contract_version"]
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="without their versioned"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-trial-1",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+        )
+
+
+def test_new_source_contract_rejects_missing_geometry_binding(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path,
+        observation_factory,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["vlm_frontier_contract"]["stable_id_binding"]
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="source frontier geometry"):
         build_batch_from_shadow_manifest(
             manifest_path,
             registry,

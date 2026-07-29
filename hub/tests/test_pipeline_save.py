@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 
 from focus_hub.central_mapping import MapperConfig
 from focus_hub.pipeline import SpoolMappingPipeline
@@ -22,6 +23,25 @@ def _make_pipeline() -> SpoolMappingPipeline:
         robot_id="robot-0",
         shared_frame_calibration_id="test-calibration-v1",
     )
+
+
+def test_exact_source_pixel_backend_rejects_yolo_map_mutation():
+    class _ExactSourceSegmenter:
+        provenance = {
+            "backend": "source_rednet_detectron2_hm3d15",
+        }
+
+    K = np.array([[300.0, 0, 160], [0, 300.0, 120], [0, 0, 1]])
+    with pytest.raises(ValueError, match="evidence-only"):
+        SpoolMappingPipeline(
+            _ExactSourceSegmenter(),
+            K,
+            MapperConfig(),
+            (0.0, 0.0),
+            0.0,
+            semantic_detector=object(),
+            semantic_yolo_reinforce_map=True,
+        )
 
 
 def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
@@ -70,6 +90,13 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
         assert str(data["semantic_yolo_model_sha256"].item()) == ""
         assert int(data["last_map_sequence"]) == -1
         assert int(data["last_map_capture_time_ns"]) == -1
+        assert data["robot_trajectory_xy_m"].shape == (0, 2)
+        assert int(
+            data["robot_trajectory_last_observation_sequence"]
+        ) == -1
+        assert str(data["robot_trajectory_pose_source"].item()) == (
+            "camera_pose_fallback_no_base_T_camera"
+        )
 
     summary = json.loads((tmp_path / "map_summary.json").read_text())
     assert summary["obstacle_band_m"] == [0.25, 1.5]
@@ -85,6 +112,17 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
     assert summary["semantic_vote_policy"] == "every_integrated_keyframe"
     assert summary["semantic_vote_frames"] == 0
     assert summary["semantic_interval_frames_without_vote"] == 0
+    assert summary["robot_trajectory_snapshot"] == {
+        "container": "central_map.npz",
+        "field": "robot_trajectory_xy_m",
+        "point_count": 0,
+        "last_observation_sequence": None,
+        "pose_source": "camera_pose_fallback_no_base_T_camera",
+        "classification": (
+            "observed base trajectory in the same atomic map snapshot "
+            "generation"
+        ),
+    }
     assert summary["last_map_capture_time_ns"] is None
     assert summary["semantic_cells"] == 0
 

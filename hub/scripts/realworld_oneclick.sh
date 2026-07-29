@@ -623,7 +623,7 @@ ensure_maps() {
   local -a map_resume_args=()
   # Map artifacts remain immutable provenance, but only this session's two
   # read-only daemons may consume inference resources. Without this retirement
-  # gate every code-bound retry leaves another SegFormer/YOLO pair running and
+  # gate every code-bound retry leaves another semantic/YOLO pair running and
   # makes later preflights progressively slower.
   retire_other_managed_map_sessions
   if map_window_matches \
@@ -879,8 +879,8 @@ ensure_foxglove() {
   done
   tmux new-session -d -s "$FOXGLOVE_SESSION" -n relay \
     "bash -lc 'cd \"$HUB_DIR\"; exec .venv/bin/python -u tools/foxglove_relay.py --robot robot-0:wsj:\"$WSJ_MAP\" --robot robot-1:yunji:\"$YUNJI_MAP\" --host 0.0.0.0 --port $FOCUS_FOXGLOVE_PORT --preview-port $FOCUS_PREVIEW_PORT --fuse'"
-  # A fresh pair of SegFormer-backed maps normally needs roughly 20-40
-  # seconds to pass startup stability, infer its first semantic frame and
+  # A fresh pair of model-backed maps normally needs roughly 20-40 seconds to
+  # pass startup stability, infer its first semantic frame and
   # publish the first fused overview.  Readiness remains content-based; this
   # longer bound only prevents a healthy first launch from losing a race by a
   # few seconds.

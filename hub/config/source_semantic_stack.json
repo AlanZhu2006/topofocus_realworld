@@ -1,0 +1,93 @@
+{
+  "schema_version": "focus-source-semantic-stack-v1",
+  "classification": "source-derived runtime; model inference remains unverified without labelled real-camera ground truth",
+  "source_contract": {
+    "semantic_implementation": {
+      "path": "source/Focus_realworld/utils/semantic_prediction.py",
+      "size_bytes": 8684,
+      "sha256": "e7c2591235f69ef03917bce813516b53805ab8dbb529fa16b9d9fce7affec95d",
+      "classification": "observed immutable authoritative source"
+    },
+    "override_implementation": {
+      "path": "source/Focus_realworld/agents/vlm_agents.py",
+      "size_bytes": 46500,
+      "sha256": "992f0174d50b6959d538a418c224907156f784ffd4b35b5ef67c02da3461bee0",
+      "classification": "observed immutable authoritative source"
+    },
+    "maskrcnn_config": {
+      "path": "source/Focus_realworld/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml",
+      "size_bytes": 192,
+      "sha256": "e51a639dea109a372822f1b38a603fdeab7f470119d9dcb8d8ad53bf533a46ba",
+      "classification": "observed immutable authoritative source"
+    },
+    "maskrcnn_base_config": {
+      "path": "source/Focus_realworld/configs/Base-RCNN-FPN.yaml",
+      "size_bytes": 1318,
+      "sha256": "95306a7335903880e35b8c919a7daad1d8ce4b2c926a69506be1c7116a0799d7",
+      "classification": "observed immutable authoritative source"
+    },
+    "confidence_threshold": 0.9,
+    "input_resize": false,
+    "hm3d_override_order": [
+      "chair_clear",
+      "sofa_clear",
+      "plant_add",
+      "bed_clear",
+      "toilet_add",
+      "tv_add"
+    ]
+  },
+  "model_artifacts": {
+    "rednet": {
+      "path": "artifacts/checkpoints/rednet_semmap_mp3d_40.pth",
+      "size_bytes": 656550984,
+      "sha256": "f94d1c62a73bc05690ae29200d3dbd033ff243e7ce91755d1cd928bde844f995",
+      "classification": "observed local model artifact; checksum verified"
+    },
+    "detectron2_maskrcnn": {
+      "path": "artifacts/checkpoints/detectron2_mask_rcnn_R_50_FPN_3x_model_final_f10217.pkl",
+      "source_url": "https://dl.fbaipublicfiles.com/detectron2/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl",
+      "size_bytes": 177841981,
+      "sha256": "9a737e290372f1f70994ebcbd89d8004dbb3ae30a605fd915a190fa4a782dd66",
+      "classification": "observed downloaded source-referenced model artifact; checksum verified"
+    }
+  },
+  "detectron2_runtime": {
+    "version": "0.6",
+    "upstream_commit": "b4a4a3bd136852dae5fb1de37978dee412653e31",
+    "source_archive": {
+      "path": "artifacts/toolchains/detectron2-b4a4a3bd136852dae5fb1de37978dee412653e31.tar.gz",
+      "size_bytes": 1017574,
+      "sha256": "ad08474b62ba7fc12347126b40d536e14499aa5e4bc0505c3e4dd3e79d82a0ee",
+      "classification": "observed downloaded pinned upstream source; checksum verified"
+    },
+    "build_target": {
+      "python": "3.10",
+      "torch": "2.8.0+cu128",
+      "torchvision": "0.23.0+cu128",
+      "cuda": "12.8",
+      "gpu_arch": "8.9",
+      "classification": "observed local compatibility build environment"
+    }
+  },
+  "cuda_toolchain_archives": [
+    {
+      "path": "artifacts/toolchains/cuda-12.8.1-downloads/cuda_nvcc-linux-x86_64-12.8.93-archive.tar.xz",
+      "size_bytes": 79015464,
+      "sha256": "9961b3484b6b71314063709a4f9529654f96782ad39e72bf1e00f070db8210d3",
+      "classification": "observed NVIDIA redistribution artifact; checksum verified"
+    },
+    {
+      "path": "artifacts/toolchains/cuda-12.8.1-downloads/cuda_cudart-linux-x86_64-12.8.90-archive.tar.xz",
+      "size_bytes": 1354240,
+      "sha256": "8d566b5fe745c46842dc16945cf36686227536decd2302c372be86da37faca68",
+      "classification": "observed NVIDIA redistribution artifact; checksum verified"
+    },
+    {
+      "path": "artifacts/toolchains/cuda-12.8.1-downloads/cuda_cccl-linux-x86_64-12.8.90-archive.tar.xz",
+      "size_bytes": 928524,
+      "sha256": "0740e9e01e4f15e17c5ab8d68bba4f8ec0eb6b84edccba4ac45112d2d2174e4b",
+      "classification": "observed NVIDIA redistribution artifact; checksum verified"
+    }
+  ]
+}

@@ -283,7 +283,10 @@ def extract_scene_objects(
         channel = category_grid[i]
         if channel.sum() == 0:
             continue
-        mask = (channel > threshold).astype(np.uint8)
+        # Source thresholds values above 0.1 to one, then uses
+        # ``cv2.inRange(..., 0.1, 1)``.  The latter is inclusive, so an exact
+        # threshold value is semantic evidence as well.
+        mask = (channel >= threshold).astype(np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         contours, _ = cv2.findContours(
             cv2.inRange(mask, 1, 1), cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
@@ -298,14 +301,62 @@ def extract_scene_objects(
     return result
 
 
-def format_scene_objects_for_prompt(scene_objects: dict[str, list[SceneObject]]) -> str:
-    """Ported from the `semantic_segmentation` string-building expression
-    inlined in both `form_prompt_for_FN` and `form_prompt_for_DecisionVLM_Frontier`.
+def format_scene_objects_for_prompt(
+    scene_objects: dict[str, list[SceneObject]],
+    *,
+    shape_hw: tuple[int, int],
+    canvas_size_px: int = 480,
+) -> str:
+    """Format the exact display-coordinate polygons used by source prompts.
+
+    ``Decision_Generation_Vis`` mutates every polygon's row through ``d240``
+    before the Judgment and Decision prompts stringify ``agents_seg_list``.
+    On the source's 480x480 map, that changes OpenCV ``(column, row)`` into
+    ``(column, 480-row)``.  Real maps can be rectangular, so both axes are
+    scaled onto the same 480px decision canvas used by the renderer.
     """
+
+    if (
+        not isinstance(shape_hw, tuple)
+        or len(shape_hw) != 2
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value <= 0
+            for value in shape_hw
+        )
+    ):
+        raise ValueError("semantic prompt map shape must be positive HxW")
+    if (
+        isinstance(canvas_size_px, bool)
+        or not isinstance(canvas_size_px, int)
+        or canvas_size_px < 64
+    ):
+        raise ValueError("semantic prompt canvas size must be at least 64")
+    height, width = shape_hw
+
+    def display_point(point: np.ndarray) -> tuple[int, int]:
+        column = int(point[0][0])
+        row = int(point[0][1])
+        if not 0 <= row < height or not 0 <= column < width:
+            raise ValueError("semantic prompt polygon is outside the map")
+        return (
+            int(column * canvas_size_px / width),
+            int((height - row) * canvas_size_px / height),
+        )
+
     lines = []
     for name, objects in scene_objects.items():
         polys = ", ".join(
-            "<" + ", ".join(f"{int(pt[0][0])}, {int(pt[0][1])}" for pt in obj.polygon_rowcol) + ">"
+            "<"
+            + ", ".join(
+                f"{column}, {display_row}"
+                for column, display_row in (
+                    display_point(point)
+                    for point in obj.polygon_rowcol
+                )
+            )
+            + ">"
             for obj in objects
         )
         lines.append(f"{name}: {polys}")

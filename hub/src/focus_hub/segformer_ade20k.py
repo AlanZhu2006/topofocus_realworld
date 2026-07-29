@@ -1,9 +1,11 @@
 """Real-camera pixel semantics from the validated SegFormer ADE20K model.
 
-The upstream Focus_realworld executable uses MP3D-40 RedNet labels for its
-semantic BEV.  That model is retained as the default backend.  Real WSJ RGB
-observations expose a repeatable domain gap, however: a visible chair produces
-no production-thresholded RedNet chair pixels.  This deployment adapter uses
+The upstream Focus_realworld executable uses MP3D-40 RedNet followed by a
+six-category Detectron2 Mask R-CNN override for its semantic BEV. The Hub
+retains the RedNet backbone as an available backend but does not have the
+source Detectron2 runtime/checkpoint. Real WSJ RGB observations expose a
+repeatable RedNet domain gap: a visible chair produces no
+production-thresholded RedNet chair pixels. This deployment adapter uses
 the same SegFormer-B0/ADE20K family and 0.35 confidence gate previously
 validated by TinyNav's isolated real-camera semantic-mapping package, then
 collapses its source labels into the MP3D IDs already consumed by

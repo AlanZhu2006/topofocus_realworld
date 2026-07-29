@@ -21,8 +21,11 @@ Deviations from upstream, recorded rather than hidden:
   * poses come from TinyNav SLAM instead of Habitat ground truth, so no
     (dx, dy, dtheta) dead-reckoning integration or grid_sample warping is
     needed; points are transformed directly into the world frame.
-  * upstream gates six semantic channels with a second Grounded-SAM
-    predictor; the replay mapper uses RedNet alone (mapping_only scope).
+  * the executable source gates chair/sofa/bed and augments
+    plant/toilet/tv with a Detectron2 Mask R-CNN at confidence 0.9 after
+    RedNet. ``source-rednet-detectron2`` supplies those exact multi-hot
+    channels; the legacy ``rednet`` backend remains explicitly classified as
+    the backbone alone.
   * the floor plane is estimated from real depth because the real camera
     height is not a Habitat constant. Live mapping keeps all three plane
     coefficients; collapsing a tilted floor to one scalar z creates false
@@ -261,20 +264,58 @@ class CentralMapper:
         t = frame.T_world_infra1[:3, 3]
         points_world = points_infra1 @ R.T + t
 
-        # Sample the RedNet class by projecting each depth point into the RGB
-        # image (depth stays in its native rectified frame; no depth warping).
+        # Sample semantics by projecting each depth point into the RGB image
+        # (depth stays in its native rectified frame; no depth warping).
+        # Legacy/adaptor backends return one MP3D-40 ID per pixel. The exact
+        # executable-source backend returns fifteen multi-hot HM3D channels;
+        # retaining those channels is important because source Mask R-CNN
+        # instance masks can overlap.
         p_rgb = points_infra1 @ self.T_infra1_to_rgb[:3, :3].T + self.T_infra1_to_rgb[:3, 3]
         in_front = p_rgb[:, 2] > 1e-6
         u = np.full(len(p_rgb), -1.0)
         v = np.full(len(p_rgb), -1.0)
         u[in_front] = self.K_rgb[0, 0] * p_rgb[in_front, 0] / p_rgb[in_front, 2] + self.K_rgb[0, 2]
         v[in_front] = self.K_rgb[1, 1] * p_rgb[in_front, 1] / p_rgb[in_front, 2] + self.K_rgb[1, 2]
-        h_rgb, w_rgb = semantic_pred.shape
+        semantic_array = np.asarray(semantic_pred)
+        if semantic_array.ndim == 2:
+            h_rgb, w_rgb = semantic_array.shape
+            semantic_channels = None
+        elif (
+            semantic_array.ndim == 3
+            and semantic_array.shape[2] == len(HM3D_CATEGORY_NAMES)
+        ):
+            h_rgb, w_rgb, _ = semantic_array.shape
+            if not np.issubdtype(semantic_array.dtype, np.number):
+                raise ValueError("semantic channel tensor must be numeric")
+            if (
+                not np.all(np.isfinite(semantic_array))
+                or np.any(semantic_array < 0)
+            ):
+                raise ValueError(
+                    "semantic channel tensor must be finite and non-negative"
+                )
+            semantic_channels = np.zeros(
+                (len(p_rgb), len(HM3D_CATEGORY_NAMES)),
+                dtype=np.float32,
+            )
+        else:
+            raise ValueError(
+                "semantic prediction must be H x W MP3D IDs or "
+                "H x W x HM3D-15 channels"
+            )
         ui = np.round(u).astype(np.int64)
         vi = np.round(v).astype(np.int64)
         in_rgb = (ui >= 0) & (ui < w_rgb) & (vi >= 0) & (vi < h_rgb)
-        labels = np.zeros(len(p_rgb), dtype=np.int16)
-        labels[in_rgb] = semantic_pred[vi[in_rgb], ui[in_rgb]]
+        labels = None
+        if semantic_channels is None:
+            labels = np.zeros(len(p_rgb), dtype=np.int16)
+            labels[in_rgb] = semantic_array[vi[in_rgb], ui[in_rgb]]
+        else:
+            semantic_channels[in_rgb] = semantic_array[
+                vi[in_rgb],
+                ui[in_rgb],
+                :,
+            ]
 
         grid = self.map.grid
         cells = self.map.cells
@@ -320,7 +361,10 @@ class CentralMapper:
             + coefficients[2]
         )
         z_rel = map_points[:, 2] - floor_z
-        labels = labels[in_map]
+        if labels is not None:
+            labels = labels[in_map]
+        else:
+            semantic_channels = semantic_channels[in_map]
 
         flat = row * cells + col
         np.add.at(frame_counts[1], flat, 1.0)  # explored: every in-map valid return
@@ -336,9 +380,19 @@ class CentralMapper:
         np.add.at(frame_counts[0], flat[obstacle_band], 1.0)
 
         for channel, rednet_id in enumerate(MP_CATEGORIES_MAPPING, start=2):
-            chosen = semantic_band & (labels == rednet_id)
+            if labels is not None:
+                chosen = semantic_band & (labels == rednet_id)
+                if np.any(chosen):
+                    np.add.at(frame_counts[channel], flat[chosen], 1.0)
+                continue
+            weights = semantic_channels[:, channel - 2]
+            chosen = semantic_band & (weights > 0)
             if np.any(chosen):
-                np.add.at(frame_counts[channel], flat[chosen], 1.0)
+                np.add.at(
+                    frame_counts[channel],
+                    flat[chosen],
+                    weights[chosen],
+                )
 
         frame_map = np.zeros_like(grid)
         frame_map[0] = np.clip(

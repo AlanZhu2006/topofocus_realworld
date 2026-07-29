@@ -42,11 +42,12 @@ def test_judgment_prompt_reflects_perception_pr():
 
 
 def test_semantic_label_points_convert_opencv_column_row_order():
+    grid = np.pad(
+        np.ones((1, 40, 40), dtype=np.float32),
+        ((0, 0), (10, 10), (20, 20)),
+    )
     objects = extract_scene_objects(
-        np.pad(
-            np.ones((1, 40, 40), dtype=np.float32),
-            ((0, 0), (10, 10), (20, 20)),
-        ),
+        grid,
         ("plant",),
         min_contour_points=1,
     )
@@ -55,6 +56,13 @@ def test_semantic_label_points_convert_opencv_column_row_order():
     category, row, column = labels[0]
     first = objects[category][0].polygon_rowcol[0, 0]
     assert (row, column) == (int(first[1]), int(first[0]))
+    prompt = format_scene_objects_for_prompt(
+        objects,
+        shape_hw=(int(grid.shape[1]), int(grid.shape[2])),
+    )
+    display_column = int(column * 480 / grid.shape[2])
+    display_row = int((grid.shape[1] - row) * 480 / grid.shape[1])
+    assert f"{display_column}, {display_row}" in prompt
 
 
 def test_decision_prompt_is_patched_decision_first():
@@ -132,8 +140,21 @@ def test_extract_scene_objects_and_format():
     objects = extract_scene_objects(grid, names)
     assert "chair" in objects
     assert "sofa" not in objects
-    text = format_scene_objects_for_prompt(objects)
+    text = format_scene_objects_for_prompt(
+        objects,
+        shape_hw=(40, 40),
+    )
     assert text.startswith("chair:")
+
+
+def test_extract_scene_objects_keeps_source_inrange_threshold_boundary():
+    names = ("chair",)
+    grid = np.zeros((1, 40, 40), dtype=np.float32)
+    grid[0, 10:20, 10:20] = 0.1
+
+    objects = extract_scene_objects(grid, names)
+
+    assert "chair" in objects
 
 
 def test_extract_scene_objects_ignores_tiny_noise():

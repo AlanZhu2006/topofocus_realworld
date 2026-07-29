@@ -262,6 +262,77 @@ def test_clear_frontiers_preserve_candidate_batch(observation_factory):
     assert guarded == candidate
 
 
+def test_failure_memory_rejection_uses_robot_specific_source_ranked_fallback(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {"robot-0": (3.0, 3.0), "robot-1": (4.0, 4.0)},
+    )
+    execution = snapshot_from_free_mask(
+        np.ones((100, 100), dtype=bool),
+        transform_version="robot-execution-v1",
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        fallback_frontiers_by_robot={
+            "robot-0": [
+                {
+                    "frontier_id": "D",
+                    "x_m": 3.5,
+                    "y_m": 2.5,
+                    "source_rank": 1,
+                    "source_probability": 0.3,
+                },
+                {
+                    "frontier_id": "C",
+                    "x_m": 2.5,
+                    "y_m": 3.5,
+                    "source_rank": 2,
+                    "source_probability": 0.2,
+                },
+            ],
+            "robot-1": [],
+        },
+        pre_rejected_robot_ids=frozenset({"robot-0"}),
+        robot_xy_by_robot={
+            "robot-0": (1.0, 1.0),
+            "robot-1": (1.0, 1.0),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+    )
+
+    robot_0 = guarded.decisions[0]
+    assert robot_0.target is not None
+    assert robot_0.target.frontier_id == "D"
+    assert report["checks"]["robot-0"]["failure_memory_rejected"] is True
+    assert report["fallback_assignments"] == [
+        {
+            "robot_id": "robot-0",
+            "rejected_frontier_id": "frontier-0",
+            "fallback_frontier_id": "D",
+            "source_rank": 1,
+        }
+    ]
+    lineage = report["execution_lineage"]["robot-0"]
+    assert lineage["source_frontier_id"] == "D"
+    assert lineage["execution_frontier_id"] == "D"
+    assert lineage["source_target_xy_m"] == [3.5, 2.5]
+
+
 def test_start_seed_snap_is_independent_of_clearance_for_both_robots(
     observation_factory,
 ):

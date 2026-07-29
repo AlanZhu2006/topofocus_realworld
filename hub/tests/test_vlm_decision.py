@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import io
+
 import numpy as np
 import pytest
 import httpx
+from PIL import Image
 
 from focus_hub import vlm_decision as vd
 from focus_hub.directional_memory import DirectionalMemory
@@ -46,6 +49,46 @@ def test_glm_server_contract_requires_fail_closed_model_card(monkeypatch):
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: WrongResponse())
     with pytest.raises(RuntimeError, match="fail-closed"):
         vd.validate_glm_server_contract("http://127.0.0.1:31511/v1")
+
+
+def test_source_vlm_encoder_preserves_png_pixels_without_jpeg_loss():
+    image = np.asarray([[[1, 2, 3], [250, 120, 7]]], dtype=np.uint8)
+
+    encoded = vd._encode_source_image_png(image)
+    decoded = np.asarray(Image.open(io.BytesIO(encoded)))
+
+    assert encoded.startswith(b"\x89PNG\r\n\x1a\n")
+    assert np.array_equal(decoded, image)
+
+
+def test_source_stage_channel_contract_matches_camera_and_bev_paths(
+    monkeypatch,
+):
+    observed = []
+
+    def fake(image, prompt, candidates, *, base_url, timeout_s):
+        observed.append(np.asarray(image).copy())
+        if candidates == ["Yes", "No"]:
+            return {"Yes": 1.0, "No": 0.0}, "Yes"
+        return {"A": 1.0}, "A"
+
+    monkeypatch.setattr(vd, "_call_glm", fake)
+    bgr = np.asarray([[[1, 2, 3]]], dtype=np.uint8)
+    vd.choose_scene_worth_exploring_glm(
+        bgr,
+        target="chair",
+        detections=None,
+        base_url="http://x",
+    )
+    vd.choose_frontier_glm(
+        bgr,
+        [_frontier("A")],
+        base_url="http://x",
+        goal_category="chair",
+    )
+
+    assert observed[0][0, 0].tolist() == [3, 2, 1]
+    assert observed[1][0, 0].tolist() == [1, 2, 3]
 
 
 def test_choose_scene_worth_exploring_glm_uses_weighted_decision(monkeypatch):

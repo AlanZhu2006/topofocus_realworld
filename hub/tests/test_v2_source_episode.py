@@ -99,6 +99,44 @@ def test_source_round_step_quota_matches_source_clock():
         )
 
 
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    (
+        ("--goal-continuity-retain-distance-m", "1.30"),
+        ("--cross-round-min-progress-m", "0.20"),
+        ("--max-consecutive-stagnant-intervals", "2"),
+    ),
+)
+def test_formal_runner_rejects_source_threshold_drift(
+    monkeypatch,
+    flag,
+    value,
+):
+    module = load_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_v2_source_episode.py",
+            "--output",
+            "/tmp/source-contract-test",
+            "--scene-id",
+            "scene",
+            "--episode-id",
+            "episode",
+            "--admin-token-file",
+            "/tmp/admin-token",
+            "--robot-config",
+            "/tmp/robot-config",
+            flag,
+            value,
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        module.parse_args()
+
+
 def test_current_goal_evidence_maps_detector_name_to_goal_category():
     module = load_module()
 
@@ -541,9 +579,86 @@ def test_frozen_shared_robot_positions_preserve_status_provenance(tmp_path):
         )
         assert record["size_bytes"] > 0
         assert len(record["sha256"]) == 64
+        assert record["last_robot_heading_deg"] is None
 
 
-def test_cross_round_progress_guard_blocks_repeated_stationary_goals():
+def test_live_failure_pose_snapshot_requires_full_session_identity(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = load_module()
+    monkeypatch.setattr(module, "WORKSPACE", tmp_path)
+    robots = []
+    source_bytes: dict[str, bytes] = {}
+    for index, robot_id in enumerate(("robot-0", "robot-1")):
+        transform = f"{robot_id}-transform-v1"
+        map_dir = tmp_path / "hub" / "runtime" / f"map-{robot_id}"
+        map_dir.mkdir(parents=True)
+        raw = json.dumps(
+            {
+                "robot_id": robot_id,
+                "frame_id": "shared_world",
+                "transform_version": transform,
+                "shared_frame_calibration_id": (
+                    "calibration-v1"
+                    if robot_id == "robot-0"
+                    else "wrong-calibration"
+                ),
+                "mapping_blocked_reason": None,
+                "last_observation_sequence": 20 + index,
+                "last_capture_time_ns": 5_000_000_000 + index,
+                "last_robot_xy_m": [1.0 + index, 2.0 + index],
+                "last_robot_heading_deg": 30.0 + index,
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        (map_dir / "live_status.json").write_bytes(raw)
+        source_bytes[robot_id] = raw
+        robots.append(
+            SimpleNamespace(
+                robot_id=robot_id,
+                map_dir=str(map_dir.relative_to(tmp_path)),
+                transform_version=transform,
+            )
+        )
+    session = SimpleNamespace(
+        robots=tuple(robots),
+        calibration=SimpleNamespace(calibration_id="calibration-v1"),
+    )
+
+    positions, provenance, errors = (
+        module.capture_live_shared_robot_positions(
+            session,
+            tmp_path / "failure-pose",
+            robot_ids={"robot-0", "robot-1"},
+            minimum_sequences={"robot-0": 20, "robot-1": 21},
+            minimum_capture_times_ns={
+                "robot-0": 4_000_000_000,
+                "robot-1": 4_000_000_000,
+            },
+        )
+    )
+
+    assert positions == {"robot-0": (1.0, 2.0)}
+    assert set(provenance) == {"robot-0", "robot-1"}
+    assert set(errors) == {"robot-1"}
+    assert "calibration differs" in errors["robot-1"]
+    assert provenance["robot-0"]["validation"] == (
+        "accepted_for_failure_pose_authority"
+    )
+    assert provenance["robot-0"]["minimum_failure_capture_time_ns"] == (
+        4_000_000_000
+    )
+    assert provenance["robot-1"]["validation"] == "rejected"
+    for robot_id in ("robot-0", "robot-1"):
+        preserved = (
+            tmp_path / "failure-pose" / f"{robot_id}_live_status.json"
+        )
+        assert preserved.read_bytes() == source_bytes[robot_id]
+        assert module.sha256_file(preserved) == provenance[robot_id]["sha256"]
+
+
+def test_cross_round_progress_guard_applies_source_stationary_rule_once():
     module = load_module()
     first, counts = module.cross_round_progress_guard(
         previous_positions={"robot-1": (1.0, 2.0)},
@@ -552,33 +667,24 @@ def test_cross_round_progress_guard_blocks_repeated_stationary_goals():
         current_active_robot_ids={"robot-1"},
         previous_stagnant_intervals={},
     )
-    second, counts = module.cross_round_progress_guard(
-        previous_positions={"robot-1": (1.03, 2.01)},
-        current_positions={"robot-1": (1.04, 2.02)},
-        previous_active_robot_ids={"robot-1"},
-        current_active_robot_ids={"robot-1"},
-        previous_stagnant_intervals=counts,
-    )
-
-    assert first["status"] == "pass"
+    assert first["status"] == "blocked"
     assert first["robots"]["robot-1"]["consecutive_stagnant_intervals"] == 1
-    assert second["status"] == "blocked"
-    assert second["blocked_robot_ids"] == ["robot-1"]
-    assert counts == {"robot-1": 2}
+    assert first["blocked_robot_ids"] == ["robot-1"]
+    assert counts == {"robot-1": 1}
 
 
 def test_cross_round_progress_guard_resets_after_real_progress_or_inactivity():
     module = load_module()
     progressed, counts = module.cross_round_progress_guard(
         previous_positions={"robot-1": (0.0, 0.0)},
-        current_positions={"robot-1": (0.06, 0.0)},
+        current_positions={"robot-1": (0.13, 0.0)},
         previous_active_robot_ids={"robot-1"},
         current_active_robot_ids={"robot-1"},
         previous_stagnant_intervals={"robot-1": 1},
     )
     baseline, counts = module.cross_round_progress_guard(
-        previous_positions={"robot-1": (0.06, 0.0)},
-        current_positions={"robot-1": (0.06, 0.0)},
+        previous_positions={"robot-1": (0.13, 0.0)},
+        current_positions={"robot-1": (0.13, 0.0)},
         previous_active_robot_ids=set(),
         current_active_robot_ids={"robot-1"},
         previous_stagnant_intervals=counts,
@@ -630,3 +736,25 @@ def test_completed_round_preserves_cross_round_progress_memory():
 
     assert active == {"robot-0"}
     assert counts == {"robot-0": 1}
+
+
+def test_interrupted_frontier_is_removed_from_progress_comparison():
+    module = load_module()
+    result = module.RoundResult(
+        status="replan",
+        reason="source-derived 25-tick round completed",
+        final_states={},
+        semantic_arrivals={},
+        latest_events={},
+        feedback_counts={"robot-0": 25, "robot-1": 2},
+        interrupted_robot_ids=frozenset({"robot-1"}),
+    )
+
+    active, counts = module.progress_memory_after_round(
+        result,
+        active_robot_ids={"robot-0", "robot-1"},
+        stagnant_intervals={"robot-0": 0, "robot-1": 1},
+    )
+
+    assert active == {"robot-0"}
+    assert counts == {"robot-0": 0}

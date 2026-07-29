@@ -10,7 +10,7 @@
 
 - 认证 HTTP/TCP 观测上传，含序号、UTC 时间、RGB-D hash、相机内外参、shared-frame pose、健康状态和 transform version；
 - 只追加 spool、断点恢复、重复一致性和乱序/陈旧/未来帧拒绝；
-- RedNet 源码基线与校验锁定的 SegFormer 实机像素语义适配器、带启动姿态/地面门禁的实时地图、frontier/VLM 决策；
+- 源码同款 RedNet + Detectron2 像素语义栈，以及校验锁定的 SegFormer 实机适配器、带启动姿态/地面门禁的实时地图、frontier/VLM 决策；
 - 可逆 occupancy 证据、关键帧过滤和位姿跳变锁止；
 - 显式 frame/calibration 契约下的双图对齐融合；新的持久会话必须包含
   独立移动标定板留出验证；

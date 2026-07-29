@@ -39,8 +39,14 @@ to HOLD while the other robot keeps its existing leg. Expiry or loss closes
 only that robot's local output; an explicit scene-level HOLD closes both.
 An active frontier also needs a footprint-clear known-free approach cell
 inside its source arrival disk. A robot-local reverse/no-progress rejection
-holds only that frontier leg and allows a fresh source replan; semantic and
-system-health failures still fail closed at episode scope.
+holds only that frontier leg and allows a fresh source-ranked replan. The
+rejected pose/target/direction is retained across rounds so the same blocked
+approach is not immediately republished. The independent source rules retain
+an unfinished goal outside its 25-cell remaining-distance boundary and replan
+after at most 2.5 cells of inter-boundary motion. Semantic and system-health
+failures still fail closed at episode scope. See
+[SOURCE_BEHAVIOR_PARITY.md](SOURCE_BEHAVIOR_PARITY.md) for the exact parity and
+physical-adaptation boundary.
 
 ## What is implemented versus still physical
 

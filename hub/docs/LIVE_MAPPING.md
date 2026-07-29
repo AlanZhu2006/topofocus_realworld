@@ -2,12 +2,12 @@
 
 `hub/tools/hub_pipeline_daemon.py` is the incremental RGB-D map used by the
 Foxglove dashboard and dry-run decision pipeline. It is separate from
-TinyNav's finalized native BuildMap artifact. RedNet remains the default
-source-derived semantic baseline. The checksum-pinned
-`segformer-ade20k` deployment adapter is available for real-camera pixel
-semantics after RedNet's observed chair domain gap. YOLOv10 remains Stage-1
-Perception-VLM text evidence in the current clean-map launcher; it is not
-painted into the BEV.
+TinyNav's finalized native BuildMap artifact. New sessions default to the
+executable-source RedNet + Detectron2 Mask R-CNN pixel pipeline. The
+checksum-pinned `segformer-ade20k` deployment adapter and RedNet-only
+diagnostic remain explicit alternatives. YOLOv10 remains Stage-1
+Perception-VLM text evidence in the clean-map launcher; it is not painted
+into the BEV.
 
 ## Startup
 
@@ -65,18 +65,33 @@ Obstacle geometry uses one frame-level update per cell:
 - collision band: 0.15–0.75 m above the validated per-frame ground plane.
 
 Explored always preserves the upstream maximum-fusion contract. Semantic
-projection uses its own 0.25–1.50 m height band. `--semantic-fusion-mode max`
-preserves the upstream semantic maximum. The real-camera adapter may instead
-use `multi_view`: one class/cell/keyframe vote, a configurable minimum hit
-count, and one winning class per cell. The current clean-map launcher requires
-two supporting keyframes and a one-vote winner margin. This prevents one model
-frame or a conflicting class from becoming permanent map color. A keyframe
-accepted only because the five-second refresh interval elapsed still updates
-geometry, but no longer adds a semantic vote: repeated inference from one
-stationary view is not independent multi-view confirmation. The live status
-records semantic-vote and interval-without-vote counters.
+projection uses its own 0.25–1.50 m height band. The default
+`source-rednet-detectron2` backend selects `--semantic-fusion-mode max`, the
+upstream semantic maximum. A deployment adapter may instead use `multi_view`:
+one class/cell/keyframe vote, a configurable minimum hit count, and one
+winning class per cell. The clean-map launcher uses two supporting keyframes
+and a one-vote winner margin for those adapters. A keyframe accepted only
+because the five-second refresh interval elapsed still updates geometry, but
+does not add an adapter semantic vote. The live status records semantic-vote
+and interval-without-vote counters.
 
-## Real-camera pixel semantic adapter
+## Pixel semantic backends
+
+`--semantic-backend source-rednet-detectron2` reproduces the source
+composition: MP3D-40 RedNet RGB-D labels become fifteen HM3D channels, then a
+COCO Mask R-CNN at confidence 0.9 clears unsupported chair/sofa/bed pixels and
+adds plant/toilet/TV pixels. It preserves overlapping channels through BEV
+projection. The exact weight, source config, Detectron2 commit and CUDA build
+inputs are recorded in `hub/config/source_semantic_stack.json`; on a new
+machine run:
+
+```bash
+bash hub/scripts/install_source_semantic_stack.sh
+```
+
+The installer downloads no simulator data. Model outputs remain unverified
+against real-camera pixel ground truth even though the executable source
+algorithm and artifacts are reproduced.
 
 `--semantic-backend segformer-ade20k` loads only the pinned local files under
 `artifacts/vision/segformer_b0_ade20k_hf`. Run
@@ -92,7 +107,7 @@ collapsed to the existing MP3D IDs consumed by `CentralMapper`; broad
 floor/wall/door/other-furniture labels remain unknown. Its map output is a
 depth-projected pixel silhouette, not a detector bounding box.
 
-This backend is an explicitly recorded deployment adaptation. It does not
+SegFormer is an explicitly recorded deployment adaptation. It does not
 change the source Perception -> Judgment -> gate -> Decision cascade, shared
 directional memory, sequential multi-agent candidate removal, or target-channel
 override. It also does not make semantic accuracy verified: without labelled
@@ -148,6 +163,9 @@ least:
   model checksum and goal-category allowlist;
 - last handled observation sequence, last actually integrated map sequence and
   that keyframe's capture timestamp;
+- calibrated robot-base trajectory, its pose source and observation sequence
+  in the same atomic NPZ generation, so a frozen VLM decision map cannot pair
+  an older grid with a later independently written path;
 - ground rejection/drift counters, height-only translation count/maximum,
   active height policy, thresholds and last residuals;
 - `map_format_version=focus-hub-central-map-v3`.

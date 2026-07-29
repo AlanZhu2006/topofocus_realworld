@@ -131,9 +131,10 @@ ports, semantic-overview contract or loaded relay/renderer source hash differ.
 It waits until both per-robot semantic overviews and the fused overview are
 actually generated; a listening port is not considered ready. If an unmanaged
 process owns a required port, it fails with a clear error instead of leaving
-an old picture visible. A completely fresh SegFormer map pair is allowed up
-to 90 seconds to produce that first content-verified overview; subsequent
-launches reuse the matching relay and normally pass immediately.
+an old picture visible. A completely fresh semantic map pair is allowed up to
+90 seconds to load its pinned models and produce the first content-verified
+overview; subsequent launches reuse the matching relay and normally pass
+immediately.
 
 Both release manifests are transferred and checked concurrently. After the map
 processes have been created, GLM readiness, dual-robot read-only startup and
@@ -228,6 +229,17 @@ robot-specific footprint clearance must exist inside the source's unchanged
 recorded in `frontier_clearance_guard.json`; the unmodified VLM output remains
 in `vlm_candidate_batch.json`.
 
+Across source boundaries, the controller applies the two distinct source
+rules in their original order. It retains a previous frontier only while the
+current robot pose remains at least 25 source cells (`1.25 m`) from that
+previous goal; this is remaining distance, not inter-round travel. Separately,
+movement of at most 2.5 cells (`0.125 m`) can request a fresh goal. An explicit
+local-planner rejection is not counted as ordinary stagnation: it records a
+robot-local failed approach and tries the remaining candidates in the source
+VLM/history score order. A live failure pose is accepted only when its
+timestamp is no earlier than the rejection; otherwise the round-start pose is
+preserved and labelled as a source-derived proxy.
+
 The subsequent real-world route guard reads the two frozen
 `shared_world` base poses and compares the straight start-to-target segments.
 If their predicted separation is below 0.9 m, or either shared pose is
@@ -256,6 +268,9 @@ replay are recorded in
 The later wall-adjacent frontier evidence and exact clearance replay are
 recorded in
 [`../../audit/YUNJI_WALL_TURN_REJECTION_20260725.md`](../../audit/YUNJI_WALL_TURN_REJECTION_20260725.md).
+The complete executable-source parity boundary, including the exact frontier
+geometry, A–D binding and semantic pixel-model limitation, is recorded in
+[SOURCE_BEHAVIOR_PARITY.md](SOURCE_BEHAVIOR_PARITY.md).
 
 At each source round boundary both robots must first acknowledge local
 `HOLDING` with zero velocity; only then can the next synchronized input pair be

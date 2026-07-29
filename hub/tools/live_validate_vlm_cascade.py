@@ -101,16 +101,19 @@ def main() -> int:
     print(f"YOLO detections on the latest real frame: {detections}")
 
     scene_objects_dict = extract_scene_objects(grid[2:2 + len(HM3D_CATEGORY_NAMES)], HM3D_CATEGORY_NAMES)
-    scene_objects_str = format_scene_objects_for_prompt(scene_objects_dict)
+    scene_objects_str = format_scene_objects_for_prompt(
+        scene_objects_dict,
+        shape_hw=(int(grid.shape[1]), int(grid.shape[2])),
+    )
     scene_labels = semantic_label_points(scene_objects_dict)
     print(f"scene objects extracted from the map: {list(scene_objects_dict.keys())}")
 
     judgment_map = render_semantic_decision_map(
         grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading, history_nodes=[],
-        semantic_labels=scene_labels)
+        semantic_labels=scene_labels, goal_category=args.goal_category)
     decision_map = render_semantic_decision_map(
         grid, HM3D_CATEGORY_NAMES, frontiers, robot_rc, heading,
-        semantic_labels=scene_labels)
+        semantic_labels=scene_labels, goal_category=args.goal_category)
 
     memory = DirectionalMemory()
     print(f"\nrunning full cascade against {args.glm_url} ...")

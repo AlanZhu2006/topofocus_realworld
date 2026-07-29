@@ -68,8 +68,11 @@ def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():
     assert "freeze_next_round(" in runner
     assert "run_shadow_round(" in runner
     continuity = runner.index("apply_frontier_goal_continuity(")
+    source_replan = runner.index("evaluate_source_replan(")
     clearance = runner.index("apply_frontier_clearance_guard(")
-    assert continuity < clearance
+    assert continuity < source_replan < clearance
+    assert "NavigationFailureMemory(" in runner
+    assert "CROSS_ROUND_SOURCE_STALL" in runner
     assert "wait_and_seal_terminal_evidence(" in runner
     assert "semantic_arrival_episode_complete_hold" in runner
     assert "LIVE_RECEIVERS_READY_NO_GOAL" in source

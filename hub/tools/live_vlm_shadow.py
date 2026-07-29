@@ -57,6 +57,10 @@ from focus_hub.shadow_coordination import (  # noqa: E402
     validated_yolo_source,
     world_to_cell,
 )
+from focus_hub.source_behavior_contract import (  # noqa: E402
+    SOURCE_BEHAVIOR_CONTRACT_VERSION,
+    observe_reviewed_source_artifacts,
+)
 from focus_hub.source_episode import (  # noqa: E402
     SOURCE_EARLY_FRONTIER_STEP,
     SOURCE_HM3D_OBJECTNAV_GOALS,
@@ -95,6 +99,8 @@ class RobotContext:
     T_shared_camera: np.ndarray
     T_shared_base: np.ndarray
     yolo_model_provenance: dict[str, object]
+    robot_trajectory_xy_m: tuple[tuple[float, float], ...]
+    robot_trajectory_provenance: dict[str, object]
     artifacts: list[dict[str, object]]
 
 
@@ -157,6 +163,252 @@ def preserved_copy(
     }
 
 
+def semantic_input_contract(
+    contexts: list[RobotContext],
+) -> dict[str, object]:
+    """Require one explicit pixel/fusion semantic contract across robots.
+
+    Every backend writes the same HM3D-15 channel names, but mixing pixel
+    models or temporal fusion policies in one max-fused decision map would
+    make the evidence incomparable.  The executable source's semantic path
+    is also more specific than "RedNet": it applies a Detectron2 Mask R-CNN
+    override to six COCO categories in ``_preprocess_obs_rednet``.  The Hub
+    records that distinction instead of calling a RedNet-only or SegFormer
+    map source-identical.
+    """
+
+    if not contexts:
+        raise ValueError("semantic input contract requires robot contexts")
+    robots: dict[str, dict[str, object]] = {}
+    backends: set[str] = set()
+    fusion_modes: set[str] = set()
+    map_reinforcement_modes: set[bool] = set()
+    for context in contexts:
+        summary = context.map_summary
+        semantic_mapping = summary.get("semantic_mapping")
+        pixel_segmenter = (
+            semantic_mapping.get("pixel_segmenter")
+            if isinstance(semantic_mapping, dict)
+            else None
+        )
+        yolo = (
+            semantic_mapping.get("yolo_reinforcement")
+            if isinstance(semantic_mapping, dict)
+            else None
+        )
+        backend = (
+            pixel_segmenter.get("backend")
+            if isinstance(pixel_segmenter, dict)
+            else None
+        )
+        fusion_mode = summary.get("semantic_fusion_mode")
+        map_reinforcement = (
+            yolo.get("map_reinforcement_enabled")
+            if isinstance(yolo, dict)
+            else None
+        )
+        if not isinstance(backend, str) or not backend:
+            raise ValueError(
+                f"{context.spec.robot_id} map lacks pixel-segmenter identity"
+            )
+        if fusion_mode not in {"max", "multi_view"}:
+            raise ValueError(
+                f"{context.spec.robot_id} map has invalid semantic fusion mode"
+            )
+        if not isinstance(map_reinforcement, bool):
+            raise ValueError(
+                f"{context.spec.robot_id} map lacks YOLO map policy"
+            )
+        backends.add(backend)
+        fusion_modes.add(str(fusion_mode))
+        map_reinforcement_modes.add(map_reinforcement)
+        robots[context.spec.robot_id] = {
+            "pixel_segmenter_backend": backend,
+            "semantic_fusion_mode": fusion_mode,
+            "yolo_map_reinforcement_enabled": map_reinforcement,
+            "pixel_segmenter_status": pixel_segmenter.get("status"),
+        }
+    if len(backends) != 1:
+        raise ValueError(
+            "robot maps use different pixel semantic backends: "
+            f"{sorted(backends)}"
+        )
+    if len(fusion_modes) != 1:
+        raise ValueError(
+            "robot maps use different semantic fusion modes: "
+            f"{sorted(fusion_modes)}"
+        )
+    if len(map_reinforcement_modes) != 1:
+        raise ValueError(
+            "robot maps use different YOLO map-reinforcement policies"
+        )
+
+    backend = next(iter(backends))
+    source_maskrcnn_available = (
+        backend == "source_rednet_detectron2_hm3d15"
+    )
+    if source_maskrcnn_available:
+        pixel_model_classification = (
+            "executable-source RedNet MP3D-40 plus Detectron2 Mask-RCNN "
+            "six-category pixel override"
+        )
+    elif backend == "rednet_mp3d40":
+        pixel_model_classification = (
+            "source RedNet backbone; executable source Detectron2 "
+            "Mask-RCNN six-category pixel override is not present"
+        )
+    elif backend == "segformer_b0_ade20k_to_mp3d40":
+        pixel_model_classification = (
+            "checksum-pinned real-camera deployment adapter; not the "
+            "executable source pixel model"
+        )
+    else:
+        pixel_model_classification = (
+            "explicit non-source pixel backend recorded from map producer"
+        )
+    return {
+        "schema_version": "focus-vlm-semantic-input-contract-v1",
+        "uniform_across_robots": True,
+        "pixel_segmenter_backend": backend,
+        "semantic_fusion_mode": next(iter(fusion_modes)),
+        "yolo_map_reinforcement_enabled": next(
+            iter(map_reinforcement_modes)
+        ),
+        "hm3d_category_order": list(HM3D_CATEGORY_NAMES),
+        "pixel_model_classification": pixel_model_classification,
+        "source_pixel_model": (
+            "RedNet MP3D-40 plus Detectron2 Mask-RCNN COCO overrides in "
+            "agents/vlm_agents.py::_preprocess_obs_rednet"
+        ),
+        "source_maskrcnn_override_available_in_hub": (
+            source_maskrcnn_available
+        ),
+        "robots": robots,
+    }
+
+
+def frozen_robot_trajectory(
+    map_path: Path,
+    map_summary: dict[str, object],
+    live_status: dict[str, object],
+) -> tuple[
+    tuple[tuple[float, float], ...],
+    dict[str, object],
+]:
+    """Load an observed base trajectory with explicit temporal provenance.
+
+    New map snapshots carry the trajectory in the same atomic NPZ generation.
+    Historical snapshots remain replayable from their independently frozen
+    live status, but that fallback is never described as map-atomic.
+    """
+
+    with np.load(map_path, allow_pickle=False) as payload:
+        has_trajectory = "robot_trajectory_xy_m" in payload.files
+        related_fields = {
+            "robot_trajectory_last_observation_sequence",
+            "robot_trajectory_pose_source",
+        }
+        if has_trajectory and not related_fields.issubset(payload.files):
+            raise ValueError(
+                "atomic map trajectory is missing provenance fields"
+            )
+        if has_trajectory:
+            raw = np.asarray(
+                payload["robot_trajectory_xy_m"],
+                dtype=np.float64,
+            )
+            raw_sequence = np.asarray(
+                payload[
+                    "robot_trajectory_last_observation_sequence"
+                ]
+            )
+            raw_pose_source = np.asarray(
+                payload["robot_trajectory_pose_source"]
+            )
+        else:
+            raw = None
+            raw_sequence = None
+            raw_pose_source = None
+
+    if raw is not None:
+        if (
+            raw.ndim != 2
+            or raw.shape[1:] != (2,)
+            or not np.isfinite(raw).all()
+        ):
+            raise ValueError("atomic map base trajectory is malformed")
+        sequence = int(raw_sequence.item())
+        pose_source = str(raw_pose_source.item())
+        summary_sequence = map_summary.get("last_observation_sequence")
+        summary_record = map_summary.get("robot_trajectory_snapshot")
+        if (
+            isinstance(summary_sequence, bool)
+            or not isinstance(summary_sequence, int)
+            or sequence != summary_sequence
+            or not pose_source
+            or not isinstance(summary_record, dict)
+            or summary_record.get("container") != "central_map.npz"
+            or summary_record.get("field") != "robot_trajectory_xy_m"
+            or summary_record.get("point_count") != int(raw.shape[0])
+            or summary_record.get("last_observation_sequence") != sequence
+            or summary_record.get("pose_source") != pose_source
+        ):
+            raise ValueError(
+                "atomic map trajectory differs from its summary contract"
+            )
+        points = tuple(
+            (float(point[0]), float(point[1])) for point in raw
+        )
+        return points, {
+            "source_container": "central_map.npz",
+            "source_field": "robot_trajectory_xy_m",
+            "point_count": len(points),
+            "last_observation_sequence": sequence,
+            "pose_source": pose_source,
+            "classification": (
+                "observed base trajectory in the same atomic map snapshot "
+                "generation"
+            ),
+            "temporal_alignment": "map_atomic",
+        }
+
+    raw_fallback = live_status.get("robot_trajectory_xy_m")
+    if not isinstance(raw_fallback, list):
+        raise ValueError(
+            "legacy map lacks both atomic and live-status base trajectory"
+        )
+    points_list: list[tuple[float, float]] = []
+    for raw_point in raw_fallback:
+        if (
+            not isinstance(raw_point, list)
+            or len(raw_point) != 2
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in raw_point
+            )
+        ):
+            raise ValueError("legacy live-status trajectory is malformed")
+        points_list.append((float(raw_point[0]), float(raw_point[1])))
+    return tuple(points_list), {
+        "source_container": "live_status.json",
+        "source_field": "robot_trajectory_xy_m",
+        "point_count": len(points_list),
+        "map_last_observation_sequence": map_summary.get(
+            "last_observation_sequence"
+        ),
+        "live_status_last_observation_sequence": live_status.get(
+            "last_observation_sequence"
+        ),
+        "classification": (
+            "observed independently frozen live-status base trajectory; "
+            "not claimed as the atomic map generation"
+        ),
+        "temporal_alignment": "recorded_but_not_map_atomic",
+    }
+
+
 def load_context(
     spec: RobotSpec,
     spool: Path,
@@ -191,6 +443,24 @@ def load_context(
         raise RuntimeError(f"map snapshot disappeared while copying: {map_copy}")
     map_summary = json.loads(summary_copy.read_text(encoding="utf-8"))
     live_status = json.loads(status_copy.read_text(encoding="utf-8"))
+    if map_summary.get("robot_id") != spec.robot_id:
+        raise RuntimeError(f"{spec.name} map summary robot identity mismatch")
+    if map_summary.get("frame_id") != snapshot.frame_id:
+        raise RuntimeError(f"{spec.name} summary/snapshot frame mismatch")
+    if (
+        map_summary.get("shared_frame_calibration_id")
+        != snapshot.shared_frame_calibration_id
+    ):
+        raise RuntimeError(
+            f"{spec.name} summary/snapshot calibration mismatch"
+        )
+    if map_summary.get("transform_version") != snapshot.transform_version:
+        raise RuntimeError(f"{spec.name} summary/snapshot transform mismatch")
+    if map_summary.get("map_format_version") != snapshot.map_format_version:
+        raise RuntimeError(f"{spec.name} summary/snapshot format mismatch")
+    robot_trajectory, robot_trajectory_provenance = (
+        frozen_robot_trajectory(map_copy, map_summary, live_status)
+    )
     if (
         live_status.get("mapping_blocked_reason") is not None
         and not allow_blocked_shadow_input
@@ -298,6 +568,8 @@ def load_context(
         T_shared_camera=T_shared_camera,
         T_shared_base=T_shared_base,
         yolo_model_provenance=yolo_model_provenance,
+        robot_trajectory_xy_m=robot_trajectory,
+        robot_trajectory_provenance=robot_trajectory_provenance,
         artifacts=artifacts,
     )
 
@@ -311,6 +583,60 @@ def frontier_record(frontier: Frontier) -> dict[str, object]:
         "y_m": frontier.y_m,
         "size_cells": frontier.size_cells,
     }
+
+
+def source_visited_paths(
+    contexts: list[RobotContext],
+    *,
+    origin_xy_m: tuple[float, float],
+    resolution_m: float,
+    shape_hw: tuple[int, int],
+) -> tuple[
+    list[list[tuple[int, int]]],
+    dict[str, dict[str, object]],
+]:
+    """Convert frozen observed base trajectories to source visited masks."""
+
+    paths: list[list[tuple[int, int]]] = []
+    report: dict[str, dict[str, object]] = {}
+    for context in contexts:
+        raw_path = context.robot_trajectory_xy_m
+        cells: list[tuple[int, int]] = []
+        for raw_point in raw_path:
+            if (
+                not isinstance(raw_point, (tuple, list))
+                or len(raw_point) != 2
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    for value in raw_point
+                )
+            ):
+                raise ValueError(
+                    f"{context.spec.robot_id} trajectory point is malformed"
+                )
+            cell = world_to_cell(
+                (float(raw_point[0]), float(raw_point[1])),
+                origin_xy_m,
+                resolution_m,
+                shape_hw,
+            )
+            if not cells or cell != cells[-1]:
+                cells.append(cell)
+        paths.append(cells)
+        report[context.spec.robot_id] = {
+            "observed_world_point_count": len(raw_path),
+            "source_cell_path_count": len(cells),
+            "trajectory_provenance": (
+                context.robot_trajectory_provenance
+            ),
+            "classification": (
+                "observed base trajectory converted to source-derived "
+                "visited_vis decision-map layer"
+            ),
+        }
+    return paths, report
 
 
 def registry_map_versions(path: Path, robot_ids: list[str]) -> dict[str, int]:
@@ -583,6 +909,62 @@ def main() -> int:
                 else "one-shot compatibility value"
             ),
         },
+        "source_execution_profile": {
+            "profile": "authoritative_default_unpruned_path",
+            "enable_pruning": False,
+            "vlm_image_transport": {
+                "byte_encoding": "PNG",
+                "data_uri_media_type": "image/jpeg",
+                "camera_array": "RGB",
+                "semantic_map_array": "source BGR passed to PIL unchanged",
+            },
+            "vlm_generation_request": {
+                "model": "cogvlm2",
+                "temperature": 0.8,
+                "top_p": 0.8,
+                "max_tokens": 1,
+                "source_max_tokens": 2048,
+                "max_tokens_adaptation": (
+                    "consume only the first generated label token and its "
+                    "first-step candidate scores"
+                ),
+            },
+            "decision_effect": (
+                "Perception VLM, Judgment VLM, source gate, unpruned "
+                "Decision VLM score argmax, directional history, sequential "
+                "shared-frontier removal, source palette/480px decision "
+                "canvas and semantic target override"
+            ),
+            "optional_mechanisms_without_selection_effect": {
+                "room_segmentation_and_room_semantics": (
+                    "computed by source for visualization/analysis and "
+                    "active-patch bookkeeping; not supplied to the Decision "
+                    "VLM while enable_pruning is false"
+                ),
+                "attention_dod": (
+                    "post-decision logging/visualization only"
+                ),
+                "active_patches": (
+                    "post-decision state for a possible future pruning call; "
+                    "does not alter selection while pruning is disabled"
+                ),
+            },
+            "source_argument_note": (
+                "arguments.py declares run_mode='pruned', but the executed "
+                "main.py decision branch checks only enable_pruning and "
+                "parse_args does not translate run_mode into that flag"
+            ),
+            "source_paths": [
+                "source/Focus_realworld/arguments.py",
+                "source/Focus_realworld/main.py",
+            ],
+        },
+        "source_behavior_contract_version": (
+            SOURCE_BEHAVIOR_CONTRACT_VERSION
+        ),
+        "source_code_artifacts": observe_reviewed_source_artifacts(
+            WORKSPACE
+        ),
         "trusted_semantic_categories": list(trusted_categories),
         "allow_blocked_shadow_input": args.allow_blocked_shadow_input,
         "allow_stale_shadow_input": args.allow_stale_shadow_input,
@@ -600,6 +982,7 @@ def main() -> int:
         )
         for spec in specs
     ]
+    semantic_contract = semantic_input_contract(contexts)
     for context in contexts:
         expected_sequence = expected_sequences.get(context.spec.robot_id)
         if (
@@ -713,8 +1096,23 @@ def main() -> int:
         decision_grid[2 : 2 + len(HM3D_CATEGORY_NAMES)],
         HM3D_CATEGORY_NAMES,
     )
-    scene_objects = format_scene_objects_for_prompt(extracted_scene_objects)
+    scene_objects = format_scene_objects_for_prompt(
+        extracted_scene_objects,
+        shape_hw=(
+            int(decision_grid.shape[1]),
+            int(decision_grid.shape[2]),
+        ),
+    )
     scene_labels = semantic_label_points(extracted_scene_objects)
+    visited_paths_rc, visited_path_report = source_visited_paths(
+        contexts,
+        origin_xy_m=fused_origin,
+        resolution_m=resolution_m,
+        shape_hw=(
+            int(decision_grid.shape[1]),
+            int(decision_grid.shape[2]),
+        ),
+    )
     semantic_goal_records: dict[str, dict[str, object] | None] = {}
     for context in contexts:
         component = semantic_goals[context.spec.robot_id]
@@ -746,9 +1144,35 @@ def main() -> int:
             "per_robot_view": "remaining shared candidates in canonical A-D order",
             "allocation": "selected frontier removed before the next robot",
             "duplicate_physical_frontier_targets": False,
+            "stable_id_binding": (
+                "one shared component ID is preserved across rendered letter, "
+                "prompt coordinate, requested score token, selected target "
+                "and transport provenance"
+            ),
+            "source_later_agent_image_prompt_mismatch_corrected": True,
+            "semantic_polygon_binding": (
+                "prompt polygons and rendered labels share source-flipped "
+                "480px display coordinates"
+            ),
+            "history_label_binding": (
+                "a-z then A-Z IDs are stable across Judgment image, prompt "
+                "and source-score selection"
+            ),
+            "source_history_image_prompt_mismatch_corrected": True,
+            "source_single_frontier_reuse_suppressed": True,
+            "extraction": (
+                "source main.py::Frontiers largest explored contour, 5x5 "
+                "close, 3x3 obstacle dilation, 8-connected components"
+            ),
+            "minimum_component_cells": 5,
+            "source_first_region_property_skipped": True,
+            "decision_canvas_px": 480,
+            "decision_palette": "source constants.py color_palette",
         },
         "scene_objects_for_vlm": scene_objects,
+        "source_visited_paths": visited_path_report,
         "source_semantic_goals": semantic_goal_records,
+        "semantic_input_contract": semantic_contract,
         "input_timing": timing,
         "input_artifacts": [
             artifact for context in contexts for artifact in context.artifacts
@@ -839,6 +1263,8 @@ def main() -> int:
             history_nodes=memory.history_nodes,
             pre_goal_rc=pre_goal_point,
             semantic_labels=scene_labels,
+            goal_category=args.goal_category,
+            visited_paths_rc=visited_paths_rc,
         )
         decision_map = render_semantic_decision_map(
             decision_grid,
@@ -848,6 +1274,8 @@ def main() -> int:
             heading_deg,
             pre_goal_rc=pre_goal_point,
             semantic_labels=scene_labels,
+            goal_category=args.goal_category,
+            visited_paths_rc=visited_paths_rc,
         )
         judgment_path = output / f"{context.spec.name}_judgment_map.jpg"
         decision_path = output / f"{context.spec.name}_decision_map.jpg"
@@ -908,6 +1336,7 @@ def main() -> int:
                 **frontier_record(chosen),
                 "source_behavior": "sequential frontier removed before next robot",
             }
+        candidate_history_nodes: list[dict[str, object]] = []
         if scene_state is not None and remaining_history_indices is None:
             # This is the source's shared ``history_nodes_copy`` snapshot,
             # created during agent 0's pass and consumed sequentially.
@@ -916,6 +1345,36 @@ def main() -> int:
                 history_index: memory.history_score[history_index]
                 for history_index in remaining_history_indices
             }
+        if (
+            scene_state is not None
+            and remaining_history_indices is not None
+            and remaining_history_scores is not None
+        ):
+            # Preserve the exact candidate/score snapshot supplied to this
+            # robot's source history branch.  Physical replanning can then use
+            # the next source-ranked history point without inventing an A-D
+            # fallback after a rejected history leg.
+            for history_index in remaining_history_indices:
+                history_row, history_col = memory.history_nodes[history_index]
+                candidate_history_nodes.append(
+                    {
+                        "frontier_id": f"history-{history_index}",
+                        "history_index": history_index,
+                        "row": history_row,
+                        "col": history_col,
+                        "x_m": (
+                            fused_origin[0]
+                            + (history_col + 0.5) * resolution_m
+                        ),
+                        "y_m": (
+                            fused_origin[1]
+                            + (history_row + 0.5) * resolution_m
+                        ),
+                        "history_score": remaining_history_scores[
+                            history_index
+                        ],
+                    }
+                )
         if cascade.history_choice_index is not None:
             history_index = cascade.history_choice_index
             history_row, history_col = memory.history_nodes[history_index]
@@ -978,6 +1437,7 @@ def main() -> int:
                 frontier_record(frontier)
                 for frontier in candidate_frontiers
             ],
+            "candidate_history_nodes": candidate_history_nodes,
             "perception_pr": (
                 None if cascade.perception_pr is None else list(cascade.perception_pr)
             ),
@@ -1148,6 +1608,50 @@ def main() -> int:
         "completed_at_ns": completed_at_ns,
         "elapsed_s": (completed_at_ns - started_at_ns) / 1e9,
         "remaining_frontiers": [frontier_record(item) for item in remaining],
+        "remaining_history_nodes": (
+            []
+            if (
+                scene_state is None
+                or remaining_history_indices is None
+                or remaining_history_scores is None
+            )
+            else [
+                {
+                    "frontier_id": f"history-{history_index}",
+                    "history_index": history_index,
+                    "row": scene_state.memory.history_nodes[
+                        history_index
+                    ][0],
+                    "col": scene_state.memory.history_nodes[
+                        history_index
+                    ][1],
+                    "x_m": (
+                        fused_origin[0]
+                        + (
+                            scene_state.memory.history_nodes[
+                                history_index
+                            ][1]
+                            + 0.5
+                        )
+                        * resolution_m
+                    ),
+                    "y_m": (
+                        fused_origin[1]
+                        + (
+                            scene_state.memory.history_nodes[
+                                history_index
+                            ][0]
+                            + 0.5
+                        )
+                        * resolution_m
+                    ),
+                    "history_score": remaining_history_scores[
+                        history_index
+                    ],
+                }
+                for history_index in remaining_history_indices
+            ]
+        ),
         "final_shadow_selections": selections,
         "source_episode_round_status": source_episode_round_status,
         "hub_hold_publications": publish_results,

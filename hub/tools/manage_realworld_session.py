@@ -482,8 +482,12 @@ def add_create_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--semantic-backend",
-        choices=("rednet", "segformer-ade20k"),
-        default="segformer-ade20k",
+        choices=(
+            "source-rednet-detectron2",
+            "rednet",
+            "segformer-ade20k",
+        ),
+        default="source-rednet-detectron2",
     )
     parser.add_argument(
         "--spool-dir", type=Path, default=HUB_DIR / "runtime/spool"

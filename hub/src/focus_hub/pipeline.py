@@ -95,7 +95,11 @@ class _MapperFrame:
 
 
 class SemanticSegmenter(Protocol):
-    """Small backend contract shared by source RedNet and deployment adapters."""
+    """Pixel backend contract.
+
+    Backends may return either MP3D-40 IDs (``H x W``) or the executable
+    source's multi-hot HM3D tensor (``H x W x 15``).
+    """
 
     def segment(self, rgb_bgr: np.ndarray, depth_m: np.ndarray) -> np.ndarray: ...
 
@@ -242,6 +246,18 @@ class SpoolMappingPipeline:
         self.semantic_detector = semantic_detector
         self.semantic_yolo_config = semantic_yolo_config or SemanticYoloConfig()
         self.semantic_yolo_reinforce_map = bool(semantic_yolo_reinforce_map)
+        segmenter_provenance = getattr(segmenter, "provenance", None)
+        if (
+            semantic_detector is not None
+            and self.semantic_yolo_reinforce_map
+            and isinstance(segmenter_provenance, dict)
+            and segmenter_provenance.get("backend")
+            == "source_rednet_detectron2_hm3d15"
+        ):
+            raise ValueError(
+                "the executable-source pixel backend requires YOLO "
+                "evidence-only mode"
+            )
         self.semantic_yolo_frames_inferred = 0
         self.semantic_yolo_frames_with_detections = 0
         self.semantic_yolo_frames_with_evidence = 0
@@ -840,6 +856,8 @@ class SpoolMappingPipeline:
             "backend": "rednet_mp3d40",
             "status": "source_derived_model_inference_unverified",
             "method": "mp3d40_rednet_rgbd_confidence_0.8",
+            "source_maskrcnn_override_applied": False,
+            "source_compatibility": "rednet_backbone_only",
         }
 
     def save(self, out_dir: Path) -> None:
@@ -934,6 +952,19 @@ class SpoolMappingPipeline:
                 -1
                 if self.last_integrated_capture_time_ns is None
                 else self.last_integrated_capture_time_ns
+            ),
+            robot_trajectory_xy_m=np.asarray(
+                self.robot_trajectory_xy_m,
+                dtype=np.float64,
+            ).reshape((-1, 2)),
+            robot_trajectory_last_observation_sequence=np.asarray(
+                -1
+                if self.last_observation_sequence is None
+                else self.last_observation_sequence,
+                dtype=np.int64,
+            ),
+            robot_trajectory_pose_source=np.asarray(
+                self.robot_pose_source
             ),
         )
         os.replace(tmp_path, out_dir / "central_map.npz")
@@ -1062,14 +1093,35 @@ class SpoolMappingPipeline:
             "semantic_interval_frames_without_vote": (
                 self.semantic_interval_frames_without_vote
             ),
+            "robot_trajectory_snapshot": {
+                "container": "central_map.npz",
+                "field": "robot_trajectory_xy_m",
+                "point_count": len(self.robot_trajectory_xy_m),
+                "last_observation_sequence": (
+                    self.last_observation_sequence
+                ),
+                "pose_source": self.robot_pose_source,
+                "classification": (
+                    "observed base trajectory in the same atomic map "
+                    "snapshot generation"
+                ),
+            },
             "semantic_mapping": {
                 "rednet": {
                     "enabled": (
                         self.semantic_backend_status().get("backend")
-                        == "rednet_mp3d40"
+                        in {
+                            "rednet_mp3d40",
+                            "source_rednet_detectron2_hm3d15",
+                        }
                     ),
                     "method": "mp3d40_rednet_depth_projection",
-                    "status": "source_derived_model_inference_unverified",
+                    "status": (
+                        "source_exact_model_inference_unverified"
+                        if self.semantic_backend_status().get("backend")
+                        == "source_rednet_detectron2_hm3d15"
+                        else "source_derived_model_inference_unverified"
+                    ),
                 },
                 "pixel_segmenter": self.semantic_backend_status(),
                 "yolo_reinforcement": self.semantic_yolo_status(),
