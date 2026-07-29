@@ -49,6 +49,10 @@ additional platform artifacts were committed at
 Both PDFs passed `pdfinfo` parsing (one and three pages respectively), and all
 three SVG files passed XML validation.
 
+After validation, local `main` was fast-forwarded to the consolidated history.
+The Scene 03 organization branch was retained as an additional local
+protection reference; no history was rewritten.
+
 An authenticated refresh of the remote refs was attempted but returned
 `Repository not found`; consequently, remote state newer than the cached
 `origin/main=a254323` remains unverified. No push was attempted.
