@@ -1628,7 +1628,7 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     persistent_tuple = launcher.index(
         'wait_for_persistent_sender_tuple "$parked_tuple_baseline"'
     )
-    sensor_ready = launcher.index("WSJ_CALIBRATION_SENSOR_EPOCH_READY")
+    sensor_ready = launcher.index("WSJ_MAPPING_ONLY_SENSOR_EPOCH_READY")
     continuous_sensor_gate = launcher[restart_perception:sensor_ready]
 
     assert 'tmux respawn-pane -k -t "$SESSION:camera"' in launcher
@@ -1647,7 +1647,8 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     assert "--image-topic /slam/depth" in launcher
     assert "--camera-info-topic /slam/camera_info" in launcher
     assert "stable TinyNav processed depth" in launcher
-    assert "WSJ_CALIBRATION_SENSOR_EPOCH_READY" in launcher
+    assert "WSJ_MAPPING_ONLY_SENSOR_EPOCH_READY" in launcher
+    assert '"purpose=$OBSERVATION_PURPOSE"' in launcher
     assert "--field header" in launcher
     assert "--qos-reliability best_effort" in launcher
     assert "--qos-durability volatile" in launcher
