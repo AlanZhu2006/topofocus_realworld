@@ -7,6 +7,10 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`REPOSITORY_WORKSPACE_ORGANIZATION_20260729.md`](REPOSITORY_WORKSPACE_ORGANIZATION_20260729.md):
+  detached-history consolidation, media provenance, complete session and
+  calibration validation, incomplete-attempt archival, interrupted-spool
+  recovery/quarantine and the current no-session runtime boundary.
 - [`SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md`](SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md):
   replacement Scene 02 formal experiment 02 algorithmic-exploration failure,
   exact Yunji path, zero-valued SR/SPL contribution, terminal two-interval
