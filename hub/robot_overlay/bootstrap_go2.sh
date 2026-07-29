@@ -9,9 +9,9 @@ BASE_COMMIT="576c082e69580f618a5ff313a3e74f3672abb69f"
 SOURCE_URL="${TINYNAV_SOURCE_URL:-https://github.com/UniflexAI/tinynav.git}"
 DESTINATION="${TINYNAV_PATCHED_ROOT:-/home/nvidia/twork/tinynav-topofocus}"
 BRANCH_NAME="topofocus/wsj-repro-20260721"
-EXPECTED_COMMIT="d9f88ed876bd08e35b8c57b65e6589b10170389f"
-EXPECTED_TREE="d8538a6c032cce4a7b403dbcfe60a0bce09d5947"
-EXPECTED_SEMANTIC_COMMIT="8cc18159c920dc0b5185fe81bd34452676bbad53"
+EXPECTED_COMMIT="a6290559b13cedf19c05f7ec64ff91a29b685cbd"
+EXPECTED_TREE="5281e70451f2f9cc1d5f5464315d803f6f0972bd"
+EXPECTED_SEMANTIC_COMMIT="f9e9c1bce787b5cc3a34fb149931b4f101b6adf8"
 EXPECTED_SEMANTIC_TREE="46f4b7cd8c3bdc2ed3729cd56f3d8857aa9d41df"
 with_experimental=false
 new_checkout=false
@@ -49,6 +49,10 @@ done
   echo "Missing required patch: $SNAPSHOT_DIR/tinynav-required.patch" >&2
   exit 1
 }
+[[ -f "$SNAPSHOT_DIR/wsj-runtime-required.patch" ]] || {
+  echo "Missing required patch: $SNAPSHOT_DIR/wsj-runtime-required.patch" >&2
+  exit 1
+}
 (cd "$SNAPSHOT_DIR" && sha256sum -c manifest.sha256)
 
 if [[ ! -e "$DESTINATION" ]]; then
@@ -78,6 +82,10 @@ else
   git -C "$DESTINATION" switch -c "$BRANCH_NAME"
   git -C "$DESTINATION" apply --check "$SNAPSHOT_DIR/tinynav-required.patch"
   git -C "$DESTINATION" apply "$SNAPSHOT_DIR/tinynav-required.patch"
+  git -C "$DESTINATION" apply --check \
+    "$SNAPSHOT_DIR/wsj-runtime-required.patch"
+  git -C "$DESTINATION" apply \
+    "$SNAPSHOT_DIR/wsj-runtime-required.patch"
   git -C "$DESTINATION" diff --check
   git -C "$DESTINATION" add -A
   env \
@@ -92,8 +100,14 @@ else
 fi
 
 if ! git -C "$DESTINATION" apply --reverse --check \
+  --exclude=scripts/run_go2_cmd_bridge.sh \
   "$SNAPSHOT_DIR/tinynav-required.patch"; then
   echo "Required WSJ patch is not exactly represented in $DESTINATION" >&2
+  exit 1
+fi
+if ! git -C "$DESTINATION" apply --reverse --check \
+  "$SNAPSHOT_DIR/wsj-runtime-required.patch"; then
+  echo "Required WSJ runtime patch is not exactly represented in $DESTINATION" >&2
   exit 1
 fi
 actual_required_commit="$(git -C "$DESTINATION" rev-parse "$BRANCH_NAME")"
@@ -113,8 +127,10 @@ if [[ "$with_experimental" == true ]]; then
     git -C "$DESTINATION" switch "$overlay_branch"
   else
     git -C "$DESTINATION" switch -c "$overlay_branch"
-    git -C "$DESTINATION" apply --check "$SNAPSHOT_DIR/wsj-working-tree.patch"
-    git -C "$DESTINATION" apply "$SNAPSHOT_DIR/wsj-working-tree.patch"
+    git -C "$DESTINATION" apply --exclude=scripts/run_go2_cmd_bridge.sh \
+      --check "$SNAPSHOT_DIR/wsj-working-tree.patch"
+    git -C "$DESTINATION" apply --exclude=scripts/run_go2_cmd_bridge.sh \
+      "$SNAPSHOT_DIR/wsj-working-tree.patch"
     cp -a "$SNAPSHOT_DIR/working-tree-files/." "$DESTINATION/"
     (cd "$DESTINATION" && sha256sum -c "$SNAPSHOT_DIR/untracked.sha256")
     git -C "$DESTINATION" add -A

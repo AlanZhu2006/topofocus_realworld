@@ -4,6 +4,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_COMMIT="576c082e69580f618a5ff313a3e74f3672abb69f"
+RECONSTRUCTED_COMMIT="a6290559b13cedf19c05f7ec64ff91a29b685cbd"
+RECONSTRUCTED_TREE="5281e70451f2f9cc1d5f5464315d803f6f0972bd"
 LIVE_IMU_RECOVERY_COMMIT="29f26bc058886ff450f02cdc0d6e9977e1c57010"
 LIVE_IMU_PERCEPTION_SHA256="3a695d5210d60ea1f721549ca7458ba89e7bf32db5178cd1c312c633aef1c3b3"
 TINYNAV_ROOT="${TINYNAV_PATCHED_ROOT:-/home/nvidia/twork/tinynav-topofocus}"
@@ -40,8 +42,20 @@ if git -C "$TINYNAV_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   else
     fail "TinyNav does not contain pinned base $BASE_COMMIT"
   fi
-  if git -C "$TINYNAV_ROOT" apply --reverse --check "$SCRIPT_DIR/tinynav_snapshot/tinynav-required.patch" 2>/dev/null; then
-    pass "verified WSJ patch is applied"
+  if git -C "$TINYNAV_ROOT" apply --reverse --check \
+      --exclude=scripts/run_go2_cmd_bridge.sh \
+      "$SCRIPT_DIR/tinynav_snapshot/tinynav-required.patch" 2>/dev/null \
+      && git -C "$TINYNAV_ROOT" apply --reverse --check \
+        "$SCRIPT_DIR/tinynav_snapshot/wsj-runtime-required.patch" \
+        2>/dev/null; then
+    actual_head="$(git -C "$TINYNAV_ROOT" rev-parse HEAD)"
+    actual_tree="$(git -C "$TINYNAV_ROOT" rev-parse HEAD^{tree})"
+    if [[ "$actual_head" == "$RECONSTRUCTED_COMMIT" \
+        && "$actual_tree" == "$RECONSTRUCTED_TREE" ]]; then
+      pass "verified deterministic WSJ deployment commit and tree"
+    else
+      fail "WSJ patches are present but HEAD/tree is not the formal reconstructed baseline"
+    fi
   elif [[ "$(git -C "$TINYNAV_ROOT" rev-parse HEAD 2>/dev/null)" == "$LIVE_IMU_RECOVERY_COMMIT" ]] \
       && [[ "$(sha256sum "$TINYNAV_ROOT/tinynav/core/perception_node.py" | awk '{print $1}')" == "$LIVE_IMU_PERCEPTION_SHA256" ]] \
       && [[ -z "$(git -C "$TINYNAV_ROOT" status --porcelain)" ]]; then

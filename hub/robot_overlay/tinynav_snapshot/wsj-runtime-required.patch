@@ -1,0 +1,28 @@
+diff --git a/scripts/run_go2_cmd_bridge.sh b/scripts/run_go2_cmd_bridge.sh
+index b7799a220ef6f6f1663252ae4edcf6a239e9efef..e1e9cb0c09f67e26f98882c61b74650cfafa1e80 100755
+--- a/scripts/run_go2_cmd_bridge.sh
++++ b/scripts/run_go2_cmd_bridge.sh
+@@ -10,6 +10,7 @@ CYCLONEDDS_HOME="${CYCLONEDDS_HOME:-/home/nvidia/twork/cyclonedds/install}"
+ UNITREE_NET_IF="${UNITREE_NET_IF:-eth0}"
+ UNITREE_SDK2PY_PATH="${UNITREE_SDK2PY_PATH:-}"
+ GO2_CMD_TOPIC="${GO2_CMD_TOPIC:-/cmd_vel}"
++GO2_TIMEOUT_SEC="${GO2_TIMEOUT_SEC:-0.35}"
+ GO2_MAX_VX="${GO2_MAX_VX:-0.45}"
+ GO2_MAX_VY="${GO2_MAX_VY:-0.25}"
+ GO2_MAX_WZ="${GO2_MAX_WZ:-0.80}"
+@@ -65,6 +66,7 @@ echo "  bridge:    $BRIDGE_SCRIPT"
+ echo "  topic:     $GO2_CMD_TOPIC"
+ echo "  interface: $UNITREE_NET_IF"
+ echo "  cyclone:   $CYCLONEDDS_HOME"
++echo "  timeout:   ${GO2_TIMEOUT_SEC}s"
+ echo "  limits:    vx=$GO2_MAX_VX vy=$GO2_MAX_VY wz=$GO2_MAX_WZ"
+ echo "  floors:    v=$GO2_MIN_CMD_V w=$GO2_MIN_CMD_W"
+ echo "  remote:    priority=$GO2_REMOTE_PRIORITY topic=$GO2_REMOTE_TOPIC deadband=$GO2_REMOTE_DEADBAND hold=${GO2_REMOTE_HOLD_SEC}s"
+@@ -74,6 +76,7 @@ exec uv run --extra unitree python "$BRIDGE_SCRIPT" \
+   --sdk-path "$UNITREE_SDK2PY_PATH" \
+   --ros-args \
+   -p cmd_vel_topic:="$GO2_CMD_TOPIC" \
++  -p timeout_sec:="$GO2_TIMEOUT_SEC" \
+   -p max_vx:="$GO2_MAX_VX" \
+   -p max_vy:="$GO2_MAX_VY" \
+   -p max_wz:="$GO2_MAX_WZ" \

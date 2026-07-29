@@ -1,0 +1,85 @@
+{
+  "schema_version": "focus-deployment-hardware-observation-v1",
+  "observed_on": "2026-07-30",
+  "timezone": "Asia/Shanghai",
+  "evidence_semantics": {
+    "observed": "Read from the named host or an existing read-only SSH/tmux session.",
+    "source-derived": "Derived from a locked repository file or upstream source.",
+    "unverified": "Not independently observed on the named host."
+  },
+  "hub": {
+    "classification": "observed",
+    "hostname": "asus4090",
+    "system_vendor": "ASUSTeK COMPUTER INC.",
+    "os": "Ubuntu 22.04.5 LTS",
+    "kernel": "6.8.0-124-generic",
+    "architecture": "x86_64",
+    "cpu": "Intel Core i9-14900K",
+    "memory_nominal": "64 GB",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "gpu_driver": "550.107.02",
+    "observed_source_paths": [
+      "/etc/os-release",
+      "/proc/meminfo",
+      "/sys/class/dmi/id/sys_vendor"
+    ],
+    "observed_commands": [
+      "hostname",
+      "uname",
+      "lscpu",
+      "nvidia-smi"
+    ],
+    "corroborating_repository_path": "audit/SOURCE_SEMANTIC_STACK_PREFLIGHT_20260730.json"
+  },
+  "robot-0": {
+    "name": "WSJ",
+    "classification": "observed",
+    "hostname": "tegra-ubuntu",
+    "compute": "NVIDIA Jetson Orin NX Engineering Reference Developer Kit",
+    "os": "Ubuntu 22.04.5 LTS",
+    "kernel": "5.15.148-tegra",
+    "architecture": "aarch64",
+    "jetpack": "6.2.1+b38",
+    "l4t": "36.4.7-20250918154033",
+    "platform": "Unitree Go2",
+    "sensor": "Intel RealSense D435i",
+    "ros": "ROS 2 Humble",
+    "observed_source_paths": [
+      "/etc/os-release",
+      "/proc/device-tree/model",
+      "/etc/nv_tegra_release"
+    ],
+    "corroborating_repository_path": "docs/WSJ_BASELINE_20260721.md"
+  },
+  "robot-1": {
+    "name": "Yunji",
+    "classification": "observed",
+    "hostname": "nyush-nuc",
+    "system_vendor": "ASUSTeK COMPUTER INC.",
+    "compute": "ASUS NUC 12 Pro NUC12WSK-B",
+    "board": "NUC12WSB-M",
+    "cpu": "12th Gen Intel Core i7-1260P",
+    "memory_nominal": "16 GB",
+    "storage_bytes": 250375106560,
+    "os": "Ubuntu 22.04.5 LTS",
+    "kernel": "6.8.0-136-generic",
+    "architecture": "x86_64",
+    "platform": "Wheeled delivery chassis",
+    "sensor": "Manifold Tech Odin1",
+    "ros": "ROS 2 Humble",
+    "observed_source_paths": [
+      "/etc/os-release",
+      "/proc/meminfo",
+      "/sys/class/dmi/id/sys_vendor",
+      "/sys/class/dmi/id/product_name",
+      "/sys/class/dmi/id/board_name"
+    ],
+    "observed_commands": [
+      "hostname",
+      "uname",
+      "lscpu",
+      "lsblk"
+    ],
+    "access": "Existing read-only SSH/tmux session"
+  }
+}

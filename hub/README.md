@@ -73,6 +73,7 @@ session 已归档，下一次必须重新标定，不能直接复用为 `current
 
 ```bash
 bash hub/scripts/bootstrap_dev.sh
+hub/.venv/bin/python hub/tools/verify_public_baseline.py --workspace .
 bash hub/scripts/verify_repository.sh --tests
 ```
 
@@ -103,7 +104,10 @@ bash hub/robot_overlay/bootstrap_go2.sh \
 bash hub/robot_overlay/verify_go2.sh --hardware --tests
 ```
 
-完整顺序、USB bind 后电源策略和 native BuildMap 保存协议见 [复现手册](../docs/REPRODUCE.md)。
+RTX 4090 Hub + Unitree Go2 + Jetson Orin NX 的硬件、TinyNav
+规划/控制链、确定性 Git 对象和分级验收见
+[WSJ 可复现部署基线](../docs/WSJ_REPRODUCIBLE_BASELINE.md)；完整资产与
+双机流程见[复现手册](../docs/REPRODUCE.md)。
 
 ## 协议与坐标
 

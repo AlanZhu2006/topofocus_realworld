@@ -1,0 +1,252 @@
+{
+  "schema_version": "focus-realworld-deployment-v1",
+  "baseline_id": "rtx4090-go2-orin-nx-dual-robot-v1",
+  "recorded_on": "2026-07-30",
+  "publication": {
+    "code_scope": "hub/",
+    "intended_release": "public reproducible deployment package",
+    "repository_license_status": "owner-review-required",
+    "external_assets_included": false,
+    "boundaries": [
+      "Model weights, datasets, robot firmware, and recorded bags are external artifacts.",
+      "source/Focus_realworld and dependencies/RedNet require owner-side redistribution review.",
+      "Robot motion requires an on-site operator and an explicit per-run authorization."
+    ]
+  },
+  "hardware": {
+    "hub": {
+      "compute": "Intel Core i9-14900K, 64 GB RAM, NVIDIA GeForce RTX 4090",
+      "operating_system": "Ubuntu 22.04.5 LTS, x86_64",
+      "platform": "ASUS desktop workstation",
+      "responsibility": "semantic inference, shared map fusion, VLM decisions, and high-level route coordination",
+      "evidence": {
+        "classification": "observed",
+        "source": "audit/DEPLOYMENT_HARDWARE_20260730.json"
+      }
+    },
+    "robot-0": {
+      "name": "WSJ",
+      "compute": "NVIDIA Jetson Orin NX Engineering Reference Developer Kit",
+      "operating_system": "Ubuntu 22.04.5 LTS, JetPack 6.2.1, L4T 36.4.7, aarch64",
+      "platform": "Unitree Go2 with Intel RealSense D435i",
+      "responsibility": "TinyNav perception, online occupancy, local planning, control, and guarded Unitree SDK2 actuation",
+      "evidence": {
+        "classification": "observed",
+        "source": "audit/DEPLOYMENT_HARDWARE_20260730.json"
+      }
+    },
+    "robot-1": {
+      "name": "Yunji",
+      "compute": "ASUS NUC 12 Pro NUC12WSK-B, Intel Core i7-1260P, 16 GB RAM",
+      "operating_system": "Ubuntu 22.04.5 LTS, x86_64",
+      "platform": "wheeled delivery chassis with Manifold Tech Odin1",
+      "responsibility": "Odin1 localization, TinyNav online occupancy, local planning, control, and guarded WATER actuation",
+      "evidence": {
+        "classification": "observed",
+        "source": "audit/DEPLOYMENT_HARDWARE_20260730.json"
+      }
+    }
+  },
+  "software": {
+    "hub_semantic_runtime": {
+      "python": "3.10.20",
+      "pytorch": "2.8.0+cu128",
+      "torchvision": "0.23.0",
+      "cuda_runtime": "12.8",
+      "detectron2": "0.6",
+      "classification": "observed",
+      "source": "audit/SOURCE_SEMANTIC_STACK_PREFLIGHT_20260730.json"
+    },
+    "tinynav": {
+      "source_url": "https://github.com/UniflexAI/tinynav.git",
+      "license": "Apache-2.0",
+      "base_commit": "576c082e69580f618a5ff313a3e74f3672abb69f",
+      "reconstructed_commit": "a6290559b13cedf19c05f7ec64ff91a29b685cbd",
+      "reconstructed_tree": "5281e70451f2f9cc1d5f5464315d803f6f0972bd",
+      "classification": "source-derived",
+      "source": "hub/robot_overlay/tinynav_snapshot/README.md"
+    },
+    "unitree_sdk2": {
+      "upstream_url": "https://github.com/unitreerobotics/unitree_sdk2_python",
+      "resolved_source_url": "https://github.com/junlinp/unitree_sdk2_python.git",
+      "revision": "800103eab7e045336b1c40186cda5023dbd05821",
+      "license": "BSD-3-Clause",
+      "classification": "source-derived",
+      "source": "reconstructed TinyNav pyproject.toml and uv.lock"
+    },
+    "wsj_middleware": {
+      "ros": "ROS 2 Humble",
+      "rmw_package": "CycloneDDS 1.3.4",
+      "python_cyclonedds_lock": "0.10.2",
+      "librealsense": "2.58.1",
+      "realsense_ros": "4.58.1",
+      "camera_firmware": "5.17.0.10",
+      "classification": "observed",
+      "source": "docs/WSJ_BASELINE_20260721.md"
+    }
+  },
+  "planning": {
+    "execution_location": "robot-local",
+    "route_planner": {
+      "implementation": "online known-free occupancy router",
+      "source": "hub/robot_overlay/tinynav_buildmap_goal_router.py",
+      "algorithm": "bounded-8-connected-a-star",
+      "replan_period_s": 0.5,
+      "max_expansions": 20000,
+      "max_wall_time_s": 0.5,
+      "unknown_cells_traversable": false,
+      "diagonal_corner_cutting": false,
+      "frontier_partial_progress": true,
+      "robot_profiles": {
+        "robot-0": {
+          "lookahead_m": 1.0,
+          "clearance_m": 0.05,
+          "start_snap_radius_m": 0.75,
+          "start_footprint_override_m": 0.35
+        },
+        "robot-1": {
+          "lookahead_m": 0.35,
+          "clearance_m": 0.3,
+          "start_snap_radius_m": 1.0,
+          "start_footprint_override_m": 0.34
+        }
+      }
+    },
+    "local_planner": {
+      "implementation": "TinyNav trajectory lattice with ESDF scoring",
+      "source": "hub/robot_overlay/run_yunji_tinynav_planner.py",
+      "trajectory_horizon_s": 3.0,
+      "trajectory_step_s": 0.1,
+      "stopped_prefix_horizons_s": [
+        0.5,
+        1.0,
+        2.0
+      ],
+      "reverse_candidate_enabled": false,
+      "in_place_yaw_enabled": true,
+      "all_candidates_in_collision": "STOP",
+      "footprints": {
+        "robot-0": "TinyNav Go2 rectangular footprint",
+        "robot-1": "0.283 m circular body radius plus 0.05 m safety margin"
+      }
+    },
+    "controller": {
+      "implementation": "TinyNav path follower",
+      "source": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
+      "measured_base_camera_transform_required": true,
+      "rotate_first_large_turn": true,
+      "linear_engagement_floor_mps": 0.18,
+      "pose_timeout_s": 0.8,
+      "path_timeout_s": 1.0,
+      "pose_jump_freeze": {
+        "threshold_m": 0.4,
+        "duration_s": 0.6
+      },
+      "reverse_segment_policy": "reject and stop"
+    }
+  },
+  "control_contract": {
+    "transport": "versioned v2 high-level target lease",
+    "high_level_commands": [
+      "GOAL",
+      "HOLD",
+      "STOP"
+    ],
+    "target_expiry_required": true,
+    "low_level_motion_authority": "robot-local",
+    "raw_velocity_topic": "/cmd_vel",
+    "guarded_velocity_topic": "/focus_guarded_cmd_vel",
+    "gate_inputs": [
+      "target lease",
+      "calibration and transform identity",
+      "odometry freshness",
+      "occupancy freshness",
+      "trajectory freshness",
+      "reachability",
+      "acknowledged controller pause"
+    ],
+    "fail_closed_output": "zero velocity",
+    "platform_bridges": {
+      "robot-0": {
+        "implementation": "Unitree SDK2 SportClient.Move",
+        "watchdog_s": 0.35,
+        "max_linear_x_mps": 0.2,
+        "max_linear_y_mps": 0.0,
+        "max_angular_z_radps": 0.5
+      },
+      "robot-1": {
+        "implementation": "WATER /api/joy_control",
+        "watchdog_s": 0.3,
+        "max_linear_x_mps": 0.2,
+        "max_angular_z_radps": 0.4
+      }
+    }
+  },
+  "network_contract": {
+    "robot_to_hub_endpoint": "http://127.0.0.1:18089",
+    "transport_exposure": "loopback-only SSH tunnel",
+    "tokens_in_repository": false
+  },
+  "file_contracts": [
+    {
+      "path": "audit/DEPLOYMENT_HARDWARE_20260730.json",
+      "size_bytes": 2585,
+      "sha256": "bccdec5d7af00c223b104a87a0ecf66ff0ae1a833032c1169223fdff0addd94f",
+      "classification": "observed"
+    },
+    {
+      "path": "hub/robot_overlay/bootstrap_go2.sh",
+      "size_bytes": 6463,
+      "sha256": "7a21bb78e5cfe86b6d2b5ed1b1a107851a52dbdb25f84319bdb82d709518d980",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/verify_go2.sh",
+      "size_bytes": 5191,
+      "sha256": "df2629f39ea7a5108829824b266274cf158fc0285f99fb63d0df6546743a4297",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/tinynav_snapshot/tinynav-required.patch",
+      "size_bytes": 182142,
+      "sha256": "83b0e247d8c7e808894cd14d086281efe5911131574f1da4694fdbbfda417e05",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/tinynav_snapshot/wsj-runtime-required.patch",
+      "size_bytes": 1374,
+      "sha256": "99b1e98c16fc2f1c23a2ec853c9e4fef6d50526487c75a62837d6d11d99390cf",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
+      "size_bytes": 35004,
+      "sha256": "b5649ca0d16b0bffef784c8ffec8f491afdecfe2941d30a410ddfd4bbefdff4f",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/tinynav_buildmap_goal_router.py",
+      "size_bytes": 49419,
+      "sha256": "c7121fe6bf42c4c2410e4b7255ad532da5e33d26c556e38d753294670578ddf2",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/run_yunji_tinynav_planner.py",
+      "size_bytes": 20096,
+      "sha256": "4ff3cb8bfb09c148922d719fa76218dcc722dc4503b7d241a7bc731326beaa63",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
+      "size_bytes": 61712,
+      "sha256": "3b4cc66bed5d8ac540e72ec69ed3b673e3512d3717e402d558defb9e94485d7a",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/v2_wsj_receiver.py",
+      "size_bytes": 179731,
+      "sha256": "2c1107c7931a5755b611dd3a7a7f2aa90b6488ebaa53b447bee2b342d57d0e0b",
+      "classification": "source-derived"
+    }
+  ]
+}

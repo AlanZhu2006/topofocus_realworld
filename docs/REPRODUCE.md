@@ -2,6 +2,10 @@
 
 本手册区分三个层次：代码复现、外部资产复现、真机行为复现。仓库可以完整重建代码和 WSJ 部署差异；模型权重、录包和硬件固件因体积或授权原因必须单独提供并校验。
 
+RTX 4090 Hub + Unitree Go2 + Jetson Orin NX 的硬件表、规划/控制逻辑、
+确定性源码对象和分级验收入口见
+[`WSJ_REPRODUCIBLE_BASELINE.md`](WSJ_REPRODUCIBLE_BASELINE.md)。
+
 当前真机版本、标定 ID、地图目录和未完成门禁见
 [`CURRENT_STATUS.md`](../CURRENT_STATUS.md)。本文中的旧日期路径只用于复现
 对应历史证据，不能自动替代当前会话参数。
@@ -88,9 +92,15 @@ bash hub/robot_overlay/bootstrap_go2.sh \
 
 1. clone `UniflexAI/tinynav`，跳过 Git LFS smudge；
 2. checkout 固定基线 `576c082e69580f618a5ff313a3e74f3672abb69f`；
-3. 校验并应用 `tinynav-required.patch`；
+3. 校验并应用 `tinynav-required.patch` 与
+   `wsj-runtime-required.patch`；
 4. 创建本地 `topofocus/wsj-repro-20260721` commit；
 5. 不 source ROS、不启动节点、不访问 Unitree 控制。
+
+默认重建必须得到 commit
+`a6290559b13cedf19c05f7ec64ff91a29b685cbd` 和 tree
+`5281e70451f2f9cc1d5f5464315d803f6f0972bd`；第二个补丁把正式部署使用的
+Go2 `0.35 s` 独立命令 watchdog 纳入默认重建合同。
 
 可选的 `--with-experimental-semantic` 会再恢复 WSJ 主 checkout 中尚未提交的语义包。它不是原生 BuildMap 必需条件，不应作为首次部署默认项。
 

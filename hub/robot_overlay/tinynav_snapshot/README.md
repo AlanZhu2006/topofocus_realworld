@@ -10,9 +10,12 @@ Start from the Apache-2.0 upstream repository and commit:
 
 - URL: `https://github.com/UniflexAI/tinynav.git`
 - base commit: `576c082e69580f618a5ff313a3e74f3672abb69f`
-- patch: `tinynav-required.patch`
-- sanitized patch SHA-256:
+- deployment patch: `tinynav-required.patch`
+- deployment patch SHA-256:
   `83b0e247d8c7e808894cd14d086281efe5911131574f1da4694fdbbfda417e05`
+- formal-runtime patch: `wsj-runtime-required.patch`
+- formal-runtime patch SHA-256:
+  `99b1e98c16fc2f1c23a2ec853c9e4fef6d50526487c75a62837d6d11d99390cf`
 
 The patch is source-derived from the exact final tree at the observed local
 WSJ commit `29f26bc058886ff450f02cdc0d6e9977e1c57010`. It includes these five
@@ -25,18 +28,23 @@ WSJ-only commits, none of which was reachable from the inspected
 4. `39783be71d76538ce6b4b0b2c3f97d2bdda32377` — reject incomplete IMU intervals.
 5. `29f26bc058886ff450f02cdc0d6e9977e1c57010` — recover by re-anchoring after an invalid interval.
 
-Two safety edits were then made to the flattened patch. The legacy VNC helper
+Two safety edits were made to the flattened deployment patch. The legacy VNC helper
 now requires `TINYNAV_VNC_PASSWORD` instead of falling back to `nvidia`, and it
 does not echo the supplied password. These edits do not touch camera,
 perception, mapping, or robot control behavior.
 
-Use `../bootstrap_go2.sh`; it validates `manifest.sha256`, applies the patch to
-the pinned base, and creates a local reproducibility commit. It does not launch
-ROS or the robot.
+The formal-runtime patch exposes the Go2 bridge watchdog as
+`GO2_TIMEOUT_SEC` and passes it to the ROS node as `timeout_sec`. Its default
+is the deployed `0.35 s`, so the reconstructed bridge is byte-identical to
+the bridge locked by `start_wsj_buildmap_v2.sh`.
+
+Use `../bootstrap_go2.sh`; it validates `manifest.sha256`, applies both patches
+to the pinned base, and creates a local reproducibility commit. It does not
+launch ROS or the robot.
 
 The clean-clone gate produced deterministic commit
-`d9f88ed876bd08e35b8c57b65e6589b10170389f` with tree
-`d8538a6c032cce4a7b403dbcfe60a0bce09d5947`. The bootstrap script rejects a
+`a6290559b13cedf19c05f7ec64ff91a29b685cbd` with tree
+`5281e70451f2f9cc1d5f5464315d803f6f0972bd`. The bootstrap script rejects a
 different result.
 
 ## Optional experimental archive
@@ -56,7 +64,7 @@ command bridge when explicitly invoked; merely applying the overlay does not
 run them. The default bootstrap omits this layer.
 
 The optional clean-clone gate produced commit
-`8cc18159c920dc0b5185fe81bd34452676bbad53` with tree
+`f9e9c1bce787b5cc3a34fb149931b4f101b6adf8` with tree
 `46f4b7cd8c3bdc2ed3729cd56f3d8857aa9d41df`.
 
 ## Credential handling

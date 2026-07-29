@@ -162,6 +162,8 @@ print(
 )
 PY
 
+"$python_check" hub/tools/verify_public_baseline.py --workspace "$WORKSPACE"
+
 if [[ "$run_tests" == true ]]; then
   [[ -x "$PYTHON_BIN" ]] || {
     echo "Test Python does not exist: $PYTHON_BIN" >&2

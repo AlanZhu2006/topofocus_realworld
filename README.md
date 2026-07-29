@@ -4,21 +4,37 @@ TopoFocus's real-world dual-robot system: a GPU hub handles online mapping,
 semantic understanding, VLM decisions and high-level coordination, while
 Robot 0 and Robot 1 handle planning, control and safety stops locally.
 
-## Experiment platforms and equipment
+## Reference deployment
 
 <p align="center">
   <img src="media/image/platforms_annotated.jpg" width="900" alt="Real-world dual-robot platforms: Robot 0 (Unitree Go2) with RealSense D435i, Robot 1 wheeled chassis with an Odin1 spatial memory module">
 </p>
 
-- **Robot 0**: a Unitree Go2 quadruped chassis (a reproducible commercial
-  platform), carrying a head-mounted, forward-facing Intel RealSense D435i
-  RGB-D camera and onboard compute for real-time mapping and local planning.
-- **Robot 1**: a wheeled delivery chassis, carrying an
-  [Odin1 spatial memory module](https://www.manifoldtech.cn/) (RGB-D camera
-  + LiDAR + IMU, by Manifold Tech) and onboard compute on its rear deck.
-- Both robots run path planning, velocity control and safety stops locally;
-  the GPU hub only publishes high-level, expiring semantic navigation
-  targets and never issues low-level velocity commands.
+| Role | Compute | Platform and sensing | Primary runtime |
+| --- | --- | --- | --- |
+| GPU Hub | Intel Core i9-14900K, 64 GB RAM, NVIDIA GeForce RTX 4090 | ASUS workstation, Ubuntu 22.04 | Semantic inference, shared-map fusion, VLM decisions and route coordination |
+| Robot 0 · WSJ | NVIDIA Jetson Orin NX, JetPack 6.2.1 | Unitree Go2 + Intel RealSense D435i | TinyNav perception, online occupancy, planning/control and guarded Unitree SDK2 output |
+| Robot 1 · Yunji | ASUS NUC 12 Pro NUC12WSK-B, Core i7-1260P, 16 GB RAM | Wheeled chassis + [Manifold Tech Odin1](https://www.manifoldtech.cn/) | Odin localization, TinyNav planning/control and guarded WATER output |
+
+These are the observed reference machines. The Hub publishes only versioned,
+expiring high-level targets; each robot retains final stop and target-rejection
+authority.
+
+## System architecture
+
+```mermaid
+flowchart LR
+    O["Dual RGB-D observations<br/>and robot-local poses"] --> H
+    H["RTX 4090 Hub<br/>semantics · map fusion · VLM · coordination"]
+    H -->|"expiring GOAL / HOLD / STOP"| G
+    G["robot-local lease and freshness gate"] --> A
+    A["known-free A* route"] --> T
+    T["TinyNav local planner<br/>ESDF + platform footprint"] --> C
+    C["TinyNav controller"] --> V["raw /cmd_vel"]
+    V --> G
+    G --> Q["guarded /focus_guarded_cmd_vel"]
+    Q --> B["Unitree SDK2 / WATER bridge"]
+```
 
 ## Real-world deployment
 
@@ -40,6 +56,43 @@ non-conflicting high-level targets.
 
 The local planner on each platform retains final collision, stop and target
 rejection authority throughout execution.
+
+### Robot-local planning and control
+
+Each high-level target is first routed on the latest known-free occupancy grid
+with bounded 8-connected A*: unknown/occupied cells are blocked, diagonal
+corner cutting is forbidden, and frontier targets may advance safely to the
+known-map edge. A rolling waypoint is then evaluated by TinyNav's local
+trajectory lattice and ESDF footprint scorer. Forward arcs, in-place yaw and
+collision-scored short stopped prefixes are available; reverse candidates are
+excluded, and an all-collision result is a stop.
+
+TinyNav's path follower uses the measured base-to-camera transform and
+rotate-first handling. Raw velocity never reaches a chassis directly: the v2
+robot receiver checks target lease, calibration, odometry, occupancy,
+trajectory freshness, reachability and controller pause acknowledgement before
+publishing guarded velocity. The Go2 and WATER bridges add independent stale
+command watchdogs.
+
+### Reproducible WSJ baseline
+
+The WSJ reference path is explicitly packaged for an RTX 4090 Hub + Unitree
+Go2 + Jetson Orin NX:
+
+```bash
+bash hub/scripts/bootstrap_dev.sh
+python3 hub/tools/verify_public_baseline.py --workspace .
+bash hub/robot_overlay/bootstrap_go2.sh \
+  --destination /tmp/tinynav-topofocus
+```
+
+The last command reconstructs the pinned TinyNav/Go2 source tree and does not
+start ROS or connect to a robot. Hardware setup, software versions,
+planner/controller parameters, expected Git objects and staged acceptance
+tests are in the
+[WSJ reproducible deployment baseline](docs/WSJ_REPRODUCIBLE_BASELINE.md).
+The exact machine-readable contract is
+[`realworld_dual_robot_v1.json`](hub/config/deployments/realworld_dual_robot_v1.json).
 
 ## Cross-robot calibration
 
