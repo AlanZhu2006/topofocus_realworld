@@ -262,8 +262,8 @@
     },
     {
       "path": "hub/robot_overlay/v2_wsj_receiver.py",
-      "size_bytes": 180919,
-      "sha256": "e8bf15a3e736375b24b7ff844ad0ffb39b1b27ec43bc6d780bbcc5884e49b49d",
+      "size_bytes": 183345,
+      "sha256": "0023496884ea45cdf104d5d077a62e075602d0b16515150bd66d028bca0b60f2",
       "classification": "source-derived"
     }
   ]

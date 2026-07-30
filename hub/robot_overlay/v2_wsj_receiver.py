@@ -157,6 +157,36 @@ def no_known_free_path_requires_replan(
     )
 
 
+def router_hold_recovery_eligible(
+    target_kind: str | None,
+    router_reason: str,
+    *,
+    receiver_runtime_ready: bool,
+) -> bool:
+    """Keep a zero-velocity leg while fresh local-map evidence can recover it.
+
+    The online occupancy grid updates more slowly than the router replans, so
+    the first ``NO_KNOWN_FREE_PATH`` may describe an incomplete known-free
+    component rather than a physically impossible route. Preserve the same
+    bounded recovery window used for transient router input lag, but only
+    while every independent receiver health gate remains READY.
+    """
+
+    return bool(
+        recoverable_router_hold(
+            router_reason,
+            receiver_runtime_ready=receiver_runtime_ready,
+        )
+        or (
+            receiver_runtime_ready
+            and no_known_free_path_requires_replan(
+                target_kind,
+                router_reason,
+            )
+        )
+    )
+
+
 def occupancy_recovery_eligible(
     *,
     recovery_elapsed_s: float,
@@ -1207,8 +1237,8 @@ def main() -> int:
         default=12.0,
         help=(
             "zero-velocity recovery window for transient goal-router "
-            "odometry/occupancy lag while this receiver independently "
-            "remains READY"
+            "odometry/occupancy lag or a still-maturing known-free map while "
+            "this receiver independently remains READY"
         ),
     )
     parser.add_argument(
@@ -3273,45 +3303,12 @@ def main() -> int:
                         router_reason,
                     )
                 )
-                if no_path_waiting_for_replan:
-                    # A target without a route must not generate synthetic
-                    # ACCEPTED ticks while the physical gate is closed. Reject
-                    # it explicitly so the Hub can freeze a fresh source round.
-                    assert active_goal is not None
-                    node.revoke()
-                    post(
-                        held_decision,
-                        NavigationStatusV2.REJECTED,
-                        "LOCAL_GOAL_UNREACHABLE",
-                        pose,
-                        zero=True,
-                        goal=active_goal,
-                        detail=(
-                            "online router found no known-free path from the "
-                            "measured robot base for "
-                            f"{active_goal.target_kind}"
-                        ),
-                        terminal=True,
-                    )
-                    emit(
-                        (
-                            "frontier_no_path_rejected"
-                            if active_goal.target_kind == "FRONTIER_POINT"
-                            else "semantic_no_path_rejected"
-                        ),
-                        state=router_state,
-                        reason=router_reason,
-                        target_kind=active_goal.target_kind,
-                        decision_id=held_decision.decision_id,
-                        leg_id=held_decision.leg_id,
-                    )
-                    active_decision = None
-                    active_goal = None
-                    progress_watchdog.reset()
-                    router_recovery_leg_id = None
-                    router_recovery_started_ns = 0
-                    router_recovery_reason = ""
-                elif recoverable_router_hold(
+                if router_hold_recovery_eligible(
+                    (
+                        None
+                        if active_goal is None
+                        else active_goal.target_kind
+                    ),
                     router_reason,
                     receiver_runtime_ready=ready,
                 ):
@@ -3331,37 +3328,101 @@ def main() -> int:
                             grace_s=args.router_recovery_grace_s,
                             receiver_odom_age_s=round(odom_age_s, 3),
                             decision_id=held_decision.decision_id,
+                            recovery_class=(
+                                "known_free_map_maturation"
+                                if no_path_waiting_for_replan
+                                else "router_input_lag"
+                            ),
                         )
                     recovery_age_s = (
                         now_ns - router_recovery_started_ns
                     ) / 1e9
                     if recovery_age_s > args.router_recovery_grace_s:
+                        terminal_reason_code = (
+                            "LOCAL_GOAL_UNREACHABLE"
+                            if no_path_waiting_for_replan
+                            else "LOCAL_ROUTER_HOLD_TIMEOUT"
+                        )
                         node.revoke()
                         post(
                             held_decision,
                             NavigationStatusV2.REJECTED,
-                            "LOCAL_ROUTER_HOLD_TIMEOUT",
+                            terminal_reason_code,
                             pose,
                             zero=True,
+                            goal=(
+                                active_goal
+                                if no_path_waiting_for_replan
+                                else None
+                            ),
                             detail=(
                                 f"online router state={router_state} "
                                 f"reason={router_reason}; "
-                                f"recovery_age_s={recovery_age_s:.3f}"
+                                f"recovery_age_s={recovery_age_s:.3f}; "
+                                "bounded fresh-map recovery exhausted"
                             ),
                             terminal=True,
                         )
                         emit(
-                            "online_router_recovery_timeout",
+                            (
+                                "online_router_no_path_recovery_timeout"
+                                if no_path_waiting_for_replan
+                                else "online_router_recovery_timeout"
+                            ),
                             state=router_state,
                             reason=router_reason,
                             recovery_age_s=round(recovery_age_s, 3),
                             decision_id=held_decision.decision_id,
+                            target_kind=(
+                                None
+                                if active_goal is None
+                                else active_goal.target_kind
+                            ),
                         )
                         active_decision = None
                         active_goal = None
                         router_recovery_leg_id = None
                         router_recovery_started_ns = 0
                         router_recovery_reason = ""
+                elif no_path_waiting_for_replan:
+                    # If independent receiver health is not READY, no
+                    # map-maturation wait is authorized. The physical gate is
+                    # already closed, so reject without weakening local safety.
+                    assert active_goal is not None
+                    node.revoke()
+                    post(
+                        held_decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_GOAL_UNREACHABLE",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=(
+                            "online router found no known-free path and "
+                            "receiver health did not permit bounded recovery "
+                            f"for {active_goal.target_kind}"
+                        ),
+                        terminal=True,
+                    )
+                    emit(
+                        (
+                            "frontier_no_path_rejected"
+                            if active_goal.target_kind == "FRONTIER_POINT"
+                            else "semantic_no_path_rejected"
+                        ),
+                        state=router_state,
+                        reason=router_reason,
+                        target_kind=active_goal.target_kind,
+                        decision_id=held_decision.decision_id,
+                        leg_id=held_decision.leg_id,
+                        recovery_permitted=False,
+                    )
+                    active_decision = None
+                    active_goal = None
+                    progress_watchdog.reset()
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
                 else:
                     node.revoke()
                     post(

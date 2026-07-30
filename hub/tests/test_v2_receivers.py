@@ -1089,6 +1089,30 @@ def test_wsj_recovers_only_transient_router_input_lag_with_ready_gate():
     "target_kind",
     ["FRONTIER_POINT", "SEMANTIC_REGION"],
 )
+def test_no_path_gets_bounded_zero_velocity_map_recovery(target_kind):
+    receiver = load_overlay("v2_wsj_receiver.py")
+
+    assert receiver.router_hold_recovery_eligible(
+        target_kind,
+        "NO_KNOWN_FREE_PATH",
+        receiver_runtime_ready=True,
+    )
+    assert not receiver.router_hold_recovery_eligible(
+        target_kind,
+        "NO_KNOWN_FREE_PATH",
+        receiver_runtime_ready=False,
+    )
+    assert receiver.router_hold_recovery_eligible(
+        target_kind,
+        "ODOMETRY_STALE",
+        receiver_runtime_ready=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "target_kind",
+    ["FRONTIER_POINT", "SEMANTIC_REGION"],
+)
 def test_no_known_free_path_replans_both_high_level_target_kinds(
     target_kind,
 ):
