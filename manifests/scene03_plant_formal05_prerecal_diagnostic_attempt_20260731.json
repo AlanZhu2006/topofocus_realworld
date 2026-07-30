@@ -1,0 +1,102 @@
+{
+  "schema_version": "focus-realworld-diagnostic-attempt-v1",
+  "record_id": "scene03-plant-formal05-prerecal-diagnostic-20260731",
+  "scene_id": "scene03-plant",
+  "target_category": "plant",
+  "provisional_episode_id": "formal05",
+  "session_id": "scene03-plant-20260731-0325-formal05",
+  "session_git_commit": "92de3be7dd51288b1b0df39c8496734f8e0f569e",
+  "shared_frame_calibration_id": "shared-board-odin1-scene03-plant-20260731-0300-yunjireanchor1-v1",
+  "classification": "diagnostic live attempt excluded from the formal metric track pending perception and post-power-cycle calibration review",
+  "formal_identity_status": "not consumed; Scene 03 Formal 05 remains available for the operator-requested recalibrated rerun",
+  "operator_observation": {
+    "statement": "Robot0 应该是误判，这次感觉有问题；先留档，Robot0 下电再上电后重新标定并实验。",
+    "suspected_robot_0_false_positive": true,
+    "classification": "observed onsite operator assessment; suspected cause is unverified"
+  },
+  "automatic_result": {
+    "outcome": "failed_robot_or_controller_holding",
+    "automatic_terminal_candidate_complete": false,
+    "semantic_arrival_observed": false,
+    "source_rounds_completed": 14,
+    "source_step_final": 324,
+    "high_level_batches_published": 92,
+    "termination_reason": "episode runtime timeout",
+    "runtime_limit_s": 600,
+    "robot_0_actual_path_length_m": 11.83903869512954,
+    "robot_1_actual_path_length_m": 22.780064972556207
+  },
+  "perception_and_navigation_observation": {
+    "robot_0_first_plant_region_round": 7,
+    "robot_0_first_plant_region_source_step": 174,
+    "robot_0_plant_region_size_cells": 7,
+    "robot_0_plant_region_evidence_status": "model_inference_map_projected_unverified",
+    "robot_0_plant_region_payload_sha256": "4d7916bb81f687990f6c708c1c622268673423928e552315f07156a391ab4eba",
+    "semantic_path_rejections": {
+      "robot-0": {
+        "LOCAL_PLANNER_PATH_STALE": 2,
+        "LOCAL_PLANNER_NO_PROGRESS": 1,
+        "LOCAL_GOAL_UNREACHABLE": 3
+      },
+      "robot-1": {
+        "LOCAL_GOAL_UNREACHABLE": 1
+      }
+    },
+    "provenance_boundary": "The runtime proves a small model-inferred plant region and repeated local navigation rejection, but it does not prove whether the semantic region was a true plant or a false positive. The operator suspects a false positive; that hypothesis remains pending image/map review."
+  },
+  "metric_status": {
+    "counts_in_scene03_formal_track": false,
+    "sr": null,
+    "source_compatible_spl": null,
+    "standard_spl": null,
+    "reason": "operator requested a post-power-cycle recalibrated rerun before assigning the Formal 05 metric identity"
+  },
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0325-formal05_live_scene03_20260731_032816_045070790/episode_report.json",
+      "size_bytes": 9759,
+      "sha256": "e074e4790631fdf3a01f89f97364c5f476dd473408d38a917cb652d628912e76",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0325-formal05_live_scene03_20260731_032816_045070790/controller_events.jsonl",
+      "size_bytes": 233936,
+      "sha256": "be9118f1998d09c856e829fbc7fc3a4bd8c95f7654ca36695ba83de9244972cc",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0325-formal05_live_scene03_20260731_032816_045070790/scene_manifest.json",
+      "size_bytes": 211316,
+      "sha256": "1ef55b7d559b162a24dcef2ccf32289b181c065dd1e8346715c9f21ac7b209bd",
+      "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0325-formal05_live_scene03_20260731_032816_045070790/round_07_step_174/shadow/shadow_manifest.json",
+      "size_bytes": 39447,
+      "sha256": "b4666d9b520ec1f01a0f62e4c4bf9f399bd63ab7083676a20fffe257a9782418",
+      "classification": "source-derived frozen round containing the first Robot 0 plant region; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0325-formal05_live_scene03_20260731_032816_045070790/round_07_step_174/initial_batch.json",
+      "size_bytes": 6646,
+      "sha256": "513330f2bdbefcb2d2cb81ecd179089e61e358279e4e689b59c5672ed7d689de",
+      "classification": "source-derived high-level semantic target batch; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene03-plant-20260731-0325-formal05/session.json",
+      "size_bytes": 4292,
+      "sha256": "94dd1cec40eef76288013a429dffc667e865bfd01612d5cb666d487325e68688",
+      "classification": "source-derived exact session identity; runtime file ignored by Git"
+    }
+  ],
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "terminal_state": "both robots HOLDING with zero velocity",
+    "hub_goal_output_enabled_after_cleanup": {
+      "robot-0": false,
+      "robot-1": false
+    },
+    "post_episode_motion_authority": false
+  }
+}
