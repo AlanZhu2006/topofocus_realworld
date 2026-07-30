@@ -1133,14 +1133,14 @@
       "evidence": [
         {
           "path": "manifests/scene03_plant_formal_experiment_02_failure_20260731.json",
-          "size_bytes": 11025,
-          "sha256": "b9e89a76234c7f3ddaa605bc76d21b22676e187da63f38db7a938c2667a93003",
+          "size_bytes": 12499,
+          "sha256": "e022d4937df775d5aed2677452b46d894264339bcb6bc53afee68432c98bce71",
           "classification": "authoritative machine-readable Formal 02 failure archive"
         },
         {
           "path": "audit/SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md",
-          "size_bytes": 5719,
-          "sha256": "b8f0cf6275dc56ad8984390badb1aff7f981223af027ab4c6b886827455d5ec0",
+          "size_bytes": 6329,
+          "sha256": "faeaf3c085542e0afb3c21458957007f65979e51abbf5e61d5a53be367d5d41f",
           "classification": "human-readable provenance mirror"
         },
         {
@@ -1152,7 +1152,7 @@
         {
           "path": "manifests/scene03_plant_formal_experiments_20260731.json",
           "size_bytes": 2062,
-          "sha256": "63c14e077cd501265118bafdd0e0a71240a63ffd075dee44685b5dc7c2907161",
+          "sha256": "c11e05344c6638debd5ce2775c6ccbd54356d150c49af8e578bc75f258bbd905",
           "classification": "authoritative unified Scene 03 formal archive"
         }
       ],

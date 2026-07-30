@@ -44,8 +44,8 @@
       "standard_spl": 0.0,
       "record": {
         "path": "manifests/scene03_plant_formal_experiment_02_failure_20260731.json",
-        "size_bytes": 11025,
-        "sha256": "b9e89a76234c7f3ddaa605bc76d21b22676e187da63f38db7a938c2667a93003",
+        "size_bytes": 12499,
+        "sha256": "e022d4937df775d5aed2677452b46d894264339bcb6bc53afee68432c98bce71",
         "classification": "authoritative machine-readable Formal 02 archive"
       }
     }

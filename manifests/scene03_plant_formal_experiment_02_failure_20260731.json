@@ -139,6 +139,40 @@
     ],
     "policy_change_status": "not changed; suppressing repeated history revisits would be an explicit deployment divergence from the immutable source behavior"
   },
+  "post_run_correction": {
+    "classification": "source-derived tested deployment correction with observed byte-level dual-robot disk synchronization; physical effect unverified",
+    "git_commit": "b20282776114a6dc4e5401aa8b9e6460a65d8e89",
+    "controller_artifact": {
+      "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
+      "size_bytes": 71983,
+      "sha256": "7449fcf061c108e15c0e4083e213e3ab13e7ad8638f9765b579944112a7244bc",
+      "classification": "source-derived deployment overlay"
+    },
+    "tests": {
+      "controller_targeted": "74 passed",
+      "hub_complete": "774 passed",
+      "public_baseline_contract": "passed"
+    },
+    "robot_sync": {
+      "robot-0": {
+        "path": "/home/nvidia/topofocus_buildmap_v2_20260723/hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
+        "size_bytes": 71983,
+        "sha256": "7449fcf061c108e15c0e4083e213e3ab13e7ad8638f9765b579944112a7244bc"
+      },
+      "robot-1": {
+        "path": "/home/nyu/topofocus_buildmap_v2_20260723/hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
+        "size_bytes": 71983,
+        "sha256": "7449fcf061c108e15c0e4083e213e3ab13e7ad8638f9765b579944112a7244bc"
+      },
+      "processes_restarted": false,
+      "temporary_transfer_artifacts_removed": true,
+      "hub_goal_output_enabled_after_sync": {
+        "robot-0": false,
+        "robot-1": false
+      }
+    },
+    "physical_verification_status": "pending a separately authorized live run"
+  },
   "runtime_evidence": [
     {
       "path": "hub/runtime/oneclick_scene03-plant-20260730-2349-formal-start_live_scene03_20260730_235458_576402645/episode_report.json",

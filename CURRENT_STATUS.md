@@ -165,6 +165,8 @@ The full repository/runtime organization record is
 
 ## Next formal run
 
-Scene 03 formal experiment 03 is next. Before any motion, synchronize the
-tested shared controller to both robots, verify exact release hashes, run the
-strict no-motion preflight and obtain a new onsite motion confirmation.
+Scene 03 formal experiment 03 is next. The tested shared controller is already
+byte-identical on both robot disks, but the warm processes still contain the
+pre-fix code by design. Before any motion, start a new code-bound session so
+both controllers load the synchronized file, verify exact release hashes, run
+the strict no-motion preflight and obtain a new onsite motion confirmation.
