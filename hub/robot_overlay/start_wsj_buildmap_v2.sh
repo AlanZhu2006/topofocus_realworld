@@ -258,6 +258,85 @@ for window in "${required_windows[@]}"; do
   tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx "$window" \
     || missing_windows+=("$window")
 done
+
+verified_online_window() {
+  local window="$1" pane_start
+  pane_start="$(
+    tmux display-message -p -t "$SESSION:$window" \
+      '#{pane_start_command}' 2>/dev/null || true
+  )"
+  case "$window" in
+    maploc)
+      [[ "$pane_start" == *"$SCRIPT_DIR/run_tinynav_buildmap_live.py"* ]]
+      ;;
+    online-map)
+      [[ "$pane_start" == \
+        *"$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py"* ]]
+      ;;
+    planning)
+      [[ "$pane_start" == *"run_yunji_tinynav_planner.py"* \
+         || "$pane_start" == *"planning_node.py"* ]]
+      ;;
+    goal-router)
+      [[ "$pane_start" == *"$SCRIPT_DIR/tinynav_buildmap_goal_router.py"* ]]
+      ;;
+    control)
+      [[ "$pane_start" == *"yunji_tinynav_cmd_vel_control.py"* \
+         || "$pane_start" == *"cmd_vel_control.py"* ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+rebuild_verified_partial_online_stack() {
+  local window deadline
+  if tmux list-windows -t "$SESSION" -F '#{window_name}' \
+      | grep -qx go2-bridge \
+     || pgrep -af 'go2_cmd_bridge|nav2_controller' >/dev/null 2>&1 \
+     || pgrep -af 'v2_wsj_receiver\.py.*--enable-live-go2-motion' \
+        >/dev/null 2>&1; then
+    echo "Refusing partial-stack rebuild while a live command path exists." >&2
+    return 1
+  fi
+  for window in "${required_windows[@]}"; do
+    tmux list-windows -t "$SESSION" -F '#{window_name}' \
+      | grep -qx "$window" || continue
+    verified_online_window "$window" || {
+      echo "Refusing unrecognized partial-stack window: $SESSION:$window" >&2
+      return 1
+    }
+  done
+
+  # The bridge and live receiver were proven absent above.  Latch pause/zero,
+  # remove only the verified session-local planning windows, and reconstruct a
+  # complete graph.  This turns an interrupted debug/live cleanup into an
+  # idempotent next launch instead of requiring operator-side tmux surgery.
+  timeout 5 ros2 topic pub --once \
+    /nav/paused std_msgs/msg/Bool '{data: true}' \
+    >/dev/null 2>&1 || true
+  timeout 5 ros2 topic pub --once \
+    /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' \
+    >/dev/null 2>&1 || true
+  echo "Rebuilding verified partial online stack; missing: ${missing_windows[*]}"
+  for window in "${required_windows[@]}"; do
+    tmux kill-window -t "$SESSION:$window" >/dev/null 2>&1 || true
+  done
+  deadline=$((SECONDS + 20))
+  while pgrep -af \
+      'planning_node.py|run_yunji_tinynav_planner.py|cmd_vel_control.py|tinynav_buildmap_goal_router.py|run_tinynav_buildmap_online_mapping.py|run_tinynav_buildmap_live.py' \
+      >/dev/null 2>&1; do
+    (( SECONDS < deadline )) || {
+      echo "A verified partial-stack process survived its tmux window." >&2
+      return 1
+    }
+    sleep 1
+  done
+  bash "$SCRIPT_DIR/start_tinynav_buildmap_online_nav.sh" --session "$SESSION"
+  online_stack_started="true"
+}
+
 if [[ ${#missing_windows[@]} -eq 1 \
       && "${missing_windows[0]}" == "maploc" ]]; then
   bash "$SCRIPT_DIR/start_go2_buildmap.sh" \
@@ -267,8 +346,7 @@ elif [[ ${#missing_windows[@]} -eq ${#required_windows[@]} ]]; then
   bash "$SCRIPT_DIR/start_tinynav_buildmap_online_nav.sh" --session "$SESSION"
   online_stack_started="true"
 elif [[ ${#missing_windows[@]} -ne 0 ]]; then
-  echo "Refusing ambiguous partial online stack; missing: ${missing_windows[*]}" >&2
-  exit 1
+  rebuild_verified_partial_online_stack
 fi
 
 # Keep the formal DDS subscriber alive before any bounded publisher recovery.

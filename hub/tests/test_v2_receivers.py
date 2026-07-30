@@ -1424,7 +1424,22 @@ def test_wsj_maploc_repair_is_no_bridge_and_fail_closed() -> None:
     assert "v2_wsj_receiver\\.py.*--enable-live-go2-motion" in buildmap
     assert 'missing_windows[0]}" == "maploc"' in launcher
     assert "--repair-online-stack" in launcher
-    assert "Refusing ambiguous partial online stack" in launcher
+    assert "rebuild_verified_partial_online_stack" in launcher
+    assert "Refusing partial-stack rebuild while a live command path exists." in (
+        launcher
+    )
+    assert "Refusing unrecognized partial-stack window" in launcher
+    assert "Rebuilding verified partial online stack" in launcher
+    rebuild = launcher.split(
+        "rebuild_verified_partial_online_stack() {", 1
+    )[1].split("\n}\n", 1)[0]
+    assert "/nav/paused" in rebuild
+    assert "/focus_guarded_cmd_vel" in rebuild
+    assert "go2-bridge" in rebuild
+    assert "--enable-live-go2-motion" in rebuild
+    assert "verified_online_window" in rebuild
+    assert 'tmux kill-window -t "$SESSION:$window"' in rebuild
+    assert "start_tinynav_buildmap_online_nav.sh" in rebuild
 
 
 def test_wsj_live_bridge_uses_observed_effective_command_floors() -> None:
