@@ -47,6 +47,37 @@ def test_strict_vlm_contract_accepts_only_error_free_cascade():
         )
 
 
+def test_initial_shared_frontier_exhaustion_is_an_explicit_hold():
+    reason = MODULE.initial_allocation_hold_reason(
+        scene_state=None,
+        candidate_frontiers=[],
+        semantic_goal=None,
+    )
+
+    assert reason is not None
+    assert "explicit HOLD" in reason
+
+
+def test_frontier_hold_does_not_override_replan_or_semantic_goal():
+    frontier = SimpleNamespace(frontier_id="A")
+
+    assert MODULE.initial_allocation_hold_reason(
+        scene_state=SimpleNamespace(),
+        candidate_frontiers=[],
+        semantic_goal=None,
+    ) is None
+    assert MODULE.initial_allocation_hold_reason(
+        scene_state=None,
+        candidate_frontiers=[frontier],
+        semantic_goal=None,
+    ) is None
+    assert MODULE.initial_allocation_hold_reason(
+        scene_state=None,
+        candidate_frontiers=[],
+        semantic_goal={"kind": "semantic_goal"},
+    ) is None
+
+
 def yolo_summary() -> dict[str, object]:
     return {
         "last_observation_sequence": 17,

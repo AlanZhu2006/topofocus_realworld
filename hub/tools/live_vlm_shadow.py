@@ -68,6 +68,7 @@ from focus_hub.source_episode import (  # noqa: E402
     extract_source_goal_component,
 )
 from focus_hub.vlm_decision import (  # noqa: E402
+    CascadeResult,
     run_decision_cascade,
     validate_glm_server_contract,
 )
@@ -114,6 +115,33 @@ def require_complete_cascade_result(
         raise RuntimeError(
             f"{robot_id} VLM cascade was incomplete: " + "; ".join(errors)
         )
+
+
+def initial_allocation_hold_reason(
+    *,
+    scene_state: SourceEpisodeState | None,
+    candidate_frontiers: list[Frontier],
+    semantic_goal: dict[str, object] | None,
+) -> str | None:
+    """Hold a later robot when the shared initial ABCD set is exhausted.
+
+    The simulator source may reuse its sole frontier for another agent.  The
+    physical adapter instead preserves unique shared-map allocation: the
+    earlier robot keeps the observed frontier and a later robot receives an
+    explicit no-allocation HOLD.  This is not a failed or incomplete VLM call;
+    there is no candidate on which a Decision VLM could validly score.
+    """
+
+    if (
+        scene_state is None
+        and not candidate_frontiers
+        and semantic_goal is None
+    ):
+        return (
+            "initial shared frontier set exhausted by earlier allocation; "
+            "duplicate physical target suppressed; explicit HOLD"
+        )
+    return None
 
 
 def parse_robot_spec(value: str) -> RobotSpec:
@@ -1078,10 +1106,20 @@ def main() -> int:
         for context in contexts
     }
     if scene_state is None and len(frontiers) < len(contexts):
-        raise RuntimeError(
-            f"need at least {len(contexts)} frontiers for distinct allocation, "
-            f"found {len(frontiers)}"
-        )
+        manifest["source_undercomplete_frontier_adapter"] = {
+            "observed_frontier_count": len(frontiers),
+            "robot_count": len(contexts),
+            "source_behavior": (
+                "a sole frontier may be reused by a later simulator agent"
+                if frontiers
+                else "no-frontier branch may choose a random map point"
+            ),
+            "real_robot_adapter": (
+                "allocate each observed shared frontier at most once; "
+                "robots without a remaining frontier explicitly HOLD"
+            ),
+            "fabricated_frontiers": False,
+        }
     if scene_state is not None and not frontiers and not any(semantic_goals.values()):
         # Upstream falls back to a random map point when no frontier exists.
         # A random physical target is not safe to synthesize in a deployment
@@ -1237,6 +1275,12 @@ def main() -> int:
         frontier_reused = False
         decision_frontiers = list(remaining)
         candidate_frontiers = list(decision_frontiers)
+        semantic_selection = semantic_goal_records[context.spec.robot_id]
+        adapter_hold_reason = initial_allocation_hold_reason(
+            scene_state=scene_state,
+            candidate_frontiers=decision_frontiers,
+            semantic_goal=semantic_selection,
+        )
         robot_xy = (
             float(context.T_shared_base[0, 3]),
             float(context.T_shared_base[1, 3]),
@@ -1254,58 +1298,64 @@ def main() -> int:
             if scene_state is None
             else scene_state.previous_positions_rc.get(context.spec.robot_id)
         )
-        judgment_map = render_semantic_decision_map(
-            decision_grid,
-            HM3D_CATEGORY_NAMES,
-            decision_frontiers,
-            robot_rc,
-            heading_deg,
-            history_nodes=memory.history_nodes,
-            pre_goal_rc=pre_goal_point,
-            semantic_labels=scene_labels,
-            goal_category=args.goal_category,
-            visited_paths_rc=visited_paths_rc,
-        )
-        decision_map = render_semantic_decision_map(
-            decision_grid,
-            HM3D_CATEGORY_NAMES,
-            decision_frontiers,
-            robot_rc,
-            heading_deg,
-            pre_goal_rc=pre_goal_point,
-            semantic_labels=scene_labels,
-            goal_category=args.goal_category,
-            visited_paths_rc=visited_paths_rc,
-        )
-        judgment_path = output / f"{context.spec.name}_judgment_map.jpg"
-        decision_path = output / f"{context.spec.name}_decision_map.jpg"
-        if not cv2.imwrite(str(judgment_path), judgment_map):
-            raise RuntimeError(f"failed to write {judgment_path}")
-        if not cv2.imwrite(str(decision_path), decision_map):
-            raise RuntimeError(f"failed to write {decision_path}")
+        if adapter_hold_reason is None:
+            judgment_map = render_semantic_decision_map(
+                decision_grid,
+                HM3D_CATEGORY_NAMES,
+                decision_frontiers,
+                robot_rc,
+                heading_deg,
+                history_nodes=memory.history_nodes,
+                pre_goal_rc=pre_goal_point,
+                semantic_labels=scene_labels,
+                goal_category=args.goal_category,
+                visited_paths_rc=visited_paths_rc,
+            )
+            decision_map = render_semantic_decision_map(
+                decision_grid,
+                HM3D_CATEGORY_NAMES,
+                decision_frontiers,
+                robot_rc,
+                heading_deg,
+                pre_goal_rc=pre_goal_point,
+                semantic_labels=scene_labels,
+                goal_category=args.goal_category,
+                visited_paths_rc=visited_paths_rc,
+            )
+            judgment_path = output / f"{context.spec.name}_judgment_map.jpg"
+            decision_path = output / f"{context.spec.name}_decision_map.jpg"
+            if not cv2.imwrite(str(judgment_path), judgment_map):
+                raise RuntimeError(f"failed to write {judgment_path}")
+            if not cv2.imwrite(str(decision_path), decision_map):
+                raise RuntimeError(f"failed to write {decision_path}")
 
-        call_started = time.perf_counter()
-        cascade = run_decision_cascade(
-            rgb_bgr=context.rgb_bgr,
-            judgment_map_bgr=judgment_map,
-            decision_map_bgr=decision_map,
-            frontiers=decision_frontiers,
-            target=args.goal_category,
-            detections=context.detections,
-            scene_objects=scene_objects,
-            cur_location_rc=robot_rc,
-            heading_deg=heading_deg,
-            pre_goal_point=pre_goal_point,
-            step=source_step,
-            early_episode_step_threshold=args.early_episode_steps,
-            memory=memory,
-            base_url=args.glm_url,
-            timeout_s=args.vlm_timeout_s,
-            history_candidate_indices=remaining_history_indices,
-            history_candidate_scores=remaining_history_scores,
-            fail_fast=args.require_complete_vlm,
-        )
-        elapsed_s = time.perf_counter() - call_started
+            call_started = time.perf_counter()
+            cascade = run_decision_cascade(
+                rgb_bgr=context.rgb_bgr,
+                judgment_map_bgr=judgment_map,
+                decision_map_bgr=decision_map,
+                frontiers=decision_frontiers,
+                target=args.goal_category,
+                detections=context.detections,
+                scene_objects=scene_objects,
+                cur_location_rc=robot_rc,
+                heading_deg=heading_deg,
+                pre_goal_point=pre_goal_point,
+                step=source_step,
+                early_episode_step_threshold=args.early_episode_steps,
+                memory=memory,
+                base_url=args.glm_url,
+                timeout_s=args.vlm_timeout_s,
+                history_candidate_indices=remaining_history_indices,
+                history_candidate_scores=remaining_history_scores,
+                fail_fast=args.require_complete_vlm,
+            )
+            elapsed_s = time.perf_counter() - call_started
+            vlm_execution_status = "cascade_completed"
+        else:
+            cascade = CascadeResult(gate_reason=adapter_hold_reason)
+            elapsed_s = 0.0
+            vlm_execution_status = "not_called_no_remaining_candidate"
         if args.require_complete_vlm:
             try:
                 require_complete_cascade_result(
@@ -1403,7 +1453,6 @@ def main() -> int:
                     item for item in remaining_history_indices if item != history_index
                 ]
 
-        semantic_selection = semantic_goal_records[context.spec.robot_id]
         final_selection = (
             semantic_selection
             if semantic_selection is not None
@@ -1450,6 +1499,8 @@ def main() -> int:
             "selected_history_index": cascade.history_choice_index,
             "errors": list(cascade.errors),
             "vlm_elapsed_s": elapsed_s,
+            "vlm_execution_status": vlm_execution_status,
+            "adapter_hold_reason": adapter_hold_reason,
             "allocated_frontier": None if chosen is None else frontier_record(chosen),
             "exploration_selection_before_target_override": exploration_selection,
             "source_find_goal": semantic_selection is not None,

@@ -398,6 +398,83 @@ def test_builds_semantic_and_frontier_concurrent_batch(tmp_path, observation_fac
     )
 
 
+def test_single_shared_frontier_builds_one_goal_and_one_explicit_hold(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    first = manifest["robots"][0]
+    second = manifest["robots"][1]
+    frontier = first["candidate_frontiers"][0]
+    frontier_selection = {
+        "kind": "frontier",
+        "target_id": frontier["frontier_id"],
+        **frontier,
+        "source_behavior": "sequential frontier removed before next robot",
+    }
+    manifest["frontiers"] = [frontier]
+    manifest["remaining_frontiers"] = []
+    manifest["source_undercomplete_frontier_adapter"] = {
+        "observed_frontier_count": 1,
+        "robot_count": 2,
+        "source_behavior": (
+            "a sole frontier may be reused by a later simulator agent"
+        ),
+        "real_robot_adapter": (
+            "allocate each observed shared frontier at most once; "
+            "robots without a remaining frontier explicitly HOLD"
+        ),
+        "fabricated_frontiers": False,
+    }
+    first.update({
+        "candidate_frontiers": [frontier],
+        "allocated_frontier": frontier,
+        "choice_probabilities": {frontier["frontier_id"]: 1.0},
+        "exploration_selection_before_target_override": frontier_selection,
+        "semantic_goal_override": None,
+        "final_shadow_selection": frontier_selection,
+    })
+    second.update({
+        "candidate_frontiers": [],
+        "allocated_frontier": None,
+        "choice_probabilities": {},
+        "exploration_selection_before_target_override": None,
+        "semantic_goal_override": None,
+        "final_shadow_selection": None,
+        "vlm_execution_status": "not_called_no_remaining_candidate",
+        "adapter_hold_reason": (
+            "initial shared frontier set exhausted by earlier allocation; "
+            "duplicate physical target suppressed; explicit HOLD"
+        ),
+    })
+    manifest["final_shadow_selections"] = {
+        "robot-0": frontier_selection,
+    }
+    write_json(manifest_path, manifest)
+
+    built = build_batch_from_shadow_manifest(
+        manifest_path,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-single-frontier",
+        execution_epoch=4,
+        now_ns=now,
+        robot_config_path=config,
+    )
+
+    by_robot = {
+        decision.robot_id: decision for decision in built.batch.decisions
+    }
+    assert built.report["preflight_ready"] is True
+    assert built.report["active_robot_ids"] == ["robot-0"]
+    assert by_robot["robot-0"].mode == "GOAL"
+    assert by_robot["robot-1"].mode == "HOLD"
+    assert by_robot["robot-1"].target is None
+
+
 def test_forced_hold_preserves_vlm_selection_but_scopes_physical_authority(
     tmp_path,
     observation_factory,
