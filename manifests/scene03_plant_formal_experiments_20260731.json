@@ -3,20 +3,21 @@
   "scene_id": "scene03-plant",
   "target_category": "plant",
   "campaign_status": "active",
-  "formal_experiments": 2,
-  "successes": 0,
+  "formal_experiments": 3,
+  "successes": 1,
   "failures": 2,
-  "sr": 0.0,
+  "sr": 0.3333333333333333,
   "metric_protocol": {
     "physical_success_radius_m": 0.5,
     "source_compatible_spl_formula": "S * D / max(D, P)",
     "standard_spl_formula": "S * L / max(L, P)",
     "independently_measured_shortest_feasible_path_m": null,
-    "shortest_path_status": "not yet measured; both recorded failures contribute zero to either SPL track"
+    "shortest_path_status": "not yet measured; Standard SPL for the recorded Formal 03 success remains unavailable"
   },
   "aggregate_metrics": {
-    "mean_source_compatible_spl_with_failures_zero": 0.0,
-    "mean_standard_spl_with_failures_zero": 0.0
+    "mean_source_compatible_spl_with_failures_zero": 0.229841272462563,
+    "mean_standard_spl_with_failures_zero": null,
+    "mean_standard_spl_status": "pending an independently measured Scene 03 shortest feasible path"
   },
   "experiments": [
     {
@@ -47,6 +48,23 @@
         "size_bytes": 12499,
         "sha256": "e022d4937df775d5aed2677452b46d894264339bcb6bc53afee68432c98bce71",
         "classification": "authoritative machine-readable Formal 02 archive"
+      }
+    },
+    {
+      "formal_index": 3,
+      "result": "SUCCESS",
+      "arriving_robot_id": "robot-1",
+      "robot_0_actual_path_length_m": 9.037489961077558,
+      "robot_1_actual_path_length_m": 11.60667889663771,
+      "arriving_robot_start_to_stop_displacement_m": 8.003081540002764,
+      "source_compatible_spl": 0.689523817387689,
+      "standard_spl": null,
+      "success_basis": "observed onsite operator confirmation of physical plant arrival; immutable automatic report retained separately without semantic ARRIVED",
+      "record": {
+        "path": "manifests/scene03_plant_formal_experiment_03_success_20260731.json",
+        "size_bytes": 10167,
+        "sha256": "9f21eb2d470578688b814cae1e548197945c38ae913fe8c9ecc13c309e2c095b",
+        "classification": "authoritative machine-readable Formal 03 archive"
       }
     }
   ],
