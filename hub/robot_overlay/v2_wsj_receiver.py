@@ -1188,7 +1188,7 @@ def main() -> int:
         default="/mapping/target_refresh_request",
         help=(
             "robot-local request channel used only while velocity is already "
-            "zero to rebuild the router-to-planner target publisher"
+            "zero to republish the verified router-to-planner target"
         ),
     )
     parser.add_argument(
@@ -2106,7 +2106,7 @@ def main() -> int:
             path_age_s: float,
             router_waypoint: tuple[float, float],
         ) -> int | None:
-            """Request publisher-last repair without opening velocity output."""
+            """Request bounded target re-publication without velocity output."""
 
             if not live or not self.authorized:
                 return None

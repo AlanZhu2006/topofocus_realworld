@@ -108,7 +108,7 @@ def test_target_refresh_request_is_versioned_and_decision_bound():
         router.parse_target_refresh_request(json.dumps(invalid))
 
 
-def test_new_leg_and_bounded_repair_use_publisher_last_target_handoff():
+def test_new_leg_rotates_once_and_bounded_repair_republishes_target():
     source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
         encoding="utf-8"
     )
@@ -126,9 +126,30 @@ def test_new_leg_and_bounded_repair_use_publisher_last_target_handoff():
     assert "self.goal.decision_id != decision_id" in repair
     assert "not self.target_active" in repair
     assert "odom_age_s > args.input_timeout_s" in repair
-    assert repair.index("self.recreate_target_publisher()") < repair.index(
-        "self.publish_target("
+    assert "self.recreate_target_publisher()" not in repair
+    assert "self.destroy_publisher(" not in repair
+    assert "self.create_publisher(" not in repair
+    assert "self.publish_target(waypoint[0], waypoint[1], odom)" in repair
+    assert "stable_generation=" in repair
+
+
+def test_target_publisher_rotation_preserves_router_on_lifecycle_error():
+    source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
+        encoding="utf-8"
     )
+    rotation = source.split(
+        "def recreate_target_publisher(self) -> bool:", 1
+    )[1].split(
+        "def on_target_refresh_request(self, message: String)", 1
+    )[0]
+
+    assert rotation.index(
+        "replacement_publisher = self.create_publisher("
+    ) < rotation.index("self.destroy_publisher(previous_publisher)")
+    assert "except Exception as exc:" in rotation
+    assert "keeping generation" in rotation
+    assert "return False" in rotation
+    assert "return True" in rotation
 
 
 def test_semantic_planner_targets_inside_unchanged_arrival_radius():
