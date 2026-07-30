@@ -230,10 +230,16 @@ def main() -> int:
             super().__init__("focus_tinynav_relocalized_odometry")
             self.tf_buffer = Buffer(cache_time=Duration(seconds=60.0))
             self.tf_listener = TransformListener(self.tf_buffer, self)
-            stream_qos = QoSProfile(
+            input_stream_qos = QoSProfile(
                 history=HistoryPolicy.KEEP_LAST,
                 depth=30,
                 reliability=ReliabilityPolicy.BEST_EFFORT,
+                durability=DurabilityPolicy.VOLATILE,
+            )
+            output_stream_qos = QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=30,
+                reliability=ReliabilityPolicy.RELIABLE,
                 durability=DurabilityPolicy.VOLATILE,
             )
             status_qos = QoSProfile(
@@ -243,10 +249,10 @@ def main() -> int:
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
             )
             self.odom_publisher = self.create_publisher(
-                Odometry, args.output_odom_topic, stream_qos
+                Odometry, args.output_odom_topic, output_stream_qos
             )
             self.visual_publisher = self.create_publisher(
-                Odometry, args.output_visual_odom_topic, stream_qos
+                Odometry, args.output_visual_odom_topic, output_stream_qos
             )
             self.status_publisher = self.create_publisher(
                 String, args.status_topic, status_qos
@@ -255,13 +261,13 @@ def main() -> int:
                 Odometry,
                 args.tracking_keyframe_odom_topic,
                 self.on_keyframe,
-                stream_qos,
+                input_stream_qos,
             )
             self.create_subscription(
                 Odometry,
                 args.relocalization_topic,
                 self.on_relocalization,
-                stream_qos,
+                input_stream_qos,
             )
             self.create_subscription(
                 Odometry,
@@ -269,7 +275,7 @@ def main() -> int:
                 lambda message: self.on_continuous(
                     message, self.odom_publisher, "odometry"
                 ),
-                stream_qos,
+                input_stream_qos,
             )
             self.create_subscription(
                 Odometry,
@@ -277,7 +283,7 @@ def main() -> int:
                 lambda message: self.on_continuous(
                     message, self.visual_publisher, "odometry_visual"
                 ),
-                stream_qos,
+                input_stream_qos,
             )
             self.last_decision = gate.evaluate(
                 source_tracking_T_map=None,

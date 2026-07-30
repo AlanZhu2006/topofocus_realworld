@@ -54,3 +54,17 @@ def test_overlay_declares_no_raw_pose_fallback() -> None:
     assert "map_T_camera=inverse(tracking_T_map)" in source
     assert "output.pose.covariance = list(covariance)" in source
     assert "output.twist = message.twist" in source
+    assert "input_stream_qos = QoSProfile(" in source
+    assert "output_stream_qos = QoSProfile(" in source
+    assert (
+        "Odometry, args.output_odom_topic, output_stream_qos"
+        in source
+    )
+    assert (
+        "Odometry, args.output_visual_odom_topic, output_stream_qos"
+        in source
+    )
+    output_qos = source.split(
+        "output_stream_qos = QoSProfile(", maxsplit=1
+    )[1].split(")", maxsplit=1)[0]
+    assert "ReliabilityPolicy.RELIABLE" in output_qos
