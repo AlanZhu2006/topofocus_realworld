@@ -11,13 +11,18 @@
     "physical_success_radius_m": 0.5,
     "source_compatible_spl_formula": "S * D / max(D, P)",
     "standard_spl_formula": "S * L / max(L, P)",
-    "independently_measured_shortest_feasible_path_m": null,
-    "shortest_path_status": "not yet measured; Standard SPL for the recorded Formal 03, Formal 04 and Formal 05 successes remains unavailable"
+    "independently_measured_shortest_feasible_path_m": 14.0,
+    "shortest_path_measurement_precision": "approximate",
+    "shortest_path_evidence": {
+      "path": "manifests/scene03_plant_shortest_feasible_path_20260731.json",
+      "size_bytes": 1099,
+      "sha256": "78ec54595f651248599e9646699f6ce9818008c4cbc0d68ba31d0b7a20ddbb1d",
+      "classification": "observed operator-provided independent measurement"
+    }
   },
   "aggregate_metrics": {
     "mean_source_compatible_spl_with_failures_zero": 0.365961721746991,
-    "mean_standard_spl_with_failures_zero": null,
-    "mean_standard_spl_status": "pending an independently measured Scene 03 shortest feasible path"
+    "mean_standard_spl_with_failures_zero": 0.54619361696575
   },
   "experiments": [
     {
@@ -28,10 +33,11 @@
       "robot_1_actual_path_length_m": 14.162235364087437,
       "source_compatible_spl": 0.0,
       "standard_spl": 0.0,
+      "public_summary": "The test budget elapsed before exploration produced a verified plant-arrival result.",
       "record": {
         "path": "manifests/scene03_plant_formal_experiment_01_failure_20260730.json",
-        "size_bytes": 8430,
-        "sha256": "af2f061231c0cefd52f1d93b3ac8c52fc9269a231b25fdc5ab6aeb4fc000d47b",
+        "size_bytes": 10537,
+        "sha256": "1d7b490054d1a9afd45a3fece38b1a830e64078b15da737fcead88d2cd8f573b",
         "classification": "authoritative machine-readable Formal 01 archive"
       }
     },
@@ -43,10 +49,11 @@
       "robot_1_actual_path_length_m": 17.902159740277195,
       "source_compatible_spl": 0.0,
       "standard_spl": 0.0,
+      "public_summary": "The test budget elapsed before exploration found and reached a verified plant target.",
       "record": {
         "path": "manifests/scene03_plant_formal_experiment_02_failure_20260731.json",
-        "size_bytes": 12499,
-        "sha256": "e022d4937df775d5aed2677452b46d894264339bcb6bc53afee68432c98bce71",
+        "size_bytes": 14603,
+        "sha256": "1b3cd08a0a7c9f69d5f3227527cb1c7a6539ba624516d860cfb7704fb5e3cdeb",
         "classification": "authoritative machine-readable Formal 02 archive"
       }
     },
@@ -58,12 +65,12 @@
       "robot_1_actual_path_length_m": 11.60667889663771,
       "arriving_robot_start_to_stop_displacement_m": 8.003081540002764,
       "source_compatible_spl": 0.689523817387689,
-      "standard_spl": null,
+      "standard_spl": 1.0,
       "success_basis": "observed onsite operator confirmation of physical plant arrival; immutable automatic report retained separately without semantic ARRIVED",
       "record": {
         "path": "manifests/scene03_plant_formal_experiment_03_success_20260731.json",
-        "size_bytes": 10167,
-        "sha256": "9f21eb2d470578688b814cae1e548197945c38ae913fe8c9ecc13c309e2c095b",
+        "size_bytes": 12363,
+        "sha256": "8c10d7d8948a510dfca2c2df25e7f7924de6d619636d3f5d3f40afbb4dd3549b",
         "classification": "authoritative machine-readable Formal 03 archive"
       }
     },
@@ -75,12 +82,12 @@
       "robot_1_actual_path_length_m": 13.010774642813228,
       "arriving_robot_start_to_stop_displacement_m": 9.023717829323921,
       "source_compatible_spl": 0.6935573074665742,
-      "standard_spl": null,
+      "standard_spl": 1.0,
       "success_basis": "automatic Robot 1 semantic ARRIVED and zero-velocity evidence, plus observed onsite operator confirmation of physical plant arrival",
       "record": {
         "path": "manifests/scene03_plant_formal_experiment_04_success_20260731.json",
-        "size_bytes": 9790,
-        "sha256": "9e4cecea324c28550dafb2372efccbbb061bbfffc18671fad9079439798ac179",
+        "size_bytes": 11976,
+        "sha256": "7e1fb4ee4838b64c7291276a63673f7769f78dcb6d10fb0d65ab9db1244af14d",
         "classification": "authoritative machine-readable Formal 04 archive"
       }
     },
@@ -95,16 +102,28 @@
       "robot_1_actual_path_length_m": 19.152682983799288,
       "arriving_robot_start_to_stop_displacement_m": 8.556029878917236,
       "source_compatible_spl": 0.446727483880694,
-      "standard_spl": null,
+      "standard_spl": 0.730968084828752,
       "success_basis": "automatic Robot 1 semantic ARRIVED and zero-velocity evidence, terminal RGB clearly containing the plant, and observed onsite operator confirmation; Robot 0 remained in coordination-policy HOLD",
       "record": {
         "path": "manifests/scene03_plant_formal_experiment_05_success_20260731.json",
-        "size_bytes": 14388,
-        "sha256": "0fa7015434d46c3e46e6e586dd5d81cd823f36469f29834c30407725d8985690",
+        "size_bytes": 16438,
+        "sha256": "d89d58035e30ec265cb6321c38c27c6a17a0e057565a22ae1bbff5741dbd57c5",
         "classification": "authoritative machine-readable Formal 05 archive"
       }
     }
   ],
+  "scene_map_media": {
+    "path": "media/image/experiment_3_map.png",
+    "size_bytes": 156500,
+    "sha256": "95f9c92f31f84c59dcdc691ece700c41e725da3171bcbb488573905c325fce32",
+    "classification": "observed user-provided explored semantic map for Experiment 3 with Robot 0 and Robot 1 trajectories"
+  },
+  "media_convention": {
+    "master_storage": "media/video/** through Git LFS",
+    "browser_video": "H.264 yuv420p MP4 under media/demo/",
+    "inline_preview": "complete display clip time-lapsed to 64 frames at 8 fps",
+    "formal_binding": "failure_1/failure_2 map to Formal 01/02; success_1/success_2/success_3 map to Formal 03/04/05"
+  },
   "safety": {
     "hub_published_high_level_targets_only": true,
     "robot_local_stop_and_rejection_authority_retained": true,

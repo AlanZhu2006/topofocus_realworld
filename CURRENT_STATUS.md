@@ -85,25 +85,23 @@ two failures and three operator-confirmed successes.
 
 | Episodes | Successes | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `5` | `3` | `0.6` | `0.365961721746991` | `pending independent L` |
+| `5` | `3` | `0.6` | `0.365961721746991` | `0.54619361696575` |
 
-Formal 01 is an execution-engineering failure: a plant semantic region was
-assigned, but robot-local execution did not complete arrival before timeout.
+Standard SPL uses the operator-provided independently measured approximate
+shortest feasible path `L≈14 m`.
 
-Formal 02, episode `formal02`, completed 18 source rounds. Robot 0 travelled
-`5.754388 m`; Robot 1 travelled `17.902160 m`. Robot 0 repeatedly hit the
-now-diagnosed source-negative-command/rotate-first ordering defect. Robot 1
-remained responsive, but the source Judgment gate selected old
-`history-1/history-6` nodes across later rounds, causing backtracking. The
-episode timed out without semantic arrival and contributes zero SR/SPL.
+Formal 01 and Formal 02 are time-limit failures: exploration did not complete
+a verified plant-target arrival within the test budget. Both dual-robot
+trajectories are retained, and each failure contributes zero SR/SPL. Detailed
+runtime diagnosis remains in the linked per-run provenance records.
 
 Formal 03-05 are successes. Robot 1 is the arriving robot in all three runs:
 
 | Formal run | Robot 0 record | Robot 1 path | Source-compatible SPL | Standard SPL |
 | --- | ---: | ---: | ---: | ---: |
-| 03 | `9.037490 m` | `11.606679 m` | `0.689524` | `pending L` |
-| 04 | `9.391253 m` | `13.010775 m` | `0.693557` | `pending L` |
-| 05 | policy `HOLD`, `0.006053 m` net | `19.152683 m` | `0.446727` | `pending L` |
+| 03 | `9.037490 m` | `11.606679 m` | `0.689524` | `1.000000` |
+| 04 | `9.391253 m` | `13.010775 m` | `0.693557` | `1.000000` |
+| 05 | policy `HOLD`, `0.006053 m` net | `19.152683 m` | `0.446727` | `0.730968` |
 
 Formal 05 used coordinated role assignment. Robot 0 remained in policy
 `HOLD` while retaining shared observation, map and odometry provenance.
@@ -113,6 +111,7 @@ frontiers, switched to a five-cell plant semantic region and reported
 planter; the onsite operator confirmed physical success.
 
 Complete records:
+[`full five-run archive`](audit/SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md),
 [`Formal 01`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md),
 [`Formal 02`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md),
 [`Formal 03`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260731.md),
@@ -138,6 +137,11 @@ and the
   content; the pre-replacement Formal 02 media remains recoverable in Git
   history at commit `dcc8812b027c40fad2716b8a097e45d226d46686` but is no
   longer current evidence.
+- Scene 03's five user-provided third-view masters and five Dashboard masters
+  are byte-preserved through Git LFS. Every formal run has a standardized
+  H.264 pair and two 64-frame GIF previews under `media/demo/`; the explored
+  semantic map in `media/image/experiment_3_map.png` includes the Robot 0 and
+  Robot 1 trajectories.
 
 ## Implementation state
 

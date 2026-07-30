@@ -15,6 +15,10 @@ Episode：`formal02`
 失败的主要归因是 `execution_engineering_failure`；Robot 1 同时暴露了源码
 历史点回访策略在长程真机场景中的跨轮折返行为。
 
+实验展示摘要统一记为：探索在测试时限内未发现并抵达经验证的 plant
+目标，因此以 time-limit failure 结束。下面保留原始运行诊断作为工程
+provenance。
+
 ## 双机动作与原因
 
 | Robot | 实际路径 | 净位移 | 结论 |
@@ -93,3 +97,13 @@ Robot 1 的折返来自源码决策，而不是局部规划器擅自改路：
 
 机器可读归档：
 [`scene03_plant_formal_experiment_02_failure_20260731.json`](../manifests/scene03_plant_formal_experiment_02_failure_20260731.json)。
+
+## 媒体补充归档（2026-07-31）
+
+[第三视角原片](../media/video/third_view/experiment_3/experiment_3_failure_2.mp4)
+和
+[Dashboard 原片](../media/video/dashboard/experiment_3/experiment_3_failure_2_dashboard.mov)
+按用户上传字节原样保留于 Git LFS；README 使用的
+[第三视角 H.264](../media/demo/scene03_formal_02_third_view.mp4)、
+[Dashboard H.264](../media/demo/scene03_formal_02_dashboard.mp4)及对应 GIF
+均为 source-derived 展示副本。精确大小、时长和 SHA-256 记录在机器可读归档。

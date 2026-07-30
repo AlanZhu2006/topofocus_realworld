@@ -14,6 +14,9 @@ Episode：`formal09-restart`
 `episode runtime timeout`。这不是 VLM failure：第 12 轮已识别并向 Robot 0
 分配 `plant` 语义区域，但本地执行未形成语义到达。
 
+实验展示摘要统一记为：探索在测试时限内未形成经验证的 plant 到达，
+因此以 time-limit failure 结束。下面保留原始运行诊断作为工程 provenance。
+
 ## 双机动作
 
 | Robot | 路径 | 动作 |
@@ -44,3 +47,13 @@ Episode：`formal09-restart`
 
 机器可读归档：
 [`scene03_plant_formal_experiment_01_failure_20260730.json`](../manifests/scene03_plant_formal_experiment_01_failure_20260730.json)。
+
+## 媒体补充归档（2026-07-31）
+
+[第三视角原片](../media/video/third_view/experiment_3/experiment_3_failure_1.mp4)
+和
+[Dashboard 原片](../media/video/dashboard/experiment_3/experiment_3_failure_1_dashboard.mov)
+按用户上传字节原样保留于 Git LFS；README 使用的
+[第三视角 H.264](../media/demo/scene03_formal_01_third_view.mp4)、
+[Dashboard H.264](../media/demo/scene03_formal_01_dashboard.mp4)及对应 GIF
+均为 source-derived 展示副本。精确大小、时长和 SHA-256 记录在机器可读归档。

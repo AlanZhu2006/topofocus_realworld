@@ -47,13 +47,13 @@
       "classification": "Scene 02 formal experiments 01-05: two recorded zero-contribution failures and three operator-confirmed physical plant-arrival successes"
     },
     "scene03_physical_0p5m_protocol": {
-      "recorded_episodes": 4,
-      "successes": 2,
-      "sr": 0.5,
-      "source_compatible_multi_spl_mean": 0.3457702812135658,
-      "standard_multi_spl_mean": null,
-      "standard_multi_spl_status": "pending an independently measured Scene 03 shortest feasible path",
-      "classification": "Scene 03 Formal 01-02 are recorded failures; Formal 03 and Formal 04 are operator-confirmed physical plant-arrival successes, with Formal 04 additionally corroborated by automatic semantic ARRIVED evidence"
+      "recorded_episodes": 5,
+      "successes": 3,
+      "sr": 0.6,
+      "source_compatible_multi_spl_mean": 0.365961721746991,
+      "standard_multi_spl_mean": 0.54619361696575,
+      "standard_multi_spl_status": "official; uses operator-provided approximate independently measured Scene 03 shortest feasible path L=14 m",
+      "classification": "Scene 03 Formal 01-02 are zero-contribution time-limit failures; Formal 03-05 are operator-confirmed physical plant-arrival successes"
     }
   },
   "formal_scene_results": {
@@ -78,13 +78,13 @@
     },
     "scene03-plant": {
       "path": "manifests/scene03_plant_formal_experiments_20260731.json",
-      "formal_experiments": 4,
-      "successes": 2,
-      "sr": 0.5,
-      "mean_source_compatible_spl": 0.3457702812135658,
-      "mean_standard_spl": null,
-      "standard_spl_status": "pending an independently measured Scene 03 shortest feasible path",
-      "classification": "current authoritative Scene 03 formal archive; campaign remains active"
+      "formal_experiments": 5,
+      "successes": 3,
+      "sr": 0.6,
+      "mean_source_compatible_spl": 0.365961721746991,
+      "mean_standard_spl": 0.54619361696575,
+      "standard_spl_status": "official; uses operator-provided approximate independently measured Scene 03 shortest feasible path L=14 m",
+      "classification": "authoritative unified Scene 03 formal archive covering experiments 01-05"
     }
   },
   "planned_scene_campaigns": {
@@ -102,11 +102,12 @@
     "scene03-plant": {
       "target_category": "plant",
       "planned_formal_experiments": 5,
-      "recorded_episodes": 4,
-      "successes": 2,
-      "metric_status": "formal_01_02_failures_formal_03_04_successes_campaign_active",
-      "standard_shortest_feasible_path_status": "not yet measured",
-      "classification": "Formal 01 and Formal 02 are archived failures; Formal 03 and Formal 04 are operator-confirmed physical plant-arrival successes; the remaining formal experiment is pending"
+      "recorded_episodes": 5,
+      "successes": 3,
+      "metric_status": "five_recorded_episodes_three_successes_campaign_complete",
+      "standard_shortest_feasible_path_status": "complete; L=approximately 14 m",
+      "standard_shortest_feasible_path_evidence": "manifests/scene03_plant_shortest_feasible_path_20260731.json",
+      "classification": "Formal 01 and Formal 02 are archived time-limit failures; Formal 03-05 are operator-confirmed plant-arrival successes; see the unified archive"
     }
   },
   "attempts_not_in_metric_track": [
@@ -1046,6 +1047,7 @@
       "target_category": "plant",
       "attribution": "execution_engineering_failure",
       "reason": "The plant semantic region was detected and assigned, but Robot 1 experienced wall-front short-path yaw oscillation and Robot 0's measured pose stopped responding to repeated semantic-approach commands; the episode timed out before ARRIVED.",
+      "public_summary": "The test budget elapsed before exploration produced a verified plant-arrival result.",
       "live_started": true,
       "robot_commands_issued": true,
       "episode_created": true,
@@ -1060,6 +1062,7 @@
         "sr": 0.0,
         "source_compatible_spl": 0.0,
         "standard_spl": 0.0,
+        "independently_measured_shortest_feasible_path_m": 14.0,
         "robot_0_actual_path_length_m": 18.57710702408058,
         "robot_1_actual_path_length_m": 14.162235364087437
       },
@@ -1073,14 +1076,14 @@
       "evidence": [
         {
           "path": "manifests/scene03_plant_formal_experiment_01_failure_20260730.json",
-          "size_bytes": 8430,
-          "sha256": "af2f061231c0cefd52f1d93b3ac8c52fc9269a231b25fdc5ab6aeb4fc000d47b",
+          "size_bytes": 10537,
+          "sha256": "1d7b490054d1a9afd45a3fece38b1a830e64078b15da737fcead88d2cd8f573b",
           "classification": "authoritative machine-readable Formal 01 failure archive"
         },
         {
           "path": "audit/SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md",
-          "size_bytes": 2946,
-          "sha256": "456ca29b1d67d19290df14bd4c21d663b99def3647f4e752b271cbadab6e4cd0",
+          "size_bytes": 3679,
+          "sha256": "95f8c462f108444f2548fffd28ed775f0cb1f6e332ab03ef0d3c83f44c37f61e",
           "classification": "human-readable provenance mirror"
         },
         {
@@ -1090,8 +1093,22 @@
           "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
         }
       ],
-      "media": [],
-      "media_status": "no operator-provided media is bound to this formal episode yet"
+      "media": [
+        {
+          "path": "media/video/third_view/experiment_3/experiment_3_failure_1.mp4",
+          "size_bytes": 12310239,
+          "sha256": "1c2e23e9b64b90c3162f64e0c3d850ca4e952b4527c07ca30efb2e1342bcb49e",
+          "duration_s": 167.533333,
+          "classification": "observed user-provided external-view master; Git LFS"
+        },
+        {
+          "path": "media/video/dashboard/experiment_3/experiment_3_failure_1_dashboard.mov",
+          "size_bytes": 277644298,
+          "sha256": "87d1d9d1c05d561d80bd2246a308bb2e32e4394ed2a5d8abb43f14db7053c884",
+          "duration_s": 455.367,
+          "classification": "observed user-provided Dashboard master; Git LFS"
+        }
+      ]
     },
     {
       "record_id": "scene03-plant_formal-experiment-02",
@@ -1106,6 +1123,7 @@
       "attribution": "execution_engineering_failure",
       "secondary_attribution": "source_navigation_policy_history_revisit_behavior",
       "reason": "Robot 0 repeatedly rejected TinyNav's fixed reverse request before rotate-first could run, while Robot 1 faithfully revisited alternating high-score source history nodes; the episode timed out without plant semantic arrival.",
+      "public_summary": "The test budget elapsed before exploration found and reached a verified plant target.",
       "live_started": true,
       "robot_commands_issued": true,
       "episode_created": true,
@@ -1120,6 +1138,7 @@
         "sr": 0.0,
         "source_compatible_spl": 0.0,
         "standard_spl": 0.0,
+        "independently_measured_shortest_feasible_path_m": 14.0,
         "robot_0_actual_path_length_m": 5.754388385130265,
         "robot_1_actual_path_length_m": 17.902159740277195
       },
@@ -1133,14 +1152,14 @@
       "evidence": [
         {
           "path": "manifests/scene03_plant_formal_experiment_02_failure_20260731.json",
-          "size_bytes": 12499,
-          "sha256": "e022d4937df775d5aed2677452b46d894264339bcb6bc53afee68432c98bce71",
+          "size_bytes": 14603,
+          "sha256": "1b3cd08a0a7c9f69d5f3227527cb1c7a6539ba624516d860cfb7704fb5e3cdeb",
           "classification": "authoritative machine-readable Formal 02 failure archive"
         },
         {
           "path": "audit/SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md",
-          "size_bytes": 6329,
-          "sha256": "faeaf3c085542e0afb3c21458957007f65979e51abbf5e61d5a53be367d5d41f",
+          "size_bytes": 7070,
+          "sha256": "9e35e39023831ff22838ed8a6c0bfbde981a36f6c3dd0fdc61f1f22ef9426bb4",
           "classification": "human-readable provenance mirror"
         },
         {
@@ -1151,13 +1170,27 @@
         },
         {
           "path": "manifests/scene03_plant_formal_experiments_20260731.json",
-          "size_bytes": 3036,
-          "sha256": "0e53b19fc6e67762b180bf7709eba726fb495d2eaeb4184763a0823a9497f4aa",
+          "size_bytes": 6146,
+          "sha256": "4d2b09602cbc21ce78da5292731385d41942283d219ef95bc6ee9a079e1830a9",
           "classification": "authoritative unified Scene 03 formal archive"
         }
       ],
-      "media": [],
-      "media_status": "no operator-provided media is bound to this formal episode yet"
+      "media": [
+        {
+          "path": "media/video/third_view/experiment_3/experiment_3_failure_2.mp4",
+          "size_bytes": 12478070,
+          "sha256": "751bd7367c2a4a0be73206f007b38ea117cb8ffb5d44bea859989d86326cbb41",
+          "duration_s": 108.6,
+          "classification": "observed user-provided external-view master; Git LFS"
+        },
+        {
+          "path": "media/video/dashboard/experiment_3/experiment_3_failure_2_dashboard.mov",
+          "size_bytes": 425807696,
+          "sha256": "d82f556373f906da189739afff0c0177bb68504e760828679f4ca4c60ac8986d",
+          "duration_s": 612.822,
+          "classification": "observed user-provided Dashboard master; Git LFS"
+        }
+      ]
     },
     {
       "record_id": "scene03-plant_formal-experiment-03",
@@ -1186,8 +1219,9 @@
         "sr": 1.0,
         "arriving_robot_id": "robot-1",
         "source_compatible_spl": 0.689523817387689,
-        "standard_spl": null,
-        "standard_spl_status": "pending independently measured Scene 03 shortest feasible path",
+        "independently_measured_shortest_feasible_path_m": 14.0,
+        "standard_spl": 1.0,
+        "standard_spl_status": "official operator-provided approximate independent shortest feasible path; bounded formula saturates at 1.0",
         "robot_0_actual_path_length_m": 9.037489961077558,
         "robot_1_actual_path_length_m": 11.60667889663771,
         "arriving_robot_start_to_stop_displacement_m": 8.003081540002764
@@ -1205,14 +1239,14 @@
       "evidence": [
         {
           "path": "manifests/scene03_plant_formal_experiment_03_success_20260731.json",
-          "size_bytes": 10167,
-          "sha256": "9f21eb2d470578688b814cae1e548197945c38ae913fe8c9ecc13c309e2c095b",
+          "size_bytes": 12363,
+          "sha256": "8c10d7d8948a510dfca2c2df25e7f7924de6d619636d3f5d3f40afbb4dd3549b",
           "classification": "authoritative machine-readable Formal 03 success archive"
         },
         {
           "path": "audit/SCENE03_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260731.md",
-          "size_bytes": 4319,
-          "sha256": "eee748f7533964e2f2989dbf799c83cf9d4239d167a0d5611b15eddd5b5426e8",
+          "size_bytes": 4888,
+          "sha256": "3ea927a938159057855687c08a83d109d797d7a16c44186afa35e8a7e2f2cd50",
           "classification": "human-readable provenance mirror"
         },
         {
@@ -1228,8 +1262,22 @@
           "classification": "source-derived frozen Robot 1 plant semantic target evidence; local runtime file ignored by Git"
         }
       ],
-      "media": [],
-      "media_status": "no operator-provided media is bound to this formal episode yet"
+      "media": [
+        {
+          "path": "media/video/third_view/experiment_3/experiment_3_success_1.mp4",
+          "size_bytes": 6025798,
+          "sha256": "7700f364b50ea4c17989c6986907ed88f65c765bfb3ec881f0a971f79a544a91",
+          "duration_s": 56.566667,
+          "classification": "observed user-provided external-view master; Git LFS"
+        },
+        {
+          "path": "media/video/dashboard/experiment_3/experiment_3_success_1_dashboard.mov",
+          "size_bytes": 117078776,
+          "sha256": "2db6fa024ee362e7e94f7e351d624256b17e3451ac29c74a31f0ff637ef816e0",
+          "duration_s": 184.158,
+          "classification": "observed user-provided Dashboard master; Git LFS"
+        }
+      ]
     },
     {
       "record_id": "scene03-plant_formal-experiment-04",
@@ -1257,8 +1305,9 @@
         "sr": 1.0,
         "arriving_robot_id": "robot-1",
         "source_compatible_spl": 0.6935573074665742,
-        "standard_spl": null,
-        "standard_spl_status": "pending independently measured Scene 03 shortest feasible path",
+        "independently_measured_shortest_feasible_path_m": 14.0,
+        "standard_spl": 1.0,
+        "standard_spl_status": "official operator-provided approximate independent shortest feasible path; bounded formula saturates at 1.0",
         "robot_0_actual_path_length_m": 9.39125270693893,
         "robot_1_actual_path_length_m": 13.010774642813228,
         "arriving_robot_start_to_stop_displacement_m": 9.023717829323921
@@ -1276,14 +1325,14 @@
       "evidence": [
         {
           "path": "manifests/scene03_plant_formal_experiment_04_success_20260731.json",
-          "size_bytes": 9790,
-          "sha256": "9e4cecea324c28550dafb2372efccbbb061bbfffc18671fad9079439798ac179",
+          "size_bytes": 11976,
+          "sha256": "7e1fb4ee4838b64c7291276a63673f7769f78dcb6d10fb0d65ab9db1244af14d",
           "classification": "authoritative machine-readable Formal 04 success archive"
         },
         {
           "path": "audit/SCENE03_PLANT_FORMAL_EXPERIMENT_04_SUCCESS_20260731.md",
-          "size_bytes": 3579,
-          "sha256": "30f426a2807b7f6cd254ecd270cb42b824ce7ca5c8eb84ed1096d66f1cb4d9b7",
+          "size_bytes": 4144,
+          "sha256": "e948f81af3949c0e71da7b36e4eedc7f109c284d5388ac85c338275933e52a9a",
           "classification": "human-readable provenance mirror"
         },
         {
@@ -1299,8 +1348,111 @@
           "classification": "source-derived terminal evidence index; local runtime file ignored by Git"
         }
       ],
-      "media": [],
-      "media_status": "no operator-provided media is bound to this formal episode yet"
+      "media": [
+        {
+          "path": "media/video/third_view/experiment_3/experiment_3_success_2.mp4",
+          "size_bytes": 11625005,
+          "sha256": "7d7d2d0120c203edac94447a74ceaecc2c146ae4b6f504be92730b96d9808815",
+          "duration_s": 162.366667,
+          "classification": "observed user-provided external-view master; Git LFS"
+        },
+        {
+          "path": "media/video/dashboard/experiment_3/experiment_3_success_2_dashboard.mov",
+          "size_bytes": 129206111,
+          "sha256": "9d38d6656fdb0e3f9c4e68dd6649085c72809cc5f788a6907415547236353c13",
+          "duration_s": 196.023,
+          "classification": "observed user-provided Dashboard master; Git LFS"
+        }
+      ]
+    },
+    {
+      "record_id": "scene03-plant_formal-experiment-05",
+      "formal_experiment_index": 5,
+      "formal_experiment_ordinal_source": "observed operator post-run designation: the coordinated robot1-continue02 episode counts as Scene 03 Formal 05 Success",
+      "session_id": "scene03-plant-20260731-0444-robot1-continue01-start",
+      "session_git_commit": "fc581bf295698ebf597f2086355a9dd829a7b8d9",
+      "shared_frame_calibration_id": "shared-board-odin1-scene03-plant-20260731-dual-power-reanchor-v1",
+      "scene_id": "scene03-plant",
+      "episode_id": "robot1-continue02",
+      "target_category": "plant",
+      "attribution": "operator_confirmed_and_automatic_semantic_arrival_success",
+      "automatic_evidence_boundary": "The immutable report emitted Robot 1 semantic ARRIVED and sealed post-arrival RGB-D; official_success_verified remains false only because the automatic pipeline cannot independently supply onsite target-region annotation.",
+      "live_started": true,
+      "robot_commands_issued": true,
+      "episode_created": true,
+      "physical_protocol_result": {
+        "classification": "operator-confirmed Scene 03 Formal 05 physical plant-arrival success corroborated by automatic semantic ARRIVED and terminal RGB-D",
+        "counts_in_metric_track": "scene03_physical_0p5m_protocol",
+        "success": true,
+        "success_radius_m": 0.5,
+        "operator_statement": "成功了，立刻完整归档；Robot 0 记为协调策略 HOLD。",
+        "standard_track_basis": "operator-provided approximate independently measured Scene 03 shortest feasible path L=14 m"
+      },
+      "metrics": {
+        "success": 1,
+        "sr": 1.0,
+        "arriving_robot_id": "robot-1",
+        "actual_path_length_m": 19.152682983799288,
+        "start_to_stop_displacement_m": 8.556029878917236,
+        "source_compatible_spl": 0.446727483880694,
+        "independently_measured_shortest_feasible_path_m": 14.0,
+        "standard_spl": 0.730968084828752,
+        "robot_0_policy_role": "HOLD",
+        "robot_0_start_to_stop_net_displacement_m": 0.006053133631631,
+        "robot_1_actual_path_length_m": 19.152682983799288
+      },
+      "run_summary": {
+        "source_rounds_completed": 11,
+        "high_level_batches_published": 64,
+        "target_found": true,
+        "target_found_round_index": 10,
+        "automatic_terminal_candidate_complete": true,
+        "automatic_report_outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+        "operator_observed_result": "Robot 1 reached the physical plant target",
+        "behavior": "The coordination policy held Robot 0 while retaining shared observation and map provenance. Robot 1 completed long-range frontier exploration, switched to a five-cell plant semantic region, emitted LOCAL_PLANNER_ARRIVED and stopped."
+      },
+      "evidence": [
+        {
+          "path": "manifests/scene03_plant_formal_experiment_05_success_20260731.json",
+          "size_bytes": 16438,
+          "sha256": "d89d58035e30ec265cb6321c38c27c6a17a0e057565a22ae1bbff5741dbd57c5",
+          "classification": "authoritative machine-readable Formal 05 success archive"
+        },
+        {
+          "path": "audit/SCENE03_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260731.md",
+          "size_bytes": 6778,
+          "sha256": "4b6b06a9ee622b884d2fb12fd42719370e4ba31d10727a9fc37e1178bea71177",
+          "classification": "human-readable provenance mirror"
+        },
+        {
+          "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/episode_report.json",
+          "size_bytes": 20612,
+          "sha256": "ccff4dac6e11f15c141b3ec3a6ddd49382e9467e51b613d9bfa83eae0b73df75",
+          "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/terminal/terminal_evidence.json",
+          "size_bytes": 10476,
+          "sha256": "ef3a6699f6e33a995c6e963815dc04fc33036c6e31bddb0136fb7c4bd241fd17",
+          "classification": "source-derived terminal evidence index; local runtime file ignored by Git"
+        }
+      ],
+      "media": [
+        {
+          "path": "media/video/third_view/experiment_3/experiment_3_success_3.mp4",
+          "size_bytes": 7028250,
+          "sha256": "a43fdef028b73b432ee496f6987bef2afe60b0032900faf8531cdf23d6b5f3ab",
+          "duration_s": 65.9,
+          "classification": "observed user-provided external-view master; Git LFS"
+        },
+        {
+          "path": "media/video/dashboard/experiment_3/experiment_3_success_3_dashboard.mov",
+          "size_bytes": 253171933,
+          "sha256": "778800d1a655d25499d78720484f40b636c2a66cd49efb919e3b7f21f0401b53",
+          "duration_s": 402.518,
+          "classification": "observed user-provided Dashboard master; Git LFS"
+        }
+      ]
     }
   ]
 }

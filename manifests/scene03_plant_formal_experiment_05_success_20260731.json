@@ -40,8 +40,8 @@
     "success_radius_m": 0.5,
     "radius_assessment": "onsite operator confirmation; no independently instrumented terminal-distance measurement was supplied",
     "target_evidence": "Robot 1 received a frozen five-cell plant semantic region, reported LOCAL_PLANNER_ARRIVED, stopped with velocity_zero_confirmed=true, and produced a post-arrival RGB frame in which the plant and planter occupy the central field of view.",
-    "standard_track_eligible": false,
-    "standard_track_status": "pending an independently measured Scene 03 shortest feasible path"
+    "standard_track_eligible": true,
+    "standard_track_status": "official; operator-provided approximate independent shortest feasible path L=14 m"
   },
   "automatic_result": {
     "target_found": true,
@@ -81,17 +81,19 @@
     "start_to_stop_displacement_m": 8.556029878917236,
     "source_compatible_spl_formula": "S * D / max(D, P)",
     "source_compatible_spl": 0.446727483880694,
-    "independently_measured_shortest_feasible_path_m": null,
+    "independently_measured_shortest_feasible_path_m": 14.0,
+    "shortest_path_measurement_precision": "approximate",
+    "operator_measurement_statement": "最短距离大概是14米吧",
     "standard_spl_formula": "S * L / max(L, P)",
-    "standard_spl": null,
-    "standard_spl_status": "unavailable_pending_independent_scene03_shortest_feasible_path",
+    "standard_spl": 0.730968084828752,
+    "standard_spl_status": "official_operator_provided_approximate_independent_shortest_feasible_path",
     "scene03_campaign_after_formal_05": {
       "recorded_episodes": 5,
       "successes": 3,
       "failures": 2,
       "sr": 0.6,
       "mean_source_compatible_spl_with_failures_zero": 0.365961721746991,
-      "mean_standard_spl_with_failures_zero": null
+      "mean_standard_spl_with_failures_zero": 0.54619361696575
     }
   },
   "execution": {
@@ -243,8 +245,50 @@
       "classification": "observed and source-derived dual stationary-reanchor shared-frame calibration; runtime file ignored by Git"
     }
   ],
-  "media": [],
-  "media_status": "runtime RGB-D, map, semantic target and controller evidence sealed; no external-view or Dashboard media is bound to this formal episode yet",
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_3/experiment_3_success_3.mp4",
+      "size_bytes": 7028250,
+      "sha256": "a43fdef028b73b432ee496f6987bef2afe60b0032900faf8531cdf23d6b5f3ab",
+      "duration_s": 65.9,
+      "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene03_formal_05_third_view.mp4",
+      "size_bytes": 8120712,
+      "sha256": "563f5e0bb130b7ab80e91a28c245cebc8093ea211a4c64368e21f69b5fc055bd",
+      "duration_s": 65.9,
+      "classification": "source-derived H.264 public derivative of the observed external-view master"
+    },
+    {
+      "path": "media/demo/scene03_formal_05_preview.gif",
+      "size_bytes": 8636782,
+      "sha256": "71ef9670433a0a07ef0bf1f7d746d05568942f3b65f1f9236f67c20fcc155319",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to 64 frames at 8 fps"
+    },
+    {
+      "path": "media/video/dashboard/experiment_3/experiment_3_success_3_dashboard.mov",
+      "size_bytes": 253171933,
+      "sha256": "778800d1a655d25499d78720484f40b636c2a66cd49efb919e3b7f21f0401b53",
+      "duration_s": 402.518,
+      "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene03_formal_05_dashboard.mp4",
+      "size_bytes": 3022519,
+      "sha256": "c61de6a922bff77093418b7f54dca03ebe3bc49de0d9912f69fbd3a48119050f",
+      "duration_s": 402.467,
+      "classification": "source-derived H.264 public derivative of the observed Dashboard master, scaled to 1280px wide"
+    },
+    {
+      "path": "media/demo/scene03_formal_05_dashboard.gif",
+      "size_bytes": 2439428,
+      "sha256": "7f3b71164d660e3b84a7af7b1808e215e8c1edea16996fa900a4a45ff5435428",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to 64 frames at 8 fps"
+    }
+  ],
   "safety": {
     "hub_published_high_level_targets_only": true,
     "robot_local_stop_and_rejection_authority_retained": true,

@@ -8,7 +8,7 @@ Episode：`scene03-formal04`
 
 | Result | Success | SR | Source-compatible SPL | Standard SPL |
 | --- | ---: | ---: | ---: | ---: |
-| `SUCCESS` | `1` | `1.0` | `0.689524` | `待测` |
+| `SUCCESS` | `1` | `1.0` | `0.689524` | `1.000000` |
 
 现场操作者在运行后确认机器人最终实际到达 `plant`，并将本轮指定为
 Scene 03 Formal 03 Success。运行时使用的 `formal04` 只是临时标签；
@@ -17,7 +17,8 @@ Scene 03 Formal 03 Success。运行时使用的 `formal04` 只是临时标签；
 Robot 1 在 round 4 获得冻结的 176-cell `plant` 语义区域，累计路径
 `11.606679 m`，起终点净位移 `8.003082 m`。按
 `S × D / max(D, P)` 计算，本轮 source-compatible SPL 为 `0.689524`。
-Scene 03 尚未独立测量最短可行路径，因此不虚构 Standard SPL。
+操作者随后提供 Scene 03 独立近似最短可行路径 `L≈14 m`；按
+`S × L / max(L, P)` 的有界公式，本轮 Standard SPL 为 `1.000000`。
 
 ## 双机动作
 
@@ -41,7 +42,7 @@ Scene 03 尚未独立测量最短可行路径，因此不虚构 Standard SPL。
 
 Scene 03 当前共 3 次正式实验：1 次成功、2 次失败，SR 为 `1/3`。
 失败轮按 0 计入后，mean source-compatible SPL 为 `0.229841`；
-mean Standard SPL 等待 Scene 03 的独立最短可行路径测量。
+mean Standard SPL 为 `0.333333`。
 
 ## 安全终态
 
@@ -65,3 +66,13 @@ mean Standard SPL 等待 Scene 03 的独立最短可行路径测量。
 
 机器可读归档：
 [`scene03_plant_formal_experiment_03_success_20260731.json`](../manifests/scene03_plant_formal_experiment_03_success_20260731.json)。
+
+## 媒体补充归档
+
+[第三视角原片](../media/video/third_view/experiment_3/experiment_3_success_1.mp4)
+和
+[Dashboard 原片](../media/video/dashboard/experiment_3/experiment_3_success_1_dashboard.mov)
+按用户上传字节原样保留于 Git LFS；README 使用的
+[第三视角 H.264](../media/demo/scene03_formal_03_third_view.mp4)、
+[Dashboard H.264](../media/demo/scene03_formal_03_dashboard.mp4)及对应 GIF
+均为 source-derived 展示副本。精确大小、时长和 SHA-256 记录在机器可读归档。

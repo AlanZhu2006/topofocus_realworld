@@ -73,3 +73,26 @@ and
 [`SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md`](../audit/SCENE02_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260728.md).
 Formal 04/05 and the unified campaign totals are recorded in
 [`scene02_plant_formal_experiments_20260728.json`](../manifests/scene02_plant_formal_experiments_20260728.json).
+
+# Scene 03 media
+
+Scene 03 contains five archived long-range cooperative episodes: two
+time-limit failures and three operator-confirmed successes. User-provided
+master videos are byte-preserved under `media/video/**` through Git LFS;
+browser-ready H.264 files and inline GIF previews are under `media/demo/`.
+The explored semantic map, including the Robot 0 and Robot 1 trajectories, is
+[`experiment_3_map.png`](image/experiment_3_map.png).
+
+| Run | Third-view master | Dashboard master | README previews |
+| --- | --- | --- | --- |
+| Formal 01 · FAILURE | [`experiment_3_failure_1.mp4`](video/third_view/experiment_3/experiment_3_failure_1.mp4) | [`experiment_3_failure_1_dashboard.mov`](video/dashboard/experiment_3/experiment_3_failure_1_dashboard.mov) | [Third view](demo/scene03_formal_01_preview.gif) · [Dashboard](demo/scene03_formal_01_dashboard.gif) |
+| Formal 02 · FAILURE | [`experiment_3_failure_2.mp4`](video/third_view/experiment_3/experiment_3_failure_2.mp4) | [`experiment_3_failure_2_dashboard.mov`](video/dashboard/experiment_3/experiment_3_failure_2_dashboard.mov) | [Third view](demo/scene03_formal_02_preview.gif) · [Dashboard](demo/scene03_formal_02_dashboard.gif) |
+| Formal 03 · SUCCESS | [`experiment_3_success_1.mp4`](video/third_view/experiment_3/experiment_3_success_1.mp4) | [`experiment_3_success_1_dashboard.mov`](video/dashboard/experiment_3/experiment_3_success_1_dashboard.mov) | [Third view](demo/scene03_formal_03_preview.gif) · [Dashboard](demo/scene03_formal_03_dashboard.gif) |
+| Formal 04 · SUCCESS | [`experiment_3_success_2.mp4`](video/third_view/experiment_3/experiment_3_success_2.mp4) | [`experiment_3_success_2_dashboard.mov`](video/dashboard/experiment_3/experiment_3_success_2_dashboard.mov) | [Third view](demo/scene03_formal_04_preview.gif) · [Dashboard](demo/scene03_formal_04_dashboard.gif) |
+| Formal 05 · SUCCESS | [`experiment_3_success_3.mp4`](video/third_view/experiment_3/experiment_3_success_3.mp4) | [`experiment_3_success_3_dashboard.mov`](video/dashboard/experiment_3/experiment_3_success_3_dashboard.mov) | [Third view](demo/scene03_formal_05_preview.gif) · [Dashboard](demo/scene03_formal_05_dashboard.gif) |
+
+README previews time-lapse each complete display clip into a 64-frame,
+8 fps loop. Exact source paths, sizes, durations, SHA-256 values, evidence
+classes, both robot trajectories and SR/SPL values are recorded in
+[`scene03_plant_formal_experiments_20260731.json`](../manifests/scene03_plant_formal_experiments_20260731.json)
+and its five linked per-run manifests.

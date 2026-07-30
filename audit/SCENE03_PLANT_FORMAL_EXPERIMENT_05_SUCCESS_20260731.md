@@ -10,7 +10,7 @@ Episode：`robot1-continue02`
 
 | Result | Success | SR | Source-compatible SPL | Standard SPL |
 | --- | ---: | ---: | ---: | ---: |
-| `SUCCESS` | `1` | `1.0` | `0.446727` | `待测` |
+| `SUCCESS` | `1` | `1.0` | `0.446727` | `0.730968` |
 
 本轮采用双机协同角色分配：Robot 0 由协调策略保持 `HOLD`，持续保留观测、
 地图和里程计 provenance；Robot 1 执行长程 frontier 探索与 plant 语义目标
@@ -34,7 +34,13 @@ source-compatible SPL = S * D / max(D, P)
                       = 0.446727484
 ```
 
-Scene 03 尚未提供独立测量的最短可行路径，因此 Standard SPL 保持未计算。
+操作者随后提供 Scene 03 独立近似最短可行路径 `L≈14 m`：
+
+```text
+Standard SPL = S * L / max(L, P)
+             = 1 * 14 / 19.152682984
+             = 0.730968085
+```
 
 ## 双机协同动作
 
@@ -62,7 +68,7 @@ Scene 03 尚未提供独立测量的最短可行路径，因此 Standard SPL 保
 
 Scene 03 当前共 5 次正式实验：3 次成功、2 次失败，SR 为 `3/5=0.6`。
 失败轮按 0 计入后，mean source-compatible SPL 为 `0.365962`；
-mean Standard SPL 等待 Scene 03 的独立最短可行路径测量。
+mean Standard SPL 为 `0.546194`。
 
 ## 安全终态
 
@@ -89,3 +95,13 @@ mean Standard SPL 等待 Scene 03 的独立最短可行路径测量。
 
 机器可读归档：
 [`scene03_plant_formal_experiment_05_success_20260731.json`](../manifests/scene03_plant_formal_experiment_05_success_20260731.json)。
+
+## 媒体补充归档
+
+[第三视角原片](../media/video/third_view/experiment_3/experiment_3_success_3.mp4)
+和
+[Dashboard 原片](../media/video/dashboard/experiment_3/experiment_3_success_3_dashboard.mov)
+按用户上传字节原样保留于 Git LFS；README 使用的
+[第三视角 H.264](../media/demo/scene03_formal_05_third_view.mp4)、
+[Dashboard H.264](../media/demo/scene03_formal_05_dashboard.mp4)及对应 GIF
+均为 source-derived 展示副本。精确大小、时长和 SHA-256 记录在机器可读归档。

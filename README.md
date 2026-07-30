@@ -284,28 +284,102 @@ the operator-provided independently measured shortest feasible path
 The long-range setting retains the plant target while increasing travel
 distance and requiring both robots to explore and coordinate across the route.
 
-Formal 05 uses coordinated role assignment: Robot 0 remains in policy HOLD
-while retaining shared observation and map provenance; Robot 1 performs the
-long-range exploration, switches to the detected plant semantic region and
-auto-ARRIVED. The terminal RGB-D clearly contains the plant, and the operator
-confirmed physical arrival.
+| Trials | Success | SR | Mean source-compatible SPL | Mean Standard SPL |
+| ---: | ---: | ---: | ---: | ---: |
+| `5` | `3` | `0.600000` | `0.365962` | `0.546194` |
+
+Both means count the two time-limit failures at zero contribution. Standard
+SPL uses the independently measured approximate shortest feasible path
+`L≈14 m`.
+
+### Explored semantic map
+
+<p align="center">
+  <img src="media/image/experiment_3_map.png" width="560" alt="Experiment 3 explored semantic map with Robot 0 and Robot 1 trajectories">
+</p>
+
+### Real-robot rollouts
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Formal 01 · FAILURE</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene03_formal_01_preview.gif" width="440" alt="Formal 01 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene03_formal_01_dashboard.gif" width="440" alt="Formal 01 failure dashboard"><br>
+      Exploration reached the test-time limit without completing a verified
+      plant-target arrival; both robot trajectories were retained.<br>
+      <a href="media/demo/scene03_formal_01_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene03_formal_01_dashboard.mp4">Dashboard</a>
+    </td>
+    <td width="50%" align="center">
+      <strong>Formal 02 · FAILURE</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene03_formal_02_preview.gif" width="440" alt="Formal 02 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene03_formal_02_dashboard.gif" width="440" alt="Formal 02 failure dashboard"><br>
+      Exploration reached the test-time limit before finding and reaching a
+      verified plant target; both robots finish in synchronized HOLD.<br>
+      <a href="media/demo/scene03_formal_02_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene03_formal_02_dashboard.mp4">Dashboard</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Formal 03 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene03_formal_03_preview.gif" width="440" alt="Formal 03 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene03_formal_03_dashboard.gif" width="440" alt="Formal 03 dashboard"><br>
+      Both robots explore long-range frontiers; Robot 1 switches to the plant
+      semantic region and reaches the target, confirmed by the operator.<br>
+      <a href="media/demo/scene03_formal_03_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene03_formal_03_dashboard.mp4">Dashboard</a>
+    </td>
+    <td width="50%" align="center">
+      <strong>Formal 04 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene03_formal_04_preview.gif" width="440" alt="Formal 04 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene03_formal_04_dashboard.gif" width="440" alt="Formal 04 dashboard"><br>
+      Robot 0 advances along an independent frontier while Robot 1 completes
+      the plant semantic route and auto-ARRIVED, confirmed by the operator.<br>
+      <a href="media/demo/scene03_formal_04_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene03_formal_04_dashboard.mp4">Dashboard</a>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <strong>Formal 05 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene03_formal_05_preview.gif" width="440" alt="Formal 05 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene03_formal_05_dashboard.gif" width="440" alt="Formal 05 dashboard"><br>
+      Under coordinated role assignment, Robot 0 HOLDs while retaining shared
+      observations; Robot 1 completes long-range exploration, switches to the
+      plant semantic region and auto-ARRIVED, confirmed by the operator.<br>
+      <a href="media/demo/scene03_formal_05_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene03_formal_05_dashboard.mp4">Dashboard</a>
+    </td>
+  </tr>
+</table>
 
 ### Per-run metrics
 
-| Run | Result | Robot 0 record | Robot 1 path | Source-compatible SPL | Standard SPL |
+| Run | Result | Robot 0 trajectory | Robot 1 trajectory | Source-compatible SPL | Standard SPL |
 | --- | --- | ---: | ---: | ---: | ---: |
 | Formal 01 | FAILURE | `18.577107 m` | `14.162235 m` | `0.0` | `0.0` |
 | Formal 02 | FAILURE | `5.754388 m` | `17.902160 m` | `0.0` | `0.0` |
-| Formal 03 | SUCCESS | `9.037490 m` | `11.606679 m` | `0.689524` | `—` |
-| Formal 04 | SUCCESS | `9.391253 m` | `13.010775 m` | `0.693557` | `—` |
-| Formal 05 | SUCCESS | `HOLD · 0.006053 m net` | `19.152683 m` | `0.446727` | `—` |
+| Formal 03 | SUCCESS | `9.037490 m` | `11.606679 m` | `0.689524` | `1.000000` |
+| Formal 04 | SUCCESS | `9.391253 m` | `13.010775 m` | `0.693557` | `1.000000` |
+| Formal 05 | SUCCESS | `HOLD · 0.006053 m net` | `19.152683 m` | `0.446727` | `0.730968` |
 
-Scene 03 totals: `5` formal episodes, `3` successes, `SR=0.6`, and mean
-source-compatible SPL `0.365962` with failures contributing zero.
-
-[Formal 01 failure record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md)
+[Full five-experiment archive](audit/SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md)
+· [Formal 01 failure record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md)
 · [Formal 02 failure record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md)
 · [Formal 03 success record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260731.md)
 · [Formal 04 success record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_04_SUCCESS_20260731.md)
 · [Formal 05 success record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260731.md)
 · [Machine-readable results](manifests/scene03_plant_formal_experiments_20260731.json)
+· [Media manifest](media/README.md)

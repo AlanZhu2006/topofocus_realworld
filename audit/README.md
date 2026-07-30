@@ -7,6 +7,9 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md`](SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md):
+  complete Scene 03 five-run archive, dual-robot trajectories, SR/SPL,
+  operator-provided `L≈14 m`, map and media bindings.
 - [`SCENE03_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260731.md`](SCENE03_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260731.md):
   Scene 03 Formal 05 operator-confirmed success, coordinated Robot 0 policy
   HOLD, Robot 1 long-range exploration and semantic arrival, exact SR/SPL,
@@ -15,6 +18,12 @@ current. For the authoritative project state, read
   Scene 03 Formal 02 failure, exact dual-robot paths and zero-valued SR/SPL,
   Robot 0 reverse-command/rotate-first ordering diagnosis, Robot 1
   source-history revisit timeline and fail-closed terminal state.
+- [`SCENE03_PLANT_FORMAL_EXPERIMENT_04_SUCCESS_20260731.md`](SCENE03_PLANT_FORMAL_EXPERIMENT_04_SUCCESS_20260731.md):
+  Scene 03 Formal 04 operator-confirmed and automatic semantic-arrival
+  success with both robot trajectories.
+- [`SCENE03_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260731.md`](SCENE03_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260731.md):
+  Scene 03 Formal 03 operator-confirmed physical arrival with both robot
+  trajectories and automatic-evidence boundary.
 - [`SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md`](SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md):
   Scene 03 Formal 01 execution failure, dual-robot path evidence, semantic
   target allocation and post-run controller diagnosis.

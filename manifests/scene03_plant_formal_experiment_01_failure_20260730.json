@@ -16,13 +16,14 @@
     "official_reason": "Formal 01 detected and assigned the plant semantic region, but robot-local navigation did not complete semantic arrival before the episode runtime timeout.",
     "basis": "Robot 1's short local trajectory prefixes caused alternating wall-front yaw requests during exploration. Robot 0 later received a valid semantic route and repeated non-zero bridge commands, but the measured pose stopped responding before arrival."
   },
+  "public_summary": "The test budget elapsed before exploration produced a verified plant-arrival result.",
   "metrics": {
     "success": 0,
     "sr": 0.0,
     "source_compatible_spl": 0.0,
     "standard_spl": 0.0,
-    "standard_shortest_feasible_path_m": null,
-    "standard_shortest_path_status": "not required for this failed episode's zero SPL contribution"
+    "standard_shortest_feasible_path_m": 14.0,
+    "standard_shortest_path_status": "operator-provided approximate independent Scene 03 reference; S=0 makes this episode's Standard SPL zero"
   },
   "execution": {
     "source_rounds_completed": 16,
@@ -151,8 +152,50 @@
       "classification": "observed robot-1 controller log verified through the existing SSH/tmux session; bytes remain on robot-1"
     }
   ],
-  "media": [],
-  "media_status": "no operator-provided media is bound to this formal episode yet",
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_3/experiment_3_failure_1.mp4",
+      "size_bytes": 12310239,
+      "sha256": "1c2e23e9b64b90c3162f64e0c3d850ca4e952b4527c07ca30efb2e1342bcb49e",
+      "duration_s": 167.533333,
+      "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene03_formal_01_third_view.mp4",
+      "size_bytes": 7712497,
+      "sha256": "8d64d7b2152d58d58f40d6a3088ec0417bfe3e733561fd5b5a071b9729b2bfde",
+      "duration_s": 167.534,
+      "classification": "source-derived H.264 public derivative of the observed external-view master"
+    },
+    {
+      "path": "media/demo/scene03_formal_01_preview.gif",
+      "size_bytes": 6417004,
+      "sha256": "87e138498cb8cae0467d46e5279b377e592f5f2ea03cd39a48d1cd1dddebbacd",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to 64 frames at 8 fps"
+    },
+    {
+      "path": "media/video/dashboard/experiment_3/experiment_3_failure_1_dashboard.mov",
+      "size_bytes": 277644298,
+      "sha256": "87d1d9d1c05d561d80bd2246a308bb2e32e4394ed2a5d8abb43f14db7053c884",
+      "duration_s": 455.367,
+      "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene03_formal_01_dashboard.mp4",
+      "size_bytes": 4195809,
+      "sha256": "7d07adcac31ed3361583ba40eaf29a152dbbf2f26af0407acc3192c9c45821de",
+      "duration_s": 455.3,
+      "classification": "source-derived H.264 public derivative of the observed Dashboard master, scaled to 1280px wide"
+    },
+    {
+      "path": "media/demo/scene03_formal_01_dashboard.gif",
+      "size_bytes": 3252425,
+      "sha256": "e3c961fc97c22a7ed58500c5d9df10977a85fe8c90834ffde12f696b658e65ab",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to 64 frames at 8 fps"
+    }
+  ],
   "safety": {
     "hub_published_high_level_targets_only": true,
     "robot_local_stop_and_rejection_authority_retained": true,

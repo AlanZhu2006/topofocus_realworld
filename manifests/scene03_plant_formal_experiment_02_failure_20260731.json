@@ -22,13 +22,14 @@
     "official_reason": "Formal 02 completed 18 source rounds without a plant semantic arrival. Robot 0 was repeatedly isolated by a controller-order defect before rotate-first could handle TinyNav's fixed reverse request; Robot 1 faithfully executed source history-node revisits that caused substantial backtracking.",
     "basis": "The exact controller and receiver logs show 11 Robot 0 LOCAL_PATH_REVERSE_REQUIRED rejections with zero velocity confirmed. Frozen VLM manifests show Robot 1's below-threshold Judgment decisions entering the source history_score_copy first-argmax branch and alternating between old history nodes."
   },
+  "public_summary": "The test budget elapsed before exploration found and reached a verified plant target.",
   "metrics": {
     "success": 0,
     "sr": 0.0,
     "source_compatible_spl": 0.0,
     "standard_spl": 0.0,
-    "standard_shortest_feasible_path_m": null,
-    "standard_shortest_path_status": "not required for this failed episode's zero SPL contribution"
+    "standard_shortest_feasible_path_m": 14.0,
+    "standard_shortest_path_status": "operator-provided approximate independent Scene 03 reference; S=0 makes this episode's Standard SPL zero"
   },
   "execution": {
     "started_at_local": "2026-07-30T23:54:58+08:00",
@@ -235,8 +236,50 @@
       "classification": "observed Robot 1 receiver log verified through the existing SSH/tmux session; bytes remain on Robot 1"
     }
   ],
-  "media": [],
-  "media_status": "no operator-provided media is bound to this formal episode yet",
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_3/experiment_3_failure_2.mp4",
+      "size_bytes": 12478070,
+      "sha256": "751bd7367c2a4a0be73206f007b38ea117cb8ffb5d44bea859989d86326cbb41",
+      "duration_s": 108.6,
+      "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene03_formal_02_third_view.mp4",
+      "size_bytes": 10858818,
+      "sha256": "cbd6ad046e369893687ad6b4261b468acf18a9ae80548901d70b9fd5b8927cb1",
+      "duration_s": 108.6,
+      "classification": "source-derived H.264 public derivative of the observed external-view master"
+    },
+    {
+      "path": "media/demo/scene03_formal_02_preview.gif",
+      "size_bytes": 8854274,
+      "sha256": "dfdf1786bd489b1d8bd68cf071eb4a143c470585c34eed4335f7cc2f21e5edcc",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to 64 frames at 8 fps"
+    },
+    {
+      "path": "media/video/dashboard/experiment_3/experiment_3_failure_2_dashboard.mov",
+      "size_bytes": 425807696,
+      "sha256": "d82f556373f906da189739afff0c0177bb68504e760828679f4ca4c60ac8986d",
+      "duration_s": 612.822,
+      "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene03_formal_02_dashboard.mp4",
+      "size_bytes": 5764131,
+      "sha256": "e9c86f64080e5f0e725b50f5a95e6ec86752fcc666c97db2a64fbad1533b2b5f",
+      "duration_s": 612.767,
+      "classification": "source-derived H.264 public derivative of the observed Dashboard master, scaled to 1280px wide"
+    },
+    {
+      "path": "media/demo/scene03_formal_02_dashboard.gif",
+      "size_bytes": 3783863,
+      "sha256": "e1b45b63ef5a73bba61a895fde8b6d02a785df4fa3b3fdad5300056bab3878d7",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to 64 frames at 8 fps"
+    }
+  ],
   "safety": {
     "hub_published_high_level_targets_only": true,
     "robot_local_stop_and_rejection_authority_retained": true,
