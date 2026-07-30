@@ -251,6 +251,87 @@ def test_round_inspection_distinguishes_semantic_and_frontier_arrival(
     assert inspected.frontier_arrivals == {}
 
 
+def test_semantic_local_failure_keeps_healthy_semantic_peer_active(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now, manifest, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    built = build_batch_from_shadow_manifest(
+        manifest,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-trial-1",
+        execution_epoch=0,
+        now_ns=now,
+        robot_config_path=config,
+    )
+    decisions = {item.robot_id: item for item in built.batch.decisions}
+    semantic_target = decisions["robot-0"].target
+    assert semantic_target is not None
+    decisions["robot-1"] = decisions["robot-1"].model_copy(
+        update={"target": semantic_target}
+    )
+
+    (
+        failed_semantic,
+        remaining_active,
+        remaining_semantic,
+    ) = module.partition_recoverable_failures(
+        decisions,
+        {"robot-0", "robot-1"},
+        {
+            "robot-1": {
+                "status": "REJECTED",
+                "reason_code": "LOCAL_GOAL_UNREACHABLE",
+            }
+        },
+    )
+
+    assert failed_semantic == {"robot-1"}
+    assert remaining_active == {"robot-0"}
+    assert remaining_semantic == {"robot-0"}
+
+
+def test_semantic_local_failure_replans_when_only_frontier_peer_remains(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now, manifest, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    built = build_batch_from_shadow_manifest(
+        manifest,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-trial-1",
+        execution_epoch=0,
+        now_ns=now,
+        robot_config_path=config,
+    )
+    decisions = {item.robot_id: item for item in built.batch.decisions}
+
+    (
+        failed_semantic,
+        remaining_active,
+        remaining_semantic,
+    ) = module.partition_recoverable_failures(
+        decisions,
+        {"robot-0", "robot-1"},
+        {
+            "robot-0": {
+                "status": "REJECTED",
+                "reason_code": "LOCAL_GOAL_UNREACHABLE",
+            }
+        },
+    )
+
+    assert failed_semantic == {"robot-0"}
+    assert remaining_active == {"robot-1"}
+    assert remaining_semantic == set()
+
+
 def test_foxglove_target_events_record_the_actual_post_guard_batch(
     tmp_path,
     observation_factory,

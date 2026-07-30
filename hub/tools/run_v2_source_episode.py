@@ -147,9 +147,11 @@ def progress_memory_after_round(
 ) -> tuple[set[str], dict[str, int]]:
     """Carry no-progress evidence only across comparable full intervals.
 
-    A semantic path rejection immediately HOLDs the pair, so neither interval
-    is comparable.  A frontier rejection isolates only that robot; its peer
-    may complete a normal interval and retains its own progress evidence.
+    A semantic path rejection resets the comparison only when no other
+    semantic executor can continue and the pair is HOLDed for a fresh source
+    round.  Isolated local failures are listed in ``interrupted_robot_ids``;
+    a healthy peer may complete a normal interval and retains its own progress
+    evidence.
     """
 
     if (
@@ -167,6 +169,46 @@ def progress_memory_after_round(
             for robot_id, count in stagnant_intervals.items()
             if robot_id in comparable
         },
+    )
+
+
+def partition_recoverable_failures(
+    decisions: dict[str, HighLevelDecisionV2],
+    active_robot_ids: set[str],
+    recoverable_failures: dict[str, dict[str, object]],
+) -> tuple[set[str], set[str], set[str]]:
+    """Identify failed robots and semantic peers able to keep executing.
+
+    A robot-local recoverable rejection must not revoke a healthy peer's
+    already accepted high-level leg.  Continuing is valid only when at least
+    one remaining active robot still owns a semantic-region decision;
+    otherwise the source loop must HOLD and produce a fresh round.
+    """
+
+    failed_robot_ids = set(recoverable_failures)
+    failed_semantic_robot_ids = {
+        robot_id
+        for robot_id in failed_robot_ids
+        if (
+            decisions[robot_id].target is not None
+            and decisions[robot_id].target.kind == "SEMANTIC_REGION"
+        )
+    }
+    remaining_active_robot_ids = set(active_robot_ids).difference(
+        failed_robot_ids
+    )
+    remaining_semantic_robot_ids = {
+        robot_id
+        for robot_id in remaining_active_robot_ids
+        if (
+            decisions[robot_id].target is not None
+            and decisions[robot_id].target.kind == "SEMANTIC_REGION"
+        )
+    }
+    return (
+        failed_semantic_robot_ids,
+        remaining_active_robot_ids,
+        remaining_semantic_robot_ids,
     )
 
 
@@ -2101,19 +2143,26 @@ def main() -> int:
                             recoverable_failures_all
                         ),
                     )
-                failed_semantic = {
-                    robot_id: event
-                    for robot_id, event in recoverable.items()
-                    if (
-                        decisions[robot_id].target is not None
-                        and decisions[robot_id].target.kind
-                        == "SEMANTIC_REGION"
-                    )
-                }
-                if failed_semantic:
+                (
+                    failed_semantic_robot_ids,
+                    remaining_active_robot_ids,
+                    remaining_semantic_robot_ids,
+                ) = partition_recoverable_failures(
+                    decisions,
+                    active,
+                    recoverable,
+                )
+                if (
+                    failed_semantic_robot_ids
+                    and remaining_semantic_robot_ids
+                ):
+                    active = remaining_active_robot_ids
                     emit(
-                        "semantic_path_failures_replan",
-                        failed_robot_ids=sorted(failed_semantic),
+                        "semantic_path_failures_isolated",
+                        failed_robot_ids=sorted(recoverable),
+                        failed_semantic_robot_ids=sorted(
+                            failed_semantic_robot_ids
+                        ),
                         failures={
                             robot_id: {
                                 "status": event.get("status"),
@@ -2122,8 +2171,31 @@ def main() -> int:
                                 "leg_id": event.get("leg_id"),
                             }
                             for robot_id, event in sorted(
-                                failed_semantic.items()
+                                recoverable.items()
                             )
+                        },
+                        remaining_active_robot_ids=sorted(active),
+                        remaining_semantic_robot_ids=sorted(
+                            remaining_semantic_robot_ids
+                        ),
+                    )
+                    transition(active, "semantic_failure_isolation")
+                    continue
+                if failed_semantic_robot_ids:
+                    emit(
+                        "semantic_path_failures_replan",
+                        failed_robot_ids=sorted(recoverable),
+                        failed_semantic_robot_ids=sorted(
+                            failed_semantic_robot_ids
+                        ),
+                        failures={
+                            robot_id: {
+                                "status": event.get("status"),
+                                "reason_code": event.get("reason_code"),
+                                "decision_id": event.get("decision_id"),
+                                "leg_id": event.get("leg_id"),
+                            }
+                            for robot_id, event in sorted(recoverable.items())
                         },
                     )
                     final_states = hold_and_confirm(
@@ -2142,7 +2214,7 @@ def main() -> int:
                         ),
                     )
                 failed_frontiers = set(recoverable)
-                active.difference_update(failed_frontiers)
+                active = remaining_active_robot_ids
                 emit(
                     "frontier_failures_isolated",
                     failed_robot_ids=sorted(failed_frontiers),
