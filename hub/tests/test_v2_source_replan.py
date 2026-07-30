@@ -149,6 +149,43 @@ def test_local_rejection_blocks_same_target_and_preserves_robot_score_order(
     }
 
 
+def test_inactive_hold_robot_has_no_physical_fallback_candidates(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    raw = with_source_frontiers(
+        make_batch(observations, digests, now=now)
+    ).model_dump(mode="json")
+    for decision in raw["decisions"]:
+        decision["coordination"]["active_robot_ids"] = ["robot-0"]
+        if decision["robot_id"] == "robot-1":
+            decision["mode"] = "HOLD"
+            decision["target"] = None
+    batch = DecisionBatchV2.model_validate(raw)
+
+    rejected, fallbacks, report = evaluate_source_replan(
+        batch,
+        shadow_manifest=shadow_manifest(),
+        memory=memory(),
+        robot_xy_by_robot={
+            "robot-0": (0.0, 1.0),
+            "robot-1": (1.0, 2.0),
+        },
+    )
+
+    assert rejected == frozenset()
+    assert set(fallbacks) == {"robot-0"}
+    assert report["checks"]["robot-1"]["active"] is False
+    assert [
+        item["frontier_id"]
+        for item in report["checks"]["robot-1"][
+            "accepted_fallback_candidates"
+        ]
+    ] == ["B", "D", "C"]
+
+
 def test_same_blocked_sector_matches_shifted_label_but_material_move_expires_it(
     observation_factory,
 ):

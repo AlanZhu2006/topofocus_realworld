@@ -685,7 +685,12 @@ def evaluate_source_replan(
                         "memory_matches": memory_matches,
                     }
                 )
-        fallback_by_robot[robot_id] = accepted_candidates
+        # A no-allocation/HOLD robot is intentionally absent from the
+        # coordination active set.  Preserve its source result in ``checks``
+        # below, but do not offer physical fallback targets for it to the
+        # downstream clearance guard.
+        if robot_id in active:
+            fallback_by_robot[robot_id] = accepted_candidates
         checks[robot_id] = {
             "robot_id": robot_id,
             "active": robot_id in active,
