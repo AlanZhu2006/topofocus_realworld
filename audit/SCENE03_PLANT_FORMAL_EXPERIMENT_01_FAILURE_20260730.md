@@ -14,8 +14,9 @@ Episode：`formal09-restart`
 `episode runtime timeout`。这不是 VLM failure：第 12 轮已识别并向 Robot 0
 分配 `plant` 语义区域，但本地执行未形成语义到达。
 
-实验展示摘要统一记为：探索在测试时限内未形成经验证的 plant 到达，
-因此以 time-limit failure 结束。下面保留原始运行诊断作为工程 provenance。
+实验展示摘要统一记为：探索在测试时限内未发现并抵达经验证的 plant
+目标，因此以 time-limit failure 结束。下面保留原始运行诊断作为工程
+provenance。
 
 ## 双机动作
 

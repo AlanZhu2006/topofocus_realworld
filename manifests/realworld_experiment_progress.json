@@ -1047,7 +1047,7 @@
       "target_category": "plant",
       "attribution": "execution_engineering_failure",
       "reason": "The plant semantic region was detected and assigned, but Robot 1 experienced wall-front short-path yaw oscillation and Robot 0's measured pose stopped responding to repeated semantic-approach commands; the episode timed out before ARRIVED.",
-      "public_summary": "The test budget elapsed before exploration produced a verified plant-arrival result.",
+      "public_summary": "The test budget elapsed before exploration found and reached a verified plant target.",
       "live_started": true,
       "robot_commands_issued": true,
       "episode_created": true,
@@ -1076,14 +1076,14 @@
       "evidence": [
         {
           "path": "manifests/scene03_plant_formal_experiment_01_failure_20260730.json",
-          "size_bytes": 10537,
-          "sha256": "1d7b490054d1a9afd45a3fece38b1a830e64078b15da737fcead88d2cd8f573b",
+          "size_bytes": 10538,
+          "sha256": "bf9d19b8ea49fd8e5118bda3e4a11a519e04da6f73ee6a5a45c23d54951523d9",
           "classification": "authoritative machine-readable Formal 01 failure archive"
         },
         {
           "path": "audit/SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md",
-          "size_bytes": 3679,
-          "sha256": "95f8c462f108444f2548fffd28ed775f0cb1f6e332ab03ef0d3c83f44c37f61e",
+          "size_bytes": 3687,
+          "sha256": "5858ec8c1c4c362fad261856f83c1dab92e15ad7d54fb99c615622e8faef1f1d",
           "classification": "human-readable provenance mirror"
         },
         {
@@ -1170,8 +1170,8 @@
         },
         {
           "path": "manifests/scene03_plant_formal_experiments_20260731.json",
-          "size_bytes": 6146,
-          "sha256": "4d2b09602cbc21ce78da5292731385d41942283d219ef95bc6ee9a079e1830a9",
+          "size_bytes": 6147,
+          "sha256": "7072bceb05f4014e51f7f74b479f8f9b2585dbf818cb55bd81b4b44aec8efc1f",
           "classification": "authoritative unified Scene 03 formal archive"
         }
       ],

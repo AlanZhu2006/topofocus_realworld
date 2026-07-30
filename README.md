@@ -308,8 +308,8 @@ SPL uses the independently measured approximate shortest feasible path
       <img src="media/demo/scene03_formal_01_preview.gif" width="440" alt="Formal 01 failure rollout"><br>
       <small>Dashboard</small><br>
       <img src="media/demo/scene03_formal_01_dashboard.gif" width="440" alt="Formal 01 failure dashboard"><br>
-      Exploration reached the test-time limit without completing a verified
-      plant-target arrival; both robot trajectories were retained.<br>
+      Exploration reached the test-time limit before finding and reaching a
+      verified plant target; both robot trajectories were retained.<br>
       <a href="media/demo/scene03_formal_01_third_view.mp4">Third view</a> ·
       <a href="media/demo/scene03_formal_01_dashboard.mp4">Dashboard</a>
     </td>

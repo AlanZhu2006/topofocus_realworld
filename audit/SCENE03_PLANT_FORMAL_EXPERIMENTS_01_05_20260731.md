@@ -37,7 +37,7 @@ Robot 1 为 Formal 03–05 的到达机器人。
 
 ## 运行摘要
 
-- Formal 01：探索在测试时限内未完成经验证的 plant 到达，记为
+- Formal 01：探索在测试时限内未发现并抵达经验证的 plant 目标，记为
   time-limit failure。
 - Formal 02：探索在测试时限内未发现并抵达经验证的 plant 目标，记为
   time-limit failure。

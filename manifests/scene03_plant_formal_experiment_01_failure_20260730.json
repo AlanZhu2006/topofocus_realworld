@@ -16,7 +16,7 @@
     "official_reason": "Formal 01 detected and assigned the plant semantic region, but robot-local navigation did not complete semantic arrival before the episode runtime timeout.",
     "basis": "Robot 1's short local trajectory prefixes caused alternating wall-front yaw requests during exploration. Robot 0 later received a valid semantic route and repeated non-zero bridge commands, but the measured pose stopped responding before arrival."
   },
-  "public_summary": "The test budget elapsed before exploration produced a verified plant-arrival result.",
+  "public_summary": "The test budget elapsed before exploration found and reached a verified plant target.",
   "metrics": {
     "success": 0,
     "sr": 0.0,
