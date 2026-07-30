@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Launch continuous TinyNav geometry/occupancy in the fresh ``world`` frame.
+"""Launch continuous TinyNav geometry/occupancy in world or saved-map frame.
 
 The installed ``semantic_mapping`` package normally targets a relocalized
-saved-map frame and RealSense aligned depth. This deployment launch keeps the
-package unchanged but overrides it to consume TinyNav's continuously
+saved-map frame and RealSense aligned depth. This deployment launcher keeps
+the package unchanged but overrides it to consume TinyNav's continuously
 published, timestamp-matched geometry products:
 
 ``/slam/depth + /slam/camera_info + world->camera TF``.
+
+When target and tracking frames differ, the semantic point-cloud node uses the
+latest validated ``map <- world`` alignment while retaining the exact
+``world <- camera`` transform at each image stamp.  When both are ``world``,
+the existing fresh BuildMap behavior is unchanged.
 
 The point-cloud node requires an RGB field although occupancy uses only XYZ.
 A read-only adapter therefore supplies a strictly stamped black RGB companion
@@ -23,12 +28,23 @@ import sys
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target-frame", default="world")
+    parser.add_argument(
+        "--tracking-frame",
+        help=(
+            "raw odometry/TF parent frame; defaults to --target-frame for "
+            "fresh online BuildMap, use world with target map for saved-map "
+            "relocalization"
+        ),
+    )
     parser.add_argument("--output-directory", type=Path, required=True)
     parser.add_argument("--max-rate-hz", type=float, default=3.0)
     parser.add_argument("--depth-stride", type=int, default=3)
     args = parser.parse_args()
     if not args.target_frame:
         parser.error("--target-frame is required")
+    tracking_frame = args.tracking_frame or args.target_frame
+    if not tracking_frame:
+        parser.error("--tracking-frame is required")
     if args.max_rate_hz <= 0:
         parser.error("--max-rate-hz must be positive")
     if args.depth_stride <= 0:
@@ -54,6 +70,7 @@ def main() -> int:
             f"{geometry_rgb_script}"
         )
     geometry_rgb_topic = "/focus/slam/continuous_depth_geometry_rgb"
+    relocalized_map = tracking_frame != args.target_frame
 
     geometry_overrides = {
         "topics.rgb": geometry_rgb_topic,
@@ -62,7 +79,7 @@ def main() -> int:
         "topics.pointcloud": "/semantic_mapping/semantic_pointcloud",
         "topics.camera_pose": "/semantic_mapping/camera_pose",
         "frames.target_frame": args.target_frame,
-        "frames.odom_frame": args.target_frame,
+        "frames.odom_frame": tracking_frame,
         "frames.pose_camera_frame": "camera",
         "frames.tracking_camera_frame": "camera",
         "frames.camera_frame": "camera",
@@ -71,8 +88,8 @@ def main() -> int:
         # validated by the persistent WSJ observation sender.  Its measured
         # pose skew is 0 ms; retain the sender's 50 ms fail-closed sync bound.
         "sync.max_slop_sec": 0.05,
-        "pose.allow_latest_map_alignment": False,
-        "pose.wait_for_target_alignment": False,
+        "pose.allow_latest_map_alignment": relocalized_map,
+        "pose.wait_for_target_alignment": relocalized_map,
         "processing.max_rate_hz": args.max_rate_hz,
         "depth.stride": args.depth_stride,
         "validation.require_frame_ids": True,
