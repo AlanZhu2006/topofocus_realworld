@@ -38,6 +38,7 @@ from focus_hub.frontiers import (  # noqa: E402
     Frontier,
     extract_frontiers,
     render_semantic_decision_map,
+    validate_frontier_candidates,
 )
 from focus_hub.fusion import align_and_fuse_grids  # noqa: E402
 from focus_hub.map_snapshot import (  # noqa: E402
@@ -142,6 +143,469 @@ def initial_allocation_hold_reason(
             "duplicate physical target suppressed; explicit HOLD"
         )
     return None
+
+
+def frontier_local_map_support(
+    context: RobotContext,
+    frontier: Frontier,
+    *,
+    arrival_radius_m: float = 0.5,
+) -> dict[str, object]:
+    """Measure which frozen robot map actually supports a shared frontier.
+
+    This is only an allocation-order hint for an undercomplete shared
+    frontier set.  It never grants motion authority; the later robot-local
+    footprint-clearance and reachability guard remains authoritative.
+    """
+
+    snapshot = context.snapshot
+    if not math.isfinite(arrival_radius_m) or arrival_radius_m <= 0.0:
+        raise ValueError("frontier arrival radius must be positive and finite")
+    obstacle = np.asarray(snapshot.grid[0] > 0.5, dtype=bool)
+    explored = np.asarray(snapshot.grid[1] > 0.5, dtype=bool)
+    known_free = explored & ~obstacle
+    rows, columns = np.nonzero(known_free)
+    if rows.size:
+        center_x = (
+            snapshot.origin_xy_m[0]
+            + (columns.astype(np.float64) + 0.5)
+            * snapshot.resolution_m
+        )
+        center_y = (
+            snapshot.origin_xy_m[1]
+            + (rows.astype(np.float64) + 0.5)
+            * snapshot.resolution_m
+        )
+        half_cell = snapshot.resolution_m / 2.0
+        dx = np.maximum(np.abs(center_x - frontier.x_m) - half_cell, 0.0)
+        dy = np.maximum(np.abs(center_y - frontier.y_m) - half_cell, 0.0)
+        arrival_support_cells = int(
+            np.count_nonzero(
+                np.hypot(dx, dy) <= arrival_radius_m + 1e-12
+            )
+        )
+    else:
+        arrival_support_cells = 0
+    column = math.floor(
+        (frontier.x_m - snapshot.origin_xy_m[0])
+        / snapshot.resolution_m
+    )
+    row = math.floor(
+        (frontier.y_m - snapshot.origin_xy_m[1])
+        / snapshot.resolution_m
+    )
+    target_in_bounds = (
+        0 <= row < known_free.shape[0]
+        and 0 <= column < known_free.shape[1]
+    )
+    target_known_free = (
+        bool(known_free[row, column]) if target_in_bounds else False
+    )
+    robot_x = float(context.T_shared_base[0, 3])
+    robot_y = float(context.T_shared_base[1, 3])
+    return {
+        "robot_id": context.spec.robot_id,
+        "frontier_id": frontier.frontier_id,
+        "target_in_bounds": target_in_bounds,
+        "target_known_free": target_known_free,
+        "known_free_arrival_support_cells": arrival_support_cells,
+        "robot_to_frontier_distance_m": math.hypot(
+            frontier.x_m - robot_x,
+            frontier.y_m - robot_y,
+        ),
+        "classification": (
+            "source-derived ownership hint from observed frozen robot-local "
+            "map; not physical motion authority"
+        ),
+    }
+
+
+def initial_undercomplete_allocation_order(
+    contexts: list[RobotContext],
+    frontiers: list[Frontier],
+) -> tuple[list[RobotContext], dict[str, object] | None]:
+    """Put the locally supported owner first when only one frontier exists."""
+
+    if len(contexts) <= 1 or len(frontiers) != 1:
+        return list(contexts), None
+    frontier = frontiers[0]
+    supports = [
+        frontier_local_map_support(context, frontier)
+        for context in contexts
+    ]
+    owner_index = max(
+        range(len(contexts)),
+        key=lambda index: (
+            bool(supports[index]["target_known_free"]),
+            int(supports[index]["known_free_arrival_support_cells"]),
+            -float(supports[index]["robot_to_frontier_distance_m"]),
+            -index,
+        ),
+    )
+    ordered = [
+        contexts[owner_index],
+        *(
+            context
+            for index, context in enumerate(contexts)
+            if index != owner_index
+        ),
+    ]
+    return ordered, {
+        "frontier_id": frontier.frontier_id,
+        "selected_owner_robot_id": contexts[owner_index].spec.robot_id,
+        "original_robot_order": [
+            context.spec.robot_id for context in contexts
+        ],
+        "allocation_robot_order": [
+            context.spec.robot_id for context in ordered
+        ],
+        "support_by_robot": {
+            str(record["robot_id"]): record for record in supports
+        },
+        "selection_policy": (
+            "target known-free, then known-free cells in the source arrival "
+            "disk, then shortest shared-frame distance; stable robot order "
+            "breaks an exact tie"
+        ),
+        "physical_authority": (
+            "none; downstream robot-local footprint-clearance and "
+            "reachability guard remains mandatory"
+        ),
+    }
+
+
+def explored_component_areas(
+    grid: np.ndarray,
+    *,
+    minimum_cells: int = 5,
+) -> list[int]:
+    """Return meaningful closed explored-component areas, largest first."""
+
+    explored = cv2.inRange(
+        np.asarray(grid[1], dtype=np.float32),
+        0.1,
+        1.0,
+    )
+    closed = cv2.morphologyEx(
+        explored,
+        cv2.MORPH_CLOSE,
+        np.ones((5, 5), dtype=np.uint8),
+    )
+    _count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        np.asarray(closed > 0, dtype=np.uint8),
+        connectivity=8,
+    )
+    return sorted(
+        (
+            int(area)
+            for area in stats[1:, cv2.CC_STAT_AREA]
+            if int(area) >= minimum_cells
+        ),
+        reverse=True,
+    )
+
+
+def explored_robot_component_report(
+    grid: np.ndarray,
+    contexts: list[RobotContext],
+    *,
+    origin_xy_m: tuple[float, float],
+    resolution_m: float,
+    maximum_anchor_distance_m: float = 1.0,
+) -> dict[str, object]:
+    """Identify whether the observed robot starts occupy separate map islands."""
+
+    if (
+        not math.isfinite(maximum_anchor_distance_m)
+        or maximum_anchor_distance_m <= 0.0
+    ):
+        raise ValueError(
+            "robot component anchor distance must be positive and finite"
+        )
+    explored = cv2.inRange(
+        np.asarray(grid[1], dtype=np.float32),
+        0.1,
+        1.0,
+    )
+    closed = cv2.morphologyEx(
+        explored,
+        cv2.MORPH_CLOSE,
+        np.ones((5, 5), dtype=np.uint8),
+    )
+    _count, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        np.asarray(closed > 0, dtype=np.uint8),
+        connectivity=8,
+    )
+    # A component smaller than the robot's approximate occupied floor area
+    # cannot be a useful start island.  Ignoring those islands prevents a few
+    # isolated observed pixels from changing the source-compatible policy.
+    minimum_component_cells = max(
+        5,
+        math.ceil(0.20 / (resolution_m * resolution_m)),
+    )
+    meaningful_labels = {
+        label
+        for label in range(1, stats.shape[0])
+        if int(stats[label, cv2.CC_STAT_AREA]) >= minimum_component_cells
+    }
+    meaningful_mask = np.isin(labels, list(meaningful_labels))
+    component_rows, component_columns = np.nonzero(meaningful_mask)
+    robot_records: dict[str, dict[str, object]] = {}
+    anchored_labels: list[int] = []
+    for context in contexts:
+        robot_x = float(context.T_shared_base[0, 3])
+        robot_y = float(context.T_shared_base[1, 3])
+        column = math.floor(
+            (robot_x - origin_xy_m[0]) / resolution_m
+        )
+        row = math.floor(
+            (robot_y - origin_xy_m[1]) / resolution_m
+        )
+        nearest_label: int | None = None
+        nearest_distance_m: float | None = None
+        if component_rows.size:
+            distances_sq = (
+                (component_rows.astype(np.float64) - row) ** 2
+                + (component_columns.astype(np.float64) - column) ** 2
+            )
+            nearest_index = int(np.argmin(distances_sq))
+            nearest_distance_m = (
+                math.sqrt(float(distances_sq[nearest_index]))
+                * resolution_m
+            )
+            candidate_label = int(
+                labels[
+                    component_rows[nearest_index],
+                    component_columns[nearest_index],
+                ]
+            )
+            if nearest_distance_m <= maximum_anchor_distance_m:
+                nearest_label = candidate_label
+                anchored_labels.append(candidate_label)
+        robot_records[context.spec.robot_id] = {
+            "robot_cell_rc": [row, column],
+            "nearest_meaningful_component_label": nearest_label,
+            "nearest_meaningful_component_distance_m": nearest_distance_m,
+            "anchored_within_limit": nearest_label is not None,
+        }
+    unique_robot_components = sorted(set(anchored_labels))
+    all_robots_anchored = len(anchored_labels) == len(contexts)
+    return {
+        "closed_explored_component_areas": explored_component_areas(grid),
+        "minimum_robot_start_component_cells": minimum_component_cells,
+        "maximum_robot_component_anchor_distance_m": (
+            maximum_anchor_distance_m
+        ),
+        "robots": robot_records,
+        "all_robots_anchored": all_robots_anchored,
+        "distinct_robot_component_labels": unique_robot_components,
+        "robot_start_components_disconnected": (
+            all_robots_anchored and len(unique_robot_components) > 1
+        ),
+        "classification": (
+            "source-derived from frozen fused explored layer and observed "
+            "shared-frame robot base poses"
+        ),
+    }
+
+
+def component_balanced_frontier_pool(
+    contexts: list[RobotContext],
+    *,
+    fused_origin_xy_m: tuple[float, float],
+    resolution_m: float,
+    fused_shape_hw: tuple[int, int],
+    max_candidates: int = 4,
+) -> tuple[
+    list[Frontier],
+    dict[str, dict[str, object]],
+    dict[str, object],
+]:
+    """Build one shared A-D pool without dropping a disconnected start map.
+
+    Every candidate is still extracted by the unchanged source ``Frontiers``
+    geometry, but it is first extracted from each observed robot-local map.
+    One source-ranked candidate per robot is reserved before the remaining
+    slots are filled by component area.  Near-identical physical candidates
+    are merged and retain all eligible owners.
+    """
+
+    if not 1 <= max_candidates <= 4:
+        raise ValueError("component-balanced frontier limit must be within 1..4")
+    height, width = fused_shape_hw
+    entries: list[dict[str, object]] = []
+    entry_order_by_robot: dict[str, list[int]] = {}
+    local_records: dict[str, list[dict[str, object]]] = {}
+    duplicate_radius_m = resolution_m * 2.0
+    for context in contexts:
+        robot_id = context.spec.robot_id
+        local_frontiers = extract_frontiers(
+            context.snapshot.grid,
+            context.snapshot.origin_xy_m,
+            context.snapshot.resolution_m,
+        )
+        entry_order: list[int] = []
+        records: list[dict[str, object]] = []
+        for local_rank, local in enumerate(local_frontiers):
+            column_offset = round(
+                (
+                    context.snapshot.origin_xy_m[0]
+                    - fused_origin_xy_m[0]
+                )
+                / resolution_m
+            )
+            row_offset = round(
+                (
+                    context.snapshot.origin_xy_m[1]
+                    - fused_origin_xy_m[1]
+                )
+                / resolution_m
+            )
+            column = local.col + column_offset
+            row = local.row + row_offset
+            if not (0 <= row < height and 0 <= column < width):
+                raise ValueError(
+                    f"{robot_id} local frontier is outside the fused grid"
+                )
+            fused_x_m = (
+                fused_origin_xy_m[0] + (column + 0.5) * resolution_m
+            )
+            fused_y_m = (
+                fused_origin_xy_m[1] + (row + 0.5) * resolution_m
+            )
+            source_record = {
+                "robot_id": robot_id,
+                "local_frontier_id": local.frontier_id,
+                "local_rank": local_rank,
+                "local_row": local.row,
+                "local_col": local.col,
+                "row": row,
+                "col": column,
+                "local_x_m": local.x_m,
+                "local_y_m": local.y_m,
+                "x_m": fused_x_m,
+                "y_m": fused_y_m,
+                "size_cells": local.size_cells,
+                "map_transform_version": context.snapshot.transform_version,
+                "classification": (
+                    "source-derived from observed frozen robot-local map"
+                ),
+            }
+            records.append(source_record)
+            entry_index = next(
+                (
+                    index
+                    for index, entry in enumerate(entries)
+                    if math.hypot(
+                        float(entry["x_m"]) - fused_x_m,
+                        float(entry["y_m"]) - fused_y_m,
+                    )
+                    <= duplicate_radius_m + 1e-12
+                ),
+                None,
+            )
+            if entry_index is None:
+                entry_index = len(entries)
+                entries.append(
+                    {
+                        "x_m": fused_x_m,
+                        "y_m": fused_y_m,
+                        "row": row,
+                        "col": column,
+                        "size_cells": local.size_cells,
+                        "first_seen_order": entry_index,
+                        "eligible_robot_ids": {robot_id},
+                        "source_local_frontiers": [source_record],
+                    }
+                )
+            else:
+                entry = entries[entry_index]
+                entry["size_cells"] = max(
+                    int(entry["size_cells"]),
+                    local.size_cells,
+                )
+                owners = entry["eligible_robot_ids"]
+                if not isinstance(owners, set):
+                    raise RuntimeError("frontier owner set became malformed")
+                owners.add(robot_id)
+                sources = entry["source_local_frontiers"]
+                if not isinstance(sources, list):
+                    raise RuntimeError("frontier source list became malformed")
+                sources.append(source_record)
+            if entry_index not in entry_order:
+                entry_order.append(entry_index)
+        entry_order_by_robot[robot_id] = entry_order
+        local_records[robot_id] = records
+
+    reserved: list[int] = []
+    for context in contexts:
+        order = entry_order_by_robot[context.spec.robot_id]
+        if order and order[0] not in reserved:
+            reserved.append(order[0])
+    selected = list(reserved[:max_candidates])
+    remaining_indices = sorted(
+        (
+            index
+            for index in range(len(entries))
+            if index not in selected
+        ),
+        key=lambda index: (
+            -int(entries[index]["size_cells"]),
+            int(entries[index]["first_seen_order"]),
+        ),
+    )
+    selected.extend(
+        remaining_indices[: max_candidates - len(selected)]
+    )
+    selected.sort(
+        key=lambda index: (
+            -int(entries[index]["size_cells"]),
+            int(entries[index]["first_seen_order"]),
+        )
+    )
+
+    frontiers: list[Frontier] = []
+    ownership: dict[str, dict[str, object]] = {}
+    for rank, entry_index in enumerate(selected):
+        entry = entries[entry_index]
+        frontier_id = chr(ord("A") + rank)
+        frontier = Frontier(
+            frontier_id=frontier_id,
+            row=int(entry["row"]),
+            col=int(entry["col"]),
+            x_m=float(entry["x_m"]),
+            y_m=float(entry["y_m"]),
+            size_cells=int(entry["size_cells"]),
+        )
+        frontiers.append(frontier)
+        owners = entry["eligible_robot_ids"]
+        sources = entry["source_local_frontiers"]
+        if not isinstance(owners, set) or not isinstance(sources, list):
+            raise RuntimeError("frontier provenance became malformed")
+        ownership[frontier_id] = {
+            "frontier_id": frontier_id,
+            "eligible_robot_ids": sorted(str(value) for value in owners),
+            "source_local_frontiers": sources,
+            "deduplication_radius_m": duplicate_radius_m,
+            "fabricated": False,
+        }
+    validate_frontier_candidates(frontiers, require_prefix=True)
+    return frontiers, ownership, {
+        "status": "disconnected_start_component_balance_applied",
+        "local_source_frontiers": local_records,
+        "reserved_one_per_robot_before_global_area_fill": True,
+        "maximum_shared_candidates": max_candidates,
+        "selected_frontier_ownership": ownership,
+        "fabricated_frontiers": False,
+        "source_geometry": (
+            "unchanged main.py::Frontiers applied to each observed "
+            "robot-local map"
+        ),
+        "physical_authority": (
+            "none; candidate ownership only, with later footprint-clearance, "
+            "route-conflict and robot-local rejection authority"
+        ),
+    }
 
 
 def parse_robot_spec(value: str) -> RobotSpec:
@@ -1097,7 +1561,61 @@ def main() -> int:
             "filter recorded in manifest"
         ),
     }
-    frontiers = extract_frontiers(decision_grid, fused_origin, resolution_m)
+    source_fused_frontiers = extract_frontiers(
+        decision_grid,
+        fused_origin,
+        resolution_m,
+    )
+    explored_component_report = explored_robot_component_report(
+        decision_grid,
+        contexts,
+        origin_xy_m=fused_origin,
+        resolution_m=resolution_m,
+    )
+    frontiers = list(source_fused_frontiers)
+    frontier_ownership: dict[str, dict[str, object]] = {
+        frontier.frontier_id: {
+            "frontier_id": frontier.frontier_id,
+            "eligible_robot_ids": [
+                context.spec.robot_id for context in contexts
+            ],
+            "source_local_frontiers": [],
+            "fabricated": False,
+            "classification": (
+                "literal source shared-fused-map candidate"
+            ),
+        }
+        for frontier in frontiers
+    }
+    disconnected_start_adapter: dict[str, object] | None = None
+    disconnected_start_observed = bool(
+        explored_component_report["robot_start_components_disconnected"]
+    )
+    if disconnected_start_observed:
+        (
+            balanced_frontiers,
+            balanced_ownership,
+            candidate_adapter,
+        ) = component_balanced_frontier_pool(
+            contexts,
+            fused_origin_xy_m=fused_origin,
+            resolution_m=resolution_m,
+            fused_shape_hw=(
+                int(decision_grid.shape[1]),
+                int(decision_grid.shape[2]),
+            ),
+        )
+        candidate_adapter["explored_component_report"] = (
+            explored_component_report
+        )
+        candidate_adapter["literal_source_fused_frontiers"] = [
+            frontier_record(frontier)
+            for frontier in source_fused_frontiers
+        ]
+        if balanced_frontiers:
+            frontiers = balanced_frontiers
+            frontier_ownership = balanced_ownership
+            disconnected_start_adapter = candidate_adapter
     semantic_goals = {
         context.spec.robot_id: extract_source_goal_component(
             context.snapshot,
@@ -1105,9 +1623,18 @@ def main() -> int:
         )
         for context in contexts
     }
+    allocation_contexts = list(contexts)
+    undercomplete_allocation = None
+    if scene_state is None:
+        allocation_contexts, undercomplete_allocation = (
+            initial_undercomplete_allocation_order(contexts, frontiers)
+        )
     if scene_state is None and len(frontiers) < len(contexts):
         manifest["source_undercomplete_frontier_adapter"] = {
             "observed_frontier_count": len(frontiers),
+            "literal_source_fused_frontier_count": len(
+                source_fused_frontiers
+            ),
             "robot_count": len(contexts),
             "source_behavior": (
                 "a sole frontier may be reused by a later simulator agent"
@@ -1119,6 +1646,7 @@ def main() -> int:
                 "robots without a remaining frontier explicitly HOLD"
             ),
             "fabricated_frontiers": False,
+            "initial_allocation": undercomplete_allocation,
         }
     if scene_state is not None and not frontiers and not any(semantic_goals.values()):
         # Upstream falls back to a random map point when no frontier exists.
@@ -1175,13 +1703,33 @@ def main() -> int:
         "fused_shape": list(decision_grid.shape),
         "hidden_untrusted_semantic_cells": hidden_semantic_counts,
         "decision_map_artifact": decision_map_artifact,
+        "literal_source_fused_frontiers": [
+            frontier_record(frontier)
+            for frontier in source_fused_frontiers
+        ],
         "frontiers": [frontier_record(frontier) for frontier in frontiers],
+        "frontier_ownership": frontier_ownership,
+        "explored_component_report": explored_component_report,
+        "disconnected_start_frontier_adapter": (
+            disconnected_start_adapter
+        ),
         "vlm_frontier_contract": {
             "scope": "one shared fused-map A-D set",
             "label_identity": "stable across image, prompt, score vector and target",
-            "per_robot_view": "remaining shared candidates in canonical A-D order",
+            "per_robot_view": (
+                "locally supported subset of remaining shared candidates "
+                "in canonical A-D order"
+                if disconnected_start_adapter is not None
+                else "remaining shared candidates in canonical A-D order"
+            ),
             "allocation": "selected frontier removed before the next robot",
             "duplicate_physical_frontier_targets": False,
+            "frontier_ownership_filter": (
+                disconnected_start_adapter is not None
+            ),
+            "disconnected_component_balance": (
+                disconnected_start_adapter is not None
+            ),
             "stable_id_binding": (
                 "one shared component ID is preserved across rendered letter, "
                 "prompt coordinate, requested score token, selected target "
@@ -1266,14 +1814,26 @@ def main() -> int:
     shared_memory = None if scene_state is None else scene_state.memory
     remaining_history_indices: list[int] | None = None
     remaining_history_scores: dict[int, float] | None = None
-    for index, context in enumerate(contexts, start=1):
+    for index, context in enumerate(allocation_contexts, start=1):
         # ABCD belongs to the shared fused map, not independently to each
-        # robot.  Each robot receives the still-unallocated stable subset.  The
-        # simulator source reuses a sole frontier, but duplicate physical
-        # targets can make two robots converge on one point, so the real-world
-        # coordination adapter holds the later robot instead.
+        # robot.  Each robot receives the locally supported part of the
+        # still-unallocated stable subset when separated starts leave the
+        # fused explored map disconnected.  The simulator source reuses a sole
+        # frontier, but duplicate physical targets can make two robots converge
+        # on one point, so the real-world coordination adapter holds the later
+        # robot instead.
         frontier_reused = False
-        decision_frontiers = list(remaining)
+        eligible_frontier_ids = {
+            frontier_id
+            for frontier_id, ownership in frontier_ownership.items()
+            if context.spec.robot_id
+            in ownership["eligible_robot_ids"]
+        }
+        decision_frontiers = [
+            frontier
+            for frontier in remaining
+            if frontier.frontier_id in eligible_frontier_ids
+        ]
         candidate_frontiers = list(decision_frontiers)
         semantic_selection = semantic_goal_records[context.spec.robot_id]
         adapter_hold_reason = initial_allocation_hold_reason(

@@ -78,6 +78,170 @@ def test_frontier_hold_does_not_override_replan_or_semantic_goal():
     ) is None
 
 
+def test_single_frontier_owner_uses_observed_local_map_support():
+    frontier = MODULE.Frontier(
+        frontier_id="A",
+        row=10,
+        col=10,
+        x_m=0.0,
+        y_m=0.0,
+        size_cells=20,
+    )
+    unsupported_grid = np.zeros((17, 20, 20), dtype=np.float32)
+    supported_grid = np.zeros((17, 20, 20), dtype=np.float32)
+    supported_grid[1, 8:13, 8:13] = 1.0
+    unsupported_pose = np.eye(4, dtype=np.float64)
+    unsupported_pose[0, 3] = 0.0
+    supported_pose = np.eye(4, dtype=np.float64)
+    supported_pose[0, 3] = 2.0
+
+    def context(robot_id, grid, pose):
+        return SimpleNamespace(
+            spec=SimpleNamespace(robot_id=robot_id),
+            snapshot=MODULE.MapSnapshot(
+                grid=grid,
+                origin_xy_m=(-0.525, -0.525),
+                resolution_m=0.05,
+                frame_id="shared_world",
+                transform_version=f"{robot_id}-transform",
+                shared_frame_calibration_id="shared-v1",
+                map_format_version="focus-hub-central-map-v3",
+            ),
+            T_shared_base=pose,
+        )
+
+    robot_0 = context("robot-0", unsupported_grid, unsupported_pose)
+    robot_1 = context("robot-1", supported_grid, supported_pose)
+
+    ordered, report = MODULE.initial_undercomplete_allocation_order(
+        [robot_0, robot_1],
+        [frontier],
+    )
+
+    assert [item.spec.robot_id for item in ordered] == [
+        "robot-1",
+        "robot-0",
+    ]
+    assert report["selected_owner_robot_id"] == "robot-1"
+    assert report["support_by_robot"]["robot-0"][
+        "known_free_arrival_support_cells"
+    ] == 0
+    assert report["support_by_robot"]["robot-1"][
+        "known_free_arrival_support_cells"
+    ] > 0
+
+
+def test_component_balanced_pool_reserves_one_source_frontier_per_robot(
+    monkeypatch,
+):
+    def frontier(label, row, col, size):
+        return MODULE.Frontier(
+            frontier_id=label,
+            row=row,
+            col=col,
+            x_m=(col + 0.5) * 0.05,
+            y_m=(row + 0.5) * 0.05,
+            size_cells=size,
+        )
+
+    local_frontiers = {
+        "robot-0-transform": [
+            frontier("A", 20, 20, 22),
+            frontier("B", 40, 40, 18),
+            frontier("C", 60, 60, 17),
+            frontier("D", 80, 80, 12),
+        ],
+        "robot-1-transform": [
+            frontier("A", 100, 100, 24),
+        ],
+    }
+
+    def fake_extract(_grid, _origin, _resolution):
+        transform = next(
+            key
+            for key, snapshot in snapshots.items()
+            if snapshot.grid is _grid
+        )
+        return local_frontiers[transform]
+
+    snapshots = {
+        transform: MODULE.MapSnapshot(
+            grid=np.zeros((17, 120, 120), dtype=np.float32),
+            origin_xy_m=(0.0, 0.0),
+            resolution_m=0.05,
+            frame_id="shared_world",
+            transform_version=transform,
+            shared_frame_calibration_id="shared-v1",
+            map_format_version="focus-hub-central-map-v3",
+        )
+        for transform in local_frontiers
+    }
+    contexts = [
+        SimpleNamespace(
+            spec=SimpleNamespace(robot_id=robot_id),
+            snapshot=snapshots[f"{robot_id}-transform"],
+        )
+        for robot_id in ("robot-0", "robot-1")
+    ]
+    monkeypatch.setattr(MODULE, "extract_frontiers", fake_extract)
+
+    frontiers, ownership, report = (
+        MODULE.component_balanced_frontier_pool(
+            contexts,
+            fused_origin_xy_m=(0.0, 0.0),
+            resolution_m=0.05,
+            fused_shape_hw=(120, 120),
+        )
+    )
+
+    assert [item.frontier_id for item in frontiers] == [
+        "A",
+        "B",
+        "C",
+        "D",
+    ]
+    assert [item.size_cells for item in frontiers] == [24, 22, 18, 17]
+    assert ownership["A"]["eligible_robot_ids"] == ["robot-1"]
+    assert all(
+        ownership[label]["eligible_robot_ids"] == ["robot-0"]
+        for label in ("B", "C", "D")
+    )
+    assert report["reserved_one_per_robot_before_global_area_fill"] is True
+    assert report["fabricated_frontiers"] is False
+
+
+def test_component_adapter_requires_separate_robot_start_islands():
+    grid = np.zeros((17, 120, 120), dtype=np.float32)
+    grid[1, 10:30, 10:30] = 1.0
+    grid[1, 80:100, 80:100] = 1.0
+    grid[1, 50:53, 50:53] = 1.0
+
+    def context(robot_id, row, column):
+        pose = np.eye(4, dtype=np.float64)
+        pose[0, 3] = (column + 0.5) * 0.05
+        pose[1, 3] = (row + 0.5) * 0.05
+        return SimpleNamespace(
+            spec=SimpleNamespace(robot_id=robot_id),
+            T_shared_base=pose,
+        )
+
+    report = MODULE.explored_robot_component_report(
+        grid,
+        [
+            context("robot-0", 20, 20),
+            context("robot-1", 90, 90),
+        ],
+        origin_xy_m=(0.0, 0.0),
+        resolution_m=0.05,
+    )
+
+    assert report["robot_start_components_disconnected"] is True
+    assert report["all_robots_anchored"] is True
+    assert len(report["distinct_robot_component_labels"]) == 2
+    assert report["minimum_robot_start_component_cells"] == 80
+    assert report["closed_explored_component_areas"] == [400, 400, 9]
+
+
 def yolo_summary() -> dict[str, object]:
     return {
         "last_observation_sequence": 17,

@@ -819,15 +819,41 @@ def _validate_vlm_selection_bindings(
     contract = manifest.get("vlm_frontier_contract")
     if not isinstance(contract, dict):
         raise ValueError("shadow manifest lacks the VLM frontier contract")
+    per_robot_view = contract.get("per_robot_view")
+    owner_filtered_frontiers = per_robot_view == (
+        "locally supported subset of remaining shared candidates "
+        "in canonical A-D order"
+    )
     if (
         contract.get("scope") != "one shared fused-map A-D set"
         or contract.get("label_identity")
         != "stable across image, prompt, score vector and target"
-        or contract.get("per_robot_view")
-        != "remaining shared candidates in canonical A-D order"
+        or per_robot_view
+        not in {
+            "remaining shared candidates in canonical A-D order",
+            (
+                "locally supported subset of remaining shared candidates "
+                "in canonical A-D order"
+            ),
+        }
         or contract.get("allocation")
         != "selected frontier removed before the next robot"
         or contract.get("duplicate_physical_frontier_targets") is not False
+        or (
+            owner_filtered_frontiers
+            and (
+                contract.get("frontier_ownership_filter") is not True
+                or contract.get("disconnected_component_balance") is not True
+            )
+        )
+        or (
+            not owner_filtered_frontiers
+            and (
+                contract.get("frontier_ownership_filter", False) is not False
+                or contract.get("disconnected_component_balance", False)
+                is not False
+            )
+        )
         or (
             "source_later_agent_image_prompt_mismatch_corrected" in contract
             and contract.get(
@@ -907,6 +933,77 @@ def _validate_vlm_selection_bindings(
         resolution_m=resolution_m,
         shape_hw=shape_hw,
     )
+    frontier_ownership: dict[str, set[str]] = {}
+    if owner_filtered_frontiers:
+        ownership_raw = manifest.get("frontier_ownership")
+        shared_ids = {
+            str(record["frontier_id"]) for record in shared
+        }
+        robot_ids = {
+            str(record.get("robot_id", ""))
+            for record in robot_results_raw
+        }
+        if (
+            not isinstance(ownership_raw, dict)
+            or set(ownership_raw) != shared_ids
+            or "" in robot_ids
+        ):
+            raise ValueError(
+                "owner-filtered VLM frontier provenance is malformed"
+            )
+        for frontier_id in shared_ids:
+            ownership_record = ownership_raw[frontier_id]
+            eligible_raw = (
+                ownership_record.get("eligible_robot_ids")
+                if isinstance(ownership_record, dict)
+                else None
+            )
+            source_records = (
+                ownership_record.get("source_local_frontiers")
+                if isinstance(ownership_record, dict)
+                else None
+            )
+            if (
+                not isinstance(ownership_record, dict)
+                or ownership_record.get("frontier_id") != frontier_id
+                or not isinstance(eligible_raw, list)
+                or not eligible_raw
+                or any(
+                    not isinstance(robot_id, str) or not robot_id
+                    for robot_id in eligible_raw
+                )
+                or len(set(eligible_raw)) != len(eligible_raw)
+                or not set(eligible_raw).issubset(robot_ids)
+                or ownership_record.get("fabricated") is not False
+                or not isinstance(source_records, list)
+                or not source_records
+            ):
+                raise ValueError(
+                    f"owner-filtered VLM frontier {frontier_id} "
+                    "provenance is malformed"
+                )
+            source_robot_ids = {
+                str(record.get("robot_id", ""))
+                for record in source_records
+                if isinstance(record, dict)
+            }
+            if (
+                not set(eligible_raw).issubset(source_robot_ids)
+                or any(
+                    not isinstance(record, dict)
+                    or record.get("classification")
+                    != (
+                        "source-derived from observed frozen "
+                        "robot-local map"
+                    )
+                    for record in source_records
+                )
+            ):
+                raise ValueError(
+                    f"owner-filtered VLM frontier {frontier_id} lacks "
+                    "observed local-map provenance"
+                )
+            frontier_ownership[frontier_id] = set(eligible_raw)
     remaining = {
         str(record["frontier_id"]): record
         for record in shared
@@ -926,7 +1023,14 @@ def _validate_vlm_selection_bindings(
             result.get("candidate_frontiers"),
             context=f"{robot_id} candidate",
         )
-        expected_candidates = list(remaining.values())
+        expected_candidates = [
+            record
+            for frontier_id, record in remaining.items()
+            if (
+                not owner_filtered_frontiers
+                or robot_id in frontier_ownership[frontier_id]
+            )
+        ]
         if len(candidates) != len(expected_candidates) or any(
             not _frontier_record_matches(actual, expected)
             for actual, expected in zip(

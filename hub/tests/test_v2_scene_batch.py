@@ -417,6 +417,27 @@ def test_single_shared_frontier_builds_one_goal_and_one_explicit_hold(
     }
     manifest["frontiers"] = [frontier]
     manifest["remaining_frontiers"] = []
+    manifest["vlm_frontier_contract"].update({
+        "per_robot_view": (
+            "locally supported subset of remaining shared candidates "
+            "in canonical A-D order"
+        ),
+        "frontier_ownership_filter": True,
+        "disconnected_component_balance": True,
+    })
+    manifest["frontier_ownership"] = {
+        frontier["frontier_id"]: {
+            "frontier_id": frontier["frontier_id"],
+            "eligible_robot_ids": ["robot-0"],
+            "source_local_frontiers": [{
+                "robot_id": "robot-0",
+                "classification": (
+                    "source-derived from observed frozen robot-local map"
+                ),
+            }],
+            "fabricated": False,
+        },
+    }
     manifest["source_undercomplete_frontier_adapter"] = {
         "observed_frontier_count": 1,
         "robot_count": 2,
