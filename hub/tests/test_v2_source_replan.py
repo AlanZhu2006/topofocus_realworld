@@ -344,6 +344,72 @@ def test_source_stationary_rule_rejects_current_frontier_even_if_vlm_changed_it(
     ] == ["C", "D"]
 
 
+def test_spatially_completed_relabelled_frontier_uses_source_history_fallbacks(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    raw = with_source_frontiers(
+        make_batch(observations, digests, now=now)
+    ).model_dump(mode="json")
+    robot_1_decision = next(
+        item for item in raw["decisions"] if item["robot_id"] == "robot-1"
+    )
+    robot_1_decision["target"]["frontier_id"] = "D"
+    robot_1_decision["target"]["pose"]["x"] = 1.20
+    robot_1_decision["target"]["pose"]["y"] = 2.00
+    batch = DecisionBatchV2.model_validate(raw)
+    manifest = shadow_manifest()
+    robot_1 = manifest["robots"][1]
+    robot_1["candidate_frontiers"] = [
+        frontier("D", 1.20, 2.00),
+    ]
+    robot_1["choice_probabilities"] = {"D": 1.0}
+    robot_1["final_shadow_selection"] = {
+        "kind": "frontier",
+        "frontier_id": "D",
+    }
+    robot_1["candidate_history_nodes"] = [
+        {
+            "frontier_id": "history-0",
+            "history_index": 0,
+            "x_m": 3.0,
+            "y_m": 2.0,
+            "history_score": 4.0,
+        },
+        {
+            "frontier_id": "history-1",
+            "history_index": 1,
+            "x_m": 4.0,
+            "y_m": 2.0,
+            "history_score": 7.0,
+        },
+    ]
+
+    rejected, fallbacks, report = evaluate_source_replan(
+        batch,
+        shadow_manifest=manifest,
+        memory=memory(),
+        robot_xy_by_robot={
+            "robot-0": (0.0, 1.0),
+            "robot-1": (1.0, 2.0),
+        },
+    )
+
+    assert rejected == frozenset({"robot-1"})
+    check = report["checks"]["robot-1"]
+    assert check["current_frontier_arrival_already_satisfied"] is True
+    assert check["current_target_rejected"] is True
+    assert check["source_frontier_arrival_radius_m"] == 0.5
+    assert [
+        item["frontier_id"] for item in fallbacks["robot-1"]
+    ] == ["history-1", "history-0"]
+    assert check["fallback_ranking_source"].endswith(
+        "_then_source_history_score_descending"
+    )
+
+
 def test_history_fallback_uses_source_history_score_order(
     observation_factory,
 ):

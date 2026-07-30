@@ -510,13 +510,13 @@ def test_ground_guard_rebases_consistent_local_plane_after_observed_motion(
     )
     locally_tilted = GroundCandidate(
         accepted=True,
-        ground_z_m=-0.06,
+        ground_z_m=-0.23,
         reason="accepted",
         candidate_points=1000,
         inlier_points=900,
         inlier_ratio=0.9,
-        tilt_deg=4.0,
-        plane_coefficients=(0.0, 0.07, -0.06),
+        tilt_deg=6.1,
+        plane_coefficients=(0.0, 0.107, -0.23),
     )
     # The motion itself can keep an in-range floor estimate.  The bounded
     # posture offset may appear only after the quadruped stops, so rebase

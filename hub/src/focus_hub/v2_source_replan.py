@@ -37,6 +37,7 @@ SOURCE_MAP_RESOLUTION_M = 0.05
 SOURCE_STAGNANT_REPLAN_M = (
     SOURCE_STAGNANT_REPLAN_CELLS * SOURCE_MAP_RESOLUTION_M
 )
+SOURCE_FRONTIER_ARRIVAL_RADIUS_M = 10 * SOURCE_MAP_RESOLUTION_M
 
 DEFAULT_TARGET_MATCH_RADIUS_M = 0.75
 DEFAULT_ORIGIN_MATCH_RADIUS_M = 1.25
@@ -621,6 +622,52 @@ def _ranked_robot_candidates(
     raise ValueError(f"unsupported source selection kind: {kind!r}")
 
 
+def _ranked_history_candidates(
+    robot_result: Mapping[str, object],
+) -> list[dict[str, object]]:
+    """Return the source's own history candidates in its preserved order."""
+
+    raw_candidates = robot_result.get("candidate_history_nodes")
+    if (
+        not isinstance(raw_candidates, Sequence)
+        or isinstance(raw_candidates, (str, bytes))
+    ):
+        return []
+    candidates: list[dict[str, object]] = []
+    for source_order, raw in enumerate(raw_candidates):
+        if not isinstance(raw, Mapping):
+            raise ValueError("source history candidate is malformed")
+        frontier_id = raw.get("frontier_id")
+        score = raw.get("history_score")
+        if (
+            not isinstance(frontier_id, str)
+            or not frontier_id
+            or isinstance(score, bool)
+            or not isinstance(score, (int, float))
+            or not math.isfinite(float(score))
+        ):
+            raise ValueError("source history candidate identity is malformed")
+        x_m, y_m = _candidate_xy(raw)
+        candidates.append(
+            {
+                "frontier_id": frontier_id,
+                "x_m": x_m,
+                "y_m": y_m,
+                "source_probability": None,
+                "history_score": float(score),
+                "source_candidate_kind": "history",
+                "source_order": source_order,
+            }
+        )
+    candidates.sort(
+        key=lambda item: (
+            -float(item["history_score"]),
+            int(item["source_order"]),
+        )
+    )
+    return candidates
+
+
 def evaluate_source_replan(
     batch: DecisionBatchV2,
     *,
@@ -754,12 +801,50 @@ def evaluate_source_replan(
             robot_id in source_stationary_robot_ids
             and target_xy is not None
         )
-        if current_matches or source_stationary_replan:
+        current_frontier_arrival_already_satisfied = bool(
+            robot_id in active
+            and target_xy is not None
+            and math.dist(robot_xy, target_xy)
+            <= SOURCE_FRONTIER_ARRIVAL_RADIUS_M + 1e-12
+        )
+        if (
+            current_matches
+            or source_stationary_replan
+            or current_frontier_arrival_already_satisfied
+        ):
             rejected.add(robot_id)
 
         ranked, ranking_source = _ranked_robot_candidates(
             results[robot_id]
         )
+        if (
+            current_frontier_arrival_already_satisfied
+            and isinstance(
+                results[robot_id].get("final_shadow_selection"), Mapping
+            )
+            and results[robot_id]["final_shadow_selection"].get("kind")
+            == "frontier"
+        ):
+            # Frontier labels A-D are regenerated every source round.  The
+            # same physical boundary can therefore return under a new label
+            # after the robot has already entered its source 10-cell arrival
+            # disk.  Compare in shared XY, then expose only the source's own
+            # frozen history nodes as last-resort exploration alternatives.
+            # The downstream robot-local connectivity and footprint guard
+            # must still approve any such history target before publication.
+            existing_ids = {
+                str(candidate["frontier_id"]) for candidate in ranked
+            }
+            history = [
+                candidate
+                for candidate in _ranked_history_candidates(results[robot_id])
+                if str(candidate["frontier_id"]) not in existing_ids
+            ]
+            if history:
+                ranked.extend(history)
+                ranking_source = (
+                    f"{ranking_source}_then_source_history_score_descending"
+                )
         accepted_candidates: list[dict[str, object]] = []
         excluded: list[dict[str, object]] = []
         for source_rank, candidate in enumerate(ranked):
@@ -854,6 +939,13 @@ def evaluate_source_replan(
                 current_matches
                 or source_stationary_replan
                 or backtrack_redirected
+                or current_frontier_arrival_already_satisfied
+            ),
+            "current_frontier_arrival_already_satisfied": (
+                current_frontier_arrival_already_satisfied
+            ),
+            "source_frontier_arrival_radius_m": (
+                SOURCE_FRONTIER_ARRIVAL_RADIUS_M
             ),
             "source_stationary_replan": source_stationary_replan,
             "current_memory_matches": current_matches,
@@ -902,8 +994,10 @@ def evaluate_source_replan(
         "source_fidelity": (
             "raw VLM selections and score vectors remain in the shadow and "
             "candidate artifacts; only physical execution is redirected "
-            "after observed local path failure or the source 2.5-cell "
-            "stationary rule; a long target "
+            "after observed local path failure, the source 2.5-cell "
+            "stationary rule, or spatially entering the source 10-cell "
+            "frontier arrival disk even when A-D labels are regenerated; "
+            "a long target "
             "in the prior-progress rear hemisphere is grouped behind "
             "non-reversing candidates while source score order is preserved "
             "inside each group "

@@ -2926,7 +2926,12 @@ def main() -> int:
                 outcome = "failed_no_runtime_ready_robot_holding"
                 break
             previous_shared_positions = dict(shared_positions)
-            previous_active_robot_ids = set(active)
+            # Preserve source-level activity across round boundaries.  A
+            # robot held by an execution guard is still an active source
+            # allocation; dropping it here reset its stationary evidence to
+            # ``baseline_only`` every round and allowed a relabelled frontier
+            # at the same XY coordinate to recur forever.
+            previous_active_robot_ids = set(raw_active)
             publish(
                 guarded_batch,
                 f"round_{requested_round}_goal",

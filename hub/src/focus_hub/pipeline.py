@@ -37,6 +37,9 @@ from .pose_gate import (
 from .semantic_yolo import SemanticYoloConfig, reinforce_rednet_prediction
 
 
+POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER = 3.0
+
+
 @dataclass(frozen=True)
 class SpooledObservation:
     sequence: int
@@ -322,8 +325,16 @@ class SpoolMappingPipeline:
             >= self.ground_drift_stationary_rotation_deg * 2.0
         )
         bounded_local_plane = (
-            tilt_delta_deg <= self.max_ground_tilt_delta_deg * 2.0
-            and height_delta_m <= self.max_ground_height_delta_m * 2.0
+            tilt_delta_deg
+            <= (
+                self.max_ground_tilt_delta_deg
+                * POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER
+            )
+            and height_delta_m
+            <= (
+                self.max_ground_height_delta_m
+                * POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER
+            )
         )
         return motion_recent and motion_material and bounded_local_plane
 
@@ -512,7 +523,7 @@ class SpoolMappingPipeline:
                 # settle into a bounded, stable pitch/height offset only
                 # after stopping. Recording all material pose motion lets
                 # that stable local plane use the existing temporal,
-                # consistency and 2x-bounds rebase checks below.
+                # consistency and bounded rebase checks below.
                 self._record_ground_drift_motion(
                     capture_time_ns=capture_time_ns,
                     translation_m=ground_pose_translation_m,
@@ -1038,10 +1049,12 @@ class SpoolMappingPipeline:
                         self.ground_drift_stationary_rotation_deg * 2.0
                     ),
                     "maximum_tilt_delta_deg": (
-                        self.max_ground_tilt_delta_deg * 2.0
+                        self.max_ground_tilt_delta_deg
+                        * POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER
                     ),
                     "maximum_height_delta_m": (
-                        self.max_ground_height_delta_m * 2.0
+                        self.max_ground_height_delta_m
+                        * POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER
                     ),
                     "plane_consistency_tolerance_deg": (
                         self.max_ground_tilt_delta_deg * 0.5
