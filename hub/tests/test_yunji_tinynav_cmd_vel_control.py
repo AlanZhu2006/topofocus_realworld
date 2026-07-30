@@ -327,8 +327,8 @@ def test_unverified_planner_retains_legacy_geometry_rejection():
     ) == ("reject_reverse", False)
 
 
-def test_forward_only_turn_timeout_is_owned_by_receiver_progress_watchdog():
-    assert not MODULE.controller_recovery_timeout_is_terminal(
+def test_every_continuous_turn_has_a_local_bounded_timeout():
+    assert MODULE.controller_recovery_timeout_is_terminal(
         expired=True,
         verified_forward_only_planner=True,
     )
@@ -345,6 +345,11 @@ def test_forward_only_turn_timeout_is_owned_by_receiver_progress_watchdog():
         verified_forward_only_planner=True,
         source_reverse_command=True,
     )
+    with pytest.raises(ValueError):
+        MODULE.controller_recovery_timeout_is_terminal(
+            expired=1,
+            verified_forward_only_planner=True,
+        )
 
 
 @pytest.mark.parametrize(
@@ -724,6 +729,31 @@ def test_active_rotate_first_crosses_tiny_reverse_deadband():
     ) == pytest.approx(-0.10)
 
 
+def test_reverse_path_uses_stable_heading_when_source_yaw_is_zero():
+    # The pinned controller suppresses yaw when its lookahead is behind the
+    # base.  Rotate-first must therefore derive yaw from the validated
+    # collision-scored path/router heading, not from that zero Twist.
+    request = MODULE.controller_recovery_angular_request(
+        0.0,
+        math.radians(105.0),
+        use_stable_heading=True,
+        continuation_required=False,
+        latched_direction=1,
+    )
+
+    assert request == pytest.approx(0.35)
+
+
+def test_missing_stable_heading_cannot_invent_recovery_yaw():
+    assert MODULE.controller_recovery_angular_request(
+        0.0,
+        None,
+        use_stable_heading=True,
+        continuation_required=False,
+        latched_direction=0,
+    ) == 0.0
+
+
 @pytest.mark.parametrize(
     ("recovery_active", "enabled", "paused", "heading_deg"),
     [
@@ -795,6 +825,10 @@ def test_controller_profile_is_required_and_common_guards_are_enabled():
     assert (
         parsed.pause_service
         == MODULE.DEFAULT_CONTROLLER_PAUSE_SERVICE
+    )
+    assert (
+        parsed.turn_stalled_topic
+        == MODULE.DEFAULT_CONTROLLER_TURN_STALLED_TOPIC
     )
     assert parsed.robot_id == "robot-0"
     assert parsed.base_camera_frame == "camera"

@@ -47,3 +47,41 @@ def test_public_baseline_locks_guarded_velocity_topic(
         match="guarded_velocity_topic",
     ):
         validate_public_baseline(WORKSPACE, candidate)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    (
+        ("controller", "continuous_turn_timeout_s", 0.0),
+        (
+            "semantic_execution_confirmation",
+            "strong_component_cells",
+            2,
+        ),
+        (
+            "semantic_execution_confirmation",
+            "semantic_map_reinforcement",
+            True,
+        ),
+        (
+            "frontier_goal_continuity",
+            "physical_completion_distance_m",
+            1.25,
+        ),
+    ),
+)
+def test_public_baseline_locks_scene03_execution_repairs(
+    tmp_path: Path,
+    section: str,
+    field: str,
+    value: object,
+) -> None:
+    manifest = json.loads(
+        (WORKSPACE / DEFAULT_MANIFEST).read_text(encoding="utf-8")
+    )
+    manifest["planning"][section][field] = value
+    candidate = tmp_path / "baseline.json"
+    candidate.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(BaselineValidationError, match=field):
+        validate_public_baseline(WORKSPACE, candidate)

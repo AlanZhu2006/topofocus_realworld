@@ -29,6 +29,17 @@ def load_module():
     return module
 
 
+def load_tool(name: str):
+    spec = importlib.util.spec_from_file_location(
+        f"focus_test_{name}",
+        TOOLS / f"{name}.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def navigation_event(
     decision,
     status: str,
@@ -163,6 +174,78 @@ def test_current_goal_evidence_maps_detector_name_to_goal_category():
     )
 
     assert evidence == {"robot-0": 0.56, "robot-1": 0.88}
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    (
+        "build_v2_decision_batch",
+        "run_v2_supervised_episode",
+    ),
+)
+def test_every_frozen_manifest_entrypoint_applies_semantic_execution_guard(
+    tmp_path,
+    observation_factory,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name,
+):
+    _now, manifest, registry, config = prepare_round(
+        tmp_path / "inputs",
+        observation_factory,
+    )
+    output = tmp_path / f"{tool_name}-output"
+    arguments = [
+        f"{tool_name}.py",
+        "--manifest",
+        str(manifest),
+        "--registry-state",
+        str(registry),
+        "--robot-config",
+        str(config),
+        "--scene-id",
+        "scene-guard-test",
+        "--episode-id",
+        "episode-guard-test",
+        "--output",
+        str(output),
+    ]
+    monkeypatch.setattr(sys, "argv", arguments)
+
+    assert load_tool(tool_name).main() == 0
+
+    execution = json.loads(
+        (
+            output
+            / (
+                "decision_batch.json"
+                if tool_name == "build_v2_decision_batch"
+                else "batch_000_initial.json"
+            )
+        ).read_text(encoding="utf-8")
+    )
+    source = json.loads(
+        (output / "source_candidate_batch.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    source_by_robot = {
+        item["robot_id"]: item for item in source["decisions"]
+    }
+    execution_by_robot = {
+        item["robot_id"]: item for item in execution["decisions"]
+    }
+    assert source_by_robot["robot-0"]["target"]["kind"] == (
+        "SEMANTIC_REGION"
+    )
+    assert execution_by_robot["robot-0"]["target"]["kind"] == (
+        "FRONTIER_POINT"
+    )
+    guard = json.loads(
+        (output / "semantic_execution_guard.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert guard["rejected_robot_ids"] == ["robot-0"]
 
 
 def test_freeze_next_round_fails_immediately_for_latched_map(

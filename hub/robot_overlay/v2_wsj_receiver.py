@@ -900,6 +900,7 @@ def physical_velocity_gate_reason(
     platform_timeout_s: float,
     platform_pass: bool,
     router_recovery_gate_closed: bool = False,
+    turn_stalled: bool = False,
 ) -> str | None:
     """Evaluate every final velocity-authority input at control rate."""
 
@@ -957,6 +958,8 @@ def physical_velocity_gate_reason(
             return "platform_health_not_ready"
     if reverse_required:
         return "reverse_trajectory_rejected"
+    if turn_stalled:
+        return "turn_recovery_stalled"
     if not trajectory_fresh:
         return "trajectory_missing_or_stale"
     return None
@@ -1243,6 +1246,22 @@ def main() -> int:
         action="store_true",
         help=(
             "latch a fresh reverse-required status for the current authority, "
+            "zero output, and reject that leg for a fresh Hub replan"
+        ),
+    )
+    parser.add_argument(
+        "--turn-stalled-topic",
+        default="/planning/turn_stalled",
+        help=(
+            "local controller status topic declaring that one continuous "
+            "zero-linear heading recovery exceeded its bounded deadline"
+        ),
+    )
+    parser.add_argument(
+        "--reject-stalled-turn",
+        action="store_true",
+        help=(
+            "latch a fresh turn-stalled status for the current authority, "
             "zero output, and reject that leg for a fresh Hub replan"
         ),
     )
@@ -1607,6 +1626,9 @@ def main() -> int:
             self.reverse_required = False
             self.reverse_required_received_ns = 0
             self.reverse_required_for_authority = False
+            self.turn_stalled = False
+            self.turn_stalled_received_ns = 0
+            self.turn_stalled_for_authority = False
             self.router_status_lock = threading.Lock()
             self.router_status_received_ns = 0
             self.router_state = ""
@@ -1679,6 +1701,13 @@ def main() -> int:
                     Bool,
                     args.reverse_required_topic,
                     self.on_reverse_required,
+                    10,
+                )
+            if args.reject_stalled_turn:
+                self.create_subscription(
+                    Bool,
+                    args.turn_stalled_topic,
+                    self.on_turn_stalled,
                     10,
                 )
             self.create_timer(0.05, self.enforce_gate)
@@ -1801,6 +1830,24 @@ def main() -> int:
                     self.guarded_publisher.publish(Twist())
                     self.latest_guard_reason = "reverse_trajectory_rejected"
 
+        def on_turn_stalled(self, message: Bool) -> None:
+            received_ns = time.time_ns()
+            self.turn_stalled = bool(message.data)
+            self.turn_stalled_received_ns = received_ns
+            if (
+                self.turn_stalled
+                and self.authorized
+                and self.authority_started_ns > 0
+                and received_ns >= self.authority_started_ns
+            ):
+                # Latch for this authority exactly like a reverse rejection.
+                # Later controller callbacks may clear the status topic, but
+                # only a fresh high-level authority may clear the failure.
+                self.turn_stalled_for_authority = True
+                if live:
+                    self.guarded_publisher.publish(Twist())
+                    self.latest_guard_reason = "turn_recovery_stalled"
+
         def on_router_status(self, message: String) -> None:
             try:
                 payload = json.loads(message.data)
@@ -1910,6 +1957,7 @@ def main() -> int:
                 authority_deadline_ns=self.authority_deadline_ns,
                 trajectory_fresh=path_fresh,
                 reverse_required=self.reverse_required_for_authority,
+                turn_stalled=self.turn_stalled_for_authority,
                 health_pass=self.motion_health_pass,
                 health_evaluated_ns=self.motion_health_evaluated_ns,
                 health_timeout_s=args.health_gate_timeout_s,
@@ -1965,6 +2013,7 @@ def main() -> int:
                 if not self.authorized:
                     self.authority_started_ns = time.time_ns()
                     self.reverse_required_for_authority = False
+                    self.turn_stalled_for_authority = False
                     self.last_target_refresh_request_ns = 0
                     self.target_refresh_request_count = 0
                 self.authority_deadline_ns = expires_at_ns
@@ -4200,6 +4249,45 @@ def main() -> int:
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
                 elif (
+                    args.reject_stalled_turn
+                    and node.turn_stalled_for_authority
+                ):
+                    failed_decision = active_decision
+                    node.revoke()
+                    post(
+                        failed_decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_PLANNER_TURN_STALLED",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=(
+                            "TinyNav continuous in-place heading recovery "
+                            "exceeded its robot-local bounded deadline"
+                        ),
+                        terminal=True,
+                    )
+                    emit(
+                        "local_planner_turn_stalled",
+                        decision_id=failed_decision.decision_id,
+                        leg_id=failed_decision.leg_id,
+                        turn_stalled_received_ns=(
+                            node.turn_stalled_received_ns
+                        ),
+                        trajectory_pose_count=node.trajectory_pose_count,
+                        trajectory_first_xy=node.trajectory_first_xy,
+                        trajectory_lookahead_xy=(
+                            node.trajectory_lookahead_xy
+                        ),
+                        latest_raw_cmd=list(node.latest_raw_cmd),
+                    )
+                    active_decision = None
+                    active_goal = None
+                    progress_watchdog.reset()
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
+                elif (
                     args.reject_reverse_trajectory
                     and node.reverse_required_for_authority
                 ):
@@ -4543,6 +4631,9 @@ def main() -> int:
                             ),
                             reverse_required=(
                                 node.reverse_required_for_authority
+                            ),
+                            turn_stalled=(
+                                node.turn_stalled_for_authority
                             ),
                             raw_cmd=list(node.latest_raw_cmd),
                             guard_reason=node.latest_guard_reason,

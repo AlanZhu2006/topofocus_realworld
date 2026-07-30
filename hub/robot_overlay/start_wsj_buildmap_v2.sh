@@ -834,6 +834,7 @@ receiver=(
   --no-progress-timeout-s "$NO_PROGRESS_TIMEOUT_S"
   --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"
   --reject-reverse-trajectory
+  --reject-stalled-turn
   --start-snap-radius-m 0.75
   --start-footprint-override-m 0.35
   --alignment-output "$alignment"

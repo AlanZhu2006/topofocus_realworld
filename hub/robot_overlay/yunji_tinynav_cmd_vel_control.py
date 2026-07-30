@@ -14,9 +14,10 @@ geometry from a chassis command.  A negative lookahead or source-controller
 Twist from that planner is converted to zero-linear heading alignment using a
 stable collision-scored path bearing.  Reverse velocity is never forwarded;
 missing heading authority or an expired alignment remains a fail-closed
-rejection.  The existing receiver progress watchdog bounds ordinary path-turn
-alignment.  Other deployments retain the stricter legacy reverse-path
-rejection at 2 cm and its local recovery deadline.
+rejection.  Every continuous path-turn alignment has a local deadline in
+addition to the receiver's translational progress watchdog.  Other
+deployments retain the stricter legacy reverse-path rejection at 2 cm and its
+local recovery deadline.
 
 Rotation-only paths can also contain a minute negative base translation from
 the measured camera lever arm.  When that specific geometry coincides with a
@@ -98,6 +99,7 @@ DEFAULT_CONTROLLER_POSE_JUMP_M = 0.40
 DEFAULT_CONTROLLER_POSE_JUMP_FREEZE_S = 0.60
 EXPECTED_CONTROLLER_PATH_FRAME = "world"
 DEFAULT_CONTROLLER_PAUSE_SERVICE = "/focus/set_navigation_paused"
+DEFAULT_CONTROLLER_TURN_STALLED_TOPIC = "/planning/turn_stalled"
 
 
 class DegenerateControllerPathError(ValueError):
@@ -423,22 +425,23 @@ def controller_recovery_timeout_is_terminal(
     verified_forward_only_planner: bool,
     source_reverse_command: bool = False,
 ) -> bool:
-    """Keep one and only one terminal no-progress authority.
+    """Bound every continuous in-place recovery without mislabelling it.
 
-    With the verified forward-only planner, the receiver's metric progress
-    watchdog owns the bounded terminal verdict.  This prevents the controller
-    from relabelling an ordinary long in-place turn as reverse motion.  An
-    actual source reverse request is different: its zero-linear substitution
-    retains the local rotate-first deadline and rejects if it cannot converge.
+    The receiver still owns translational goal-progress authority.  The local
+    controller independently owns continuous yaw recovery: a turn that cannot
+    converge inside its explicit lease is a turn stall even when the verified
+    planner never requested reverse motion.  ``source_reverse_command`` and
+    ``verified_forward_only_planner`` remain in the signature so old call
+    sites cannot silently lose their declared contract.
     """
 
-    return bool(
-        expired
-        and (
-            source_reverse_command
-            or not verified_forward_only_planner
-        )
-    )
+    if not isinstance(expired, bool):
+        raise ValueError("expired must be boolean")
+    if not isinstance(verified_forward_only_planner, bool):
+        raise ValueError("verified_forward_only_planner must be boolean")
+    if not isinstance(source_reverse_command, bool):
+        raise ValueError("source_reverse_command must be boolean")
+    return expired
 
 
 def bounded_rotate_first_angular(
@@ -834,6 +837,47 @@ def rotate_first_continuation_request(
     return requested_radps
 
 
+def controller_recovery_angular_request(
+    requested_radps: float,
+    stable_heading_error_rad: float | None,
+    *,
+    use_stable_heading: bool,
+    continuation_required: bool,
+    latched_direction: int,
+    maximum_radps: float = DEFAULT_ROTATE_FIRST_MAX_ANGULAR_RADPS,
+) -> float:
+    """Resolve one bounded yaw request without depending on reverse Twist.
+
+    A path whose first stable collision-scored segment lies behind the base
+    makes the pinned controller emit zero yaw together with its forbidden
+    negative linear command.  That zero is not a useful rotate-first request;
+    use the already validated path/router heading instead.  Ordinary active
+    turns retain the pinned yaw request and its latched continuation.
+    """
+
+    if not isinstance(use_stable_heading, bool):
+        raise ValueError("use_stable_heading must be boolean")
+    if not isinstance(continuation_required, bool):
+        raise ValueError("continuation_required must be boolean")
+    if use_stable_heading:
+        if stable_heading_error_rad is None:
+            return 0.0
+        return bounded_heading_alignment_angular(
+            stable_heading_error_rad,
+            maximum_radps=maximum_radps,
+        )
+    continuation_request = rotate_first_continuation_request(
+        requested_radps,
+        continuation_required=continuation_required,
+        latched_direction=latched_direction,
+    )
+    return bounded_rotate_first_angular(
+        continuation_request,
+        latched_direction=latched_direction,
+        maximum_radps=maximum_radps,
+    )
+
+
 def reverse_recovery_expired(
     *,
     started_monotonic: float,
@@ -931,6 +975,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "acknowledged local service used by the v2 receiver to change "
             "the source controller pause state"
+        ),
+    )
+    parser.add_argument(
+        "--turn-stalled-topic",
+        default=DEFAULT_CONTROLLER_TURN_STALLED_TOPIC,
+        help=(
+            "controller status topic latched by the receiver when one "
+            "continuous zero-linear heading recovery exceeds its deadline"
         ),
     )
     parser.add_argument(
@@ -1075,7 +1127,7 @@ def main(args: list[str] | None = None) -> None:
     )
     provenance.update(
         {
-            "schema_version": "focus-tinynav-controller-wrapper-v2",
+            "schema_version": "focus-tinynav-controller-wrapper-v3",
             "adaptations": [
                 "linear_engagement_floor",
                 "bounded_deployment_linear_floor",
@@ -1086,6 +1138,7 @@ def main(args: list[str] | None = None) -> None:
                 "source_reverse_command_as_bounded_heading_alignment",
                 "stable_large_turn",
                 "bounded_tiny_reverse_heading_alignment",
+                "bounded_all_in_place_turns",
                 "measured_base_pose_for_stable_heading",
                 "common_pose_path_stale_stop",
                 "common_pose_jump_freeze",
@@ -1098,10 +1151,7 @@ def main(args: list[str] | None = None) -> None:
                 deployment_args.verified_forward_only_planner
             ),
             "turn_no_progress_authority": (
-                "receiver_goal_progress_watchdog_with_local_timeout_for_"
-                "source_reverse_command"
-                if deployment_args.verified_forward_only_planner
-                else "controller_rotate_first_timeout"
+                "controller_turn_timeout_plus_receiver_goal_progress_watchdog"
             ),
             "base_camera_calibration": {
                 "source_path": base_camera_calibration.source_path,
@@ -1141,6 +1191,9 @@ def main(args: list[str] | None = None) -> None:
             self._reverse_required_publisher = self.create_publisher(
                 Bool, "/planning/reverse_required", 10
             )
+            self._turn_stalled_publisher = self.create_publisher(
+                Bool, deployment_args.turn_stalled_topic, 10
+            )
             self.create_subscription(
                 Odometry,
                 "/control/target_pose",
@@ -1156,6 +1209,8 @@ def main(args: list[str] | None = None) -> None:
         def _reset_focus_rotation_recovery(self) -> None:
             self._focus_rotation_recovery_started = None
             self._focus_rotation_turn_direction = 0
+            if hasattr(self, "_turn_stalled_publisher"):
+                self._turn_stalled_publisher.publish(Bool(data=False))
 
         def _on_focus_router_target(self, message) -> None:
             position = message.pose.pose.position
@@ -1602,35 +1657,24 @@ def main(args: list[str] | None = None) -> None:
                         forward_only_contract_violation
                     ),
                 )
-                if (
-                    tiny_reverse_alignment_requested
-                    or source_reverse_alignment_requested
-                ):
-                    continuation_request = (
-                        bounded_heading_alignment_angular(
-                            stable_heading_error_rad,
-                            maximum_radps=(
-                                deployment_args.rotate_first_max_angular_radps
-                            ),
+                rotate_angular = controller_recovery_angular_request(
+                    requested_angular,
+                    stable_heading_error_rad,
+                    use_stable_heading=bool(
+                        reverse_recovery_requested
+                        or tiny_reverse_alignment_requested
+                        or source_reverse_alignment_requested
+                    ),
+                    continuation_required=bool(
+                        tiny_reverse_recovery_requested
+                        or (
+                            recovery_active
+                            and large_turn_recovery_requested
                         )
-                    )
-                else:
-                    continuation_request = rotate_first_continuation_request(
-                        requested_angular,
-                        continuation_required=bool(
-                            tiny_reverse_recovery_requested
-                            or (
-                                recovery_active
-                                and large_turn_recovery_requested
-                            )
-                        ),
-                        latched_direction=(
-                            self._focus_rotation_turn_direction
-                        ),
-                    )
-                rotate_angular = bounded_rotate_first_angular(
-                    continuation_request,
-                    latched_direction=self._focus_rotation_turn_direction,
+                    ),
+                    latched_direction=(
+                        self._focus_rotation_turn_direction
+                    ),
                     maximum_radps=(
                         deployment_args.rotate_first_max_angular_radps
                     ),
@@ -1644,6 +1688,7 @@ def main(args: list[str] | None = None) -> None:
                     self.latest_cmd = rotate_command
                     self.prev_cmd = Twist()
                     self._reverse_required_publisher.publish(Bool(data=False))
+                    self._turn_stalled_publisher.publish(Bool(data=False))
                     if now - self._last_focus_rotate_first_log >= 2.0:
                         elapsed = (
                             now - self._focus_rotation_recovery_started
@@ -1681,17 +1726,29 @@ def main(args: list[str] | None = None) -> None:
                         )
                         self._last_focus_rotate_first_log = now
                     return
-                # A recovery timeout is a controller failure even when a new
-                # short path segment is nominally forward.  Reuse the existing
-                # receiver-visible fail-closed rejection channel.
-                self._reverse_required_publisher.publish(Bool(data=True))
+                if not expired:
+                    # Stable heading authority disappeared before this
+                    # recovery produced a yaw request. Preserve the legacy
+                    # geometry rejection; this is not a turn timeout.
+                    self._reset_focus_rotation_recovery()
+                    self._reverse_required_publisher.publish(Bool(data=True))
+                    self.latest_cmd = Twist()
+                    self.prev_cmd = Twist()
+                    self.cmd_pub.publish(Twist())
+                    return
+                # A true recovery timeout is distinct from reverse geometry.
+                # Keep both robots fail-closed through a dedicated
+                # receiver-visible status instead of falsely reporting it as
+                # reverse motion.
+                self._reverse_required_publisher.publish(Bool(data=False))
+                self._turn_stalled_publisher.publish(Bool(data=True))
                 self.latest_cmd = Twist()
                 self.prev_cmd = Twist()
                 self.cmd_pub.publish(Twist())
                 if now - self._last_focus_reverse_log >= 2.0:
                     self.get_logger().warning(
-                        "Focus TinyNav rejected unresolved rotate-first "
-                        "recovery: bounded timeout expired"
+                        "Focus TinyNav rejected an unresolved in-place "
+                        "heading recovery: bounded turn timeout expired"
                     )
                     self._last_focus_reverse_log = now
                 return

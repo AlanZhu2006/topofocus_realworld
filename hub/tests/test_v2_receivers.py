@@ -690,6 +690,7 @@ def test_final_velocity_gate_rechecks_all_health_at_control_rate():
         ),
         "platform_pass": (False, "platform_health_not_ready"),
         "reverse_required": (True, "reverse_trajectory_rejected"),
+        "turn_stalled": (True, "turn_recovery_stalled"),
         "trajectory_fresh": (False, "trajectory_missing_or_stale"),
         "router_recovery_gate_closed": (
             True,
@@ -1321,6 +1322,8 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert "--semantic-arrival-radius-m" in source
     assert "--reverse-required-topic" in source
     assert "--reject-reverse-trajectory" in source
+    assert "--turn-stalled-topic" in source
+    assert "--reject-stalled-turn" in source
     assert "--controller-pause-service" in source
     assert "--controller-pause-ack-timeout-s" in source
     assert "--controller-pause-startup-timeout-s" in source
@@ -1331,6 +1334,7 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert '"controller_pause_acknowledged"' in source
     assert '"controller_pause_ack_timeout"' in source
     assert '"LOCAL_PATH_REVERSE_REQUIRED"' in source
+    assert '"LOCAL_PLANNER_TURN_STALLED"' in source
     assert '"reverse_trajectory_rejected"' in source
     assert '"trajectory_missing_or_stale"' in source
     assert '"LOCAL_PLANNER_PATH_STALE"' in source
@@ -1538,6 +1542,7 @@ def test_wsj_launcher_reloads_persistent_goal_router_before_receiver() -> None:
     assert 'tmux send-keys -t "$SESSION:control" C-c' in launcher
     assert 'tmux respawn-pane -k -t "$SESSION:control"' not in launcher
     assert "yunji_tinynav_cmd_vel_control.py" in launcher
+    assert "--reject-stalled-turn" in launcher
     assert "WSJ goal-router reloaded from the current deployment" in launcher
     assert '--start-snap-radius-m \\"$START_SNAP_RADIUS_M\\"' in launcher
     assert (
@@ -1565,6 +1570,7 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert "--external-odometry-health" in launcher
     assert "--enable-live-tinynav-motion" in launcher
     assert "--reject-reverse-trajectory" in launcher
+    assert "--reject-stalled-turn" in launcher
     assert "--rotate-first-on-reverse" in launcher
     assert "--stabilize-large-turn" in launcher
     assert "--verified-forward-only-planner" in launcher

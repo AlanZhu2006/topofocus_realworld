@@ -84,6 +84,9 @@ from focus_hub.v2_goal_continuity import (  # noqa: E402
 )
 from focus_hub.v2_route_conflict import apply_route_conflict_guard  # noqa: E402
 from focus_hub.v2_scene_batch import build_batch_from_shadow_manifest  # noqa: E402
+from focus_hub.v2_semantic_execution import (  # noqa: E402
+    evaluate_semantic_execution_guard,
+)
 from focus_hub.v2_source_replan import (  # noqa: E402
     DEFAULT_BACKTRACK_DIRECTION_UPDATE_M,
     SOURCE_STAGNANT_REPLAN_M,
@@ -1847,11 +1850,26 @@ def main() -> int:
                 ),
                 "source_rule": "25 cells * 0.05 m/cell = 1.25 m",
                 "policy": (
-                    "apply identically to both robots: retain a safe prior "
-                    "frontier while the current base remains at least 25 "
-                    "source cells from that goal; this is remaining distance, "
-                    "not inter-boundary motion; semantic targets, explicit "
-                    "rejection, and current-map clearance retain authority"
+                    "apply identically to both robots: preserve the source "
+                    "25-cell switch rule and keep the exact unfinished "
+                    "physical leg through that handoff band until its "
+                    "10-cell arrival disk, local ARRIVED, or explicit "
+                    "rejection; semantic targets and current-map clearance "
+                    "retain authority"
+                ),
+            },
+            "semantic_execution_confirmation": {
+                "minimum_component_cells": 3,
+                "strong_component_cells": 25,
+                "minimum_current_frame_detector_confidence": 0.5,
+                "semantic_map_reinforcement": False,
+                "policy": (
+                    "preserve the source Find_Goal result, but grant physical "
+                    "semantic authority only to a spatially strong source "
+                    "component or a compact component corroborated by the "
+                    "existing independent detector on the same frozen camera "
+                    "frame; otherwise execute the exact frozen pre-override "
+                    "exploration selection or HOLD"
                 ),
             },
             "cross_round_progress_guard": {
@@ -1895,6 +1913,10 @@ def main() -> int:
             ),
             artifact_record(
                 HUB_DIR / "src/focus_hub/v2_source_replan.py",
+                classification="source_derived_realworld_execution_guard",
+            ),
+            artifact_record(
+                HUB_DIR / "src/focus_hub/v2_semantic_execution.py",
                 classification="source_derived_realworld_execution_guard",
             ),
             artifact_record(
@@ -2420,13 +2442,13 @@ def main() -> int:
                 max_sync_skew_s=args.max_sync_skew_s,
             )
             shadow_path = shadow_dir / "shadow_manifest.json"
-            target_found = (
+            source_target_found = (
                 shadow_manifest.get("source_episode_round_status")
                 == "target_found_awaiting_robot_local_planner_stop"
             )
             step_quota = source_round_step_quota(shadow_manifest)
             next_epoch = epoch + 1
-            built = build_batch_from_shadow_manifest(
+            source_built = build_batch_from_shadow_manifest(
                 shadow_path,
                 registry_state,
                 scene_id=args.scene_id,
@@ -2435,13 +2457,55 @@ def main() -> int:
                 now_ns=time.time_ns(),
                 robot_config_path=robot_config,
                 lease_duration_ns=int(args.lease_s * 1e9),
-                forced_hold_robot_ids=forced_hold_robot_ids,
+            )
+            (
+                semantic_selection_overrides,
+                semantic_execution_guard,
+            ) = evaluate_semantic_execution_guard(shadow_manifest)
+            semantic_execution_guard_path = (
+                round_dir / "semantic_execution_guard.json"
+            )
+            atomic_write_json(
+                semantic_execution_guard_path,
+                semantic_execution_guard,
+            )
+            built = (
+                source_built
+                if (
+                    not semantic_selection_overrides
+                    and not forced_hold_robot_ids
+                )
+                else build_batch_from_shadow_manifest(
+                    shadow_path,
+                    registry_state,
+                    scene_id=args.scene_id,
+                    episode_id=args.episode_id,
+                    execution_epoch=next_epoch,
+                    now_ns=time.time_ns(),
+                    robot_config_path=robot_config,
+                    lease_duration_ns=int(args.lease_s * 1e9),
+                    forced_hold_robot_ids=forced_hold_robot_ids,
+                    execution_selection_overrides=(
+                        semantic_selection_overrides
+                    ),
+                )
+            )
+            target_found = any(
+                decision.robot_id
+                in decision.coordination.active_robot_ids
+                and decision.target is not None
+                and decision.target.kind == "SEMANTIC_REGION"
+                for decision in built.batch.decisions
             )
             atomic_write_json(
                 round_dir / "controller_preflight.json", built.report
             )
             atomic_write_json(
                 round_dir / "vlm_candidate_batch.json",
+                source_built.batch.model_dump(mode="json"),
+            )
+            atomic_write_json(
+                round_dir / "execution_candidate_batch.json",
                 built.batch.model_dump(mode="json"),
             )
             fused_snapshot = load_map_snapshot(
@@ -3058,6 +3122,8 @@ def main() -> int:
                 "source_step": state_before.source_step,
                 "source_step_quota": step_quota,
                 "target_found": target_found,
+                "source_target_found": source_target_found,
+                "execution_target_found": target_found,
                 "input_sequences": {
                     robot_id: sequence
                     for robot_id, sequence in round_input_sequences.items()
@@ -3078,6 +3144,18 @@ def main() -> int:
                     round_dir / "vlm_candidate_batch.json",
                     classification=(
                         "source_derived_unmodified_vlm_candidate_batch"
+                    ),
+                ),
+                "semantic_execution_guard": artifact_record(
+                    semantic_execution_guard_path,
+                    classification=(
+                        "source_derived_realworld_execution_guard"
+                    ),
+                ),
+                "execution_candidate_batch": artifact_record(
+                    round_dir / "execution_candidate_batch.json",
+                    classification=(
+                        "source_derived_semantic_guarded_execution_candidate"
                     ),
                 ),
                 "goal_continuity_guard": artifact_record(

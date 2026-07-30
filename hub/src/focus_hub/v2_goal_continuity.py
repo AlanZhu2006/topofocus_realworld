@@ -8,6 +8,13 @@ progress threshold.  The following source rule independently replaces a goal
 when the robot moved no more than 2.5 cells between boundaries; that separate
 stationary rule is implemented by :mod:`focus_hub.v2_source_replan`.
 
+The simulator changes its high-level selection once the previous goal is
+inside 25 cells.  A physical local planner may still be driving toward that
+goal at this boundary.  The deployment adapter therefore keeps the exact
+previous target until it also enters the source 10-cell arrival disk, reports
+ARRIVED, or is explicitly rejected.  This prevents a fresh history point
+behind the robot from reversing an unfinished leg.
+
 Semantic targets and explicitly rejected previous legs always pass through.
 """
 from __future__ import annotations
@@ -22,11 +29,15 @@ from .transport_v2 import (
 )
 
 
-GOAL_CONTINUITY_SCHEMA_VERSION = "focus-v2-goal-continuity-guard-v2"
+GOAL_CONTINUITY_SCHEMA_VERSION = "focus-v2-goal-continuity-guard-v3"
 SOURCE_CONTINUITY_RETAIN_DISTANCE_CELLS = 25.0
 SOURCE_MAP_RESOLUTION_M = 0.05
 SOURCE_CONTINUITY_RETAIN_DISTANCE_M = (
     SOURCE_CONTINUITY_RETAIN_DISTANCE_CELLS * SOURCE_MAP_RESOLUTION_M
+)
+SOURCE_FRONTIER_COMPLETION_DISTANCE_CELLS = 10.0
+SOURCE_FRONTIER_COMPLETION_DISTANCE_M = (
+    SOURCE_FRONTIER_COMPLETION_DISTANCE_CELLS * SOURCE_MAP_RESOLUTION_M
 )
 Point2 = tuple[float, float]
 
@@ -80,8 +91,8 @@ def _retained_decision(
     )
     raw["reason"] = (
         "shared real-world continuity guard retained the previous safe "
-        "unfinished frontier while it remained beyond the source 25-cell "
-        "remaining-distance boundary"
+        "unfinished frontier until its source arrival disk or an explicit "
+        "local terminal result"
     )
     return HighLevelDecisionV2.model_validate(raw)
 
@@ -188,13 +199,18 @@ def apply_frontier_goal_continuity(
     minimum_remaining_distance_m: float = (
         SOURCE_CONTINUITY_RETAIN_DISTANCE_M
     ),
+    minimum_completion_distance_m: float = (
+        SOURCE_FRONTIER_COMPLETION_DISTANCE_M
+    ),
     previous_rejected_robot_ids: frozenset[str] = frozenset(),
 ) -> tuple[DecisionBatchV2, dict[str, object]]:
-    """Retain a source frontier that is still at least 25 cells away.
+    """Retain an unfinished source frontier until its arrival disk.
 
     The returned target is still checked by the current round's per-robot
     footprint/reachability guard before publication.  This function never
-    retains a frontier over a semantic-region target.
+    retains a frontier over a semantic-region target.  The source's 25-cell
+    switch condition remains explicit in the report; the narrower 10-cell
+    physical completion condition only stabilizes real execution.
     """
 
     if (
@@ -203,6 +219,16 @@ def apply_frontier_goal_continuity(
     ):
         raise ValueError(
             "minimum remaining distance must be positive and finite"
+        )
+    if (
+        not math.isfinite(minimum_completion_distance_m)
+        or minimum_completion_distance_m <= 0.0
+        or minimum_completion_distance_m
+        >= minimum_remaining_distance_m
+    ):
+        raise ValueError(
+            "completion distance must be positive and smaller than the "
+            "source continuity distance"
         )
     if not previous_rejected_robot_ids.issubset(
         {decision.robot_id for decision in batch.decisions}
@@ -234,6 +260,8 @@ def apply_frontier_goal_continuity(
             )
 
     replacements: dict[str, HighLevelDecisionV2] = {}
+    source_rule_retained: list[str] = []
+    physical_completion_retained: list[str] = []
     checks: dict[str, dict[str, object]] = {}
     for robot_id, current in current_by_robot.items():
         previous = previous_by_robot.get(robot_id)
@@ -284,20 +312,23 @@ def apply_frontier_goal_continuity(
                 "minimum_remaining_distance_m": (
                     minimum_remaining_distance_m
                 ),
+                "minimum_completion_distance_m": (
+                    minimum_completion_distance_m
+                ),
                 "previous_frontier_id": previous.target.frontier_id,
                 "candidate_frontier_id": current.target.frontier_id,
             }
         )
-        if (
-            distance_to_previous_target_m
-            < minimum_remaining_distance_m
-        ):
-            check["reason"] = (
-                "previous_goal_inside_source_25_cell_switch_boundary"
-            )
-            continue
         if math.dist(current_target_xy, previous_target_xy) <= 1e-9:
             check["reason"] = "source_target_already_continuous"
+            continue
+        if (
+            distance_to_previous_target_m
+            <= minimum_completion_distance_m + 1e-12
+        ):
+            check["reason"] = (
+                "previous_goal_inside_source_10_cell_arrival_disk"
+            )
             continue
 
         retained = _retained_decision(
@@ -306,11 +337,29 @@ def apply_frontier_goal_continuity(
             current_xy=current_xy,
         )
         replacements[robot_id] = retained
+        retained_by_source_rule = bool(
+            distance_to_previous_target_m
+            >= minimum_remaining_distance_m - 1e-12
+        )
+        if retained_by_source_rule:
+            source_rule_retained.append(robot_id)
+        else:
+            physical_completion_retained.append(robot_id)
         check.update(
             {
                 "retained": True,
                 "reason": (
                     "previous_frontier_beyond_source_25_cell_boundary_retained"
+                    if retained_by_source_rule
+                    else (
+                        "unfinished_previous_frontier_outside_source_"
+                        "10_cell_arrival_disk_retained"
+                    )
+                ),
+                "retention_authority": (
+                    "source_25_cell_continuity_rule"
+                    if retained_by_source_rule
+                    else "realworld_unfinished_leg_completion_adapter"
                 ),
                 "execution_frontier_id": retained.target.frontier_id,
                 "execution_target_xy_m": list(previous_target_xy),
@@ -342,16 +391,27 @@ def apply_frontier_goal_continuity(
             "shared-frame robot poses and the prior published frontier leg"
         ),
         "policy": (
-            "apply identically to both robots: retain the prior active "
-            "frontier when the current shared-frame base pose remains at "
-            "least 25 source cells from it; the independent 2.5-cell "
-            "stationary rule runs afterward in source order; semantic "
-            "targets and rejected prior legs pass through"
+            "apply identically to both robots: preserve the source 25-cell "
+            "continuity rule, then keep the exact accepted frontier through "
+            "the real-world handoff band until the base enters its source "
+            "10-cell arrival disk; the independent 2.5-cell stationary rule "
+            "runs afterward in source order; semantic targets and rejected "
+            "prior legs pass through"
         ),
         "retained_robot_ids": retained_robot_ids,
+        "source_rule_retained_robot_ids": sorted(source_rule_retained),
+        "physical_completion_retained_robot_ids": sorted(
+            physical_completion_retained
+        ),
         "minimum_remaining_distance_m": minimum_remaining_distance_m,
+        "minimum_completion_distance_m": (
+            minimum_completion_distance_m
+        ),
         "source_retain_distance_cells": (
             SOURCE_CONTINUITY_RETAIN_DISTANCE_CELLS
+        ),
+        "source_frontier_completion_distance_cells": (
+            SOURCE_FRONTIER_COMPLETION_DISTANCE_CELLS
         ),
         "source_map_resolution_m": SOURCE_MAP_RESOLUTION_M,
         "previous_rejected_robot_ids": sorted(
@@ -361,9 +421,11 @@ def apply_frontier_goal_continuity(
         "source_fidelity": (
             "the current VLM candidate batch is preserved separately; every "
             "retained execution target is an exact prior-round source-derived "
-            "frontier coordinate; the default 1.25 m threshold measures "
+            "frontier coordinate; the source 1.25 m threshold measures "
             "current-position-to-previous-goal distance exactly as "
-            "source/Focus_realworld/main.py:1833, not inter-round motion; the "
+            "source/Focus_realworld/main.py:1833, not inter-round motion; "
+            "physical execution continues the same accepted leg between "
+            "that switch boundary and the source 0.50 m arrival disk; the "
             "retained target must pass the current robot-local frozen-map "
             "clearance guard before publication"
         ),

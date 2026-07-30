@@ -19,6 +19,9 @@ sys.path.insert(0, str(WORKSPACE / "hub" / "src"))
 from focus_hub.transport_v2 import DecisionBatchV2  # noqa: E402
 from focus_hub.v2_episode_control import next_coordination_batch  # noqa: E402
 from focus_hub.v2_scene_batch import build_batch_from_shadow_manifest  # noqa: E402
+from focus_hub.v2_semantic_execution import (  # noqa: E402
+    evaluate_semantic_execution_guard,
+)
 
 
 LIVE_CONFIRMATION = "OPERATOR_PRESENT_AND_ROBOTS_CLEAR"
@@ -178,8 +181,14 @@ def main() -> int:
         return 2
     output.mkdir(parents=True)
 
+    manifest_path = args.manifest.expanduser().resolve()
+    shadow_payload = json.loads(
+        manifest_path.read_text(encoding="utf-8")
+    )
+    if not isinstance(shadow_payload, dict):
+        raise ValueError("shadow manifest root must be an object")
     now_ns = time.time_ns()
-    built = build_batch_from_shadow_manifest(
+    source_built = build_batch_from_shadow_manifest(
         args.manifest,
         args.registry_state,
         scene_id=args.scene_id,
@@ -188,6 +197,35 @@ def main() -> int:
         now_ns=now_ns,
         robot_config_path=args.robot_config,
         lease_duration_ns=int(args.lease_s * 1e9),
+    )
+    (
+        semantic_selection_overrides,
+        semantic_execution_guard,
+    ) = evaluate_semantic_execution_guard(shadow_payload)
+    built = (
+        source_built
+        if not semantic_selection_overrides
+        else build_batch_from_shadow_manifest(
+            args.manifest,
+            args.registry_state,
+            scene_id=args.scene_id,
+            episode_id=args.episode_id,
+            execution_epoch=args.execution_epoch,
+            now_ns=now_ns,
+            robot_config_path=args.robot_config,
+            lease_duration_ns=int(args.lease_s * 1e9),
+            execution_selection_overrides=(
+                semantic_selection_overrides
+            ),
+        )
+    )
+    atomic_write_json(
+        output / "source_candidate_batch.json",
+        source_built.batch.model_dump(mode="json"),
+    )
+    atomic_write_json(
+        output / "semantic_execution_guard.json",
+        semantic_execution_guard,
     )
     atomic_write_json(output / "preflight_report.json", built.report)
     atomic_write_json(
@@ -391,8 +429,6 @@ def main() -> int:
         log.close()
 
     evaluation_seed = evaluation_seed_from_events(evaluation_events)
-    manifest_path = args.manifest.expanduser().resolve()
-    shadow_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     final_report = {
         "schema_version": "focus-v2-supervised-episode-run-v1",
         "scene_id": args.scene_id,
@@ -415,6 +451,30 @@ def main() -> int:
             "size_bytes": manifest_path.stat().st_size,
             "sha256": sha256_file(manifest_path),
             "classification": "source_derived_frozen_vlm_input",
+        },
+        "source_candidate_batch": {
+            "path": str(output / "source_candidate_batch.json"),
+            "size_bytes": (
+                output / "source_candidate_batch.json"
+            ).stat().st_size,
+            "sha256": sha256_file(
+                output / "source_candidate_batch.json"
+            ),
+            "classification": (
+                "source_derived_unmodified_vlm_candidate_batch"
+            ),
+        },
+        "semantic_execution_guard": {
+            "path": str(output / "semantic_execution_guard.json"),
+            "size_bytes": (
+                output / "semantic_execution_guard.json"
+            ).stat().st_size,
+            "sha256": sha256_file(
+                output / "semantic_execution_guard.json"
+            ),
+            "classification": (
+                "source_derived_realworld_execution_guard"
+            ),
         },
         "controller_event_log": str(event_log_path),
     }

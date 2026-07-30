@@ -13,7 +13,7 @@ import json
 import math
 from pathlib import Path
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import cv2
 import numpy as np
@@ -1289,6 +1289,10 @@ def build_batch_from_shadow_manifest(
     robot_config_path: Path | str | None = None,
     lease_duration_ns: int = 8_000_000_000,
     forced_hold_robot_ids: Iterable[str] = (),
+    execution_selection_overrides: Mapping[
+        str, Mapping[str, object] | None
+    ]
+    | None = None,
 ) -> SceneBatchBuild:
     """Build and preflight a two-robot v2 batch without publishing it.
 
@@ -1296,6 +1300,12 @@ def build_batch_from_shadow_manifest(
     rewrite. The original selections remain preserved and fully validated in
     the shadow manifest; listed robots are converted to explicit HOLD
     decisions before any command-capable batch is constructed.
+
+    ``execution_selection_overrides`` is narrower: it may replace a source
+    semantic goal only with that robot's exact frozen
+    ``exploration_selection_before_target_override`` or explicit HOLD.  This
+    lets a separate, versioned real-world semantic confirmation guard decline
+    physical authority without changing the source result.
     """
 
     manifest_path = Path(manifest_path).expanduser().resolve()
@@ -1329,6 +1339,36 @@ def build_batch_from_shadow_manifest(
         selections_raw,
     )
     robot_ids = tuple(record["robot_id"] for record in robot_results_raw)
+    selection_overrides = (
+        {}
+        if execution_selection_overrides is None
+        else dict(execution_selection_overrides)
+    )
+    unknown_overrides = set(selection_overrides).difference(robot_ids)
+    if unknown_overrides:
+        raise ValueError(
+            "execution selection override contains unknown robot IDs: "
+            + ", ".join(sorted(unknown_overrides))
+        )
+    for robot_id, override in selection_overrides.items():
+        source_selection = selections_raw.get(robot_id)
+        robot_result = robot_results[robot_id]
+        frozen_exploration = robot_result.get(
+            "exploration_selection_before_target_override"
+        )
+        if (
+            not isinstance(source_selection, dict)
+            or source_selection.get("kind") != "semantic_goal"
+        ):
+            raise ValueError(
+                f"{robot_id} execution override requires a source semantic "
+                "selection"
+            )
+        if override is not None and override != frozen_exploration:
+            raise ValueError(
+                f"{robot_id} execution override differs from its exact "
+                "frozen pre-semantic exploration selection"
+            )
     forced_holds = frozenset(str(value) for value in forced_hold_robot_ids)
     unknown_forced_holds = forced_holds.difference(robot_ids)
     if unknown_forced_holds:
@@ -1336,9 +1376,15 @@ def build_batch_from_shadow_manifest(
             "forced HOLD contains unknown robot IDs: "
             + ", ".join(sorted(unknown_forced_holds))
         )
+    execution_selections = dict(selections_raw)
+    for robot_id, override in selection_overrides.items():
+        if override is None:
+            execution_selections.pop(robot_id, None)
+        else:
+            execution_selections[robot_id] = dict(override)
     execution_selections = {
         robot_id: selection
-        for robot_id, selection in selections_raw.items()
+        for robot_id, selection in execution_selections.items()
         if robot_id not in forced_holds
     }
     registry_entries = _registry_entries(registry_state)
@@ -1595,6 +1641,13 @@ def build_batch_from_shadow_manifest(
                 )
                 if robot_id in forced_holds
                 else (
+                    "real-world semantic confirmation declined the source "
+                    "semantic override; exact frozen "
+                    f"{selection.get('kind') if selection else 'HOLD'} "
+                    f"selection used from manifest {run_id}"
+                )
+                if robot_id in selection_overrides
+                else (
                     "source-faithful VLM "
                     f"{selection.get('kind') if selection else 'no-selection'} "
                     f"from frozen manifest {run_id}"
@@ -1622,6 +1675,9 @@ def build_batch_from_shadow_manifest(
             robot_id for robot_id in robot_ids if robot_id in selections_raw
         ],
         "forced_hold_robot_ids": sorted(forced_holds),
+        "execution_selection_override_robot_ids": sorted(
+            selection_overrides
+        ),
         "robot_commands_sent": False,
         "network_used": False,
         "preflight_ready": not blockers,

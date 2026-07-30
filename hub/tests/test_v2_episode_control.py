@@ -114,6 +114,13 @@ def test_only_explicit_local_path_failure_is_recoverable(
         frontier,
         {
             "status": "REJECTED",
+            "reason_code": "LOCAL_PLANNER_TURN_STALLED",
+        },
+    )
+    assert recoverable_local_path_failure(
+        frontier,
+        {
+            "status": "REJECTED",
             "reason_code": "LOCAL_PLANNER_NO_PROGRESS",
         },
     )

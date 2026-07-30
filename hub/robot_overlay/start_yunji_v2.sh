@@ -565,6 +565,7 @@ receiver_args=(
   --external-odometry-health
   --platform-health-topic /focus/water/cmd_bridge_status
   --reject-reverse-trajectory
+  --reject-stalled-turn
   --reachability-clearance-m "$REACHABILITY_CLEARANCE_M"
   --start-snap-radius-m "$START_SNAP_RADIUS_M"
   --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"

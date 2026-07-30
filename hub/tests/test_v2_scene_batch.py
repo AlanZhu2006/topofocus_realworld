@@ -600,6 +600,78 @@ def test_forced_hold_preserves_vlm_selection_but_scopes_physical_authority(
     assert by_robot["robot-1"].target.kind == "FRONTIER_POINT"
 
 
+def test_semantic_execution_override_uses_only_frozen_exploration_selection(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    frozen_exploration = manifest["robots"][0][
+        "exploration_selection_before_target_override"
+    ]
+
+    built = build_batch_from_shadow_manifest(
+        manifest_path,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-semantic-confirmation-fallback",
+        execution_epoch=4,
+        now_ns=now,
+        robot_config_path=config,
+        execution_selection_overrides={
+            "robot-0": frozen_exploration,
+        },
+    )
+
+    by_robot = {
+        decision.robot_id: decision for decision in built.batch.decisions
+    }
+    assert built.report["source_active_robot_ids"] == [
+        "robot-0",
+        "robot-1",
+    ]
+    assert built.report[
+        "execution_selection_override_robot_ids"
+    ] == ["robot-0"]
+    assert by_robot["robot-0"].target is not None
+    assert by_robot["robot-0"].target.kind == "FRONTIER_POINT"
+    assert by_robot["robot-0"].target.frontier_id == "A"
+    assert by_robot["robot-1"].target.kind == "FRONTIER_POINT"
+
+
+def test_semantic_execution_override_rejects_invented_fallback(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    invented = {
+        "kind": "frontier",
+        "target_id": "D",
+        "frontier_id": "D",
+        "row": 1,
+        "col": 1,
+        "x_m": 9.0,
+        "y_m": 9.0,
+        "size_cells": 10,
+    }
+
+    with pytest.raises(ValueError, match="exact frozen"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-semantic-confirmation-fallback",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+            execution_selection_overrides={"robot-0": invented},
+        )
+
+
 def test_mapping_only_inputs_build_but_fail_preflight(tmp_path, observation_factory):
     now, manifest, registry, config = prepare_round(
         tmp_path, observation_factory, mapping_only=True

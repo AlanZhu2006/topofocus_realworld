@@ -5,10 +5,12 @@ import hashlib
 
 import cv2
 import numpy as np
+import pytest
 
 from focus_hub.transport_v2 import DecisionBatchV2
 from focus_hub.v2_goal_continuity import (
     SOURCE_CONTINUITY_RETAIN_DISTANCE_M,
+    SOURCE_FRONTIER_COMPLETION_DISTANCE_M,
     apply_frontier_goal_continuity,
     source_continuity_memory_batch,
 )
@@ -169,7 +171,7 @@ def test_continuity_memory_restores_source_target_before_projection(
         assert decision.target.pose.x == 1.0
 
 
-def test_near_previous_goal_and_already_continuous_target_are_not_rewritten(
+def test_unfinished_previous_goal_is_retained_through_source_switch_band(
     observation_factory,
 ):
     observations, _registry, digests, now = ready_registries(
@@ -198,10 +200,14 @@ def test_near_previous_goal_and_already_continuous_target_are_not_rewritten(
         },
     )
 
-    assert guarded == current
-    assert report["retained_robot_ids"] == []
+    assert guarded != current
+    assert report["retained_robot_ids"] == ["robot-0"]
+    assert report["physical_completion_retained_robot_ids"] == [
+        "robot-0"
+    ]
     assert report["checks"]["robot-0"]["reason"] == (
-        "previous_goal_inside_source_25_cell_switch_boundary"
+        "unfinished_previous_frontier_outside_source_"
+        "10_cell_arrival_disk_retained"
     )
     assert report["checks"]["robot-1"]["reason"] == (
         "source_target_already_continuous"
@@ -217,7 +223,7 @@ def test_near_previous_goal_and_already_continuous_target_are_not_rewritten(
     )
     assert arrived == current
     assert arrived_report["checks"]["robot-0"]["reason"] == (
-        "previous_goal_inside_source_25_cell_switch_boundary"
+        "previous_goal_inside_source_10_cell_arrival_disk"
     )
 
 
@@ -271,6 +277,7 @@ def test_source_continuity_threshold_is_twenty_five_map_cells(
     observation_factory,
 ):
     assert SOURCE_CONTINUITY_RETAIN_DISTANCE_M == 1.25
+    assert SOURCE_FRONTIER_COMPLETION_DISTANCE_M == 0.5
     observations, _registry, digests, now = ready_registries(
         observation_factory
     )
@@ -300,11 +307,68 @@ def test_source_continuity_threshold_is_twenty_five_map_cells(
         ),
     )
 
-    assert below.decisions[0] == current.decisions[0]
+    assert below.decisions[0] != current.decisions[0]
     assert report["checks"]["robot-0"]["reason"] == (
-        "previous_goal_inside_source_25_cell_switch_boundary"
+        "unfinished_previous_frontier_outside_source_"
+        "10_cell_arrival_disk_retained"
     )
     assert report["checks"]["robot-1"]["retained"] is True
+    assert report["physical_completion_retained_robot_ids"] == [
+        "robot-0"
+    ]
+    assert report["source_rule_retained_robot_ids"] == ["robot-1"]
+
+
+def test_archived_robot1_history_switch_does_not_reverse_unfinished_leg(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    base = make_batch(observations, digests, now=now)
+    previous = with_round_and_targets(
+        base,
+        round_index=15,
+        source_step=374,
+        targets={
+            "robot-0": (4.0, 4.0),
+            # Observed Scene 03 Formal 02 history-1.
+            "robot-1": (-1.0850726802376052, 0.990669750033291),
+        },
+    )
+    current = with_round_and_targets(
+        base,
+        round_index=16,
+        source_step=399,
+        targets={
+            "robot-0": (4.0, 4.0),
+            # The next source decision selected history-6 behind the current
+            # motion direction before history-1 had actually completed.
+            "robot-1": (-0.33507268023760517, 2.4906697500332893),
+        },
+    )
+
+    guarded, report = apply_frontier_goal_continuity(
+        current,
+        previous_batch=previous,
+        current_shared_positions={
+            "robot-0": (4.0, 4.0),
+            "robot-1": (-0.43, 1.67),
+        },
+    )
+
+    robot_1 = next(
+        item for item in guarded.decisions
+        if item.robot_id == "robot-1"
+    )
+    assert robot_1.target is not None
+    assert robot_1.target.pose.x == pytest.approx(
+        -1.0850726802376052
+    )
+    assert robot_1.target.pose.y == pytest.approx(0.990669750033291)
+    assert report["checks"]["robot-1"]["retention_authority"] == (
+        "realworld_unfinished_leg_completion_adapter"
+    )
 
 
 def test_explicitly_rejected_previous_leg_is_never_retained(

@@ -163,6 +163,69 @@ def _validate_control_contract(manifest: dict[str, Any]) -> None:
         "TinyNav path follower",
         "planning.controller.implementation",
     )
+    _expect(
+        controller.get("continuous_turn_timeout_s"),
+        12.0,
+        "planning.controller.continuous_turn_timeout_s",
+    )
+    _expect(
+        controller.get("continuous_turn_timeout_result"),
+        "LOCAL_PLANNER_TURN_STALLED and fresh source replan",
+        "planning.controller.continuous_turn_timeout_result",
+    )
+    semantic = _mapping(
+        planning.get("semantic_execution_confirmation"),
+        "planning.semantic_execution_confirmation",
+    )
+    _expect(
+        semantic.get("source_semantic_map_preserved"),
+        True,
+        "planning.semantic_execution_confirmation."
+        "source_semantic_map_preserved",
+    )
+    _expect(
+        semantic.get("minimum_component_cells"),
+        3,
+        "planning.semantic_execution_confirmation."
+        "minimum_component_cells",
+    )
+    _expect(
+        semantic.get("strong_component_cells"),
+        25,
+        "planning.semantic_execution_confirmation."
+        "strong_component_cells",
+    )
+    _expect(
+        semantic.get(
+            "independent_current_frame_detector_required_for_"
+            "compact_components"
+        ),
+        True,
+        "planning.semantic_execution_confirmation."
+        "independent_current_frame_detector_required_for_compact_components",
+    )
+    _expect(
+        semantic.get("semantic_map_reinforcement"),
+        False,
+        "planning.semantic_execution_confirmation."
+        "semantic_map_reinforcement",
+    )
+    continuity = _mapping(
+        planning.get("frontier_goal_continuity"),
+        "planning.frontier_goal_continuity",
+    )
+    _expect(
+        continuity.get("source_switch_distance_m"),
+        1.25,
+        "planning.frontier_goal_continuity."
+        "source_switch_distance_m",
+    )
+    _expect(
+        continuity.get("physical_completion_distance_m"),
+        0.5,
+        "planning.frontier_goal_continuity."
+        "physical_completion_distance_m",
+    )
 
 
 def _validate_software(manifest: dict[str, Any]) -> None:

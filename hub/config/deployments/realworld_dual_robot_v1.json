@@ -2,6 +2,7 @@
   "schema_version": "focus-realworld-deployment-v1",
   "baseline_id": "rtx4090-go2-orin-nx-dual-robot-v1",
   "recorded_on": "2026-07-30",
+  "last_verified_on": "2026-07-31",
   "publication": {
     "code_scope": "hub/",
     "intended_release": "public reproducible deployment package",
@@ -149,6 +150,8 @@
       },
       "stable_path_heading_min_horizon_m": 0.3,
       "short_path_heading_fallback": "current router waypoint",
+      "continuous_turn_timeout_s": 12.0,
+      "continuous_turn_timeout_result": "LOCAL_PLANNER_TURN_STALLED and fresh source replan",
       "linear_engagement_floor_mps": 0.18,
       "pose_timeout_s": 0.8,
       "path_timeout_s": 1.0,
@@ -157,8 +160,24 @@
         "duration_s": 0.6
       },
       "verified_forward_only_path_geometry": "zero-linear bounded heading alignment",
-      "turn_no_progress_authority": "receiver progress watchdog for ordinary turns; local rotate-first timeout for source reverse requests",
+      "turn_no_progress_authority": "12 s robot-local continuous-turn timeout plus receiver fixed-goal progress watchdog",
       "negative_twist_policy": "never forward; use stable-heading zero-linear alignment or reject on missing authority/timeout"
+    },
+    "semantic_execution_confirmation": {
+      "source_semantic_map_preserved": true,
+      "minimum_component_cells": 3,
+      "strong_component_cells": 25,
+      "independent_current_frame_detector_required_for_compact_components": true,
+      "minimum_detector_confidence": 0.5,
+      "semantic_map_reinforcement": false,
+      "unconfirmed_policy": "execute the exact frozen exploration selection before the semantic override; HOLD if absent"
+    },
+    "frontier_goal_continuity": {
+      "source_switch_distance_cells": 25,
+      "source_switch_distance_m": 1.25,
+      "physical_completion_distance_cells": 10,
+      "physical_completion_distance_m": 0.5,
+      "policy": "retain the exact accepted frontier until its arrival disk, local ARRIVED, or explicit rejection"
     }
   },
   "control_contract": {
@@ -178,6 +197,7 @@
       "odometry freshness",
       "occupancy freshness",
       "trajectory freshness",
+      "bounded turn-stall latch",
       "reachability",
       "acknowledged controller pause"
     ],
@@ -237,8 +257,14 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-      "size_bytes": 35471,
-      "sha256": "f2b8012fbaf2dd57e34a4b6a515087dcf4cc9993cfd8127ee304ba9d4665e2ee",
+      "size_bytes": 38249,
+      "sha256": "55f25324734bfdb2ffadb3c783ac3dd55d0c6b83951d842a3dbf1a719259d175",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_yunji_v2.sh",
+      "size_bytes": 25009,
+      "sha256": "e6252a999f56fef393663c2b5bfa54f4839bfebba22e80f56885a16acb2cb2bc",
       "classification": "source-derived"
     },
     {
@@ -261,14 +287,62 @@
     },
     {
       "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
-      "size_bytes": 71983,
-      "sha256": "7449fcf061c108e15c0e4083e213e3ab13e7ad8638f9765b579944112a7244bc",
+      "size_bytes": 74633,
+      "sha256": "06ebb571457a2d6c341caf0c04cbc68bd131d4709ae9290b4a45e46515bfd6d3",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/v2_wsj_receiver.py",
-      "size_bytes": 190288,
-      "sha256": "0f159493c9c04af5574eeac9bb9d34821442dbcff055d92cf05323e04185fd98",
+      "size_bytes": 194178,
+      "sha256": "21e30e06df2df651c03895684c18d2fdb21cbdd88bb7e8f8f24865738840a761",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_goal_continuity.py",
+      "size_bytes": 16940,
+      "sha256": "1d5bab6d777409b1429fe2d6fdca96d4eed3497dd451ce2d3a561a9d6d2cc7ca",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_semantic_execution.py",
+      "size_bytes": 12264,
+      "sha256": "55fadc6a946bc4e7da413da1b7c8c0de327c2f67937dd02d316350be1c7370b6",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_scene_batch.py",
+      "size_bytes": 65107,
+      "sha256": "2c335b97f945565589fa0c616c6658f25bb1e2413890ee2f200fbb7d20c368e8",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_episode_control.py",
+      "size_bytes": 6555,
+      "sha256": "05c3f62660d95ef5ab60466091e8a3677a3a89413844db0ef90838d81b0984e2",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_source_replan.py",
+      "size_bytes": 40574,
+      "sha256": "8e193a3d1e8a5c6cde0ac71b204b6acc2519ae8db88de78e68016ae37204f2ca",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/run_v2_source_episode.py",
+      "size_bytes": 134700,
+      "sha256": "cf3b439dd7ca4738dcaa47c1e5fbcb76b384510efee95aa5c36f57b70a65a406",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/run_v2_supervised_episode.py",
+      "size_bytes": 18331,
+      "sha256": "0fdf480a1b22879cb64ee57bb68cbe79b0e9549dbc18e0e2ebd650acab16ddf8",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/build_v2_decision_batch.py",
+      "size_bytes": 4346,
+      "sha256": "3ef970ac817c416e18a77848e447b96564a2685e6cd9f1d148009b2f1b758adf",
       "classification": "source-derived"
     }
   ]
