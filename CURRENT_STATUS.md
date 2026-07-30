@@ -1,7 +1,7 @@
 # Current project status
 
-Snapshot: **2026-07-31, after archiving Scene 03 Formal 02 and applying the
-shared forward-only controller repair.**
+Snapshot: **2026-07-31, after completing and archiving the five-run Scene 03
+formal campaign.**
 
 ## Scene 01 formal results
 
@@ -80,12 +80,12 @@ and the
 
 ## Scene 03 formal results
 
-Scene `scene03-plant`, target `plant`, currently contains two archived formal
-failures.
+Scene `scene03-plant`, target `plant`, contains five archived formal episodes:
+two failures and three operator-confirmed successes.
 
 | Episodes | Successes | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `2` | `0` | `0.0` | `0.0` | `0.0` |
+| `5` | `3` | `0.6` | `0.365961721746991` | `pending independent L` |
 
 Formal 01 is an execution-engineering failure: a plant semantic region was
 assigned, but robot-local execution did not complete arrival before timeout.
@@ -97,11 +97,29 @@ remained responsive, but the source Judgment gate selected old
 `history-1/history-6` nodes across later rounds, causing backtracking. The
 episode timed out without semantic arrival and contributes zero SR/SPL.
 
+Formal 03-05 are successes. Robot 1 is the arriving robot in all three runs:
+
+| Formal run | Robot 0 record | Robot 1 path | Source-compatible SPL | Standard SPL |
+| --- | ---: | ---: | ---: | ---: |
+| 03 | `9.037490 m` | `11.606679 m` | `0.689524` | `pending L` |
+| 04 | `9.391253 m` | `13.010775 m` | `0.693557` | `pending L` |
+| 05 | policy `HOLD`, `0.006053 m` net | `19.152683 m` | `0.446727` | `pending L` |
+
+Formal 05 used coordinated role assignment. Robot 0 remained in policy
+`HOLD` while retaining shared observation, map and odometry provenance.
+Robot 1 completed 11 planning rounds, recovered from two locally unreachable
+frontiers, switched to a five-cell plant semantic region and reported
+`LOCAL_PLANNER_ARRIVED`. The terminal RGB clearly contains the plant and
+planter; the onsite operator confirmed physical success.
+
 Complete records:
 [`Formal 01`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md),
-[`Formal 02`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md)
+[`Formal 02`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md),
+[`Formal 03`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260731.md),
+[`Formal 04`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_04_SUCCESS_20260731.md),
+[`Formal 05`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260731.md)
 and the
-[`current aggregate`](manifests/scene03_plant_formal_experiments_20260731.json).
+[`five-run aggregate`](manifests/scene03_plant_formal_experiments_20260731.json).
 
 ## Published media
 
@@ -136,23 +154,21 @@ RGB-D / pose
   -> coordinated HOLD
 ```
 
-A deployment-layer repair now converts TinyNav's fixed reverse request to
-bounded zero-linear heading alignment only when stable path/router heading
-authority exists; missing authority or timeout still rejects fail-closed.
-Targeted controller tests and the complete 774-test Hub suite pass. The repair
-has not yet been re-verified in a separately authorized physical run.
-WATER/TinyNav collision, watchdog, lease, localization, occupancy and
-robot-local stop/reject authority remain unchanged. No file under immutable
-`source/` or `dependencies/` was changed.
+The deployed Hub layer includes bounded rotate-first handling, shared-frame
+arrival-disk rejection, raw-active cross-round progress memory and stabilized
+post-motion ground-plane rebasing. Commit
+`fc581bf295698ebf597f2086355a9dd829a7b8d9` was byte-verified on both robot
+release roots and exercised by Formal 05. WATER/TinyNav collision, watchdog,
+lease, localization, occupancy and robot-local stop/reject authority remain
+unchanged. No file under immutable `source/` or `dependencies/` was changed.
 
 ## Physical-runtime boundary
 
-Formal 02 exited fail-closed. Both robots ended `HOLDING` with
-`velocity_zero_confirmed=true`; Hub `goal_output_enabled` is `false` for both
-robots. Observation, maps and Foxglove remain warm/read-only. The current
-session is bound to calibration
-`shared-board-odin1-scene03-plant-20260730-2332-turncontract-recal-v1`; reuse
-still requires unchanged tracking/mount continuity and a fresh preflight.
+Formal 05 completed with semantic arrival. Both robots ended `HOLDING` with
+`velocity_zero_confirmed=true`; cleanup disabled Hub GOAL output and both
+motion command paths. Observation, maps and Foxglove remain warm/read-only.
+The current session is bound to calibration
+`shared-board-odin1-scene03-plant-20260731-dual-power-reanchor-v1`.
 
 No physical robot command was issued by the archival or code verification
 steps themselves.
@@ -165,8 +181,7 @@ The full repository/runtime organization record is
 
 ## Next formal run
 
-Scene 03 formal experiment 03 is next. The tested shared controller is already
-byte-identical on both robot disks, but the warm processes still contain the
-pre-fix code by design. Before any motion, start a new code-bound session so
-both controllers load the synchronized file, verify exact release hashes, run
-the strict no-motion preflight and obtain a new onsite motion confirmation.
+The five-run Scene 03 formal campaign is complete. Any additional physical run
+belongs to a newly designated campaign or explicit rerun and requires a fresh
+session boundary, exact release verification, no-motion preflight and new
+onsite motion authorization.

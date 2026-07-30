@@ -1,0 +1,254 @@
+{
+  "schema_version": "focus-scene-formal-experiment-v1",
+  "scene_id": "scene03-plant",
+  "target_category": "plant",
+  "formal_index": 5,
+  "result": "SUCCESS",
+  "session_id": "scene03-plant-20260731-0444-robot1-continue01-start",
+  "episode_id": "robot1-continue02",
+  "formal_episode_mapping": "The onsite operator accepted the completed coordinated episode robot1-continue02 as Scene 03 Formal 05 Success.",
+  "session_git_commit": "fc581bf295698ebf597f2086355a9dd829a7b8d9",
+  "session_contract_sha256": "69a99475e018fe81ebafd952f2faff78770be767af1e9820c0ca183ef7ae6fe5",
+  "calibration_id": "shared-board-odin1-scene03-plant-20260731-dual-power-reanchor-v1",
+  "operator_evidence": {
+    "motion_authorization": "当前操作者在场，Robot1 已站立且周围净空；Robot0 保持静止并 HOLD，允许 Scene 03 Robot1 Continue 02 本轮真机运动。",
+    "post_run_confirmation": "成功了，立刻完整归档；Robot 0 记为协调策略 HOLD。",
+    "accepted_factual_content": "现场操作者确认本轮成功抵达，并指定将该协调策略实验归档为 Scene 03 Formal 05 Success；Robot 0 的实验角色为策略 HOLD。",
+    "classification": "observed onsite operator authorization and post-run physical-arrival confirmation"
+  },
+  "execution_scope": {
+    "mode": "coordinated_dual_robot_live_run_with_policy_role_assignment",
+    "participating_robot_ids": [
+      "robot-0",
+      "robot-1"
+    ],
+    "policy_roles": {
+      "robot-0": "coordination-policy HOLD throughout the episode; observation, map and odometry provenance remained available to the shared system",
+      "robot-1": "active long-range frontier exploration followed by plant semantic-region approach"
+    },
+    "role_assignment_basis": "operator-authorized coordination policy",
+    "arriving_robot_id": "robot-1",
+    "arriving_robot_basis": "Robot 1 emitted semantic-region LOCAL_PLANNER_ARRIVED with zero velocity; the terminal RGB clearly contains the plant and the onsite operator independently confirmed successful physical arrival.",
+    "source_rounds_completed": 11,
+    "source_step_final": 249,
+    "high_level_batches_published": 64
+  },
+  "physical_protocol_result": {
+    "classification": "operator-confirmed physical plant-arrival success corroborated by automatic semantic ARRIVED and terminal RGB-D",
+    "counts_in_metric_track": "scene03_physical_0p5m_protocol",
+    "success": true,
+    "success_radius_m": 0.5,
+    "radius_assessment": "onsite operator confirmation; no independently instrumented terminal-distance measurement was supplied",
+    "target_evidence": "Robot 1 received a frozen five-cell plant semantic region, reported LOCAL_PLANNER_ARRIVED, stopped with velocity_zero_confirmed=true, and produced a post-arrival RGB frame in which the plant and planter occupy the central field of view.",
+    "standard_track_eligible": false,
+    "standard_track_status": "pending an independently measured Scene 03 shortest feasible path"
+  },
+  "automatic_result": {
+    "target_found": true,
+    "target_found_round_index": 10,
+    "target_found_source_step": 249,
+    "semantic_target_robot_id": "robot-1",
+    "semantic_target_category": "plant",
+    "semantic_detection_label": "potted plant",
+    "semantic_detection_confidence": 0.8516193628311157,
+    "semantic_target_mask_cells": 5,
+    "semantic_target_evidence_status": "model_inference_map_projected_unverified",
+    "automatic_terminal_candidate_complete": true,
+    "automatic_report_official_success_verified": false,
+    "automatic_report_outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+    "automatic_arrival_event_observed": true,
+    "arrival_status": "ARRIVED",
+    "arrival_reason_code": "LOCAL_PLANNER_ARRIVED",
+    "arrival_detail": "TinyNav /mapping/nav_done reported true",
+    "arrival_terminal_observation_sequence": 393032,
+    "post_arrival_rgbd_observation_sequence": 393102,
+    "post_arrival_capture_delay_s": 0.413155877,
+    "automatic_boundary": "The immutable runtime report leaves official_success_verified=false because its automatic pipeline cannot supply independent onsite goal-region annotation. The separate onsite confirmation supplies that physical-protocol evidence without rewriting the runtime report."
+  },
+  "metrics": {
+    "success": 1,
+    "sr": 1.0,
+    "arriving_robot_id": "robot-1",
+    "actual_path_length_m": 19.152682983799288,
+    "start_xy_m": [
+      -3.238881682102768,
+      -2.718768953169589
+    ],
+    "stop_xy_m": [
+      5.203148957122154,
+      -1.3267323245882239
+    ],
+    "start_to_stop_displacement_m": 8.556029878917236,
+    "source_compatible_spl_formula": "S * D / max(D, P)",
+    "source_compatible_spl": 0.446727483880694,
+    "independently_measured_shortest_feasible_path_m": null,
+    "standard_spl_formula": "S * L / max(L, P)",
+    "standard_spl": null,
+    "standard_spl_status": "unavailable_pending_independent_scene03_shortest_feasible_path",
+    "scene03_campaign_after_formal_05": {
+      "recorded_episodes": 5,
+      "successes": 3,
+      "failures": 2,
+      "sr": 0.6,
+      "mean_source_compatible_spl_with_failures_zero": 0.365961721746991,
+      "mean_standard_spl_with_failures_zero": null
+    }
+  },
+  "execution": {
+    "started_at_local": "2026-07-31T04:55:16.559499050+08:00",
+    "completed_at_local": "2026-07-31T05:02:33.830461600+08:00",
+    "duration_s": 437.270962477,
+    "source_rounds_completed": 11,
+    "source_steps": [
+      0,
+      24,
+      49,
+      74,
+      99,
+      124,
+      149,
+      174,
+      199,
+      224,
+      249
+    ],
+    "high_level_batches_published": 64,
+    "route_coordination": {
+      "robot_0_policy_role": "HOLD",
+      "robot_1_policy_role": "active exploration and semantic approach",
+      "robot_0_motion_authority": false,
+      "robot_1_motion_authority": true,
+      "minimum_required_separation_m": 0.9,
+      "result": "Robot 0 remained in the coordination-policy HOLD role while Robot 1 executed the assigned route; every terminal or replanning boundary was acknowledged at zero velocity."
+    },
+    "bounded_replanning": {
+      "recoverable_local_goal_unreachable_events": 2,
+      "failure_source_steps": [
+        74,
+        124
+      ],
+      "result": "Each locally unreachable frontier was isolated, followed by an acknowledged HOLD and a fresh source round; subsequent safe approaches made progress and the final semantic leg arrived."
+    },
+    "robots": {
+      "robot-0": {
+        "policy_role": "HOLD",
+        "raw_accumulated_odometry_path_length_m": 2.4777573431304116,
+        "start_to_stop_net_displacement_m": 0.006053133631631,
+        "raw_odometry_interpretation": "retained as observed provenance; the 0.006053 m net pose change is consistent with a stationary HOLD role and the integrated path field is not treated as physical route execution",
+        "shared_system_contribution": "continued observation, map and odometry provenance while retaining local stop/rejection authority",
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD",
+        "velocity_zero_confirmed": true
+      },
+      "robot-1": {
+        "policy_role": "active exploration and semantic approach",
+        "actual_path_length_m": 19.152682983799288,
+        "start_to_stop_net_displacement_m": 8.556029878917236,
+        "arrival_status": "ARRIVED",
+        "arrival_reason": "LOCAL_PLANNER_ARRIVED",
+        "arrival_target_kind": "SEMANTIC_REGION",
+        "terminal_observation_sequence": 393032,
+        "final_safety_status": "HOLDING",
+        "final_safety_reason": "HUB_HOLD",
+        "velocity_zero_confirmed": true
+      }
+    }
+  },
+  "behavior": [
+    "The coordination policy assigned Robot 0 the HOLD role throughout the experiment while preserving its observation, map and odometry provenance in the shared system.",
+    "Robot 1 explored long-range frontier B, recovered from one locally unreachable continuation, then progressed through bounded safe approaches toward frontiers C and A.",
+    "A second locally unreachable approach was isolated at source step 124; the next safe rounds moved Robot 1 out of that region rather than repeating the failed target.",
+    "At source step 249 the fused semantic map produced a five-cell plant region from a potted-plant detection with confidence 0.851619.",
+    "Robot 1 followed the semantic-region target, reported LOCAL_PLANNER_ARRIVED after 19.152683 m, and stopped with zero velocity.",
+    "The terminal RGB shows the plant and white planter at close range in the central field of view, and the onsite operator confirmed physical success.",
+    "The terminal batch placed both robots in HOLD and the cleanup disabled further Hub GOAL output while preserving read-only observation, maps and Foxglove."
+  ],
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/episode_report.json",
+      "size_bytes": 20612,
+      "sha256": "ccff4dac6e11f15c141b3ec3a6ddd49382e9467e51b613d9bfa83eae0b73df75",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/controller_events.jsonl",
+      "size_bytes": 131570,
+      "sha256": "08219d14859d8bd0b6b66893472ac7e727f8429ea2d71b6ad0bd402fd861423e",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/scene_manifest.json",
+      "size_bytes": 122353,
+      "sha256": "36cc1fd1f448e2559817c7fa7420b7e8bad2aa8f2cf97854bb2316207ad63f08",
+      "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/round_10_step_249/initial_batch.json",
+      "size_bytes": 6208,
+      "sha256": "ed71e443afb8b4af28f7e4d5e35104ee331a33c78729dd11696db5f238c623ce",
+      "classification": "source-derived frozen high-level plant semantic target batch; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/round_10_step_249/shadow/shadow_manifest.json",
+      "size_bytes": 37870,
+      "sha256": "34f04f15a9fcde2b7e08cdf67880422ce1fcac4fde51185d3f94025e7a77883c",
+      "classification": "source-derived frozen VLM and semantic-projection manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/round_10_step_249/shadow/source_goal_masks/yunji_plant.png",
+      "size_bytes": 997,
+      "sha256": "d854d82cb1800b718ee8f266b0b303c17770a1bc51e4dacd919376d15e2be570",
+      "classification": "source-derived five-cell plant semantic-region mask; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/batch_064_semantic_arrival_episode_complete_hold.json",
+      "size_bytes": 3780,
+      "sha256": "35c86fc01f7a0800f22af9eb6163a9dcf4124b822f21e35756c6e94a9c249da4",
+      "classification": "source-derived semantic-arrival terminal HOLD batch; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/terminal/terminal_evidence.json",
+      "size_bytes": 10476,
+      "sha256": "ef3a6699f6e33a995c6e963815dc04fc33036c6e31bddb0136fb7c4bd241fd17",
+      "classification": "source-derived terminal evidence index; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/terminal/robot-1/rgb.jpg",
+      "size_bytes": 111337,
+      "sha256": "417ae2c55701cb2884bb0d385a59026f8076fa7cb6149c2a0b75135be28844a1",
+      "classification": "observed post-arrival Robot 1 RGB clearly containing the plant and planter; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/terminal/robot-1/depth.png",
+      "size_bytes": 222621,
+      "sha256": "ab56ee39d1c4c89dbbc9920c4f0c2a63f8d4de3f6d13c165909ccd7a5a49ec3c",
+      "classification": "observed post-arrival Robot 1 aligned depth; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/terminal/robot-1/map/central_map.npz",
+      "size_bytes": 30701,
+      "sha256": "4979d7965793d6615d93b9c425125816582346ddd0215a6a8b1d327790158baf",
+      "classification": "source-derived terminal Robot 1 map snapshot; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene03-plant-20260731-0444-robot1-continue01-start/session.json",
+      "size_bytes": 4483,
+      "sha256": "19d8c6d628d149d8d868c96b83475cc2b82cd8576933da09101c221ea7bdfc35",
+      "classification": "source-derived exact session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene03-plant-20260731-dual-power-reanchor/shared_frame.json",
+      "size_bytes": 29278,
+      "sha256": "c6c924305602fd8a8417959a1c1413aa10aaae754960589c0646bffa9612df8c",
+      "classification": "observed and source-derived dual stationary-reanchor shared-frame calibration; runtime file ignored by Git"
+    }
+  ],
+  "media": [],
+  "media_status": "runtime RGB-D, map, semantic target and controller evidence sealed; no external-view or Dashboard media is bound to this formal episode yet",
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "cleanup_state": "semantic arrival completed with both robots HOLDING and velocity_zero_confirmed=true; Hub GOAL output and both command paths were disabled while read-only observation, maps and Foxglove were preserved",
+    "post_episode_motion_authority": false
+  }
+}

@@ -7,6 +7,10 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE03_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260731.md`](SCENE03_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260731.md):
+  Scene 03 Formal 05 operator-confirmed success, coordinated Robot 0 policy
+  HOLD, Robot 1 long-range exploration and semantic arrival, exact SR/SPL,
+  terminal RGB-D/map provenance and zero-velocity cleanup state.
 - [`SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md`](SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md):
   Scene 03 Formal 02 failure, exact dual-robot paths and zero-valued SR/SPL,
   Robot 0 reverse-command/rotate-first ordering diagnosis, Robot 1

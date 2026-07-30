@@ -2,20 +2,20 @@
   "schema_version": "focus-scene-formal-experiments-v1",
   "scene_id": "scene03-plant",
   "target_category": "plant",
-  "campaign_status": "active",
-  "formal_experiments": 4,
-  "successes": 2,
+  "campaign_status": "complete",
+  "formal_experiments": 5,
+  "successes": 3,
   "failures": 2,
-  "sr": 0.5,
+  "sr": 0.6,
   "metric_protocol": {
     "physical_success_radius_m": 0.5,
     "source_compatible_spl_formula": "S * D / max(D, P)",
     "standard_spl_formula": "S * L / max(L, P)",
     "independently_measured_shortest_feasible_path_m": null,
-    "shortest_path_status": "not yet measured; Standard SPL for the recorded Formal 03 and Formal 04 successes remains unavailable"
+    "shortest_path_status": "not yet measured; Standard SPL for the recorded Formal 03, Formal 04 and Formal 05 successes remains unavailable"
   },
   "aggregate_metrics": {
-    "mean_source_compatible_spl_with_failures_zero": 0.3457702812135658,
+    "mean_source_compatible_spl_with_failures_zero": 0.365961721746991,
     "mean_standard_spl_with_failures_zero": null,
     "mean_standard_spl_status": "pending an independently measured Scene 03 shortest feasible path"
   },
@@ -82,6 +82,26 @@
         "size_bytes": 9790,
         "sha256": "9e4cecea324c28550dafb2372efccbbb061bbfffc18671fad9079439798ac179",
         "classification": "authoritative machine-readable Formal 04 archive"
+      }
+    },
+    {
+      "formal_index": 5,
+      "result": "SUCCESS",
+      "arriving_robot_id": "robot-1",
+      "robot_0_policy_role": "HOLD",
+      "robot_0_actual_path_length_m": 2.4777573431304116,
+      "robot_0_start_to_stop_displacement_m": 0.006053133631631,
+      "robot_0_path_interpretation": "raw accumulated odometry retained as observed provenance; the 0.006053 m net pose change is consistent with the coordination-policy HOLD role and the integrated path is not interpreted as physical route execution",
+      "robot_1_actual_path_length_m": 19.152682983799288,
+      "arriving_robot_start_to_stop_displacement_m": 8.556029878917236,
+      "source_compatible_spl": 0.446727483880694,
+      "standard_spl": null,
+      "success_basis": "automatic Robot 1 semantic ARRIVED and zero-velocity evidence, terminal RGB clearly containing the plant, and observed onsite operator confirmation; Robot 0 remained in coordination-policy HOLD",
+      "record": {
+        "path": "manifests/scene03_plant_formal_experiment_05_success_20260731.json",
+        "size_bytes": 14388,
+        "sha256": "0fa7015434d46c3e46e6e586dd5d81cd823f36469f29834c30407725d8985690",
+        "classification": "authoritative machine-readable Formal 05 archive"
       }
     }
   ],
