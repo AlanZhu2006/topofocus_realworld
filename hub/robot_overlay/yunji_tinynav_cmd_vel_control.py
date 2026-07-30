@@ -70,7 +70,13 @@ DEFAULT_ROTATE_FIRST_MAX_ANGULAR_RADPS = 0.35
 DEFAULT_ROTATE_FIRST_MIN_ANGULAR_RADPS = 0.10
 DEFAULT_ROTATE_FIRST_TIMEOUT_S = 12.0
 DEFAULT_STABLE_TURN_LOOKAHEAD_M = 0.35
-DEFAULT_STABLE_TURN_MIN_TARGET_M = 0.10
+# A collision-scored trajectory shorter than the robot-scale lookahead does
+# not carry a reliable route direction: the measured Scene 03 wall-front
+# failure repeatedly exposed 5--20 cm trajectory prefixes that crossed the
+# body axis between replans.  Keep the full local path authoritative once it
+# reaches 0.30 m, and otherwise fall back to the fixed router waypoint.
+DEFAULT_STABLE_PATH_MIN_TARGET_M = 0.30
+DEFAULT_ROUTER_TURN_MIN_TARGET_M = 0.10
 DEFAULT_STABLE_TURN_ENTER_RAD = math.radians(75.0)
 DEFAULT_STABLE_TURN_EXIT_RAD = math.radians(35.0)
 # TinyNav also emits pure-yaw commands for ordinary path alignment.  Those
@@ -373,7 +379,7 @@ def stable_path_heading_error(
     robot_heading_rad: float,
     path_xy: list[tuple[float, float]],
     lookahead_m: float = DEFAULT_STABLE_TURN_LOOKAHEAD_M,
-    minimum_target_m: float = DEFAULT_STABLE_TURN_MIN_TARGET_M,
+    minimum_target_m: float = DEFAULT_STABLE_PATH_MIN_TARGET_M,
 ) -> float | None:
     """Return a stable base-frame heading error to a non-local path point.
 
@@ -382,7 +388,8 @@ def stable_path_heading_error(
     the base axis on successive callbacks.  Selecting the first point at least
     ``lookahead_m`` from the *current base pose* keeps the route's local shape
     while filtering that near-pose jitter.  A shorter path uses its farthest
-    point, provided it is still geometrically meaningful.
+    point only when it reaches the robot-scale reliability horizon; otherwise
+    the caller can use the fixed router waypoint.
     """
 
     values = (*robot_xy, robot_heading_rad, lookahead_m, minimum_target_m)
@@ -428,7 +435,7 @@ def world_target_heading_error(
     target_xy: tuple[float, float],
     *,
     robot_heading_rad: float,
-    minimum_target_m: float = DEFAULT_STABLE_TURN_MIN_TARGET_M,
+    minimum_target_m: float = DEFAULT_ROUTER_TURN_MIN_TARGET_M,
 ) -> float | None:
     """Return heading error to the router's fixed local waypoint."""
 

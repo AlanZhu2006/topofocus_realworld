@@ -147,6 +147,8 @@
         "enter_deg": 15.0,
         "exit_deg": 8.0
       },
+      "stable_path_heading_min_horizon_m": 0.3,
+      "short_path_heading_fallback": "current router waypoint",
       "linear_engagement_floor_mps": 0.18,
       "pose_timeout_s": 0.8,
       "path_timeout_s": 1.0,
@@ -184,7 +186,8 @@
         "watchdog_s": 0.35,
         "max_linear_x_mps": 0.2,
         "max_linear_y_mps": 0.0,
-        "max_angular_z_radps": 0.5
+        "max_angular_z_radps": 0.5,
+        "guarded_zero_release": "Move(0)+StopMove once after each active command"
       },
       "robot-1": {
         "implementation": "WATER /api/joy_control",
@@ -232,8 +235,8 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-      "size_bytes": 35377,
-      "sha256": "57e886bbb24dac28cc422ceaa4986fa923db334254ac727da882b13bae86f4bf",
+      "size_bytes": 35439,
+      "sha256": "180f93dd887c574208ddb5b5a7a6cc48ac940cbdfa3a320acfc54d1de658d2a9",
       "classification": "source-derived"
     },
     {
@@ -256,8 +259,8 @@
     },
     {
       "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
-      "size_bytes": 62255,
-      "sha256": "10ab9c15189a60740c9be6ea9ccdbb1be1acffcf35004cf73bce28115b938735",
+      "size_bytes": 62738,
+      "sha256": "6986acc7d7c62dacbca769ac477117a1a62d0e49876212abdacd94394d958ab3",
       "classification": "source-derived"
     },
     {

@@ -808,11 +808,12 @@ if [[ "$mode" == live ]]; then
   }
   # Both remote dependencies were checked against the observed 2026-07-27
   # size/SHA-256 contracts before any ROS command path was created.
-  # Fresh guarded zero messages therefore keep a bounded zero Move instead of
-  # repeatedly calling StopMove during short planner gaps. A dead receiver
-  # still triggers the bridge's independent cmd_vel timeout and StopMove.
+  # A confirmed guarded zero releases an active SportClient command exactly
+  # once via Move(0)+StopMove. Subsequent zero messages are no-ops until a
+  # fresh non-zero command reacquires control. This prevents a stale Sport
+  # state from surviving a coordinated HOLD or planner retry.
   tmux new-window -d -t "$SESSION" -n go2-bridge \
-    "bash -lc 'set -o pipefail; export GO2_CMD_TOPIC=/focus_guarded_cmd_vel GO2_MAX_VX=0.20 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.50 GO2_MIN_CMD_V=\"$LINEAR_COMMAND_FLOOR_MPS\" GO2_MIN_CMD_W=0.30 GO2_REMOTE_PRIORITY=true GO2_SEND_ZERO_WHEN_IDLE=true GO2_LOG_COMMANDS=true GO2_LOG_INTERVAL_SEC=0.2; bash \"$GO2_BRIDGE_RUNNER\" 2>&1 | tee \"$bridge_log\"'"
+    "bash -lc 'set -o pipefail; export GO2_CMD_TOPIC=/focus_guarded_cmd_vel GO2_MAX_VX=0.20 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.50 GO2_MIN_CMD_V=\"$LINEAR_COMMAND_FLOOR_MPS\" GO2_MIN_CMD_W=0.30 GO2_REMOTE_PRIORITY=true GO2_SEND_ZERO_WHEN_IDLE=false GO2_LOG_COMMANDS=true GO2_LOG_INTERVAL_SEC=0.2; bash \"$GO2_BRIDGE_RUNNER\" 2>&1 | tee \"$bridge_log\"'"
   echo "WSJ Go2 bridge command log: $bridge_log"
   "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
     --robot-id robot-0 \

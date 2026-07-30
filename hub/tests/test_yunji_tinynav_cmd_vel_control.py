@@ -314,7 +314,7 @@ def test_collision_scored_path_heading_overrides_conflicting_router_seed():
         robot_heading_rad=0.5597,
         path_xy=[
             (2.8755, -6.0557),
-            (2.8755 - 0.2 * math.cos(0.5597), -6.0557 - 0.2 * math.sin(0.5597)),
+            (2.8755 - 0.4 * math.cos(0.5597), -6.0557 - 0.4 * math.sin(0.5597)),
         ],
     )
 
@@ -330,6 +330,46 @@ def test_collision_scored_path_heading_overrides_conflicting_router_seed():
         path_heading_error_rad=None,
         router_heading_error_rad=target_error,
     ) == target_error
+
+
+def test_short_wall_front_paths_defer_to_stable_router_heading():
+    robot_xy = (0.523, -4.1567)
+    robot_heading_rad = math.radians(179.0)
+    router_error = MODULE.world_target_heading_error(
+        robot_xy,
+        (-0.775, 0.775),
+        robot_heading_rad=robot_heading_rad,
+    )
+    left_jitter = MODULE.stable_path_heading_error(
+        robot_xy,
+        robot_heading_rad=robot_heading_rad,
+        path_xy=[
+            robot_xy,
+            (0.48, -4.13),
+            (0.43, -4.10),
+        ],
+    )
+    right_jitter = MODULE.stable_path_heading_error(
+        robot_xy,
+        robot_heading_rad=robot_heading_rad,
+        path_xy=[
+            robot_xy,
+            (0.49, -4.19),
+            (0.42, -4.24),
+        ],
+    )
+
+    assert left_jitter is None
+    assert right_jitter is None
+    assert router_error is not None
+    assert MODULE.select_authoritative_heading_error(
+        path_heading_error_rad=left_jitter,
+        router_heading_error_rad=router_error,
+    ) == router_error
+    assert MODULE.select_authoritative_heading_error(
+        path_heading_error_rad=right_jitter,
+        router_heading_error_rad=router_error,
+    ) == router_error
 
 
 def test_measured_rear_left_goal_has_one_stable_positive_turn():
