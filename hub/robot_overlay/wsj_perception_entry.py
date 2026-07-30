@@ -23,7 +23,11 @@ from pathlib import Path
 PINNED_PERCEPTION_SHA256 = (
     "3a695d5210d60ea1f721549ca7458ba89e7bf32db5178cd1c312c633aef1c3b3"
 )
-DEFAULT_IMU_QOS_DEPTH = 50
+# At the observed 200 Hz IMU rate, 200 samples retain about one second.  That
+# covers the 0.12 s executor stalls observed during Scene 03 Formal 07 while
+# remaining far below the former 10,000-sample (roughly 50 s) backlog.
+DEFAULT_IMU_QOS_DEPTH = 200
+MAXIMUM_IMU_QOS_DEPTH = 400
 DEFAULT_IMU_BUFFER_SIZE = 4_000
 
 
@@ -70,7 +74,7 @@ def main() -> int:
         "FOCUS_WSJ_IMU_QOS_DEPTH",
         default=DEFAULT_IMU_QOS_DEPTH,
         minimum=50,
-        maximum=2_000,
+        maximum=MAXIMUM_IMU_QOS_DEPTH,
     )
     buffer_size = bounded_integer(
         "FOCUS_WSJ_IMU_BUFFER_SIZE",

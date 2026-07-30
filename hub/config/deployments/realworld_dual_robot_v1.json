@@ -83,6 +83,14 @@
       "camera_firmware": "5.17.0.10",
       "classification": "observed",
       "source": "docs/ROBOT0_BASELINE_20260721.md"
+    },
+    "robot0_perception_runtime": {
+      "entry_point": "hub/robot_overlay/wsj_perception_entry.py",
+      "imu_rate_hz": 200,
+      "imu_dds_history_depth": 200,
+      "imu_dds_history_hard_maximum": 400,
+      "stale_or_incomplete_imu_policy": "reject optimization and stop motion",
+      "classification": "source-derived"
     }
   },
   "planning": {
@@ -135,6 +143,10 @@
       "source": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
       "measured_base_camera_transform_required": true,
       "rotate_first_large_turn": true,
+      "path_turn_direction_latch": {
+        "enter_deg": 15.0,
+        "exit_deg": 8.0
+      },
       "linear_engagement_floor_mps": 0.18,
       "pose_timeout_s": 0.8,
       "path_timeout_s": 1.0,
@@ -225,6 +237,12 @@
       "classification": "source-derived"
     },
     {
+      "path": "hub/robot_overlay/wsj_perception_entry.py",
+      "size_bytes": 3102,
+      "sha256": "d3c2dab2f68a58916c3cb79f71366ac94503b39a07282eee99bb9633b2571c74",
+      "classification": "source-derived"
+    },
+    {
       "path": "hub/robot_overlay/tinynav_buildmap_goal_router.py",
       "size_bytes": 49419,
       "sha256": "c7121fe6bf42c4c2410e4b7255ad532da5e33d26c556e38d753294670578ddf2",
@@ -238,8 +256,8 @@
     },
     {
       "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
-      "size_bytes": 61712,
-      "sha256": "3b4cc66bed5d8ac540e72ec69ed3b673e3512d3717e402d558defb9e94485d7a",
+      "size_bytes": 62255,
+      "sha256": "10ab9c15189a60740c9be6ea9ccdbb1be1acffcf35004cf73bce28115b938735",
       "classification": "source-derived"
     },
     {

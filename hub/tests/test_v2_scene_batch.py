@@ -398,6 +398,75 @@ def test_builds_semantic_and_frontier_concurrent_batch(tmp_path, observation_fac
     )
 
 
+def test_history_choice_is_consumed_before_semantic_override(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    origin_x, origin_y = manifest["fused_origin_xy_m"]
+    resolution = manifest["resolution_m"]
+    history = [
+        {
+            "frontier_id": f"history-{index}",
+            "history_index": index,
+            "row": 3 + index,
+            "col": 4 + index,
+            "x_m": origin_x + (4 + index + 0.5) * resolution,
+            "y_m": origin_y + (3 + index + 0.5) * resolution,
+            "history_score": float(10 + index),
+        }
+        for index in range(5)
+    ]
+    selected_history = {
+        "kind": "history",
+        "target_id": "history-3",
+        **{
+            key: value
+            for key, value in history[3].items()
+            if key != "frontier_id"
+        },
+    }
+    semantic = manifest["robots"][0]["semantic_goal_override"]
+    first, second = manifest["robots"]
+    first["candidate_history_nodes"] = history
+    second.update({
+        "candidate_history_nodes": history,
+        "allocated_frontier": None,
+        "choice_probabilities": {},
+        "selected_history_index": 3,
+        "exploration_selection_before_target_override": selected_history,
+        "semantic_goal_override": semantic,
+        "final_shadow_selection": semantic,
+    })
+    manifest["remaining_frontiers"] = [
+        manifest["frontiers"][1],
+    ]
+    manifest["remaining_history_nodes"] = [
+        item for item in history if item["history_index"] != 3
+    ]
+    manifest["final_shadow_selections"]["robot-1"] = semantic
+    write_json(manifest_path, manifest)
+
+    built = build_batch_from_shadow_manifest(
+        manifest_path,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-history-before-semantic",
+        execution_epoch=4,
+        now_ns=now,
+        robot_config_path=config,
+    )
+
+    assert built.report["preflight_ready"] is True
+    assert [decision.target.kind for decision in built.batch.decisions] == [
+        "SEMANTIC_REGION",
+        "SEMANTIC_REGION",
+    ]
+
+
 def test_single_shared_frontier_builds_one_goal_and_one_explicit_hold(
     tmp_path,
     observation_factory,

@@ -73,6 +73,13 @@ DEFAULT_STABLE_TURN_LOOKAHEAD_M = 0.35
 DEFAULT_STABLE_TURN_MIN_TARGET_M = 0.10
 DEFAULT_STABLE_TURN_ENTER_RAD = math.radians(75.0)
 DEFAULT_STABLE_TURN_EXIT_RAD = math.radians(35.0)
+# TinyNav also emits pure-yaw commands for ordinary path alignment.  Those
+# turns need the same direction latch as a large rotate-first recovery, but
+# only after a real non-zero angular request.  The 15/8-degree hysteresis
+# matches the source controller's yaw deadband and prevents successive local
+# trajectory samples from alternating the turn sign.
+DEFAULT_PATH_TURN_ENTER_RAD = math.radians(15.0)
+DEFAULT_PATH_TURN_EXIT_RAD = math.radians(8.0)
 DEFAULT_TINY_REVERSE_ALIGNMENT_ENTER_RAD = math.radians(15.0)
 DEFAULT_TINY_REVERSE_ALIGNMENT_EXIT_RAD = math.radians(8.0)
 DEFAULT_TINY_REVERSE_ALIGNMENT_GAIN = 0.5
@@ -530,6 +537,8 @@ def path_turn_recovery_required(
         recovery_active=recovery_active,
         requested_linear_mps=requested_linear_mps,
         requested_angular_radps=requested_angular_radps,
+        enter_rad=DEFAULT_PATH_TURN_ENTER_RAD,
+        exit_rad=DEFAULT_PATH_TURN_EXIT_RAD,
     )
 
 

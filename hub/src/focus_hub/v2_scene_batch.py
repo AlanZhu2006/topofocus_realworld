@@ -1125,80 +1125,129 @@ def _validate_vlm_selection_bindings(
             raise ValueError(
                 f"{robot_id} final VLM selection differs across manifest sections"
             )
-        if selection is None:
-            continue
-        if not isinstance(selection, dict):
-            raise ValueError(f"{robot_id} final VLM selection is malformed")
-        kind = selection.get("kind")
-        if kind == "frontier":
+
+        # The source cascade commits its exploration choice before a
+        # semantic target may override the final destination.  Validate and
+        # consume that first-stage choice independently; otherwise a history
+        # node selected immediately before a semantic override is left in the
+        # validator's remaining set even though the source episode correctly
+        # removed it.
+        exploration = result.get(
+            "exploration_selection_before_target_override"
+        )
+        if exploration is not None and not isinstance(exploration, dict):
+            raise ValueError(
+                f"{robot_id} exploration VLM selection is malformed"
+            )
+        exploration_kind = (
+            None if exploration is None else exploration.get("kind")
+        )
+        if exploration_kind == "frontier":
             if allocated is None:
                 raise ValueError(
                     f"{robot_id} frontier target has no score-selected ABCD source"
                 )
             selected_record = _validated_frontier_record(
-                selection,
+                exploration,
                 context=f"{robot_id} selected",
             )
             if (
-                selection.get("target_id") != selected_record["frontier_id"]
+                exploration.get("target_id")
+                != selected_record["frontier_id"]
                 or not _frontier_record_matches(selected_record, allocated)
-                or result.get("exploration_selection_before_target_override")
-                != selection
+                or result.get("selected_history_index") is not None
             ):
                 raise ValueError(
                     f"{robot_id} frontier target is not bound to its ABCD choice"
+                )
+        elif exploration_kind == "history":
+            if (
+                exploration.get("history_index")
+                != result.get("selected_history_index")
+            ):
+                raise ValueError(
+                    f"{robot_id} history target differs from the source gate choice"
+                )
+            if history_candidates is None:
+                raise ValueError(
+                    f"{robot_id} history target has no frozen candidates"
+                )
+            # Source history selections carry their stable identity as
+            # ``target_id``; frozen candidate records carry the same identity
+            # as ``frontier_id``. Normalize only that alias before validating
+            # the complete grid/score binding.
+            exploration_history_record = dict(exploration)
+            exploration_history_record["frontier_id"] = exploration.get(
+                "target_id"
+            )
+            validated_selection = _validated_history_list(
+                [exploration_history_record],
+                context=f"{robot_id} selected",
+                origin_xy_m=origin_xy_m,
+                resolution_m=resolution_m,
+                shape_hw=shape_hw,
+            )[0]
+            selected_index = validated_selection["history_index"]
+            selected = next(
+                (
+                    item
+                    for item in history_candidates
+                    if item["history_index"] == selected_index
+                ),
+                None,
+            )
+            if (
+                selected is None
+                or validated_selection != selected
+                or exploration.get("target_id")
+                != validated_selection["frontier_id"]
+            ):
+                raise ValueError(
+                    f"{robot_id} history target is outside its frozen "
+                    "source-history candidates"
+                )
+            if remaining_history is not None and len(remaining_history) > 1:
+                remaining_history = [
+                    item
+                    for item in remaining_history
+                    if item["history_index"] != selected_index
+                ]
+        elif exploration_kind is None:
+            if result.get("selected_history_index") is not None:
+                raise ValueError(
+                    f"{robot_id} source history index has no exploration target"
+                )
+        else:
+            raise ValueError(
+                f"{robot_id} has unsupported exploration VLM selection kind"
+            )
+
+        if selection is None:
+            if (
+                exploration is not None
+                or result.get("semantic_goal_override") is not None
+            ):
+                raise ValueError(
+                    f"{robot_id} has an intermediate VLM target but no final selection"
+                )
+            continue
+        if not isinstance(selection, dict):
+            raise ValueError(f"{robot_id} final VLM selection is malformed")
+        kind = selection.get("kind")
+        if kind in {"frontier", "history"}:
+            if (
+                selection != exploration
+                or result.get("semantic_goal_override") is not None
+            ):
+                raise ValueError(
+                    f"{robot_id} final exploration target differs from "
+                    "the source gate choice"
                 )
         elif kind == "semantic_goal":
             if result.get("semantic_goal_override") != selection:
                 raise ValueError(
                     f"{robot_id} semantic target differs across VLM result fields"
                 )
-        elif kind == "history":
-            if (
-                result.get("exploration_selection_before_target_override")
-                != selection
-                or selection.get("history_index")
-                != result.get("selected_history_index")
-            ):
-                raise ValueError(
-                    f"{robot_id} history target differs from the source gate choice"
-                )
-            if history_candidates is not None:
-                validated_selection = _validated_history_list(
-                    [selection],
-                    context=f"{robot_id} selected",
-                    origin_xy_m=origin_xy_m,
-                    resolution_m=resolution_m,
-                    shape_hw=shape_hw,
-                )[0]
-                selected_index = validated_selection["history_index"]
-                selected = next(
-                    (
-                        item
-                        for item in history_candidates
-                        if item["history_index"] == selected_index
-                    ),
-                    None,
-                )
-                if (
-                    selected is None
-                    or validated_selection != selected
-                    or selection.get("target_id")
-                    != validated_selection["frontier_id"]
-                ):
-                    raise ValueError(
-                        f"{robot_id} history target is outside its frozen "
-                        "source-history candidates"
-                    )
-                if (
-                    remaining_history is not None
-                    and len(remaining_history) > 1
-                ):
-                    remaining_history = [
-                        item
-                        for item in remaining_history
-                        if item["history_index"] != selected_index
-                    ]
         else:
             raise ValueError(f"{robot_id} has unsupported VLM selection kind")
 

@@ -419,6 +419,40 @@ def test_reverse_segment_cannot_enter_generic_large_turn_recovery():
     )
 
 
+def test_traversable_moderate_turn_latches_direction_until_yaw_deadband():
+    # Scene 03 Formal 07 showed alternating source yaw signs at ordinary
+    # 15--30 degree path alignment angles.  Once a real pure-yaw command
+    # enters recovery, local trajectory jitter must not flip that direction.
+    assert MODULE.path_turn_recovery_required(
+        "allow",
+        math.radians(20.0),
+        recovery_active=False,
+        requested_linear_mps=0.0,
+        requested_angular_radps=0.3,
+    )
+    assert MODULE.path_turn_recovery_required(
+        "allow",
+        math.radians(10.0),
+        recovery_active=True,
+        requested_linear_mps=0.0,
+        requested_angular_radps=-0.3,
+    )
+    assert not MODULE.path_turn_recovery_required(
+        "allow",
+        math.radians(7.9),
+        recovery_active=True,
+        requested_linear_mps=0.0,
+        requested_angular_radps=-0.3,
+    )
+    assert not MODULE.path_turn_recovery_required(
+        "allow",
+        math.radians(20.0),
+        recovery_active=False,
+        requested_linear_mps=0.1,
+        requested_angular_radps=0.3,
+    )
+
+
 def test_restart14_tiny_reverse_alignment_recovers_from_zero_yaw():
     # Observed robot-1 router-heading sequence after the source controller
     # entered its exact-zero/tiny-reverse deadlock in Scene 03 Restart 14.
