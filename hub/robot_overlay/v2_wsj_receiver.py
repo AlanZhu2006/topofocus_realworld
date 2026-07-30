@@ -1259,8 +1259,12 @@ def main() -> int:
     parser.add_argument(
         "--trajectory-start-grace-s",
         type=float,
-        default=1.5,
-        help="maximum delay from local authorization to the first non-empty path",
+        default=5.0,
+        help=(
+            "terminal deadline from local authorization to the first "
+            "non-empty path; physical output remains zero until that path "
+            "is fresh"
+        ),
     )
     parser.add_argument(
         "--trajectory-stale-timeout-s",
@@ -1274,7 +1278,7 @@ def main() -> int:
     parser.add_argument(
         "--trajectory-recovery-timeout-s",
         type=float,
-        default=5.0,
+        default=8.0,
         help=(
             "terminal semantic-leg deadline after a previously observed "
             "trajectory becomes stale; the physical gate remains governed "
@@ -4101,6 +4105,11 @@ def main() -> int:
                     node.authorized
                     and node.authority_started_ns > 0
                     and trajectory_failed
+                    # A router-owned recovery already keeps physical output
+                    # at zero and has its own bounded terminal verdict. Do not
+                    # let the shorter trajectory timer preempt that state.
+                    and router_recovery_leg_id
+                    != active_decision.leg_id
                 ):
                     failed_decision = active_decision
                     failure_timeout_s = (

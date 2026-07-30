@@ -57,12 +57,14 @@ RECEIVER_ODOMETRY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_ODOMETRY_RECOVERY_GRACE
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
 # The guarded velocity output is zeroed after one second without a fresh path.
-# Physical semantic legs observed 1.016 s and 3.365 s planner publication gaps
-# while the router still reported ONLINE_PATH_READY. Keep the zero-output gate
-# at one second, but allow five seconds for the planner to republish before
-# terminally rejecting the semantic leg.
+# Physical legs observed a 1.900-1.921 s first-path delay and later 1.016 s and
+# 3.365 s planner publication gaps while the router was still producing an
+# online path. Keep the zero-output gate at one second, but separate it from
+# the more tolerant terminal verdicts. A router-owned bounded map-maturation
+# wait takes precedence over both trajectory verdicts.
+TRAJECTORY_START_GRACE_S="${FOCUS_WSJ_TRAJECTORY_START_GRACE_S:-5.0}"
 TRAJECTORY_STALE_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_STALE_TIMEOUT_S:-1.0}"
-TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-5.0}"
+TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-8.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_WSJ_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry
@@ -745,6 +747,7 @@ receiver=(
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
   --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"
+  --trajectory-start-grace-s "$TRAJECTORY_START_GRACE_S"
   --trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"
   --trajectory-recovery-timeout-s "$TRAJECTORY_RECOVERY_TIMEOUT_S"
   --semantic-arrival-radius-m "$SEMANTIC_ARRIVAL_RADIUS_M"
