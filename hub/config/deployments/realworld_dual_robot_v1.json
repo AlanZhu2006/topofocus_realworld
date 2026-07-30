@@ -157,8 +157,8 @@
         "duration_s": 0.6
       },
       "verified_forward_only_path_geometry": "zero-linear bounded heading alignment",
-      "turn_no_progress_authority": "robot-local receiver goal-progress watchdog",
-      "negative_twist_policy": "reject and stop"
+      "turn_no_progress_authority": "receiver progress watchdog for ordinary turns; local rotate-first timeout for source reverse requests",
+      "negative_twist_policy": "never forward; use stable-heading zero-linear alignment or reject on missing authority/timeout"
     }
   },
   "control_contract": {
@@ -261,8 +261,8 @@
     },
     {
       "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
-      "size_bytes": 67349,
-      "sha256": "11e4d6aa1cba422d1b5b9891e8e862ebba75f31bc343d7396536da7d44da168b",
+      "size_bytes": 71983,
+      "sha256": "7449fcf061c108e15c0e4083e213e3ab13e7ad8638f9765b579944112a7244bc",
       "classification": "source-derived"
     },
     {

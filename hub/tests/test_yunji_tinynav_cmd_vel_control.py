@@ -252,7 +252,7 @@ def test_verified_forward_only_planner_treats_path_geometry_as_a_turn(
     assert violation is False
 
 
-def test_actual_negative_twist_remains_a_forward_only_contract_violation():
+def test_actual_negative_twist_remains_a_detectable_source_reverse_request():
     effective_action, violation = (
         MODULE.resolve_forward_only_control_contract(
             "allow",
@@ -263,6 +263,60 @@ def test_actual_negative_twist_remains_a_forward_only_contract_violation():
 
     assert effective_action == "reject_reverse"
     assert violation is True
+
+
+@pytest.mark.parametrize(
+    (
+        "reverse_requested",
+        "heading_deg",
+        "recovery_active",
+        "rotate_first",
+        "stabilize",
+        "paused",
+        "expected",
+    ),
+    [
+        (False, 90.0, False, True, True, False, "none"),
+        (True, 90.0, False, True, True, False, "align"),
+        (True, 10.0, True, True, True, False, "align"),
+        (True, 10.0, False, True, True, False, "hold"),
+        (True, 5.0, True, True, True, False, "hold"),
+        (True, None, False, True, True, False, "reject"),
+        (True, 90.0, False, False, True, False, "reject"),
+        (True, 90.0, False, True, False, False, "reject"),
+        (True, 90.0, False, True, True, True, "hold"),
+    ],
+)
+def test_verified_source_reverse_is_aligned_held_or_rejected_without_reverse(
+    reverse_requested,
+    heading_deg,
+    recovery_active,
+    rotate_first,
+    stabilize,
+    paused,
+    expected,
+):
+    heading = None if heading_deg is None else math.radians(heading_deg)
+    assert MODULE.classify_verified_reverse_command_recovery(
+        reverse_requested,
+        heading,
+        recovery_active=recovery_active,
+        rotate_first_enabled=rotate_first,
+        stabilize_large_turn=stabilize,
+        paused=paused,
+    ) == expected
+
+
+def test_verified_source_reverse_recovery_rejects_invalid_heading():
+    with pytest.raises(ValueError):
+        MODULE.classify_verified_reverse_command_recovery(
+            True,
+            float("nan"),
+            recovery_active=False,
+            rotate_first_enabled=True,
+            stabilize_large_turn=True,
+            paused=False,
+        )
 
 
 def test_unverified_planner_retains_legacy_geometry_rejection():
@@ -285,6 +339,11 @@ def test_forward_only_turn_timeout_is_owned_by_receiver_progress_watchdog():
     assert not MODULE.controller_recovery_timeout_is_terminal(
         expired=False,
         verified_forward_only_planner=False,
+    )
+    assert MODULE.controller_recovery_timeout_is_terminal(
+        expired=True,
+        verified_forward_only_planner=True,
+        source_reverse_command=True,
     )
 
 
