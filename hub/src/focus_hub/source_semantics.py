@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 from pathlib import Path
+import sys
 from typing import Mapping
 
 import numpy as np
@@ -172,6 +173,31 @@ def verify_detectron2_runtime() -> dict[str, object]:
     }
 
 
+def _import_workspace_rednet_model(workspace: Path):
+    """Import the pinned RedNet tree with its legacy absolute ``utils`` import.
+
+    Upstream ``RedNet_model.py`` imports its sibling as top-level ``utils``.
+    Adding only ``dependencies/`` makes ``RedNet.RedNet_model`` visible but
+    leaves that sibling unresolved.  Keep both source roots scoped to this
+    import instead of modifying the immutable dependency.
+    """
+
+    dependencies = workspace / "dependencies"
+    rednet_root = dependencies / "RedNet"
+    inserted: list[str] = []
+    for path in (dependencies, rednet_root):
+        value = str(path)
+        if value not in sys.path:
+            sys.path.insert(0, value)
+            inserted.append(value)
+    try:
+        from RedNet import RedNet_model
+    finally:
+        for value in inserted:
+            sys.path.remove(value)
+    return RedNet_model
+
+
 def verify_source_semantic_stack(workspace: Path | str) -> dict[str, object]:
     """Verify every code, model and CUDA input needed before map startup.
 
@@ -194,7 +220,8 @@ def verify_source_semantic_stack(workspace: Path | str) -> dict[str, object]:
 
     import torch
     import ultralytics
-    from RedNet import RedNet_model
+
+    RedNet_model = _import_workspace_rednet_model(root)
 
     if not torch.cuda.is_available():
         raise RuntimeError(

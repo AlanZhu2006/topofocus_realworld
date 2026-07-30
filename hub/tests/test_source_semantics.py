@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 import pytest
@@ -10,11 +11,32 @@ import pytest
 from focus_hub.source_semantics import (
     SOURCE_YOLO_WEIGHT_SHA256,
     SOURCE_YOLO_WEIGHT_SIZE,
+    _import_workspace_rednet_model,
     accumulate_maskrcnn_channels,
     apply_source_maskrcnn_override,
     rednet_labels_to_hm3d_channels,
     verify_artifact,
 )
+
+
+def test_workspace_rednet_import_supports_legacy_top_level_utils(
+    tmp_path, monkeypatch
+):
+    rednet = tmp_path / "dependencies" / "RedNet"
+    rednet.mkdir(parents=True)
+    (rednet / "utils.py").write_text("SENTINEL = 17\n", encoding="utf-8")
+    (rednet / "RedNet_model.py").write_text(
+        "import utils\nSENTINEL = utils.SENTINEL\n",
+        encoding="utf-8",
+    )
+    for name in ("RedNet.RedNet_model", "RedNet", "utils"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    original_path = list(sys.path)
+
+    module = _import_workspace_rednet_model(tmp_path)
+
+    assert module.SENTINEL == 17
+    assert sys.path == original_path
 
 
 def test_rednet_conversion_preserves_duplicate_source_category_mapping():
