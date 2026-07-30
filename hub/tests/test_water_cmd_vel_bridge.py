@@ -85,6 +85,66 @@ def test_water_velocity_watchdog_fails_closed() -> None:
     assert reason == "water_health_not_ready"
 
 
+def test_live_water_readiness_requires_current_joy_acknowledgements() -> None:
+    bridge = load_bridge()
+
+    assert bridge.command_channel_ready(
+        live=False,
+        last_send_succeeded=False,
+        last_send_ok_monotonic=0.0,
+        now_monotonic=10.0,
+        send_rate_hz=5.0,
+    )
+    assert not bridge.command_channel_ready(
+        live=True,
+        last_send_succeeded=False,
+        last_send_ok_monotonic=0.0,
+        now_monotonic=10.0,
+        send_rate_hz=5.0,
+    )
+    assert bridge.command_channel_ready(
+        live=True,
+        last_send_succeeded=True,
+        last_send_ok_monotonic=9.6,
+        now_monotonic=10.0,
+        send_rate_hz=5.0,
+    )
+    assert not bridge.command_channel_ready(
+        live=True,
+        last_send_succeeded=False,
+        last_send_ok_monotonic=9.9,
+        now_monotonic=10.0,
+        send_rate_hz=5.0,
+    )
+    assert not bridge.command_channel_ready(
+        live=True,
+        last_send_succeeded=True,
+        last_send_ok_monotonic=9.49,
+        now_monotonic=10.0,
+        send_rate_hz=5.0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("now_monotonic", "send_rate_hz"),
+    [(float("nan"), 5.0), (10.0, 0.0)],
+)
+def test_water_command_channel_rejects_invalid_timing(
+    now_monotonic,
+    send_rate_hz,
+) -> None:
+    bridge = load_bridge()
+
+    with pytest.raises(ValueError):
+        bridge.command_channel_ready(
+            live=True,
+            last_send_succeeded=True,
+            last_send_ok_monotonic=9.9,
+            now_monotonic=now_monotonic,
+            send_rate_hz=send_rate_hz,
+        )
+
+
 def test_water_joy_command_is_newline_terminated_and_bounded() -> None:
     bridge = load_bridge()
     raw = bridge.joy_command_line(0.125, -0.25, request_id="test-id")

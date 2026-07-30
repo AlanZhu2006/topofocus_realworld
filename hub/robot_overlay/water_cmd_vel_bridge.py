@@ -127,6 +127,46 @@ def effective_velocity(
     return command, "active" if not command.zero else "guarded_zero"
 
 
+def command_channel_ready(
+    *,
+    live: bool,
+    last_send_succeeded: bool,
+    last_send_ok_monotonic: float,
+    now_monotonic: float,
+    send_rate_hz: float,
+) -> bool:
+    """Require a recent acknowledged joy command before advertising ready.
+
+    ``/api/robot_status`` and ``/api/joy_control`` are independent WATER
+    requests.  A healthy status response therefore cannot prove that the
+    velocity command connection is usable.  In live mode, fail closed until
+    at least one joy command has been acknowledged, immediately close on a
+    send failure, and close again if acknowledgements stop arriving.
+    """
+
+    values = (
+        last_send_ok_monotonic,
+        now_monotonic,
+        send_rate_hz,
+    )
+    if not all(math.isfinite(float(value)) for value in values):
+        raise ValueError("command-channel timing must be finite")
+    if send_rate_hz <= 0.0:
+        raise ValueError("send_rate_hz must be positive")
+    if not live:
+        return True
+    if (
+        not last_send_succeeded
+        or last_send_ok_monotonic <= 0.0
+        or now_monotonic < last_send_ok_monotonic
+    ):
+        return False
+    return (
+        now_monotonic - last_send_ok_monotonic
+        <= max(0.5, 2.0 / send_rate_hz)
+    )
+
+
 def joy_command_line(
     linear_mps: float,
     angular_radps: float,
@@ -400,6 +440,7 @@ def main() -> int:
             }
             self.water_health_monotonic = 0.0
             self.last_send_ok_monotonic = 0.0
+            self.last_send_succeeded = False
             self.last_sent = SanitizedVelocity(
                 0.0, 0.0, True, "initial_zero"
             )
@@ -461,9 +502,11 @@ def main() -> int:
                 self.joy.send(velocity.linear_mps, velocity.angular_radps)
                 self.last_sent = velocity
                 self.last_send_ok_monotonic = time.monotonic()
+                self.last_send_succeeded = True
             except Exception as exc:  # noqa: BLE001 - watchdog must keep spinning
                 self.joy.close()
                 self.water_health["ready"] = False
+                self.last_send_succeeded = False
                 self.last_reason = f"water_send_failed:{type(exc).__name__}"
                 self.get_logger().error(
                     f"WATER velocity send failed: {exc}",
@@ -488,18 +531,22 @@ def main() -> int:
                 if self.command_received_monotonic <= 0.0
                 else max(0.0, now - self.command_received_monotonic)
             )
+            joy_channel_ready = command_channel_ready(
+                live=live,
+                last_send_succeeded=self.last_send_succeeded,
+                last_send_ok_monotonic=self.last_send_ok_monotonic,
+                now_monotonic=now,
+                send_rate_hz=args.send_rate_hz,
+            )
             zero_confirmed = bool(
                 self.last_sent.zero
-                and (
-                    not live
-                    or now - self.last_send_ok_monotonic
-                    <= max(0.5, 2.0 / args.send_rate_hz)
-                )
+                and joy_channel_ready
             )
             payload = {
                 "schema_version": "focus-water-cmd-bridge-v1",
                 "live": live,
-                "ready": self.water_ready(now),
+                "ready": self.water_ready(now) and joy_channel_ready,
+                "command_channel_ready": joy_channel_ready,
                 "input_topic": args.input_topic,
                 "command_age_s": command_age_s,
                 "command_active": not self.last_sent.zero,

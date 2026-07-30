@@ -43,6 +43,10 @@ SOURCE_REDNET_WEIGHT_SIZE = 656_550_984
 SOURCE_REDNET_WEIGHT_SHA256 = (
     "f94d1c62a73bc05690ae29200d3dbd033ff243e7ce91755d1cd928bde844f995"
 )
+SOURCE_YOLO_WEIGHT_SIZE = 33_643_667
+SOURCE_YOLO_WEIGHT_SHA256 = (
+    "6dc78f7a88591cec1e8716b8f5c7e3aefa9206684f025d202be34439ccb329a0"
+)
 SOURCE_MASKRCNN_CONFIG_SIZE = 192
 SOURCE_MASKRCNN_CONFIG_SHA256 = (
     "e51a639dea109a372822f1b38a603fdeab7f470119d9dcb8d8ad53bf533a46ba"
@@ -165,6 +169,117 @@ def verify_detectron2_runtime() -> dict[str, object]:
             "sha256": sha256_file(extension_path),
             "status": "observed_local_compatibility_build",
         },
+    }
+
+
+def verify_source_semantic_stack(workspace: Path | str) -> dict[str, object]:
+    """Verify every code, model and CUDA input needed before map startup.
+
+    This deliberately does not construct the three neural networks.  Exact
+    artifact hashes make checkpoint corruption fail here, while importing the
+    pinned Detectron2 CUDA extension catches the common Torch/CUDA ABI
+    mismatch.  Model construction and inference remain owned by each mapping
+    daemon; the launcher can run this bounded check before it creates either
+    daemon or any map output directory.
+    """
+
+    from .source_behavior_contract import (
+        SOURCE_BEHAVIOR_CONTRACT_VERSION,
+        observe_reviewed_source_artifacts,
+    )
+
+    root = Path(workspace).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"workspace does not exist: {root}")
+
+    import torch
+    import ultralytics
+    from RedNet import RedNet_model
+
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "source semantic backend requires an available CUDA device"
+        )
+    expected_rednet_source = (
+        root / "dependencies" / "RedNet" / "RedNet_model.py"
+    ).resolve()
+    observed_rednet_source = Path(RedNet_model.__file__).resolve()
+    if observed_rednet_source != expected_rednet_source:
+        raise RuntimeError(
+            "RedNet import resolved outside the immutable workspace "
+            f"dependency: {observed_rednet_source}"
+        )
+
+    config = (
+        root
+        / "source"
+        / "Focus_realworld"
+        / "configs"
+        / "COCO-InstanceSegmentation"
+        / "mask_rcnn_R_50_FPN_3x.yaml"
+    )
+    base_config = config.parent.parent / "Base-RCNN-FPN.yaml"
+    return {
+        "schema_version": "focus-source-semantic-preflight-v1",
+        "classification": "observed_local_identity_and_runtime_preflight",
+        "workspace": str(root),
+        "source_behavior_contract": SOURCE_BEHAVIOR_CONTRACT_VERSION,
+        "source_code_artifacts": observe_reviewed_source_artifacts(root),
+        "rednet_source": {
+            "path": str(observed_rednet_source),
+            "status": "observed_immutable_workspace_dependency",
+        },
+        "rednet_weight": verify_artifact(
+            root
+            / "artifacts"
+            / "checkpoints"
+            / "rednet_semmap_mp3d_40.pth",
+            expected_size=SOURCE_REDNET_WEIGHT_SIZE,
+            expected_sha256=SOURCE_REDNET_WEIGHT_SHA256,
+            label="source RedNet weight",
+        ),
+        "maskrcnn_weight": verify_artifact(
+            root
+            / "artifacts"
+            / "checkpoints"
+            / (
+                "detectron2_mask_rcnn_R_50_FPN_3x_"
+                "model_final_f10217.pkl"
+            ),
+            expected_size=SOURCE_MASKRCNN_WEIGHT_SIZE,
+            expected_sha256=SOURCE_MASKRCNN_WEIGHT_SHA256,
+            label="source Detectron2 Mask R-CNN weight",
+        ),
+        "maskrcnn_config": verify_artifact(
+            config,
+            expected_size=SOURCE_MASKRCNN_CONFIG_SIZE,
+            expected_sha256=SOURCE_MASKRCNN_CONFIG_SHA256,
+            label="source Detectron2 Mask R-CNN config",
+        ),
+        "maskrcnn_base_config": verify_artifact(
+            base_config,
+            expected_size=SOURCE_MASKRCNN_BASE_CONFIG_SIZE,
+            expected_sha256=SOURCE_MASKRCNN_BASE_CONFIG_SHA256,
+            label="source Detectron2 Mask R-CNN base config",
+        ),
+        "detectron2_runtime": verify_detectron2_runtime(),
+        "yolo_weight": verify_artifact(
+            root / "artifacts" / "vision" / "yolov10m.pt",
+            expected_size=SOURCE_YOLO_WEIGHT_SIZE,
+            expected_sha256=SOURCE_YOLO_WEIGHT_SHA256,
+            label="source YOLOv10m weight",
+        ),
+        "python_runtime": {
+            "torch_version": torch.__version__,
+            "torch_cuda_version": torch.version.cuda,
+            "cuda_device_name": torch.cuda.get_device_name(0),
+            "ultralytics_version": ultralytics.__version__,
+            "status": "imports_and_cuda_extension_observed",
+        },
+        "scope": (
+            "identity_and_runtime_preflight_without_model_construction_or_"
+            "inference"
+        ),
     }
 
 

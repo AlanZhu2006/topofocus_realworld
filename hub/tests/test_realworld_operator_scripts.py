@@ -434,6 +434,21 @@ def test_map_restart_binds_sequence_and_code_contract():
     assert '"start_after_sequence": boundary' in source
     assert '"code_git_commit": code_commit' in source
     assert "existing map session contract mismatch" in source
+    semantic_preflight = source.index(
+        "verify_source_semantic_stack.py"
+    )
+    first_map_output = source.index('wsj_out="$hub_dir/runtime/map_out_wsj_')
+    first_tmux = source.index("tmux new-session")
+    assert semantic_preflight < first_map_output < first_tmux
+    assert "semantic_preflight_timestamp" in source
+    assert (
+        "source_semantic_preflight_${session_tag}_"
+        "${semantic_preflight_timestamp}.json"
+    ) in source
+    assert (
+        "git -C \"$workspace\" status --porcelain "
+        "--untracked-files=normal"
+    ) in source
 
 
 def test_oneclick_recovers_and_probes_the_existing_ssh_panes():

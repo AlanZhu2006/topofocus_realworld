@@ -1085,6 +1085,29 @@ def test_wsj_recovers_only_transient_router_input_lag_with_ready_gate():
     )
 
 
+@pytest.mark.parametrize(
+    "target_kind",
+    ["FRONTIER_POINT", "SEMANTIC_REGION"],
+)
+def test_no_known_free_path_replans_both_high_level_target_kinds(
+    target_kind,
+):
+    receiver = load_overlay("v2_wsj_receiver.py")
+
+    assert receiver.no_known_free_path_requires_replan(
+        target_kind,
+        "NO_KNOWN_FREE_PATH",
+    )
+    assert not receiver.no_known_free_path_requires_replan(
+        target_kind,
+        "ODOMETRY_STALE",
+    )
+    assert not receiver.no_known_free_path_requires_replan(
+        "UNSUPPORTED_TARGET",
+        "NO_KNOWN_FREE_PATH",
+    )
+
+
 def test_goal_progress_watchdog_survives_leases_and_bounds_stall():
     receiver = load_overlay("v2_wsj_receiver.py")
     watchdog = receiver.GoalProgressWatchdog(
@@ -1265,9 +1288,10 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert "active_goal.target_kind" not in path_stale_branch
     assert "and trajectory_failed" in path_stale_branch
     assert '"frontier_no_path_rejected"' in source
+    assert '"semantic_no_path_rejected"' in source
     assert '"LOCAL_GOAL_UNREACHABLE"' in source
     assert "NavigationStatusV2.REJECTED" in source
-    assert 'router_reason == "NO_KNOWN_FREE_PATH"' in source
+    assert "no_known_free_path_requires_replan(" in source
     assert "self.router_status_lock = threading.Lock()" in source
     assert "node.router_status_snapshot()" in source
     assert (

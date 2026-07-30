@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from focus_hub.source_semantics import (
+    SOURCE_YOLO_WEIGHT_SHA256,
+    SOURCE_YOLO_WEIGHT_SIZE,
     accumulate_maskrcnn_channels,
     apply_source_maskrcnn_override,
     rednet_labels_to_hm3d_channels,
@@ -87,3 +91,20 @@ def test_artifact_identity_is_fail_closed(tmp_path):
             expected_sha256=digest,
             label="fixture",
         )
+
+
+def test_source_yolo_identity_matches_observed_artifact_manifest():
+    manifest = (
+        Path(__file__).resolve().parents[2]
+        / "manifests"
+        / "artifacts.json"
+    )
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    yolo = next(
+        artifact
+        for artifact in payload["artifacts"]
+        if artifact["path"] == "artifacts/vision/yolov10m.pt"
+    )
+
+    assert yolo["bytes"] == SOURCE_YOLO_WEIGHT_SIZE
+    assert yolo["sha256"] == SOURCE_YOLO_WEIGHT_SHA256

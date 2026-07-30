@@ -70,6 +70,15 @@ code_commit="${code_commit:-$(git -C "$workspace" rev-parse HEAD)}"
   echo "--code-commit must be a full Git object ID." >&2
   exit 2
 }
+runtime_status="$(
+  git -C "$workspace" status --porcelain --untracked-files=normal \
+    -- hub source dependencies
+)"
+if [[ -n "$runtime_status" ]]; then
+  echo "Map startup requires committed runtime code under hub/, source/, and dependencies/:" >&2
+  printf '%s\n' "$runtime_status" >&2
+  exit 1
+fi
 for value in calibration_id wsj_transform yunji_transform wsj_start_after yunji_start_after; do
   [[ -n "${!value}" ]] || { echo "Missing --${value//_/-}." >&2; exit 2; }
 done
@@ -90,21 +99,12 @@ if [[ "$semantic_backend" != "source-rednet-detectron2" \
   exit 2
 fi
 if [[ "$semantic_backend" == "source-rednet-detectron2" ]]; then
+  semantic_preflight_timestamp="$(date -u +%Y%m%dT%H%M%S%N)"
+  semantic_preflight_record="$hub_dir/runtime/source_semantic_preflight_${session_tag}_${semantic_preflight_timestamp}.json"
   PYTHONPATH="$hub_dir/src:$workspace/dependencies:$workspace/source/Focus_realworld" \
-    "$python_bin" - <<'PY'
-import detectron2
-import detectron2._C
-assert detectron2.__version__ == "0.6", detectron2.__version__
-PY
-  for artifact in \
-    "$workspace/artifacts/checkpoints/rednet_semmap_mp3d_40.pth" \
-    "$workspace/artifacts/checkpoints/detectron2_mask_rcnn_R_50_FPN_3x_model_final_f10217.pkl"; do
-    [[ -f "$artifact" ]] || {
-      echo "Missing source semantic artifact: $artifact" >&2
-      echo "Run: bash hub/scripts/install_source_semantic_stack.sh" >&2
-      exit 1
-    }
-  done
+    "$python_bin" "$hub_dir/tools/verify_source_semantic_stack.py" \
+      --workspace "$workspace" \
+      --output "$semantic_preflight_record"
 fi
 
 tmux_session="shared_maps_${session_tag}"

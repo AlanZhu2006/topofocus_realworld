@@ -97,6 +97,12 @@ RECOVERABLE_ROUTER_HOLD_REASONS = frozenset(
         "OCCUPANCY_STALE_AFTER_MOTION",
     }
 )
+REPLANNABLE_TARGET_KINDS = frozenset(
+    {
+        "FRONTIER_POINT",
+        "SEMANTIC_REGION",
+    }
+)
 RECOVERY_RENEWAL_REJECTED_EVENTS = {
     "occupancy": "occupancy_recovery_renewal_rejected",
     "slam": "slam_recovery_renewal_rejected",
@@ -129,6 +135,25 @@ def recoverable_router_hold(
     return (
         receiver_runtime_ready
         and reason in RECOVERABLE_ROUTER_HOLD_REASONS
+    )
+
+
+def no_known_free_path_requires_replan(
+    target_kind: str | None,
+    router_reason: str,
+) -> bool:
+    """Translate a measured A* no-path result into a fresh source round.
+
+    Both protocol target kinds are high-level goals.  TinyNav has final
+    authority to reject either one when its current known-free map contains no
+    route.  Treating the same router result as recoverable for a frontier but
+    terminal for a semantic region made the behavior depend on target
+    encoding rather than physical feasibility.
+    """
+
+    return bool(
+        target_kind in REPLANNABLE_TARGET_KINDS
+        and router_reason == "NO_KNOWN_FREE_PATH"
     )
 
 
@@ -3238,16 +3263,21 @@ def main() -> int:
                 )
             ):
                 held_decision = active_decision
-                frontier_waiting_for_replan = bool(
-                    active_goal is not None
-                    and active_goal.target_kind == "FRONTIER_POINT"
-                    and router_reason == "NO_KNOWN_FREE_PATH"
+                no_path_waiting_for_replan = (
+                    no_known_free_path_requires_replan(
+                        (
+                            None
+                            if active_goal is None
+                            else active_goal.target_kind
+                        ),
+                        router_reason,
+                    )
                 )
-                if frontier_waiting_for_replan:
-                    # A frontier without a route must not generate synthetic
+                if no_path_waiting_for_replan:
+                    # A target without a route must not generate synthetic
                     # ACCEPTED ticks while the physical gate is closed. Reject
-                    # it explicitly so the Hub can isolate this recoverable
-                    # frontier failure and freeze a fresh source round.
+                    # it explicitly so the Hub can freeze a fresh source round.
+                    assert active_goal is not None
                     node.revoke()
                     post(
                         held_decision,
@@ -3258,14 +3288,20 @@ def main() -> int:
                         goal=active_goal,
                         detail=(
                             "online router found no known-free path from the "
-                            "measured robot base"
+                            "measured robot base for "
+                            f"{active_goal.target_kind}"
                         ),
                         terminal=True,
                     )
                     emit(
-                        "frontier_no_path_rejected",
+                        (
+                            "frontier_no_path_rejected"
+                            if active_goal.target_kind == "FRONTIER_POINT"
+                            else "semantic_no_path_rejected"
+                        ),
                         state=router_state,
                         reason=router_reason,
+                        target_kind=active_goal.target_kind,
                         decision_id=held_decision.decision_id,
                         leg_id=held_decision.leg_id,
                     )
