@@ -133,7 +133,14 @@ def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
     assert source.index("INITIAL_BOARD_FIT_READY") < source.index(
         "CALIBRATION_HOLDOUT_PASSED"
     )
-    assert source.count("read -r -p") == 1
+    assert source.count("read -r -p") == 2
+    assert "Inspect BOTH Foxglove camera previews." in source
+    assert source.index("CALIBRATION_PREVIEW_READY") < source.index(
+        "Inspect BOTH Foxglove camera previews."
+    )
+    assert source.index("Inspect BOTH Foxglove camera previews.") < source.index(
+        "Capturing the initial fit from this fresh read-only sensor epoch."
+    )
     assert "Capturing the initial fit from this fresh read-only sensor epoch." in source
     assert 'row.get("camera_ready") is not True' in source
     assert "--min-board-spacing-px" in source

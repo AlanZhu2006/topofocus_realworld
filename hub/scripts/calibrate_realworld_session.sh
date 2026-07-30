@@ -711,6 +711,7 @@ echo "Foxglove: ws://$(hostname -I | awk '{print $1}'):8765"
 wait_for_calibration_cameras
 echo "CALIBRATION_PREVIEW_READY: both WSJ and Yunji camera previews are live."
 echo "WSJ intentionally uses the native grayscale infra1 calibration view (no RGB/depth mosaic)."
+read -r -p "Inspect BOTH Foxglove camera previews. When the COMPLETE 7x10 board is clearly visible and large in BOTH views, press Enter to capture the initial fit. "
 echo "Capturing the initial fit from this fresh read-only sensor epoch."
 capture_pair fit "$fit_pair" "$fit_after_wsj" "$fit_after_yunji"
 
