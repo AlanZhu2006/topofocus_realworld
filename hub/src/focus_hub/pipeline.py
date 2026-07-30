@@ -452,6 +452,24 @@ class SpoolMappingPipeline:
                 0.0,
                 0.0,
             )
+        if self.keyframes is not None:
+            discontinuity = self.keyframes.observe(
+                observation.T_shared_camera
+            )
+            if discontinuity is not None:
+                self.pose_jump_events += 1
+                self.skipped_non_keyframes += 1
+                if self.halt_on_pose_jump:
+                    self.mapping_blocked_kind = "pose_jump"
+                    self.mapping_blocked_reason = (
+                        "pose discontinuity requires a fresh map session: "
+                        f"sequence={observation.sequence}, "
+                        f"translation_m={discontinuity.translation_m:.3f}, "
+                        f"rotation_deg={discontinuity.rotation_deg:.2f}"
+                    )
+                    self.trajectory_xy_m = [self.last_camera_xy]
+                    self.robot_trajectory_xy_m = [self.last_robot_xy]
+                return discontinuity
         if (
             not self.trajectory_xy_m
             or np.linalg.norm(
@@ -689,23 +707,9 @@ class SpoolMappingPipeline:
         if self.keyframes is None:
             decision = KeyframeDecision(True, "unfiltered", 0.0, 0.0, 0.0)
         else:
-            decision = self.keyframes.evaluate(
+            decision = self.keyframes.select_keyframe(
                 observation.T_shared_camera, observation.metadata.capture_time_ns
             )
-        if decision.pose_jump:
-            self.pose_jump_events += 1
-            self.skipped_non_keyframes += 1
-            if self.halt_on_pose_jump:
-                self.mapping_blocked_kind = "pose_jump"
-                self.mapping_blocked_reason = (
-                    "pose discontinuity requires a fresh map session: "
-                    f"sequence={observation.sequence}, "
-                    f"translation_m={decision.translation_m:.3f}, "
-                    f"rotation_deg={decision.rotation_deg:.2f}"
-                )
-                self.trajectory_xy_m = [self.last_camera_xy]
-                self.robot_trajectory_xy_m = [self.last_robot_xy]
-            return decision
         if not decision.accept:
             self.skipped_non_keyframes += 1
             return decision

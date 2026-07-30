@@ -236,6 +236,67 @@ def test_live_keyframe_gate_latches_pose_jump():
     assert pipeline.robot_trajectory_xy_m == [(0.0, 0.0)]
 
 
+def test_ground_rejected_turns_still_advance_pose_continuity(monkeypatch):
+    pipeline, segmenter = _pipeline(
+        "session-a",
+        keyframe_config=KeyframeConfig(max_interval_sec=5.0),
+        ground_guard=True,
+    )
+    accepted = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=0.0,
+        plane_coefficients=(0.0, 0.0, 0.0),
+    )
+    rejected = GroundCandidate(
+        accepted=False,
+        ground_z_m=None,
+        reason="no_valid_plane",
+        candidate_points=0,
+        inlier_points=0,
+        inlier_ratio=0.0,
+        tilt_deg=None,
+        plane_coefficients=None,
+    )
+    candidates = iter((accepted, rejected, rejected, accepted))
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate",
+        lambda *_args: next(candidates),
+    )
+
+    observations = [
+        _observation(sequence, "session-a")
+        for sequence in range(10, 14)
+    ]
+    for observation, yaw_deg in zip(
+        observations, (0.0, 35.0, 70.0, 105.0), strict=True
+    ):
+        yaw = np.deg2rad(yaw_deg)
+        observation.T_shared_camera[:2, :2] = [
+            [np.cos(yaw), -np.sin(yaw)],
+            [np.sin(yaw), np.cos(yaw)],
+        ]
+
+    assert pipeline.process(observations[0]).accept
+    assert pipeline.process(observations[1]).reason == "ground_no_valid_plane"
+    assert pipeline.process(observations[2]).reason == "ground_no_valid_plane"
+    final = pipeline.process(observations[3])
+
+    assert final.accept
+    assert final.reason == "rotation"
+    assert pipeline.mapping_blocked_reason is None
+    assert pipeline.pose_jump_events == 0
+    assert segmenter.calls == 2
+    assert pipeline.mapper.calls == 2
+
+
 def test_ground_guard_latches_only_after_consecutive_drift_before_segmentation(
     monkeypatch,
 ):
