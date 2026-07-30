@@ -47,13 +47,13 @@
       "classification": "Scene 02 formal experiments 01-05: two recorded zero-contribution failures and three operator-confirmed physical plant-arrival successes"
     },
     "scene03_physical_0p5m_protocol": {
-      "recorded_episodes": 3,
-      "successes": 1,
-      "sr": 0.3333333333333333,
-      "source_compatible_multi_spl_mean": 0.229841272462563,
+      "recorded_episodes": 4,
+      "successes": 2,
+      "sr": 0.5,
+      "source_compatible_multi_spl_mean": 0.3457702812135658,
       "standard_multi_spl_mean": null,
       "standard_multi_spl_status": "pending an independently measured Scene 03 shortest feasible path",
-      "classification": "Scene 03 Formal 01-02 are recorded failures; Formal 03 is an operator-confirmed physical plant-arrival success with the non-ARRIVED automatic report retained separately"
+      "classification": "Scene 03 Formal 01-02 are recorded failures; Formal 03 and Formal 04 are operator-confirmed physical plant-arrival successes, with Formal 04 additionally corroborated by automatic semantic ARRIVED evidence"
     }
   },
   "formal_scene_results": {
@@ -78,10 +78,10 @@
     },
     "scene03-plant": {
       "path": "manifests/scene03_plant_formal_experiments_20260731.json",
-      "formal_experiments": 3,
-      "successes": 1,
-      "sr": 0.3333333333333333,
-      "mean_source_compatible_spl": 0.229841272462563,
+      "formal_experiments": 4,
+      "successes": 2,
+      "sr": 0.5,
+      "mean_source_compatible_spl": 0.3457702812135658,
       "mean_standard_spl": null,
       "standard_spl_status": "pending an independently measured Scene 03 shortest feasible path",
       "classification": "current authoritative Scene 03 formal archive; campaign remains active"
@@ -102,11 +102,11 @@
     "scene03-plant": {
       "target_category": "plant",
       "planned_formal_experiments": 5,
-      "recorded_episodes": 3,
-      "successes": 1,
-      "metric_status": "formal_01_02_failures_formal_03_success_campaign_active",
+      "recorded_episodes": 4,
+      "successes": 2,
+      "metric_status": "formal_01_02_failures_formal_03_04_successes_campaign_active",
       "standard_shortest_feasible_path_status": "not yet measured",
-      "classification": "Formal 01 and Formal 02 are archived failures; Formal 03 is an operator-confirmed physical plant-arrival success; remaining formal experiments are pending"
+      "classification": "Formal 01 and Formal 02 are archived failures; Formal 03 and Formal 04 are operator-confirmed physical plant-arrival successes; the remaining formal experiment is pending"
     }
   },
   "attempts_not_in_metric_track": [
@@ -1226,6 +1226,77 @@
           "size_bytes": 39010,
           "sha256": "1b5141f86f212865d8c2e3b380765eb8218eaaa56c6a13e80985f1e814bc58a9",
           "classification": "source-derived frozen Robot 1 plant semantic target evidence; local runtime file ignored by Git"
+        }
+      ],
+      "media": [],
+      "media_status": "no operator-provided media is bound to this formal episode yet"
+    },
+    {
+      "record_id": "scene03-plant_formal-experiment-04",
+      "formal_experiment_index": 4,
+      "formal_experiment_ordinal_source": "runtime identity and observed operator post-run instruction: archive this run as Scene 03 Formal 04 Success",
+      "session_id": "scene03-plant-20260731-0311-formal04",
+      "session_git_commit": "f4bfba8f61906e13d1c6540bcc8f135341bf1354",
+      "shared_frame_calibration_id": "shared-board-odin1-scene03-plant-20260731-0300-yunjireanchor1-v1",
+      "scene_id": "scene03-plant",
+      "episode_id": "formal04",
+      "target_category": "plant",
+      "attribution": "operator_confirmed_and_automatic_semantic_arrival_success",
+      "automatic_evidence_boundary": "The immutable report emitted Robot 1 semantic ARRIVED and sealed post-arrival RGB-D, but official_success_verified remains false because the automatic pipeline cannot independently provide the onsite target/goal-region annotation.",
+      "live_started": true,
+      "robot_commands_issued": true,
+      "episode_created": true,
+      "physical_protocol_result": {
+        "classification": "operator-confirmed Scene 03 Formal 04 physical plant-arrival success corroborated by automatic semantic ARRIVED",
+        "counts_in_metric_track": "scene03_physical_0p5m_protocol",
+        "success": true,
+        "operator_statement": "归档为success"
+      },
+      "metrics": {
+        "success": 1,
+        "sr": 1.0,
+        "arriving_robot_id": "robot-1",
+        "source_compatible_spl": 0.6935573074665742,
+        "standard_spl": null,
+        "standard_spl_status": "pending independently measured Scene 03 shortest feasible path",
+        "robot_0_actual_path_length_m": 9.39125270693893,
+        "robot_1_actual_path_length_m": 13.010774642813228,
+        "arriving_robot_start_to_stop_displacement_m": 9.023717829323921
+      },
+      "run_summary": {
+        "source_rounds_completed": 6,
+        "high_level_batches_published": 37,
+        "target_found": true,
+        "target_found_round_index": 4,
+        "automatic_terminal_candidate_complete": true,
+        "automatic_report_outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+        "operator_observed_result": "Robot 1 reached the physical plant target",
+        "behavior": "Both robots made measured long-range progress. Robot 1 received the plant semantic region, emitted LOCAL_PLANNER_ARRIVED and stopped; the terminal batch safely held both robots."
+      },
+      "evidence": [
+        {
+          "path": "manifests/scene03_plant_formal_experiment_04_success_20260731.json",
+          "size_bytes": 9790,
+          "sha256": "9e4cecea324c28550dafb2372efccbbb061bbfffc18671fad9079439798ac179",
+          "classification": "authoritative machine-readable Formal 04 success archive"
+        },
+        {
+          "path": "audit/SCENE03_PLANT_FORMAL_EXPERIMENT_04_SUCCESS_20260731.md",
+          "size_bytes": 3579,
+          "sha256": "30f426a2807b7f6cd254ecd270cb42b824ce7ca5c8eb84ed1096d66f1cb4d9b7",
+          "classification": "human-readable provenance mirror"
+        },
+        {
+          "path": "hub/runtime/oneclick_scene03-plant-20260731-0311-formal04_live_scene03_20260731_031247_078020375/episode_report.json",
+          "size_bytes": 20145,
+          "sha256": "98a7e5655c2ccd7c52db1e2259f0302d07cecf327c94b83305e1c82e336a16f3",
+          "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        },
+        {
+          "path": "hub/runtime/oneclick_scene03-plant-20260731-0311-formal04_live_scene03_20260731_031247_078020375/terminal/terminal_evidence.json",
+          "size_bytes": 10123,
+          "sha256": "d25a1886958bd0ff71c4b9da4b23465d16f347c15ec7edc38f36c5f809a04004",
+          "classification": "source-derived terminal evidence index; local runtime file ignored by Git"
         }
       ],
       "media": [],
