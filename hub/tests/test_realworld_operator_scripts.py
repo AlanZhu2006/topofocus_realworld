@@ -725,6 +725,21 @@ def test_wsj_publisher_recovery_preserves_sender_and_requires_reanchor():
         'wait_for_sender_tuple_advance "$parked_tuple_baseline"'
     )
     assert "WSJ DDS sender PID changed during publisher recovery" in recovery
+    assert "--capture-stationary-reanchor" in recovery
+    assert (
+        "WSJ_STATIONARY_REANCHOR_SUBSCRIBER_PREWARMED" in recovery
+    )
+    capture_start = recovery.index(
+        "start_stationary_reanchor_capture"
+    )
+    marker_started = recovery.index(
+        "write_reanchor_marker recovery_started"
+    )
+    assert capture_start < marker_started < stop_perception
+    assert "focus-wsj-stationary-reanchor-capture-v1" in recovery
+    assert "STATIONARY_REANCHOR_PRE_RANGE" in recovery
+    assert "STATIONARY_REANCHOR_POST_RANGE" in recovery
+    assert '"camera_preserved": True' in recovery
 
 
 def test_wsj_mapping_only_launcher_has_stationary_reanchor_mode():
