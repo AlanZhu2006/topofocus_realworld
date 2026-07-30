@@ -86,14 +86,16 @@ def main() -> int:
         "output.directory": str(output),
         "input.directory": "",
         "input.allow_frame_id_override": False,
-        # Observed during supervised Go2 motion on 2026-07-25: the
-        # low-rate synchronized keyframes legitimately differed by
-        # 22.24--23.24 degrees while the local controller commanded a turn.
-        # The source 20-degree discontinuity threshold therefore suppressed
-        # every fresh grid until the router stopped the robot.  Keep genuine
-        # larger relocalization discontinuities fail-closed while admitting
-        # the measured physical motion.
-        "keyframe.pose_jump_rotation_deg": 35.0,
+        # Observed during supervised Go2 motion on 2026-07-30: this deployment
+        # receives occupancy pairs at about 0.62 Hz. Consecutive valid camera
+        # poses during ordinary guarded motion differed by as much as 0.856 m
+        # and 39.00 degrees. The source 0.50 m/20 degree limits, and the
+        # previous rotation-only 35 degree override, therefore classified
+        # physical motion as relocalization and withheld two grids. Admit the
+        # measured low-rate motion with bounded margin while still rejecting
+        # the separately observed 3.930 m discontinuity.
+        "keyframe.pose_jump_translation_m": 1.0,
+        "keyframe.pose_jump_rotation_deg": 90.0,
         "use_sim_time": False,
     }
     description = LaunchDescription(

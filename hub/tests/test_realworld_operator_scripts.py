@@ -322,7 +322,7 @@ def test_wsj_planner_and_controller_reload_wait_out_stale_dds_identity():
     assert "_NODE_.*_UNKNOWN_" in source
     assert "run_yunji_tinynav_planner.py" in source
     assert "--robot-profile source-default" in source
-    assert "--rotate-first-on-reverse" not in source
+    assert "--rotate-first-on-reverse" in source
     assert "--stabilize-large-turn" in source
     assert source.index("remain-on-exit on") < source.index(
         "tmux respawn-pane -t"

@@ -232,8 +232,8 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-      "size_bytes": 35282,
-      "sha256": "f2167736764edb247c25cb7f2056e8170e54a6c58e6ba7354b6018587384d957",
+      "size_bytes": 35377,
+      "sha256": "57e886bbb24dac28cc422ceaa4986fa923db334254ac727da882b13bae86f4bf",
       "classification": "source-derived"
     },
     {

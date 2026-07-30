@@ -61,9 +61,10 @@ TRAJECTORY_STALE_TIMEOUT_S="${FOCUS_YUNJI_TRAJECTORY_STALE_TIMEOUT_S:-1.0}"
 TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_YUNJI_TRAJECTORY_RECOVERY_TIMEOUT_S:-12.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
-# The forward-only planner contains collision-scored zero-linear turns.  The
-# controller stabilizes those turns, while any unexpected reverse segment is
-# rejected immediately instead of being converted into another recovery loop.
+# The forward-only planner contains collision-scored zero-linear turns. The
+# controller stabilizes those turns and resolves a behind-heading segment with
+# a bounded zero-linear yaw; the receiver still rejects it if that recovery
+# does not finish before the deadline.
 REVERSE_ROTATE_MAX_ANGULAR_RADPS="${FOCUS_YUNJI_REVERSE_ROTATE_MAX_ANGULAR_RADPS:-0.35}"
 REVERSE_ROTATE_TIMEOUT_S="${FOCUS_YUNJI_REVERSE_ROTATE_TIMEOUT_S:-12.0}"
 # The selected semantic approach point is already on the source radius-10-cell
@@ -380,6 +381,7 @@ start_controller() {
       --robot-id robot-1 \
       --base-camera-frame odin1_camera_optical_frame \
       --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
+      --rotate-first-on-reverse \
       --stabilize-large-turn \
       --linear-command-floor-mps "$LINEAR_COMMAND_FLOOR_MPS" \
       --rotate-first-max-angular-radps \
@@ -503,7 +505,9 @@ else
       -p frames.target_frame:=world \
       -p output.directory:="$map_output" \
       -p output.save_on_shutdown:=true \
-      -p bev.publish_rate_hz:=2.0
+      -p bev.publish_rate_hz:=2.0 \
+      -p keyframe.pose_jump_translation_m:=1.0 \
+      -p keyframe.pose_jump_rotation_deg:=90.0
 
   start_unit focus-yunji-tinynav-planner-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" planner \

@@ -492,7 +492,8 @@ def test_wsj_launcher_uses_continuous_geometry_plus_one_grid_cell():
     assert '"848x480",' in online_mapping
     assert '"640x480",' in online_mapping
     assert '"/slam/keyframe_depth"' not in online_mapping
-    assert '"keyframe.pose_jump_rotation_deg": 35.0' in online_mapping
+    assert '"keyframe.pose_jump_translation_m": 1.0' in online_mapping
+    assert '"keyframe.pose_jump_rotation_deg": 90.0' in online_mapping
 
 
 def test_wsj_launcher_uses_short_segment_velocity_floor_wrapper():
@@ -751,7 +752,7 @@ def test_start_snap_is_anchored_to_goal_when_goal_is_behind_robot():
     assert second_x < first_x
 
 
-def test_wsj_launcher_uses_forward_only_planner_and_rejects_reverse():
+def test_wsj_launcher_uses_forward_only_planner_and_bounded_rotate_first():
     initial = (
         OVERLAY / "start_tinynav_buildmap_online_nav.sh"
     ).read_text(encoding="utf-8")
@@ -768,7 +769,7 @@ def test_wsj_launcher_uses_forward_only_planner_and_rejects_reverse():
             '--base-camera-calibration-file \\"$BASE_CAMERA_CALIBRATION_FILE\\"'
             in source
         )
-        assert "--rotate-first-on-reverse" not in source
+        assert "--rotate-first-on-reverse" in source
         assert "--stabilize-large-turn" in source
         assert "--rotate-first-max-angular-radps 0.35" in source
         assert "--rotate-first-timeout-s 12.0" in source
