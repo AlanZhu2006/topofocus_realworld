@@ -25,6 +25,15 @@ tests four square corners even for a circle, inflating Yunji's 0.283 m body to
 a 0.400 m corner radius before obstacle dilation.  Yunji therefore uses the
 equivalent exact circle-vs-ESDF test at each source trajectory center.  WSJ's
 rectangular Go2 footprint continues to use the pinned source scorer unchanged.
+
+The pinned local map also dilates obstacles by two cells but does not clear the
+robot's current footprint.  A nearby external obstacle can therefore dilate
+back into cells that the robot physically occupies, making every trajectory,
+including an in-place turn, collide at its first sample.  For the measured
+circular profile only, this wrapper clears obstacle-mask cell centers inside
+the current physical body before the source computes its ESDF.  Dilation,
+external obstacle cells, trajectory scoring, and the robot-local stop authority
+remain unchanged outside the body's current footprint.
 """
 from __future__ import annotations
 
@@ -253,6 +262,77 @@ def trajectory_score_summary(
     }
 
 
+def clear_current_circular_footprint(
+    obstacle_mask,
+    origin,
+    resolution,
+    center_xy,
+    body_radius,
+):
+    """Clear only obstacle-cell centers occupied by the current robot body.
+
+    TinyNav's source obstacle dilation is intentionally retained.  This is the
+    standard rolling-costmap footprint clear: cells whose centers are inside
+    the robot's *current* measured circle cannot be treated as external free
+    space for future poses, but they must not make the current pose collide
+    with itself.  Cells outside the circle, including the full external
+    obstacle and its remaining dilation, are preserved.
+    """
+
+    import numpy as np
+
+    mask = np.asarray(obstacle_mask)
+    origin_array = np.asarray(origin, dtype=np.float64)
+    center_array = np.asarray(center_xy, dtype=np.float64)
+    geometry = np.asarray(
+        [resolution, body_radius],
+        dtype=np.float64,
+    )
+    if (
+        mask.ndim != 2
+        or mask.size == 0
+        or origin_array.ndim != 1
+        or len(origin_array) < 2
+        or center_array.shape != (2,)
+    ):
+        raise ValueError("current-footprint clearing inputs are incompatible")
+    if (
+        not np.all(np.isfinite(geometry))
+        or not np.all(np.isfinite(origin_array[:2]))
+        or not np.all(np.isfinite(center_array))
+        or resolution <= 0.0
+        or body_radius <= 0.0
+    ):
+        raise ValueError("current-footprint clearing geometry is invalid")
+
+    rows, columns = mask.shape
+    cell_x = (
+        float(origin_array[0])
+        + (np.arange(rows, dtype=np.float64) + 0.5) * resolution
+    )
+    cell_y = (
+        float(origin_array[1])
+        + (np.arange(columns, dtype=np.float64) + 0.5) * resolution
+    )
+    inside_body = (
+        (cell_x[:, np.newaxis] - float(center_array[0])) ** 2
+        + (cell_y[np.newaxis, :] - float(center_array[1])) ** 2
+        <= body_radius**2
+    )
+    cleared = np.asarray(mask, dtype=bool).copy()
+    cleared_cell_count = int(np.count_nonzero(cleared & inside_body))
+    cleared[inside_body] = False
+    return cleared, {
+        "current_footprint_clearing": True,
+        "current_footprint_cleared_cell_count": cleared_cell_count,
+        "current_footprint_center_xy": [
+            float(center_array[0]),
+            float(center_array[1]),
+        ],
+        "current_footprint_radius_m": float(body_radius),
+    }
+
+
 def score_circular_trajectories_by_esdf(
     trajectories,
     esdf_map,
@@ -455,9 +535,83 @@ def main() -> int:
         planning_node.generate_trajectory_library_3d
     )
     source_trajectory_scorer = planning_node.score_trajectories_by_ESDF
+    source_raycasting = planning_node.run_raycasting_loopy
+    source_obstacle_builder = planning_node.build_obstacle_map
     latest_parameters: list[object | None] = [None]
+    latest_planner_transform: list[object | None] = [None]
+    latest_footprint_clearing: list[dict[str, object]] = [{}]
     last_score_state: tuple[bool, bool] | None = None
     last_score_log_monotonic = 0.0
+
+    def track_planner_transform(*raycast_args, **raycast_kwargs):
+        import numpy as np
+
+        transform = (
+            raycast_kwargs["T_cam_to_world"]
+            if "T_cam_to_world" in raycast_kwargs
+            else (
+                raycast_args[1]
+                if len(raycast_args) >= 2
+                else None
+            )
+        )
+        if transform is not None:
+            transform_array = np.asarray(transform, dtype=np.float64)
+            if (
+                transform_array.shape == (4, 4)
+                and np.all(np.isfinite(transform_array))
+            ):
+                latest_planner_transform[0] = transform_array.copy()
+            else:
+                latest_planner_transform[0] = None
+        else:
+            latest_planner_transform[0] = None
+        return source_raycasting(*raycast_args, **raycast_kwargs)
+
+    def build_obstacle_map_with_current_footprint_clear(
+        occupancy_grid,
+        origin,
+        resolution,
+        robot_z,
+        config=None,
+    ):
+        import numpy as np
+
+        obstacle_mask = source_obstacle_builder(
+            occupancy_grid,
+            origin,
+            resolution,
+            robot_z,
+            config=config,
+        )
+        if args.robot_profile != "yunji-water":
+            return obstacle_mask
+        transform = latest_planner_transform[0]
+        if transform is None:
+            latest_footprint_clearing[0] = {
+                "current_footprint_clearing": False,
+                "current_footprint_clearing_reason": (
+                    "planner_transform_unavailable"
+                ),
+            }
+            return obstacle_mask
+        center = (
+            transform[:3, 3]
+            - transform[:3, :3]
+            @ np.asarray(
+                planning_node.GO2_CONFIG.cam_offset_3d,
+                dtype=np.float64,
+            )
+        )
+        cleared, clearing = clear_current_circular_footprint(
+            obstacle_mask,
+            origin,
+            resolution,
+            center[:2],
+            args.body_radius_m,
+        )
+        latest_footprint_clearing[0] = clearing
+        return cleared
 
     def score_with_observability(*score_args, **score_kwargs):
         nonlocal last_score_state, last_score_log_monotonic
@@ -492,6 +646,7 @@ def main() -> int:
         if args.robot_profile == "yunji-water":
             summary["measured_body_radius_m"] = args.body_radius_m
             summary["safety_margin_m"] = args.safety_margin_m
+            summary.update(latest_footprint_clearing[0])
         state = (
             bool(summary["all_candidates_in_collision"]),
             int(summary["finite_in_place_candidate_count"]) > 0,
@@ -520,6 +675,11 @@ def main() -> int:
         generate_observable_trajectory_library
     )
     planning_node.score_trajectories_by_ESDF = score_with_observability
+    if args.robot_profile == "yunji-water":
+        planning_node.run_raycasting_loopy = track_planner_transform
+        planning_node.build_obstacle_map = (
+            build_obstacle_map_with_current_footprint_clear
+        )
     provenance = verify_tinynav_source(
         planning_node.__file__,
         robot_profile=args.robot_profile,
@@ -527,11 +687,11 @@ def main() -> int:
     )
     provenance.update(
         {
-            "schema_version": "focus-progress-capable-tinynav-planner-v5",
+            "schema_version": "focus-progress-capable-tinynav-planner-v6",
             "adaptation": (
                 "source_reverse_and_exact_stationary_vocabularies_removed_"
                 "with_collision_scored_stopped_prefixes_and_measured_"
-                "circular_yunji_esdf"
+                "circular_yunji_esdf_and_current_footprint_clearing"
             ),
             "in_place_turns_preserved": True,
             "original_trajectory_lattice_preserved_first": True,
@@ -541,7 +701,12 @@ def main() -> int:
                 if args.robot_profile == "yunji-water"
                 else "pinned_source_rectangle_footprint_esdf"
             ),
-            "source_esdf_unchanged": True,
+            "source_depth_raycasting_unchanged": True,
+            "source_obstacle_dilation_unchanged": True,
+            "current_measured_footprint_clearing": (
+                args.robot_profile == "yunji-water"
+            ),
+            "external_obstacle_cells_preserved": True,
             "source_rectangle_scorer_unchanged_for_wsj": True,
             "yunji_body_radius_m": (
                 args.body_radius_m

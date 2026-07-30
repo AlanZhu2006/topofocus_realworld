@@ -59,12 +59,13 @@ RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRA
 # The guarded velocity output is zeroed after one second without a fresh path.
 # Physical legs observed a 1.900-1.921 s first-path delay and later 1.016 s and
 # 3.365 s planner publication gaps while the router was still producing an
-# online path. Keep the zero-output gate at one second, but separate it from
-# the more tolerant terminal verdicts. A router-owned bounded map-maturation
-# wait takes precedence over both trajectory verdicts.
-TRAJECTORY_START_GRACE_S="${FOCUS_WSJ_TRAJECTORY_START_GRACE_S:-5.0}"
+# online path. Keep the zero-output gate at one second, but use twelve-second
+# terminal verdicts so a stopped local recovery is not misreported as an
+# immediate leg failure. A router-owned bounded map-maturation wait takes
+# precedence over both trajectory verdicts.
+TRAJECTORY_START_GRACE_S="${FOCUS_WSJ_TRAJECTORY_START_GRACE_S:-12.0}"
 TRAJECTORY_STALE_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_STALE_TIMEOUT_S:-1.0}"
-TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-8.0}"
+TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-12.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_WSJ_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry

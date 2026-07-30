@@ -190,6 +190,64 @@ def test_score_summary_exposes_all_collision_and_in_place_recovery():
     assert recovered["finite_in_place_candidate_count"] == 1
 
 
+def test_current_circle_clear_removes_only_cells_inside_measured_body():
+    mask = np.zeros((4, 7), dtype=bool)
+    # Non-square shape makes an accidental x/y-axis swap observable.
+    mask[1, 4] = True
+    mask[2, 4] = True
+    mask[1, 5] = True
+    mask[3, 4] = True
+    mask[0, 0] = True
+
+    cleared, summary = MODULE.clear_current_circular_footprint(
+        mask,
+        origin=[10.0, 20.0, -1.0],
+        resolution=1.0,
+        center_xy=[11.5, 24.5],
+        body_radius=1.1,
+    )
+
+    assert summary == {
+        "current_footprint_clearing": True,
+        "current_footprint_cleared_cell_count": 3,
+        "current_footprint_center_xy": [11.5, 24.5],
+        "current_footprint_radius_m": 1.1,
+    }
+    assert not cleared[1, 4]
+    assert not cleared[2, 4]
+    assert not cleared[1, 5]
+    assert cleared[3, 4]
+    assert cleared[0, 0]
+    # The caller's source obstacle mask remains immutable.
+    assert mask[1, 4]
+    assert mask[2, 4]
+    assert mask[1, 5]
+
+
+@pytest.mark.parametrize(
+    ("origin", "resolution", "center_xy", "body_radius"),
+    [
+        ([0.0, 0.0], 0.0, [0.0, 0.0], 0.2),
+        ([0.0, 0.0], 0.1, [0.0, 0.0], 0.0),
+        ([0.0, 0.0], 0.1, [float("nan"), 0.0], 0.2),
+    ],
+)
+def test_current_circle_clear_rejects_invalid_geometry(
+    origin,
+    resolution,
+    center_xy,
+    body_radius,
+):
+    with pytest.raises(ValueError):
+        MODULE.clear_current_circular_footprint(
+            np.zeros((4, 7), dtype=bool),
+            origin=origin,
+            resolution=resolution,
+            center_xy=center_xy,
+            body_radius=body_radius,
+        )
+
+
 def test_circular_scorer_uses_measured_radius_not_square_corner_radius():
     rows, columns = np.indices((20, 20))
     # Put one obstacle exactly at the square scorer's front-left corner.
@@ -243,6 +301,29 @@ def test_circular_scorer_rejects_true_body_overlap_and_out_of_map_path():
 
     assert scores == [float("inf"), float("inf")]
     assert closest_steps == [0, 0]
+
+
+def test_circular_scorer_preserves_source_xy_order_on_non_square_esdf():
+    esdf = np.full((12, 20), 1.0, dtype=np.float64)
+    esdf[5, 7] = 0.10
+    trajectories = np.zeros((1, 2, 7), dtype=np.float64)
+    trajectories[0, :, :2] = [1.55, 2.75]
+
+    scores, closest_steps = (
+        MODULE.score_circular_trajectories_by_esdf(
+            trajectories,
+            esdf,
+            origin=[1.0, 2.0],
+            resolution=0.1,
+            safety_radius=0.05,
+            front_len=0.20,
+            rear_len=0.20,
+            half_w=0.20,
+        )
+    )
+
+    assert scores == [float("inf")]
+    assert closest_steps == [0]
 
 
 def test_circular_scorer_preserves_open_space_and_closest_step_decay():

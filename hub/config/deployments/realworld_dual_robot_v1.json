@@ -232,8 +232,8 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-      "size_bytes": 35220,
-      "sha256": "394defde9416412186451d3132f893ea4eb196dd81dc97efc51bc6adc8b8e57e",
+      "size_bytes": 35282,
+      "sha256": "f2167736764edb247c25cb7f2056e8170e54a6c58e6ba7354b6018587384d957",
       "classification": "source-derived"
     },
     {
@@ -250,8 +250,8 @@
     },
     {
       "path": "hub/robot_overlay/run_yunji_tinynav_planner.py",
-      "size_bytes": 20096,
-      "sha256": "4ff3cb8bfb09c148922d719fa76218dcc722dc4503b7d241a7bc731326beaa63",
+      "size_bytes": 26024,
+      "sha256": "16c3b3595650c37f32010aabdcb0a524fbd6519c84748d61ba8dfef9ecf8dd3b",
       "classification": "source-derived"
     },
     {
@@ -262,8 +262,8 @@
     },
     {
       "path": "hub/robot_overlay/v2_wsj_receiver.py",
-      "size_bytes": 183781,
-      "sha256": "5da7da48034fa4314d5dd200ed49bce618f566acdbf0b24ac7252a4c60926cd7",
+      "size_bytes": 183783,
+      "sha256": "5f584e8adcbab9803aa976088dd09c4643011e4852ac4e40b3684ad77fa525cc",
       "classification": "source-derived"
     }
   ]

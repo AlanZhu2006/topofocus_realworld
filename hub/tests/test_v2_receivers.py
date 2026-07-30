@@ -1605,9 +1605,9 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0' in wsj
     assert 'FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0' in wsj
     assert 'FOCUS_WSJ_RECEIVER_ODOMETRY_RECOVERY_GRACE_S:-7.0' in wsj
-    assert 'FOCUS_WSJ_TRAJECTORY_START_GRACE_S:-5.0' in wsj
+    assert 'FOCUS_WSJ_TRAJECTORY_START_GRACE_S:-12.0' in wsj
     assert 'FOCUS_WSJ_TRAJECTORY_STALE_TIMEOUT_S:-1.0' in wsj
-    assert 'FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-8.0' in wsj
+    assert 'FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-12.0' in wsj
     assert (
         '--local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"'
         in wsj
@@ -1630,9 +1630,9 @@ def test_robot_launchers_require_live_data_plane_verification():
         '"$TRAJECTORY_RECOVERY_TIMEOUT_S"'
         in wsj
     )
-    assert 'FOCUS_YUNJI_TRAJECTORY_START_GRACE_S:-5.0' in yunji
+    assert 'FOCUS_YUNJI_TRAJECTORY_START_GRACE_S:-12.0' in yunji
     assert 'FOCUS_YUNJI_TRAJECTORY_STALE_TIMEOUT_S:-1.0' in yunji
-    assert 'FOCUS_YUNJI_TRAJECTORY_RECOVERY_TIMEOUT_S:-8.0' in yunji
+    assert 'FOCUS_YUNJI_TRAJECTORY_RECOVERY_TIMEOUT_S:-12.0' in yunji
     assert (
         '--trajectory-start-grace-s "$TRAJECTORY_START_GRACE_S"'
         in yunji

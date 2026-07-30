@@ -1259,7 +1259,7 @@ def main() -> int:
     parser.add_argument(
         "--trajectory-start-grace-s",
         type=float,
-        default=5.0,
+        default=12.0,
         help=(
             "terminal deadline from local authorization to the first "
             "non-empty path; physical output remains zero until that path "
@@ -1278,7 +1278,7 @@ def main() -> int:
     parser.add_argument(
         "--trajectory-recovery-timeout-s",
         type=float,
-        default=8.0,
+        default=12.0,
         help=(
             "terminal semantic-leg deadline after a previously observed "
             "trajectory becomes stale; the physical gate remains governed "
