@@ -518,13 +518,14 @@ def test_ground_guard_rebases_consistent_local_plane_after_observed_motion(
         tilt_deg=4.0,
         plane_coefficients=(0.0, 0.07, -0.06),
     )
-    # The in-range frame between motion and the confirmed local plane mirrors
-    # the observed Yunji run: fits oscillated around the 3-degree gate, but
-    # that did not erase the fact that the posture change followed motion.
+    # The motion itself can keep an in-range floor estimate.  The bounded
+    # posture offset may appear only after the quadruped stops, so rebase
+    # authority must come from all observed pose motion rather than only from
+    # moving frames whose floor estimate was already outside the gate.
     candidates = iter(
         [
             stable,
-            locally_tilted,
+            stable,
             stable,
             locally_tilted,
             locally_tilted,
@@ -553,10 +554,7 @@ def test_ground_guard_rebases_consistent_local_plane_after_observed_motion(
         observation.T_shared_camera[0, 3] = 0.15
 
     assert pipeline.process(baseline).accept
-    assert (
-        pipeline.process(moving).reason
-        == "ground_drift_motion_deferred"
-    )
+    assert pipeline.process(moving).accept
     assert pipeline.process(recovered_during_settle).accept
     assert pipeline.process(stationary[0]).reason == "ground_drift_pending"
     assert pipeline.process(stationary[1]).reason == "ground_drift_pending"
@@ -574,8 +572,8 @@ def test_ground_guard_rebases_consistent_local_plane_after_observed_motion(
         pipeline.ground_reference_plane_coefficients,
         locally_tilted.plane_coefficients,
     )
-    assert segmenter.calls == 4
-    assert pipeline.mapper.calls == 4
+    assert segmenter.calls == 5
+    assert pipeline.mapper.calls == 5
 
 
 def test_2d_ground_guard_tolerates_pure_world_z_translation(monkeypatch):

@@ -503,6 +503,21 @@ class SpoolMappingPipeline:
         # consistency checks.
         ground_candidate = None
         if self.ground_plane_config is not None:
+            capture_time_ns = int(observation.metadata.capture_time_ns)
+            if ground_pose_moving:
+                # Post-motion floor rebasing must be justified by the
+                # observed robot trajectory, not only by those moving frames
+                # whose plane fit also happened to cross the drift gate.
+                # A quadruped can walk with an in-gate floor estimate and
+                # settle into a bounded, stable pitch/height offset only
+                # after stopping. Recording all material pose motion lets
+                # that stable local plane use the existing temporal,
+                # consistency and 2x-bounds rebase checks below.
+                self._record_ground_drift_motion(
+                    capture_time_ns=capture_time_ns,
+                    translation_m=ground_pose_translation_m,
+                    rotation_deg=ground_pose_rotation_deg,
+                )
             ground_candidate = fit_ground_candidate(
                 depth_points_world(
                     observation,
@@ -577,14 +592,8 @@ class SpoolMappingPipeline:
                 # stops and then latches on the configured stationary run.
                 self.ground_drift_frames += 1
                 self.skipped_non_keyframes += 1
-                capture_time_ns = int(observation.metadata.capture_time_ns)
                 if ground_pose_moving:
                     self.ground_drift_motion_deferred_frames += 1
-                    self._record_ground_drift_motion(
-                        capture_time_ns=capture_time_ns,
-                        translation_m=ground_pose_translation_m,
-                        rotation_deg=ground_pose_rotation_deg,
-                    )
                     self._reset_ground_drift_confirmation()
                     self.last_ground_reason = "drift_deferred_while_moving"
                     return KeyframeDecision(
