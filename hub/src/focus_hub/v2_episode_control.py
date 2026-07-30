@@ -85,6 +85,64 @@ def next_coordination_batch(
     return DecisionBatchV2(decisions=tuple(decisions))
 
 
+def scope_initial_coordination_batch(
+    candidate: DecisionBatchV2,
+    *,
+    active_robot_ids: Iterable[str],
+    identity_token: str,
+) -> DecisionBatchV2:
+    """Isolate an unready robot before the candidate batch is first published.
+
+    Unlike :func:`next_coordination_batch`, this helper operates only on an
+    unpublished lease-zero candidate.  Ready GOAL legs therefore retain their
+    original identity and lease sequence.  Every inactive robot becomes an
+    explicit HOLD in the same atomic batch, so one robot-local readiness fault
+    cannot weaken its own gate or abort an independently ready peer.
+    """
+
+    active = tuple(active_robot_ids)
+    active_set = set(active)
+    current_by_robot = {
+        decision.robot_id: decision for decision in candidate.decisions
+    }
+    if not active_set.issubset(current_by_robot):
+        raise ValueError("active robot is outside the candidate batch")
+    if len(active_set) != len(active):
+        raise ValueError("active robot IDs contain duplicates")
+    if not identity_token:
+        raise ValueError("initial coordination identity token is empty")
+    if any(item.lease_sequence != 0 for item in candidate.decisions):
+        raise ValueError(
+            "initial coordination scoping requires unpublished lease-zero decisions"
+        )
+    for robot_id in active:
+        decision = current_by_robot[robot_id]
+        if decision.mode.value != "GOAL" or decision.target is None:
+            raise ValueError("only a candidate GOAL may remain active")
+
+    decisions: list[HighLevelDecisionV2] = []
+    for previous in candidate.decisions:
+        raw = previous.model_dump(mode="json")
+        raw["coordination"] = {
+            "execution_epoch": previous.coordination.execution_epoch,
+            "active_robot_ids": list(active),
+        }
+        if previous.robot_id not in active_set:
+            raw["mode"] = "HOLD"
+            raw["target"] = None
+            raw["leg_id"] = _bounded_id(
+                f"{previous.decision_batch_id}-{previous.robot_id}-"
+                f"readiness-hold-{identity_token}"
+            )
+            raw["decision_id"] = _bounded_id(f"{raw['leg_id']}-lease-0")
+            raw["reason"] = (
+                "robot-local runtime readiness isolation HOLD; preserved "
+                "source/VLM selection remains in the frozen candidate artifact"
+            )
+        decisions.append(HighLevelDecisionV2.model_validate(raw))
+    return DecisionBatchV2(decisions=tuple(decisions))
+
+
 def recoverable_local_path_failure(
     decision: HighLevelDecisionV2,
     event: Mapping[str, object],

@@ -72,6 +72,7 @@ from focus_hub.transport_v2 import (  # noqa: E402
 from focus_hub.v2_episode_control import (  # noqa: E402
     next_coordination_batch,
     recoverable_local_path_failure,
+    scope_initial_coordination_batch,
 )
 from focus_hub.v2_frontier_clearance import (  # noqa: E402
     apply_frontier_clearance_guard,
@@ -593,14 +594,25 @@ def transient_slam_readiness_waitable(report: dict[str, object]) -> bool:
     )
 
 
-def wait_for_goal_readiness(
+def partition_goal_readiness(
     client: EpisodeClient,
     active: set[str],
     *,
     timeout_s: float,
     poll_s: float,
-) -> tuple[dict[str, dict[str, object]], float]:
-    """Wait briefly for a transient SLAM HOLD before publishing any GOAL."""
+) -> tuple[
+    dict[str, dict[str, object]],
+    set[str],
+    set[str],
+    float,
+]:
+    """Partition independently ready and fail-closed robots before a GOAL.
+
+    An exact transient-SLAM HOLD gets the existing bounded zero-motion wait.
+    Every other local blocker remains blocked immediately.  The caller may
+    then preserve that robot as an explicit HOLD while allowing a ready peer
+    to continue; this function never weakens or bypasses a robot-local gate.
+    """
 
     if timeout_s <= 0.0 or poll_s <= 0.0:
         raise ValueError("runtime readiness recovery bounds must be positive")
@@ -611,28 +623,56 @@ def wait_for_goal_readiness(
             for robot_id in sorted(active)
         }
         blocked = {
-            robot_id: report
+            robot_id
             for robot_id, report in reports.items()
             if report.get("ready_for_goal") is not True
         }
         elapsed_s = max(0.0, time.monotonic() - started)
         if not blocked:
-            return reports, elapsed_s
-        if not all(
-            transient_slam_readiness_waitable(report)
-            for report in blocked.values()
-        ):
-            raise RuntimeError(
-                "robot-local runtime readiness blocked GOAL: "
-                + json.dumps(blocked, sort_keys=True)
-            )
-        if elapsed_s >= timeout_s:
-            raise RuntimeError(
-                "transient robot-local SLAM readiness did not recover before "
-                f"the {timeout_s:.3f}s zero-motion deadline: "
-                + json.dumps(blocked, sort_keys=True)
-            )
+            return reports, set(active), set(), elapsed_s
+        waitable = {
+            robot_id
+            for robot_id in blocked
+            if transient_slam_readiness_waitable(reports[robot_id])
+        }
+        if waitable != blocked or elapsed_s >= timeout_s:
+            return reports, set(active).difference(blocked), blocked, elapsed_s
         time.sleep(min(poll_s, max(0.0, timeout_s - elapsed_s)))
+
+
+def wait_for_goal_readiness(
+    client: EpisodeClient,
+    active: set[str],
+    *,
+    timeout_s: float,
+    poll_s: float,
+) -> tuple[dict[str, dict[str, object]], float]:
+    """Wait briefly for a transient SLAM HOLD before publishing any GOAL."""
+
+    reports, _ready, blocked_ids, elapsed_s = partition_goal_readiness(
+        client,
+        active,
+        timeout_s=timeout_s,
+        poll_s=poll_s,
+    )
+    if not blocked_ids:
+        return reports, elapsed_s
+    blocked = {
+        robot_id: reports[robot_id] for robot_id in sorted(blocked_ids)
+    }
+    if all(
+        transient_slam_readiness_waitable(report)
+        for report in blocked.values()
+    ):
+        raise RuntimeError(
+            "transient robot-local SLAM readiness did not recover before "
+            f"the {timeout_s:.3f}s zero-motion deadline: "
+            + json.dumps(blocked, sort_keys=True)
+        )
+    raise RuntimeError(
+        "robot-local runtime readiness blocked GOAL: "
+        + json.dumps(blocked, sort_keys=True)
+    )
 
 
 def wait_for_hold_ack(
@@ -1923,8 +1963,19 @@ def main() -> int:
         emit("hold_acknowledged", reason=reason)
         return states
 
-    def readiness_for(active: set[str]) -> dict[str, dict[str, object]]:
-        reports, recovery_wait_s = wait_for_goal_readiness(
+    def readiness_for(
+        active: set[str],
+    ) -> tuple[
+        dict[str, dict[str, object]],
+        set[str],
+        set[str],
+    ]:
+        (
+            reports,
+            ready_robot_ids,
+            blocked_robot_ids,
+            recovery_wait_s,
+        ) = partition_goal_readiness(
             client,
             active,
             timeout_s=args.runtime_readiness_recovery_s,
@@ -1936,7 +1987,7 @@ def main() -> int:
                 active_robot_ids=sorted(active),
                 zero_motion_wait_s=round(recovery_wait_s, 3),
             )
-        return reports
+        return reports, ready_robot_ids, blocked_robot_ids
 
     def monitor_round(
         *,
@@ -1953,10 +2004,13 @@ def main() -> int:
             if item.target is not None and item.target.kind == "SEMANTIC_REGION"
         }
         if target_found and not semantic_robot_ids:
+            final_states = hold_and_confirm(
+                "source_target_without_semantic_goal_hold"
+            )
             return RoundResult(
                 "failure",
                 "source Find_Goal persisted without a semantic-region decision",
-                {},
+                final_states,
                 {},
                 {},
                 {robot_id: 0 for robot_id in active},
@@ -2597,6 +2651,15 @@ def main() -> int:
             active = set(
                 guarded_batch.decisions[0].coordination.active_robot_ids
             )
+            candidate_semantic_robot_ids = {
+                item.robot_id
+                for item in guarded_batch.decisions
+                if (
+                    item.robot_id in active
+                    and item.target is not None
+                    and item.target.kind == "SEMANTIC_REGION"
+                )
+            }
             if not active:
                 publish(
                     guarded_batch,
@@ -2611,10 +2674,139 @@ def main() -> int:
                 )
                 outcome = "failed_no_safe_goal_allocation_holding"
                 break
+            (
+                readiness,
+                ready_robot_ids,
+                blocked_robot_ids,
+            ) = readiness_for(active)
+            atomic_write_json(round_dir / "runtime_readiness.json", readiness)
+            if blocked_robot_ids:
+                original_active = set(active)
+                active = set(ready_robot_ids)
+                guarded_batch = scope_initial_coordination_batch(
+                    guarded_batch,
+                    active_robot_ids=tuple(
+                        item.robot_id
+                        for item in guarded_batch.decisions
+                        if item.robot_id in active
+                    ),
+                    identity_token=uuid.uuid4().hex[:8],
+                )
+                isolation_report = {
+                    "schema_version": (
+                        "focus-v2-runtime-readiness-isolation-v1"
+                    ),
+                    "status": (
+                        "unready_robots_held_ready_peers_continue"
+                        if active
+                        else "all_allocated_robots_unready_hold"
+                    ),
+                    "original_active_robot_ids": sorted(original_active),
+                    "effective_active_robot_ids": sorted(active),
+                    "blocked_robot_ids": sorted(blocked_robot_ids),
+                    "readiness": readiness,
+                    "policy": (
+                        "preserve every robot-local readiness gate; convert "
+                        "only the blocked robot to an explicit HOLD before "
+                        "first publication, without changing the ready "
+                        "peer's source/VLM target"
+                    ),
+                }
+                atomic_write_json(
+                    round_dir / "runtime_readiness_isolation.json",
+                    isolation_report,
+                )
+                atomic_write_json(
+                    round_dir / "runtime_scoped_batch.json",
+                    guarded_batch.model_dump(mode="json"),
+                )
+                emit(
+                    "runtime_readiness_robots_isolated",
+                    original_active_robot_ids=sorted(original_active),
+                    effective_active_robot_ids=sorted(active),
+                    blocked_robot_ids=sorted(blocked_robot_ids),
+                )
+            active_semantic_robot_ids = {
+                item.robot_id
+                for item in guarded_batch.decisions
+                if (
+                    item.robot_id in active
+                    and item.target is not None
+                    and item.target.kind == "SEMANTIC_REGION"
+                )
+            }
+            if target_found and not active_semantic_robot_ids:
+                previously_active = set(active)
+                active = set()
+                guarded_batch = scope_initial_coordination_batch(
+                    guarded_batch,
+                    active_robot_ids=(),
+                    identity_token=uuid.uuid4().hex[:8],
+                )
+                semantic_guard = {
+                    "schema_version": (
+                        "focus-v2-semantic-owner-readiness-guard-v1"
+                    ),
+                    "status": "semantic_owner_unavailable_all_hold",
+                    "candidate_semantic_robot_ids": sorted(
+                        candidate_semantic_robot_ids
+                    ),
+                    "effective_semantic_robot_ids": [],
+                    "previously_active_robot_ids": sorted(previously_active),
+                    "blocked_robot_ids": sorted(blocked_robot_ids),
+                    "policy": (
+                        "a source target-found round may execute only while "
+                        "at least one runtime-ready active robot retains its "
+                        "semantic-region goal; otherwise the atomic pair HOLDs"
+                    ),
+                }
+                atomic_write_json(
+                    round_dir / "semantic_owner_readiness_guard.json",
+                    semantic_guard,
+                )
+                atomic_write_json(
+                    round_dir / "runtime_scoped_batch.json",
+                    guarded_batch.model_dump(mode="json"),
+                )
+                emit(
+                    "semantic_owner_runtime_unavailable_all_hold",
+                    candidate_semantic_robot_ids=sorted(
+                        candidate_semantic_robot_ids
+                    ),
+                    previously_active_robot_ids=sorted(previously_active),
+                    blocked_robot_ids=sorted(blocked_robot_ids),
+                )
+                publish(
+                    guarded_batch,
+                    f"round_{requested_round}_semantic_owner_unready_hold",
+                    expose_new_vlm_target=True,
+                )
+                final_states = wait_for_hold_ack(
+                    client,
+                    guarded_batch,
+                    timeout_s=args.hold_ack_timeout_s,
+                    poll_s=args.poll_s,
+                )
+                outcome = (
+                    "failed_semantic_owner_runtime_unready_holding"
+                )
+                break
+            if not active:
+                publish(
+                    guarded_batch,
+                    f"round_{requested_round}_runtime_unready_hold",
+                    expose_new_vlm_target=True,
+                )
+                final_states = wait_for_hold_ack(
+                    client,
+                    guarded_batch,
+                    timeout_s=args.hold_ack_timeout_s,
+                    poll_s=args.poll_s,
+                )
+                outcome = "failed_no_runtime_ready_robot_holding"
+                break
             previous_shared_positions = dict(shared_positions)
             previous_active_robot_ids = set(active)
-            readiness = readiness_for(active)
-            atomic_write_json(round_dir / "runtime_readiness.json", readiness)
             publish(
                 guarded_batch,
                 f"round_{requested_round}_goal",

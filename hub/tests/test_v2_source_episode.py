@@ -430,6 +430,29 @@ def test_pre_goal_readiness_rejects_nontransient_gate_immediately():
         )
 
 
+def test_pre_goal_readiness_partitions_hard_block_from_ready_peer():
+    module = load_module()
+    ready = transient_slam_readiness(ready=True)
+    hard = transient_slam_readiness()
+    hard["health"]["detail"] = (
+        "slam_optimizer_imu_valid; odom_age=7.949s/5.000s"
+    )
+
+    reports, ready_ids, blocked_ids, waited_s = (
+        module.partition_goal_readiness(
+            ReadinessClient({"robot-0": hard, "robot-1": ready}),
+            {"robot-0", "robot-1"},
+            timeout_s=1.0,
+            poll_s=0.01,
+        )
+    )
+
+    assert reports["robot-0"]["ready_for_goal"] is False
+    assert ready_ids == {"robot-1"}
+    assert blocked_ids == {"robot-0"}
+    assert waited_s >= 0.0
+
+
 def write_terminal_observation(
     spool: Path,
     observation_factory,
