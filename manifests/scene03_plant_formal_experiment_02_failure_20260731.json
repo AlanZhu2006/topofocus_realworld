@@ -1,0 +1,214 @@
+{
+  "schema_version": "focus-scene-formal-experiment-v1",
+  "scene_id": "scene03-plant",
+  "target_category": "plant",
+  "formal_index": 2,
+  "result": "FAILURE",
+  "session_id": "scene03-plant-20260730-2349-formal-start",
+  "episode_id": "formal02",
+  "session_git_commit": "3b0e5fb1bef29de06c014bfe880fee40dc2b9a1f",
+  "session_contract_sha256": "ab7e9424d89742f5cc45a1309cf01fb873d1684468a8e80251c2ed709b587eed",
+  "calibration_id": "shared-board-odin1-scene03-plant-20260730-2332-turncontract-recal-v1",
+  "operator_designation": {
+    "classification": "observed onsite post-run designation",
+    "statement": "这次计为formal2 failure 归档",
+    "counts_in_metric_track": "scene03_physical_0p5m_protocol"
+  },
+  "classification": {
+    "primary": "execution_engineering_failure",
+    "secondary": "source_navigation_policy_history_revisit_behavior",
+    "terminal_reason": "episode runtime timeout",
+    "vlm_decision_failure": false,
+    "official_reason": "Formal 02 completed 18 source rounds without a plant semantic arrival. Robot 0 was repeatedly isolated by a controller-order defect before rotate-first could handle TinyNav's fixed reverse request; Robot 1 faithfully executed source history-node revisits that caused substantial backtracking.",
+    "basis": "The exact controller and receiver logs show 11 Robot 0 LOCAL_PATH_REVERSE_REQUIRED rejections with zero velocity confirmed. Frozen VLM manifests show Robot 1's below-threshold Judgment decisions entering the source history_score_copy first-argmax branch and alternating between old history nodes."
+  },
+  "metrics": {
+    "success": 0,
+    "sr": 0.0,
+    "source_compatible_spl": 0.0,
+    "standard_spl": 0.0,
+    "standard_shortest_feasible_path_m": null,
+    "standard_shortest_path_status": "not required for this failed episode's zero SPL contribution"
+  },
+  "execution": {
+    "started_at_local": "2026-07-30T23:54:58+08:00",
+    "completed_at_local": "2026-07-31T00:05:00+08:00",
+    "maximum_runtime_s": 600,
+    "source_rounds_completed": 18,
+    "source_step_final": 424,
+    "high_level_batches_published": 89,
+    "automatic_terminal_candidate_complete": false,
+    "official_success_verified": false,
+    "target_found": false,
+    "outcome": "failed_robot_or_controller_holding",
+    "exact_terminal_reason": "episode runtime timeout",
+    "final_velocity_zero_confirmed": {
+      "robot-0": true,
+      "robot-1": true
+    },
+    "robots": {
+      "robot-0": {
+        "actual_path_length_m": 5.754388385130265,
+        "start_to_stop_displacement_m": 3.746004105780485,
+        "path_to_net_displacement_ratio": 1.536140437286395,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD"
+      },
+      "robot-1": {
+        "actual_path_length_m": 17.902159740277195,
+        "start_to_stop_displacement_m": 2.918764220368378,
+        "path_to_net_displacement_ratio": 6.133472383739773,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD"
+      }
+    }
+  },
+  "behavior": [
+    "Robot 0 made normal metric progress during the first two source rounds, then repeatedly stopped when its local controller reported LOCAL_PATH_REVERSE_REQUIRED.",
+    "Robot 0 accumulated 11 LOCAL_PATH_REVERSE_REQUIRED rejections in rounds 2, 3, 4, 5, 9, 10, 11, 12, 14, 16 and 17; every rejection confirmed zero velocity and isolated only the failed leg.",
+    "Robot 1 remained command-responsive and accumulated 17.902160 m of odometry, but its 2.918764 m net displacement establishes substantial backtracking.",
+    "After Robot 1's round-12 LOCAL_GOAL_UNREACHABLE rejection removed prior-goal continuity, below-threshold Judgment decisions selected old shared history nodes in rounds 13 and 15-17.",
+    "The source history branch selected history-1, history-1, history-6 and history-1 across those rounds, producing the observed reversals."
+  ],
+  "robot_0_diagnosis": {
+    "classification": "source-derived engineering diagnosis from exact immutable controller source, controller telemetry and receiver events",
+    "first_failure_round_index": 2,
+    "first_failure_source_step": 49,
+    "failure_count": 11,
+    "reason_code": "LOCAL_PATH_REVERSE_REQUIRED",
+    "requested_linear_mps": -0.2,
+    "negative_velocity_forwarded_to_chassis": false,
+    "root_cause": "The pinned TinyNav controller maps a behind-body lookahead to fixed reverse velocity and zero yaw. The deployment wrapper evaluated that negative Twist before its rotate-first branch, so it rejected and returned before bounded zero-linear alignment could run.",
+    "correction": "Under the explicitly verified forward-only planner contract, convert a source negative Twist to stable-heading, zero-linear rotate-first alignment; retain fail-closed rejection when heading authority is missing or the local alignment timeout expires.",
+    "shared_robot_scope": "the same controller overlay is used by both Robot 0 and Robot 1"
+  },
+  "robot_1_diagnosis": {
+    "classification": "source-derived source-policy behavior from frozen VLM manifests and observed navigation feedback",
+    "local_controller_followed_assigned_goals": true,
+    "local_goal_failures": {
+      "round_6": "LOCAL_GOAL_UNREACHABLE",
+      "round_12": "LOCAL_GOAL_UNREACHABLE"
+    },
+    "history_revisit_timeline": [
+      {
+        "round_index": 13,
+        "source_step": 324,
+        "judgment_yes": 0.49569005470089256,
+        "selected_target": "history-1",
+        "shared_target_xy_m": [
+          -1.0850726802376052,
+          0.990669750033291
+        ]
+      },
+      {
+        "round_index": 15,
+        "source_step": 374,
+        "judgment_yes": 0.441135544372343,
+        "selected_target": "history-1",
+        "shared_target_xy_m": [
+          -1.0850726802376052,
+          0.990669750033291
+        ]
+      },
+      {
+        "round_index": 16,
+        "source_step": 399,
+        "judgment_yes": 0.38655394398786413,
+        "selected_target": "history-6",
+        "shared_target_xy_m": [
+          -0.33507268023760517,
+          2.4906697500332893
+        ]
+      },
+      {
+        "round_index": 17,
+        "source_step": 424,
+        "judgment_yes": 0.441135544372343,
+        "selected_target": "history-1",
+        "shared_target_xy_m": [
+          -1.0850726802376052,
+          0.990669750033291
+        ]
+      }
+    ],
+    "source_behavior": "After source step 125, Judgment Yes below 0.5 executes Final_PR = history_score_copy and first-argmax selection. A history node is removed only from the same-round sequential copy, with no persistent revisit cooldown or two-cycle suppression.",
+    "source_reference": [
+      "source/Focus_realworld/main.py:1585",
+      "source/Focus_realworld/main.py:1659",
+      "source/Focus_realworld/main.py:1660"
+    ],
+    "policy_change_status": "not changed; suppressing repeated history revisits would be an explicit deployment divergence from the immutable source behavior"
+  },
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2349-formal-start_live_scene03_20260730_235458_576402645/episode_report.json",
+      "size_bytes": 9790,
+      "sha256": "53bc2d03431836a6bc7955d93bcdf397546a461f35e1af612ba957897ef73038",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2349-formal-start_live_scene03_20260730_235458_576402645/controller_events.jsonl",
+      "size_bytes": 270677,
+      "sha256": "646dd57c59153c0da84dc714c89b2ce251d789fbcc7e7ff0723f1ef33e86a59c",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2349-formal-start_live_scene03_20260730_235458_576402645/scene_manifest.json",
+      "size_bytes": 250031,
+      "sha256": "0fd7179666db5ebd8dd867906f7ab311aee0c081e60009a3512af1d116adf4ac",
+      "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2349-formal-start_live_scene03_20260730_235458_576402645/navigation_failure_memory.json",
+      "size_bytes": 22177,
+      "sha256": "1559de085c6e979c1fc218c2ae873da0157c7a28759e07f62e31081ba9ec29b8",
+      "classification": "source-derived robot-scoped local-navigation failure memory; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2349-formal-start_live_scene03_20260730_235458_576402645/round_13_step_324/shadow/shadow_manifest.json",
+      "size_bytes": 35820,
+      "sha256": "38e5acc28ae6c5e2c39d05b12a90e768034809ed1ec48bed2aca1b3ad1f969c5",
+      "classification": "source-derived frozen VLM/history decision manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene03-plant-20260730-2349-formal-start/session.json",
+      "size_bytes": 4368,
+      "sha256": "d87520c13a04f2f2b9d00daf279113f6271d8a721c82ab21b34ee9af14f279d6",
+      "classification": "source-derived session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene03-plant-20260730-2332-turncontract-recal/shared_frame.json",
+      "size_bytes": 6039,
+      "sha256": "92330b7633ab1365771ddf9ee5a3607c0037287dd95578742a0dff985dd56606",
+      "classification": "observed and source-derived shared-frame calibration; runtime file ignored by Git"
+    },
+    {
+      "path": "/home/nvidia/.local/state/topofocus/wsj-v2-buildmap-live-20260730T155445Z.jsonl",
+      "size_bytes": 217743,
+      "sha256": "f0a336f30f72d709d8b1ad1d3104d4c2ab3059faff5f2102438de0a4af6280e5",
+      "classification": "observed Robot 0 receiver log verified through the existing SSH/tmux session; bytes remain on Robot 0"
+    },
+    {
+      "path": "/home/nvidia/twork/tinynav/tinynav/platforms/cmd_vel_control.py",
+      "size_bytes": 10478,
+      "sha256": "ea67c986934232b6ae42ffaca239dce21e3136efa7f133defb3037addde5350d",
+      "classification": "observed immutable pinned Robot 0 TinyNav controller source verified through the existing SSH/tmux session; bytes remain on Robot 0"
+    },
+    {
+      "path": "/home/nyu/.local/state/topofocus/yunji-v2-tinynav-live-20260730T155428Z.jsonl",
+      "size_bytes": 362158,
+      "sha256": "5a99db651324b4e395788883318d39811d75da7acbb46a49ce438307f833b1a8",
+      "classification": "observed Robot 1 receiver log verified through the existing SSH/tmux session; bytes remain on Robot 1"
+    }
+  ],
+  "media": [],
+  "media_status": "no operator-provided media is bound to this formal episode yet",
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "negative_velocity_forwarded_to_chassis": false,
+    "cleanup_state": "both robots HOLDING with velocity_zero_confirmed=true; Hub GOAL disabled for both robots; live episode process stopped",
+    "warm_readonly_core_preserved": true,
+    "post_episode_motion_authority": false
+  }
+}

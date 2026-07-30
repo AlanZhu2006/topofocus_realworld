@@ -1,0 +1,58 @@
+{
+  "schema_version": "focus-scene-formal-experiments-v1",
+  "scene_id": "scene03-plant",
+  "target_category": "plant",
+  "campaign_status": "active",
+  "formal_experiments": 2,
+  "successes": 0,
+  "failures": 2,
+  "sr": 0.0,
+  "metric_protocol": {
+    "physical_success_radius_m": 0.5,
+    "source_compatible_spl_formula": "S * D / max(D, P)",
+    "standard_spl_formula": "S * L / max(L, P)",
+    "independently_measured_shortest_feasible_path_m": null,
+    "shortest_path_status": "not yet measured; both recorded failures contribute zero to either SPL track"
+  },
+  "aggregate_metrics": {
+    "mean_source_compatible_spl_with_failures_zero": 0.0,
+    "mean_standard_spl_with_failures_zero": 0.0
+  },
+  "experiments": [
+    {
+      "formal_index": 1,
+      "result": "FAILURE",
+      "arriving_robot_id": null,
+      "robot_0_actual_path_length_m": 18.57710702408058,
+      "robot_1_actual_path_length_m": 14.162235364087437,
+      "source_compatible_spl": 0.0,
+      "standard_spl": 0.0,
+      "record": {
+        "path": "manifests/scene03_plant_formal_experiment_01_failure_20260730.json",
+        "size_bytes": 8430,
+        "sha256": "af2f061231c0cefd52f1d93b3ac8c52fc9269a231b25fdc5ab6aeb4fc000d47b",
+        "classification": "authoritative machine-readable Formal 01 archive"
+      }
+    },
+    {
+      "formal_index": 2,
+      "result": "FAILURE",
+      "arriving_robot_id": null,
+      "robot_0_actual_path_length_m": 5.754388385130265,
+      "robot_1_actual_path_length_m": 17.902159740277195,
+      "source_compatible_spl": 0.0,
+      "standard_spl": 0.0,
+      "record": {
+        "path": "manifests/scene03_plant_formal_experiment_02_failure_20260731.json",
+        "size_bytes": 11025,
+        "sha256": "b9e89a76234c7f3ddaa605bc76d21b22676e187da63f38db7a938c2667a93003",
+        "classification": "authoritative machine-readable Formal 02 archive"
+      }
+    }
+  ],
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "post_episode_motion_authority": false
+  }
+}

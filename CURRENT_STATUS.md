@@ -1,8 +1,7 @@
 # Current project status
 
-Snapshot: **2026-07-29, after completing the five-run Scene 02 campaign and
-pausing Scene 03 for a fresh calibration following repository/workspace
-consolidation.**
+Snapshot: **2026-07-31, after archiving Scene 03 Formal 02 and applying the
+shared forward-only controller repair.**
 
 ## Scene 01 formal results
 
@@ -79,6 +78,31 @@ and
 and the
 [`five-run aggregate`](manifests/scene02_plant_formal_experiments_20260728.json).
 
+## Scene 03 formal results
+
+Scene `scene03-plant`, target `plant`, currently contains two archived formal
+failures.
+
+| Episodes | Successes | SR | Mean source-compatible SPL | Mean Standard SPL |
+| ---: | ---: | ---: | ---: | ---: |
+| `2` | `0` | `0.0` | `0.0` | `0.0` |
+
+Formal 01 is an execution-engineering failure: a plant semantic region was
+assigned, but robot-local execution did not complete arrival before timeout.
+
+Formal 02, episode `formal02`, completed 18 source rounds. Robot 0 travelled
+`5.754388 m`; Robot 1 travelled `17.902160 m`. Robot 0 repeatedly hit the
+now-diagnosed source-negative-command/rotate-first ordering defect. Robot 1
+remained responsive, but the source Judgment gate selected old
+`history-1/history-6` nodes across later rounds, causing backtracking. The
+episode timed out without semantic arrival and contributes zero SR/SPL.
+
+Complete records:
+[`Formal 01`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md),
+[`Formal 02`](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md)
+and the
+[`current aggregate`](manifests/scene03_plant_formal_experiments_20260731.json).
+
 ## Published media
 
 - Five original third-view masters and five Dashboard masters are preserved
@@ -112,20 +136,23 @@ RGB-D / pose
   -> coordinated HOLD
 ```
 
-A deployment-layer repair to the local-navigation stale-route recovery timing
-has been applied and is covered by regression tests, but has not yet been
-re-verified against a live physical run. WATER/TinyNav collision, watchdog,
-lease, localization, occupancy and robot-local stop/reject authority remain
-unchanged. No file under immutable `source/` or `dependencies/` was changed.
+A deployment-layer repair now converts TinyNav's fixed reverse request to
+bounded zero-linear heading alignment only when stable path/router heading
+authority exists; missing authority or timeout still rejects fail-closed.
+Targeted controller tests and the complete 774-test Hub suite pass. The repair
+has not yet been re-verified in a separately authorized physical run.
+WATER/TinyNav collision, watchdog, lease, localization, occupancy and
+robot-local stop/reject authority remain unchanged. No file under immutable
+`source/` or `dependencies/` was changed.
 
 ## Physical-runtime boundary
 
-On 2026-07-29 the local Hub and Foxglove relays were stopped, and no current
-session pointer was retained. The 55 completed calibrations and all 163
-session contracts remain archived and hash-valid; 30 never-completed
-calibration directories were moved intact to the failed-attempt archive.
-The latest Scene 03 map diagnosis and previous session pointer were preserved,
-but neither is eligible for implicit reuse.
+Formal 02 exited fail-closed. Both robots ended `HOLDING` with
+`velocity_zero_confirmed=true`; Hub `goal_output_enabled` is `false` for both
+robots. Observation, maps and Foxglove remain warm/read-only. The current
+session is bound to calibration
+`shared-board-odin1-scene03-plant-20260730-2332-turncontract-recal-v1`; reuse
+still requires unchanged tracking/mount continuity and a fresh preflight.
 
 No physical robot command was issued by the archival or code verification
 steps themselves.
@@ -138,6 +165,6 @@ The full repository/runtime organization record is
 
 ## Next formal run
 
-Scene 03 formal experiment 01 is next. It requires a fresh shared-frame
-calibration, a new code-bound session, strict no-motion debug and a new onsite
-motion confirmation before any live target can be enabled.
+Scene 03 formal experiment 03 is next. Before any motion, synchronize the
+tested shared controller to both robots, verify exact release hashes, run the
+strict no-motion preflight and obtain a new onsite motion confirmation.

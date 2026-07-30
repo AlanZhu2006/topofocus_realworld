@@ -7,6 +7,13 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md`](SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md):
+  Scene 03 Formal 02 failure, exact dual-robot paths and zero-valued SR/SPL,
+  Robot 0 reverse-command/rotate-first ordering diagnosis, Robot 1
+  source-history revisit timeline and fail-closed terminal state.
+- [`SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md`](SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md):
+  Scene 03 Formal 01 execution failure, dual-robot path evidence, semantic
+  target allocation and post-run controller diagnosis.
 - [`REPOSITORY_WORKSPACE_ORGANIZATION_20260729.md`](REPOSITORY_WORKSPACE_ORGANIZATION_20260729.md):
   detached-history consolidation, media provenance, complete session and
   calibration validation, incomplete-attempt archival, interrupted-spool

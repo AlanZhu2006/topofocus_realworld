@@ -47,13 +47,13 @@
       "classification": "Scene 02 formal experiments 01-05: two recorded zero-contribution failures and three operator-confirmed physical plant-arrival successes"
     },
     "scene03_physical_0p5m_protocol": {
-      "recorded_episodes": 1,
+      "recorded_episodes": 2,
       "successes": 0,
       "sr": 0.0,
       "source_compatible_multi_spl_mean": 0.0,
       "standard_multi_spl_mean": 0.0,
-      "standard_multi_spl_status": "zero contribution for the failed episode; independently measured Scene 03 shortest feasible path not yet required",
-      "classification": "Scene 03 Formal 01 is a recorded execution-engineering failure"
+      "standard_multi_spl_status": "zero contribution for both failed episodes; independently measured Scene 03 shortest feasible path not yet required",
+      "classification": "Scene 03 Formal 01 and Formal 02 are recorded failures"
     }
   },
   "formal_scene_results": {
@@ -77,13 +77,13 @@
       "classification": "authoritative unified Scene 02 formal archive covering experiments 01-05"
     },
     "scene03-plant": {
-      "path": "manifests/scene03_plant_formal_experiment_01_failure_20260730.json",
-      "formal_experiments": 1,
+      "path": "manifests/scene03_plant_formal_experiments_20260731.json",
+      "formal_experiments": 2,
       "successes": 0,
       "sr": 0.0,
       "mean_source_compatible_spl": 0.0,
       "mean_standard_spl": 0.0,
-      "standard_spl_status": "zero contribution for the failed episode",
+      "standard_spl_status": "zero contribution for both failed episodes",
       "classification": "current authoritative Scene 03 formal archive; campaign remains active"
     }
   },
@@ -102,11 +102,11 @@
     "scene03-plant": {
       "target_category": "plant",
       "planned_formal_experiments": 5,
-      "recorded_episodes": 1,
+      "recorded_episodes": 2,
       "successes": 0,
-      "metric_status": "formal_01_recorded_failure_campaign_active",
+      "metric_status": "formal_01_02_recorded_failures_campaign_active",
       "standard_shortest_feasible_path_status": "not yet measured",
-      "classification": "Formal 01 is archived as an execution-engineering failure; remaining formal experiments are pending"
+      "classification": "Formal 01 and Formal 02 are archived failures; remaining formal experiments are pending"
     }
   },
   "attempts_not_in_metric_track": [
@@ -1088,6 +1088,72 @@
           "size_bytes": 9872,
           "sha256": "2d5d58bf1e928296907e1afbc0dff56c8589b2535870859d26a3a8247833c331",
           "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        }
+      ],
+      "media": [],
+      "media_status": "no operator-provided media is bound to this formal episode yet"
+    },
+    {
+      "record_id": "scene03-plant_formal-experiment-02",
+      "formal_experiment_index": 2,
+      "formal_experiment_ordinal_source": "observed operator post-run designation: this run counts as Scene 03 Formal 02 Failure",
+      "session_id": "scene03-plant-20260730-2349-formal-start",
+      "session_git_commit": "3b0e5fb1bef29de06c014bfe880fee40dc2b9a1f",
+      "shared_frame_calibration_id": "shared-board-odin1-scene03-plant-20260730-2332-turncontract-recal-v1",
+      "scene_id": "scene03-plant",
+      "episode_id": "formal02",
+      "target_category": "plant",
+      "attribution": "execution_engineering_failure",
+      "secondary_attribution": "source_navigation_policy_history_revisit_behavior",
+      "reason": "Robot 0 repeatedly rejected TinyNav's fixed reverse request before rotate-first could run, while Robot 1 faithfully revisited alternating high-score source history nodes; the episode timed out without plant semantic arrival.",
+      "live_started": true,
+      "robot_commands_issued": true,
+      "episode_created": true,
+      "physical_protocol_result": {
+        "classification": "operator-designated Scene 03 Formal 02 failure",
+        "counts_in_metric_track": "scene03_physical_0p5m_protocol",
+        "success": false,
+        "operator_statement": "这次计为formal2 failure 归档"
+      },
+      "metrics": {
+        "success": 0,
+        "sr": 0.0,
+        "source_compatible_spl": 0.0,
+        "standard_spl": 0.0,
+        "robot_0_actual_path_length_m": 5.754388385130265,
+        "robot_1_actual_path_length_m": 17.902159740277195
+      },
+      "run_summary": {
+        "source_rounds_completed": 18,
+        "high_level_batches_published": 89,
+        "target_found": false,
+        "exact_terminal_reason": "episode runtime timeout",
+        "behavior": "Robot 0 made early progress then accumulated 11 fail-closed LOCAL_PATH_REVERSE_REQUIRED rejections. Robot 1 remained responsive but source Judgment gating selected old history-1/history-6 nodes, producing 17.902160 m of path for only 2.918764 m net displacement."
+      },
+      "evidence": [
+        {
+          "path": "manifests/scene03_plant_formal_experiment_02_failure_20260731.json",
+          "size_bytes": 11025,
+          "sha256": "b9e89a76234c7f3ddaa605bc76d21b22676e187da63f38db7a938c2667a93003",
+          "classification": "authoritative machine-readable Formal 02 failure archive"
+        },
+        {
+          "path": "audit/SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md",
+          "size_bytes": 5719,
+          "sha256": "b8f0cf6275dc56ad8984390badb1aff7f981223af027ab4c6b886827455d5ec0",
+          "classification": "human-readable provenance mirror"
+        },
+        {
+          "path": "hub/runtime/oneclick_scene03-plant-20260730-2349-formal-start_live_scene03_20260730_235458_576402645/episode_report.json",
+          "size_bytes": 9790,
+          "sha256": "53bc2d03431836a6bc7955d93bcdf397546a461f35e1af612ba957897ef73038",
+          "classification": "source-derived from observed robot navigation feedback; local runtime file ignored by Git"
+        },
+        {
+          "path": "manifests/scene03_plant_formal_experiments_20260731.json",
+          "size_bytes": 2062,
+          "sha256": "63c14e077cd501265118bafdd0e0a71240a63ffd075dee44685b5dc7c2907161",
+          "classification": "authoritative unified Scene 03 formal archive"
         }
       ],
       "media": [],
