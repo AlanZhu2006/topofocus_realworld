@@ -38,13 +38,16 @@ local permission without resending its target. One arrival changes that robot
 to HOLD while the other robot keeps its existing leg. Expiry or loss closes
 only that robot's local output; an explicit scene-level HOLD closes both.
 An active frontier also needs a footprint-clear known-free approach cell
-inside its source arrival disk. A robot-local reverse/no-progress rejection
-holds only that frontier leg and allows a fresh source-ranked replan. The
-rejected pose/target/direction is retained across rounds so the same blocked
-approach is not immediately republished. The independent source rules retain
-an unfinished goal outside its 25-cell remaining-distance boundary and replan
-after at most 2.5 cells of inter-boundary motion. Semantic and system-health
-failures still fail closed at episode scope. See
+inside its source arrival disk. Both launchers verify the same forward-only
+planner contract: a behind-looking Path turns with zero linear velocity, while
+an actually negative controller command still fails closed. A robot-local
+no-progress rejection holds only that frontier leg and allows a fresh
+source-ranked replan. The rejected pose/target/direction is retained across
+rounds so the same blocked approach is not immediately republished. The
+independent source rules retain an unfinished goal outside its 25-cell
+remaining-distance boundary and replan after at most 2.5 cells of
+inter-boundary motion. Semantic and system-health failures still fail closed
+at episode scope. See
 [SOURCE_BEHAVIOR_PARITY.md](SOURCE_BEHAVIOR_PARITY.md) for the exact parity and
 physical-adaptation boundary.
 
@@ -67,8 +70,8 @@ Implemented and locally tested:
 - a pre-publication route-conflict guard that serializes intersecting or
   insufficiently separated shared-frame target segments and fails closed when
   shared poses are unavailable;
-- a frozen-map frontier approach-clearance guard plus an explicit
-  forward-only reverse-path rejection signal on Yunji.
+- a frozen-map frontier approach-clearance guard plus the same verified
+  forward-only planner/controller contract on both robots.
 
 Completed on physical session `20260725-lab05-yunjireboot4`:
 

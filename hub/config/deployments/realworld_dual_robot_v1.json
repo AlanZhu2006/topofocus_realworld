@@ -156,7 +156,9 @@
         "threshold_m": 0.4,
         "duration_s": 0.6
       },
-      "reverse_segment_policy": "reject and stop"
+      "verified_forward_only_path_geometry": "zero-linear bounded heading alignment",
+      "turn_no_progress_authority": "robot-local receiver goal-progress watchdog",
+      "negative_twist_policy": "reject and stop"
     }
   },
   "control_contract": {
@@ -235,8 +237,8 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-      "size_bytes": 35439,
-      "sha256": "180f93dd887c574208ddb5b5a7a6cc48ac940cbdfa3a320acfc54d1de658d2a9",
+      "size_bytes": 35471,
+      "sha256": "f2b8012fbaf2dd57e34a4b6a515087dcf4cc9993cfd8127ee304ba9d4665e2ee",
       "classification": "source-derived"
     },
     {
@@ -259,8 +261,8 @@
     },
     {
       "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
-      "size_bytes": 62738,
-      "sha256": "6986acc7d7c62dacbca769ac477117a1a62d0e49876212abdacd94394d958ab3",
+      "size_bytes": 67349,
+      "sha256": "11e4d6aa1cba422d1b5b9891e8e862ebba75f31bc343d7396536da7d44da168b",
       "classification": "source-derived"
     },
     {

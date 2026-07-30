@@ -1523,6 +1523,7 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert "--reject-reverse-trajectory" in launcher
     assert "--rotate-first-on-reverse" in launcher
     assert "--stabilize-large-turn" in launcher
+    assert "--verified-forward-only-planner" in launcher
     assert "--rotate-first-max-angular-radps" in launcher
     assert "--rotate-first-timeout-s" in launcher
     assert "-p keyframe.pose_jump_translation_m:=1.0" in launcher

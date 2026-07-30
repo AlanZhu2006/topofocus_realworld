@@ -63,8 +63,8 @@ NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # The forward-only planner contains collision-scored zero-linear turns. The
 # controller stabilizes those turns and resolves a behind-heading segment with
-# a bounded zero-linear yaw; the receiver still rejects it if that recovery
-# does not finish before the deadline.
+# zero-linear yaw. The receiver's fixed-goal progress watchdog owns the
+# terminal no-progress verdict; Path geometry alone is never called reverse.
 REVERSE_ROTATE_MAX_ANGULAR_RADPS="${FOCUS_YUNJI_REVERSE_ROTATE_MAX_ANGULAR_RADPS:-0.35}"
 REVERSE_ROTATE_TIMEOUT_S="${FOCUS_YUNJI_REVERSE_ROTATE_TIMEOUT_S:-12.0}"
 # The selected semantic approach point is already on the source radius-10-cell
@@ -381,6 +381,7 @@ start_controller() {
       --robot-id robot-1 \
       --base-camera-frame odin1_camera_optical_frame \
       --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
+      --verified-forward-only-planner \
       --rotate-first-on-reverse \
       --stabilize-large-turn \
       --linear-command-floor-mps "$LINEAR_COMMAND_FLOOR_MPS" \

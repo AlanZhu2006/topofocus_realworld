@@ -771,6 +771,7 @@ def test_wsj_launcher_uses_forward_only_planner_and_bounded_rotate_first():
         )
         assert "--rotate-first-on-reverse" in source
         assert "--stabilize-large-turn" in source
+        assert "--verified-forward-only-planner" in source
         assert "--rotate-first-max-angular-radps 0.35" in source
         assert "--rotate-first-timeout-s 12.0" in source
     assert "--reject-reverse-trajectory" in reload

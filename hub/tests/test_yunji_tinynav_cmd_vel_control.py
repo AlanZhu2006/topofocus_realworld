@@ -227,6 +227,68 @@ def test_reverse_classifier_rejects_invalid_values():
 
 
 @pytest.mark.parametrize(
+    ("segment_action", "requested_linear_mps", "expected_action"),
+    [
+        ("reject_reverse", 0.0, "allow"),
+        ("reject_reverse", 0.18, "allow"),
+        ("zero_tiny_reverse", 0.0, "zero_tiny_reverse"),
+        ("allow", 0.18, "allow"),
+    ],
+)
+def test_verified_forward_only_planner_treats_path_geometry_as_a_turn(
+    segment_action,
+    requested_linear_mps,
+    expected_action,
+):
+    effective_action, violation = (
+        MODULE.resolve_forward_only_control_contract(
+            segment_action,
+            requested_linear_mps,
+            verified_forward_only_planner=True,
+        )
+    )
+
+    assert effective_action == expected_action
+    assert violation is False
+
+
+def test_actual_negative_twist_remains_a_forward_only_contract_violation():
+    effective_action, violation = (
+        MODULE.resolve_forward_only_control_contract(
+            "allow",
+            -0.01,
+            verified_forward_only_planner=True,
+        )
+    )
+
+    assert effective_action == "reject_reverse"
+    assert violation is True
+
+
+def test_unverified_planner_retains_legacy_geometry_rejection():
+    assert MODULE.resolve_forward_only_control_contract(
+        "reject_reverse",
+        0.0,
+        verified_forward_only_planner=False,
+    ) == ("reject_reverse", False)
+
+
+def test_forward_only_turn_timeout_is_owned_by_receiver_progress_watchdog():
+    assert not MODULE.controller_recovery_timeout_is_terminal(
+        expired=True,
+        verified_forward_only_planner=True,
+    )
+    assert MODULE.controller_recovery_timeout_is_terminal(
+        expired=True,
+        verified_forward_only_planner=False,
+    )
+    assert not MODULE.controller_recovery_timeout_is_terminal(
+        expired=False,
+        verified_forward_only_planner=False,
+    )
+
+
+@pytest.mark.parametrize(
     ("requested", "latched_direction", "expected"),
     [
         (0.70, 0, 0.35),
@@ -645,6 +707,7 @@ def test_rotate_first_is_explicitly_opt_in():
         + [
             "--rotate-first-on-reverse",
             "--stabilize-large-turn",
+            "--verified-forward-only-planner",
             "--rotate-first-max-angular-radps",
             "0.30",
             "--rotate-first-timeout-s",
@@ -656,6 +719,7 @@ def test_rotate_first_is_explicitly_opt_in():
     assert defaults.stabilize_large_turn is False
     assert enabled.rotate_first_on_reverse is True
     assert enabled.stabilize_large_turn is True
+    assert enabled.verified_forward_only_planner is True
     assert enabled.rotate_first_max_angular_radps == pytest.approx(0.30)
     assert enabled.rotate_first_timeout_s == pytest.approx(8.0)
 

@@ -479,7 +479,7 @@ bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   --hub-url "$HUB_URL"
 
 planning_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/run_yunji_tinynav_planner.py\" --robot-profile source-default'"
-control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --robot-profile source-default --robot-id robot-0 --base-camera-frame camera --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --rotate-first-on-reverse --stabilize-large-turn --linear-command-floor-mps \"$LINEAR_COMMAND_FLOOR_MPS\" --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
+control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --robot-profile source-default --robot-id robot-0 --base-camera-frame camera --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --verified-forward-only-planner --rotate-first-on-reverse --stabilize-large-turn --linear-command-floor-mps \"$LINEAR_COMMAND_FLOOR_MPS\" --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
 
 if [[ "$reuse_verified_debug_core" == true ]]; then
   component_contract_matches \

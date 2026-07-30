@@ -8,15 +8,14 @@ the intended 0.04 m/s engage threshold but below the 0.10 m/s static-friction
 floor.  Its timer then publishes zero forever.
 
 The pinned controller already forbids negative velocity and turns in place
-when its lookahead lies behind the robot.  The Focus deployment normally keeps
-the stricter reverse-path rejection at 2 cm.  A measured robot deployment can
-explicitly opt into a bounded rotate-first recovery: publish zero linear
-velocity, retain one turn direction, and let the pinned pose/path/depth guards
-govern the yaw command.  It can also explicitly stabilize a large in-place
-turn from the current base pose toward a non-local path point.  That prevents a
-jittering first path segment from changing the turn sign on every replan.  If
-either recovery does not resolve before the bounded deadline, the existing
-receiver rejection remains fail-closed.
+when its lookahead lies behind the robot.  A deployment whose launcher has
+verified the forward-only planner wrapper must therefore distinguish the
+planner's Path geometry from an executable reverse command.  A negative
+lookahead from that planner is handled as zero-linear heading alignment, while
+an actually negative source-controller Twist remains a fail-closed contract
+violation.  The existing receiver progress watchdog bounds an alignment that
+does not converge.  Other deployments retain the stricter legacy reverse-path
+rejection at 2 cm and its local recovery deadline.
 
 Rotation-only paths can also contain a minute negative base translation from
 the measured camera lever arm.  When that specific geometry coincides with a
@@ -62,6 +61,7 @@ from tinynav_source_contract import (  # noqa: E402
 
 
 MEANINGFUL_REVERSE_SEGMENT_M = 0.02
+NEGATIVE_LINEAR_COMMAND_EPSILON_MPS = 1e-6
 MINIMUM_DISTINCT_PATH_POSE_M = 0.01
 MINIMUM_DISTINCT_PATH_POSE_ROTATION_RAD = math.radians(1.0)
 DEFAULT_LINEAR_COMMAND_FLOOR_MPS = 0.18
@@ -334,6 +334,63 @@ def classify_forward_component(
     if forward_m < 0.0:
         return "zero_tiny_reverse"
     return "allow"
+
+
+def resolve_forward_only_control_contract(
+    segment_action: str,
+    requested_linear_mps: float,
+    *,
+    verified_forward_only_planner: bool,
+    negative_command_epsilon_mps: float = (
+        NEGATIVE_LINEAR_COMMAND_EPSILON_MPS
+    ),
+) -> tuple[str, bool]:
+    """Separate non-executable Path geometry from a real reverse command.
+
+    The verified deployment planner contains no negative-vx vocabulary, and
+    the immutable controller quantizes a behind lookahead to zero linear
+    velocity before this wrapper sees ``latest_cmd``.  Under that explicit
+    contract, a negative Path projection is a turn representation rather than
+    evidence of commanded reverse motion.  A genuinely negative Twist still
+    violates the contract and must retain the receiver-visible fail-closed
+    signal.
+    """
+
+    if segment_action not in {
+        "unknown",
+        "reject_reverse",
+        "zero_tiny_reverse",
+        "allow",
+    }:
+        raise ValueError("unknown forward-component classification")
+    if (
+        not math.isfinite(requested_linear_mps)
+        or not math.isfinite(negative_command_epsilon_mps)
+        or negative_command_epsilon_mps <= 0.0
+    ):
+        raise ValueError("forward-only command values are invalid")
+    if not verified_forward_only_planner:
+        return segment_action, False
+    if requested_linear_mps < -negative_command_epsilon_mps:
+        return "reject_reverse", True
+    if segment_action == "reject_reverse":
+        return "allow", False
+    return segment_action, False
+
+
+def controller_recovery_timeout_is_terminal(
+    *,
+    expired: bool,
+    verified_forward_only_planner: bool,
+) -> bool:
+    """Keep one and only one terminal no-progress authority.
+
+    With the verified forward-only planner, the receiver's metric progress
+    watchdog owns the bounded terminal verdict.  This prevents the controller
+    from relabelling an ordinary long in-place turn as reverse motion.
+    """
+
+    return bool(expired and not verified_forward_only_planner)
 
 
 def bounded_rotate_first_angular(
@@ -837,6 +894,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--verified-forward-only-planner",
+        action="store_true",
+        help=(
+            "declare that the launcher verified the Focus forward-only "
+            "planner wrapper; negative Path geometry then requests bounded "
+            "zero-linear alignment, while an actual negative Twist remains "
+            "a fail-closed contract violation"
+        ),
+    )
+    parser.add_argument(
         "--stabilize-large-turn",
         action="store_true",
         help=(
@@ -915,6 +982,14 @@ def main(args: list[str] | None = None) -> None:
         raise SystemExit(
             "--rotate-first-timeout-s must be finite and positive"
         )
+    if deployment_args.verified_forward_only_planner and not (
+        deployment_args.rotate_first_on_reverse
+        and deployment_args.stabilize_large_turn
+    ):
+        raise SystemExit(
+            "--verified-forward-only-planner requires "
+            "--rotate-first-on-reverse and --stabilize-large-turn"
+        )
     common_guard_values = (
         deployment_args.pose_timeout_s,
         deployment_args.path_timeout_s,
@@ -957,6 +1032,8 @@ def main(args: list[str] | None = None) -> None:
                 "bounded_deployment_linear_floor",
                 "consecutive_duplicate_path_pose_filter",
                 "reverse_segment_fail_closed",
+                "verified_forward_only_planner_contract",
+                "path_geometry_reverse_as_heading_alignment",
                 "stable_large_turn",
                 "bounded_tiny_reverse_heading_alignment",
                 "measured_base_pose_for_stable_heading",
@@ -966,6 +1043,14 @@ def main(args: list[str] | None = None) -> None:
             ],
             "linear_command_floor_mps": (
                 deployment_args.linear_command_floor_mps
+            ),
+            "verified_forward_only_planner": (
+                deployment_args.verified_forward_only_planner
+            ),
+            "turn_no_progress_authority": (
+                "receiver_goal_progress_watchdog"
+                if deployment_args.verified_forward_only_planner
+                else "controller_rotate_first_timeout"
             ),
             "base_camera_calibration": {
                 "source_path": base_camera_calibration.source_path,
@@ -1309,13 +1394,37 @@ def main(args: list[str] | None = None) -> None:
                     "source_controller_command_nonfinite"
                 )
                 return
-            segment_action = classify_forward_component(
+            measured_segment_action = classify_forward_component(
                 control_segment_forward_m
             )
             requested_linear = float(self.latest_cmd.linear.x)
             requested_angular = float(self.latest_cmd.angular.z)
+            (
+                segment_action,
+                forward_only_contract_violation,
+            ) = resolve_forward_only_control_contract(
+                measured_segment_action,
+                requested_linear,
+                verified_forward_only_planner=(
+                    deployment_args.verified_forward_only_planner
+                ),
+            )
             now = time.monotonic()
             self._focus_path_received_monotonic = now
+            if forward_only_contract_violation:
+                self._reset_focus_rotation_recovery()
+                self._reverse_required_publisher.publish(Bool(data=True))
+                self.latest_cmd = Twist()
+                self.prev_cmd = Twist()
+                self.cmd_pub.publish(Twist())
+                if now - self._last_focus_reverse_log >= 2.0:
+                    self.get_logger().warning(
+                        "Focus TinyNav rejected an actual negative linear "
+                        "command under the verified forward-only planner "
+                        f"contract: linear={requested_linear:.6f} m/s"
+                    )
+                    self._last_focus_reverse_log = now
+                return
             source_goal_distance = getattr(self, "goal_dist", None)
             source_goal_distance_time = float(
                 getattr(self, "goal_dist_time", 0.0)
@@ -1416,10 +1525,17 @@ def main(args: list[str] | None = None) -> None:
                         self._focus_rotation_turn_direction = (
                             1 if requested_angular > 0.0 else -1
                         )
-                expired = reverse_recovery_expired(
-                    started_monotonic=self._focus_rotation_recovery_started,
-                    now_monotonic=now,
-                    timeout_s=deployment_args.rotate_first_timeout_s,
+                expired = controller_recovery_timeout_is_terminal(
+                    expired=reverse_recovery_expired(
+                        started_monotonic=(
+                            self._focus_rotation_recovery_started
+                        ),
+                        now_monotonic=now,
+                        timeout_s=deployment_args.rotate_first_timeout_s,
+                    ),
+                    verified_forward_only_planner=(
+                        deployment_args.verified_forward_only_planner
+                    ),
                 )
                 if tiny_reverse_alignment_requested:
                     continuation_request = (

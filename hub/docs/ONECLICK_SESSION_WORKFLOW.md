@@ -253,12 +253,14 @@ a certification of robot-local obstacle detours.
 Yunji's deployment controller also handles a robot-relative lookahead that
 temporarily falls behind after a local replan. Translation remains exactly
 zero while it turns in one latched direction at no more than `0.35 rad/s`.
-Normal forward tracking must return within 12 seconds; otherwise the receiver
-reports `LOCAL_PATH_REVERSE_REQUIRED` and retains guarded zero output. Explicit
-frontier path/progress rejections are robot-local: that robot transitions to
-HOLD while a healthy peer retains its existing leg. Transform, localization,
-e-stop, semantic and protocol failures remain episode-wide fail-closed
-conditions.
+Both robot launchers verify the forward-only planner wrapper, so Path geometry
+alone cannot be labelled as executable reverse motion. A genuinely negative
+controller Twist still fails closed. A turn that does not converge is bounded
+by the receiver's fixed-goal progress watchdog and reported as
+`LOCAL_PLANNER_NO_PROGRESS`. Explicit frontier path/progress rejections are
+robot-local: that robot transitions to HOLD while a healthy peer retains its
+existing leg. Transform, localization, e-stop, semantic and protocol failures
+remain episode-wide fail-closed conditions.
 
 This guard was added after the 2026-07-25 physical run assigned distinct
 frontiers whose shared-frame routes nevertheless intersected. The observed
