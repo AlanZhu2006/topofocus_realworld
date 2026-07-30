@@ -501,6 +501,58 @@ PY
   return 1
 }
 
+active_receipt_frames_seen() {
+  local expected_sha="$1" expected_pid
+  expected_pid="$(sender_pid)"
+  FOCUS_RECEIPT="$RUNTIME_RECEIPT_FILE" \
+  FOCUS_EXPECT_SHA="$expected_sha" \
+  FOCUS_EXPECT_PID="$expected_pid" \
+  "$PYTHON_BIN" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+payload = json.loads(Path(os.environ["FOCUS_RECEIPT"]).read_text())
+if payload.get("status") != "active":
+    raise SystemExit("WSJ sender receipt is not active")
+if payload.get("contract_sha256") != os.environ["FOCUS_EXPECT_SHA"]:
+    raise SystemExit("WSJ sender receipt contract mismatch")
+if int(payload.get("pid", -1)) != int(os.environ["FOCUS_EXPECT_PID"]):
+    raise SystemExit("WSJ sender receipt PID mismatch")
+print(int(payload.get("frames_seen", -1)))
+PY
+}
+
+sender_frame_error_since() {
+  local baseline_frames="$1" expected_sha="$2" expected_pid
+  expected_pid="$(sender_pid)"
+  FOCUS_RECEIPT="$RUNTIME_RECEIPT_FILE" \
+  FOCUS_EXPECT_SHA="$expected_sha" \
+  FOCUS_EXPECT_PID="$expected_pid" \
+  FOCUS_BASELINE_FRAMES="$baseline_frames" \
+  "$PYTHON_BIN" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+payload = json.loads(Path(os.environ["FOCUS_RECEIPT"]).read_text())
+if payload.get("status") != "active":
+    raise SystemExit(1)
+if payload.get("contract_sha256") != os.environ["FOCUS_EXPECT_SHA"]:
+    raise SystemExit(1)
+if int(payload.get("pid", -1)) != int(os.environ["FOCUS_EXPECT_PID"]):
+    raise SystemExit(1)
+if int(payload.get("frames_seen", -1)) <= int(
+    os.environ["FOCUS_BASELINE_FRAMES"]
+):
+    raise SystemExit(1)
+error = payload.get("last_frame_error")
+if not isinstance(error, str) or not error:
+    raise SystemExit(1)
+print(error)
+PY
+}
+
 hub_latest_sequence() {
   local token payload
   token="$(<"$TOKEN_FILE")"
@@ -540,7 +592,7 @@ fresh_reader_can_assemble_observation() {
 }
 
 recover_stale_sender_reader() {
-  local old_pid new_pid baseline
+  local old_pid new_pid baseline receipt_frames frame_error
   old_pid="$(sender_pid)"
   [[ "$old_pid" =~ ^[1-9][0-9]*$ ]] || {
     echo "Persistent WSJ sender PID is unavailable for reader recovery." >&2
@@ -567,7 +619,15 @@ recover_stale_sender_reader() {
   baseline="$(hub_latest_sequence)"
   contract_sha256="$(write_active_contract)"
   wait_for_receipt active "$contract_sha256"
+  receipt_frames="$(active_receipt_frames_seen "$contract_sha256")"
   if ! wait_for_hub_sequence_advance "$baseline"; then
+    if frame_error="$(
+      sender_frame_error_since "$receipt_frames" "$contract_sha256"
+    )"; then
+      echo "WSJ sender receives synchronized tuples, but Hub rejected frame processing: $frame_error" >&2
+      echo "Activate a Hub session with the same transform/calibration contract before retrying the sender." >&2
+      return 1
+    fi
     echo "Fresh WSJ sender reader did not advance after a passing sync probe." >&2
     return 1
   fi
@@ -669,7 +729,15 @@ validate_reanchor_marker
 initial_sequence="$(hub_latest_sequence)"
 contract_sha256="$(write_active_contract)"
 wait_for_receipt active "$contract_sha256"
+receipt_frames="$(active_receipt_frames_seen "$contract_sha256")"
 if ! wait_for_hub_sequence_advance "$initial_sequence"; then
+  if frame_error="$(
+    sender_frame_error_since "$receipt_frames" "$contract_sha256"
+  )"; then
+    echo "WSJ sender receives synchronized tuples, but Hub rejected frame processing: $frame_error" >&2
+    echo "Activate a Hub session with the same transform/calibration contract before retrying the sender." >&2
+    exit 1
+  fi
   echo "WSJ persistent sender did not advance; probing the publisher tuple with a fresh read-only participant." >&2
   if fresh_reader_can_assemble_observation; then
     echo "Fresh reader proved the publishers healthy; replacing only the stale observation sender." >&2

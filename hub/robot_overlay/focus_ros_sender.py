@@ -902,6 +902,8 @@ class FocusRosSender(Node):
         self.last_upload_monotonic = 0.0
         self.frames_sent = 0
         self.frames_seen = 0
+        self.last_frame_error: str | None = None
+        self.last_frame_error_at_ns: int | None = None
         self.metrics: list[dict] = []
         self.done = False
         self.registration_T_rgb_from_depth: np.ndarray | None = None
@@ -1063,6 +1065,11 @@ class FocusRosSender(Node):
             ),
             "robot_commands_issued": False,
             "frames_seen": getattr(self, "frames_seen", 0),
+            "frames_sent": getattr(self, "frames_sent", 0),
+            "last_frame_error": getattr(self, "last_frame_error", None),
+            "last_frame_error_at_ns": getattr(
+                self, "last_frame_error_at_ns", None
+            ),
             "parked_geometry_tuples": getattr(
                 self, "parked_geometry_tuples", 0
             ),
@@ -1260,8 +1267,38 @@ class FocusRosSender(Node):
                 rgb_info_msg=rgb_info_msg,
             )
         except Exception as exc:  # noqa: BLE001 - one bad frame must not kill the node
+            self.last_frame_error = f"{type(exc).__name__}:{exc}"
+            self.last_frame_error_at_ns = time.time_ns()
+            if (
+                self.runtime_contract_file is not None
+                and self.runtime_receipt_state is not None
+                and self.runtime_receipt_state[0] == "active"
+            ):
+                status, contract_sha256, _detail = (
+                    self.runtime_receipt_state
+                )
+                self._write_runtime_receipt(
+                    status=status,
+                    contract_sha256=contract_sha256,
+                    detail="frame_processing_failed",
+                )
             self.get_logger().error(f"frame processing failed: {exc}")
             return
+        recovered_from_error = self.last_frame_error is not None
+        self.last_frame_error = None
+        self.last_frame_error_at_ns = None
+        if (
+            recovered_from_error
+            and self.runtime_contract_file is not None
+            and self.runtime_receipt_state is not None
+            and self.runtime_receipt_state[0] == "active"
+        ):
+            status, contract_sha256, _detail = self.runtime_receipt_state
+            self._write_runtime_receipt(
+                status=status,
+                contract_sha256=contract_sha256,
+                detail="frame_upload_recovered",
+            )
         if self.args.max_frames and self.frames_sent >= self.args.max_frames:
             self.get_logger().info(f"reached --max-frames {self.args.max_frames}; shutting down")
             self.done = True

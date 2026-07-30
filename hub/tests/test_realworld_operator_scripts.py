@@ -215,6 +215,12 @@ def test_wsj_formal_observation_recovers_only_a_proven_stale_sender_reader():
     assert "fresh_reader_can_assemble_observation" in launcher
     assert "recover_stale_sender_reader" in launcher
     assert "WSJ_STALE_SENDER_READER_RECOVERED" in launcher
+    assert "active_receipt_frames_seen" in launcher
+    assert "sender_frame_error_since" in launcher
+    assert (
+        "Activate a Hub session with the same transform/calibration contract"
+        in launcher
+    )
     assert "probe_wsj_observation_sync.py" in launcher
     assert "observed_read_only_fresh_dds_reader" in probe
     assert '"robot_commands_issued": False' in probe
