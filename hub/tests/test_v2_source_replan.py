@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from focus_hub.transport_v2 import DecisionBatchV2
 from focus_hub.v2_source_replan import (
     SOURCE_STAGNANT_REPLAN_M,
@@ -400,3 +402,96 @@ def test_history_fallback_uses_source_history_score_order(
     assert report["checks"]["robot-0"]["fallback_ranking_source"] == (
         "source_history_score_descending_first_max"
     )
+
+
+def test_long_cross_round_reversal_prefers_source_ranked_forward_alternative(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    raw = with_source_frontiers(
+        make_batch(observations, digests, now=now)
+    ).model_dump(mode="json")
+    robot_1 = next(
+        item for item in raw["decisions"] if item["robot_id"] == "robot-1"
+    )
+    robot_1["target"]["pose"]["x"] = -7.461922679552056
+    robot_1["target"]["pose"]["y"] = 5.323087209529522
+    batch = DecisionBatchV2.model_validate(raw)
+    manifest = shadow_manifest()
+    result = manifest["robots"][1]
+    result["candidate_frontiers"] = [
+        frontier("A", 3.5880773204479457, -0.17691279047047814),
+        frontier("B", -7.461922679552056, 5.323087209529522),
+        frontier("C", 3.8380773204479457, 6.823087209529522),
+    ]
+    result["choice_probabilities"] = {
+        "A": 0.0,
+        "B": 0.6513548701194006,
+        "C": 0.34864512988059937,
+    }
+
+    rejected, fallbacks, report = evaluate_source_replan(
+        batch,
+        shadow_manifest=manifest,
+        memory=memory(),
+        robot_xy_by_robot={
+            "robot-0": (0.0, 1.0),
+            "robot-1": (-0.43306242095306674, 1.9786871151028098),
+        },
+        progress_vector_by_robot={
+            "robot-0": (0.0, 2.0),
+            "robot-1": (1.3060030586835352, 2.2172778810007925),
+        },
+    )
+
+    assert rejected == frozenset({"robot-1"})
+    assert [
+        item["frontier_id"] for item in fallbacks["robot-1"]
+    ] == ["C"]
+    check = report["checks"]["robot-1"]
+    assert check["backtrack_redirected"] is True
+    assert check["current_backtrack_check"]["severe_backtrack"] is True
+    assert check["current_backtrack_check"]["angle_deg"] == pytest.approx(
+        95.05303173007502
+    )
+    assert check["non_backtracking_fallback_count"] == 1
+
+
+def test_backtracking_remains_available_when_source_has_no_forward_alternative(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    raw = with_source_frontiers(
+        make_batch(observations, digests, now=now)
+    ).model_dump(mode="json")
+    robot_1 = next(
+        item for item in raw["decisions"] if item["robot_id"] == "robot-1"
+    )
+    robot_1["target"]["pose"]["x"] = -5.0
+    robot_1["target"]["pose"]["y"] = 0.0
+    batch = DecisionBatchV2.model_validate(raw)
+    manifest = shadow_manifest()
+    result = manifest["robots"][1]
+    result["candidate_frontiers"] = [frontier("B", -5.0, 0.0)]
+    result["choice_probabilities"] = {"B": 1.0}
+
+    rejected, fallbacks, report = evaluate_source_replan(
+        batch,
+        shadow_manifest=manifest,
+        memory=memory(),
+        robot_xy_by_robot={
+            "robot-0": (0.0, 1.0),
+            "robot-1": (0.0, 0.0),
+        },
+        progress_vector_by_robot={"robot-1": (2.0, 0.0)},
+    )
+
+    assert rejected == frozenset()
+    assert fallbacks["robot-1"] == []
+    check = report["checks"]["robot-1"]
+    assert check["current_backtrack_check"]["severe_backtrack"] is True
+    assert check["backtrack_redirected"] is False

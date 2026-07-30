@@ -91,6 +91,7 @@ def make_adapter(
     shared_T_robot_map=IDENTITY,
     allow_unreachable_semantic_projection: bool = False,
     semantic_arrival_radius_m: float = 0.15,
+    max_goal_distance_m: float = 8.0,
 ) -> V2GoalAdapter:
     return V2GoalAdapter(V2GoalAdapterConfig(
         robot_id=robot_id,
@@ -103,6 +104,7 @@ def make_adapter(
             allow_unreachable_semantic_projection
         ),
         semantic_arrival_radius_m=semantic_arrival_radius_m,
+        max_goal_distance_m=max_goal_distance_m,
     ))
 
 
@@ -284,6 +286,71 @@ def test_semantic_goal_is_stable_across_same_leg_lease_renewal(
         json.loads(renewed.command_preview)["0"]["position"]
         == json.loads(first.command_preview)["0"]["position"]
     )
+
+
+def test_distance_limit_is_leg_admission_not_same_leg_renewal(
+    observation_factory,
+):
+    adapter = make_adapter(max_goal_distance_m=8.0)
+    health = observation_factory(mapping_only=False, health_ready=True).health
+    target = {
+        "kind": "FRONTIER_POINT",
+        "frontier_id": "frontier-near-leg-limit",
+        "source_goal_dilation_cells": 10,
+        "pose": {
+            "frame_id": "shared_world",
+            "x": 7.5,
+            "y": 0.0,
+            "z": 0.0,
+            "yaw_rad": 0.0,
+        },
+    }
+    decision = make_target_decision(target=target)
+    admitted = adapter.evaluate(
+        decision,
+        now_ns=10_000_000_001,
+        health=health,
+        current_position_robot_map=(0.0, 0.0, 0.0),
+    )
+    assert admitted.action == V2AdapterAction.GOAL
+
+    renewal = decision.model_copy(
+        update={
+            "decision_id": "decision-robot-0-goal-lease-1",
+            "lease_sequence": 1,
+            "issued_at_ns": 11_000_000_000,
+            "expires_at_ns": 19_000_000_000,
+        }
+    )
+    renewed = adapter.evaluate(
+        renewal,
+        now_ns=11_000_000_001,
+        health=health,
+        # A safe local detour temporarily increased straight-line distance.
+        current_position_robot_map=(-1.0, 0.0, 0.0),
+    )
+    assert renewed.action == V2AdapterAction.GOAL
+    assert renewed.local_goal == admitted.local_goal
+
+    new_leg = decision.model_copy(
+        update={
+            "leg_id": "leg-robot-0-new",
+            "decision_id": "decision-robot-0-new-leg",
+            "coordination": decision.coordination.model_copy(
+                update={"execution_epoch": 1}
+            ),
+            "issued_at_ns": 12_000_000_000,
+            "expires_at_ns": 20_000_000_000,
+        }
+    )
+    rejected = adapter.evaluate(
+        new_leg,
+        now_ns=12_000_000_001,
+        health=health,
+        current_position_robot_map=(-1.0, 0.0, 0.0),
+    )
+    assert rejected.action == V2AdapterAction.HOLD
+    assert rejected.reason_code == "DISTANCE_LIMIT"
 
 
 def test_semantic_component_count_mismatch_fails_closed(observation_factory):

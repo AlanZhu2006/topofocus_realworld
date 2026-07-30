@@ -606,6 +606,35 @@ def test_wsj_trajectory_gate_keeps_never_started_path_grace_bounded():
     assert state == (False, True, pytest.approx(1.501), False)
 
 
+def test_planner_target_refresh_requires_same_active_ready_leg_at_zero_velocity():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    ready = {
+        "authorized": True,
+        "router_recovery_gate_closed": False,
+        "trajectory_fresh": False,
+        "trajectory_failed": False,
+        "trajectory_age_s": 1.1,
+        "trajectory_stale_timeout_s": 1.0,
+        "router_state": "NAVIGATING",
+        "router_reason": "ONLINE_PATH_READY",
+        "router_decision_id": "decision-1",
+        "active_decision_id": "decision-1",
+        "router_waypoint": (2.0, 3.0),
+    }
+
+    assert wsj.planner_target_refresh_eligible(**ready) is True
+    for field, value in (
+        ("trajectory_fresh", True),
+        ("trajectory_failed", True),
+        ("router_recovery_gate_closed", True),
+        ("router_state", "HOLD"),
+        ("router_decision_id", "another-decision"),
+        ("router_waypoint", None),
+    ):
+        candidate = {**ready, field: value}
+        assert wsj.planner_target_refresh_eligible(**candidate) is False
+
+
 def test_final_velocity_gate_rechecks_all_health_at_control_rate():
     wsj = load_overlay("v2_wsj_receiver.py")
     base = {

@@ -249,8 +249,8 @@
     },
     {
       "path": "hub/robot_overlay/tinynav_buildmap_goal_router.py",
-      "size_bytes": 49419,
-      "sha256": "c7121fe6bf42c4c2410e4b7255ad532da5e33d26c556e38d753294670578ddf2",
+      "size_bytes": 54204,
+      "sha256": "367d18e8f372d6125dda315e9b628aea6c75387037067469b7b9bbd383cba353",
       "classification": "source-derived"
     },
     {
@@ -267,8 +267,8 @@
     },
     {
       "path": "hub/robot_overlay/v2_wsj_receiver.py",
-      "size_bytes": 183783,
-      "sha256": "5f584e8adcbab9803aa976088dd09c4643011e4852ac4e40b3684ad77fa525cc",
+      "size_bytes": 190287,
+      "sha256": "543981b3c402434dcf9057a07fc50e2671c78c7fa3621439bc08d1c09594e619",
       "classification": "source-derived"
     }
   ]

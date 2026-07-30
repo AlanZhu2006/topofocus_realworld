@@ -43,6 +43,10 @@ from focus_hub.v2_robot_runtime import (  # noqa: E402
     cached_map_valid_for_pose,
 )
 
+TARGET_REFRESH_REQUEST_SCHEMA_VERSION = (
+    "focus-tinynav-target-refresh-request-v1"
+)
+
 
 @dataclass(frozen=True)
 class OnlineGoal:
@@ -88,6 +92,30 @@ class PlanningBudgetExceeded(RuntimeError):
             f"reason={limit_reason}, expanded_cells={expanded_cells}, "
             f"progress_m={progress_m:.3f}"
         )
+
+
+def parse_target_refresh_request(raw_json: str) -> tuple[str, int]:
+    """Validate one receiver-originated, non-actuating target refresh."""
+
+    try:
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError("target refresh request is not JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("target refresh request is not an object")
+    if payload.get("schema_version") != TARGET_REFRESH_REQUEST_SCHEMA_VERSION:
+        raise ValueError("target refresh request schema is unsupported")
+    decision_id = payload.get("decision_id")
+    requested_at_ns = payload.get("requested_at_ns")
+    if not isinstance(decision_id, str) or not decision_id:
+        raise ValueError("target refresh request lacks decision identity")
+    if (
+        isinstance(requested_at_ns, bool)
+        or not isinstance(requested_at_ns, int)
+        or requested_at_ns <= 0
+    ):
+        raise ValueError("target refresh request time is invalid")
+    return decision_id, requested_at_ns
 
 
 def planning_arrival_radius_m(
@@ -717,9 +745,18 @@ def run_ros(
                 20,
                 callback_group=self.odom_callback_group,
             )
+            self.create_subscription(
+                String,
+                args.target_refresh_request_topic,
+                self.on_target_refresh_request,
+                10,
+                callback_group=self.control_callback_group,
+            )
             self.target_publisher = self.create_publisher(
                 Odometry, args.target_pose_topic, 10
             )
+            self.target_publisher_generation = 0
+            self.last_target_refresh_monotonic = 0.0
             self.poi_change_publisher = self.create_publisher(
                 Odometry, args.poi_change_topic, 10
             )
@@ -743,6 +780,7 @@ def run_ros(
             self.tracking_T_base: tuple[float, ...] | None = None
             self.odom_received_monotonic = 0.0
             self.target_active = False
+            self.last_waypoint: tuple[float, float] | None = None
             self.last_plan_monotonic = 0.0
             self.initial_route_length_m: float | None = None
             self.last_status: tuple[str, str] | None = None
@@ -783,6 +821,9 @@ def run_ros(
                     "state": state,
                     "reason": reason,
                     "decision_id": self.goal.decision_id if self.goal else None,
+                    "target_publisher_generation": (
+                        self.target_publisher_generation
+                    ),
                     **self.last_status_fields,
                 },
                 separators=(",", ":"),
@@ -816,6 +857,8 @@ def run_ros(
                 reset.header.frame_id = args.frame_id
                 self.poi_change_publisher.publish(reset)
             self.target_active = False
+            self.last_waypoint = None
+            self.last_target_refresh_monotonic = 0.0
             self.initial_route_length_m = None
             if discard_goal:
                 self.goal = None
@@ -861,11 +904,68 @@ def run_ros(
                 self.publish_status("ACCEPTED", "LEASE_RENEWED")
                 return
             self.clear_target("GOAL_REPLACED", discard_goal=True)
+            # The deployed Fast DDS version can retain graph visibility while
+            # a long-lived publisher stops delivering to an existing
+            # subscriber.  Every new leg therefore gets a fresh publisher
+            # generation after the old target is cleared.  Planner and
+            # controller subscribers already exist, and physical output
+            # remains paused until the receiver observes a new trajectory.
+            self.recreate_target_publisher()
             self.goal = goal
             self.initial_route_length_m = None
             self.last_plan_monotonic = 0.0
             self.nav_done_publisher.publish(Bool(data=False))
             self.publish_status("ACCEPTED", "FRESH_VERSIONED_GOAL")
+
+        def recreate_target_publisher(self) -> None:
+            self.destroy_publisher(self.target_publisher)
+            self.target_publisher = self.create_publisher(
+                Odometry, args.target_pose_topic, 10
+            )
+            self.target_publisher_generation += 1
+
+        def on_target_refresh_request(self, message: String) -> None:
+            try:
+                decision_id, requested_at_ns = (
+                    parse_target_refresh_request(message.data)
+                )
+            except ValueError as exc:
+                self.get_logger().warning(str(exc))
+                return
+            if (
+                self.goal is None
+                or self.goal.decision_id != decision_id
+                or not self.target_active
+                or self.last_waypoint is None
+            ):
+                self.get_logger().warning(
+                    "ignored target refresh for inactive or mismatched goal"
+                )
+                return
+            now = time.monotonic()
+            if (
+                now - self.last_target_refresh_monotonic
+                < args.target_refresh_min_interval_s
+            ):
+                return
+            with self.sensor_lock:
+                odom = self.odom
+                odom_age_s = now - self.odom_received_monotonic
+            if odom is None or odom_age_s > args.input_timeout_s:
+                self.get_logger().warning(
+                    "ignored target refresh without fresh odometry"
+                )
+                return
+            waypoint = self.last_waypoint
+            self.last_target_refresh_monotonic = now
+            self.recreate_target_publisher()
+            self.publish_target(waypoint[0], waypoint[1], odom)
+            self.get_logger().info(
+                "target publisher refreshed for "
+                f"{decision_id}; generation="
+                f"{self.target_publisher_generation}; "
+                f"requested_at_ns={requested_at_ns}"
+            )
 
         def on_occupancy(self, message: OccupancyGrid) -> None:
             try:
@@ -957,6 +1057,7 @@ def run_ros(
             message.pose.pose.orientation = odom.pose.pose.orientation
             self.target_publisher.publish(message)
             self.target_active = True
+            self.last_waypoint = (float(x_m), float(y_m))
 
         def publish_progress(self, plan: RoutePlan) -> None:
             if self.goal is None:
@@ -1222,6 +1323,19 @@ def main() -> int:
     )
     parser.add_argument("--odom-topic", default="/slam/odometry")
     parser.add_argument("--target-pose-topic", default="/control/target_pose")
+    parser.add_argument(
+        "--target-refresh-request-topic",
+        default="/mapping/target_refresh_request",
+    )
+    parser.add_argument(
+        "--target-refresh-min-interval-s",
+        type=float,
+        default=0.5,
+        help=(
+            "minimum interval between receiver-requested target publisher "
+            "generation refreshes; velocity remains independently gated"
+        ),
+    )
     parser.add_argument("--poi-change-topic", default="/mapping/poi_change")
     parser.add_argument("--nav-done-topic", default="/mapping/nav_done")
     parser.add_argument("--progress-topic", default="/mapping/nav_progress")
@@ -1306,6 +1420,7 @@ def main() -> int:
         or args.map_timeout_s <= 0
         or args.max_cached_map_motion_m < 0
         or args.plan_period_s <= 0
+        or args.target_refresh_min_interval_s <= 0
         or args.max_plan_expansions <= 0
         or args.max_plan_duration_s <= 0
         or args.status_heartbeat_s <= 0

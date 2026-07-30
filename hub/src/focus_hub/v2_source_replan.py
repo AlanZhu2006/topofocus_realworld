@@ -30,7 +30,7 @@ from typing import Mapping, Sequence
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
 
-SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v1"
+SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v2"
 SOURCE_COLLISION_THRESHOLD_M = 0.10
 SOURCE_STAGNANT_REPLAN_CELLS = 2.5
 SOURCE_MAP_RESOLUTION_M = 0.05
@@ -43,6 +43,9 @@ DEFAULT_ORIGIN_MATCH_RADIUS_M = 1.25
 DEFAULT_SAME_SECTOR_ORIGIN_RADIUS_M = 0.75
 DEFAULT_SAME_SECTOR_ANGLE_DEG = 20.0
 DEFAULT_MAX_ENTRIES_PER_ROBOT = 16
+DEFAULT_BACKTRACK_DIRECTION_UPDATE_M = 0.75
+DEFAULT_BACKTRACK_MIN_TARGET_DISTANCE_M = 2.0
+DEFAULT_BACKTRACK_ANGLE_DEG = 90.0
 
 SPATIAL_FRONTIER_FAILURE_REASONS = frozenset(
     {
@@ -90,6 +93,65 @@ def _bearing_deg(origin: Point2, target: Point2) -> float | None:
 
 def _angle_difference_deg(left: float, right: float) -> float:
     return abs((left - right + 180.0) % 360.0 - 180.0)
+
+
+def _backtrack_check(
+    *,
+    robot_xy: Point2,
+    target_xy: Point2,
+    progress_vector: Point2 | None,
+    minimum_target_distance_m: float,
+    backtrack_angle_deg: float,
+) -> dict[str, object]:
+    target_vector = (
+        target_xy[0] - robot_xy[0],
+        target_xy[1] - robot_xy[1],
+    )
+    target_distance_m = math.hypot(*target_vector)
+    if progress_vector is None:
+        return {
+            "severe_backtrack": False,
+            "reason": "no_observed_progress_direction",
+            "target_distance_m": target_distance_m,
+            "angle_deg": None,
+        }
+    progress_norm = math.hypot(*progress_vector)
+    if progress_norm <= 1e-12:
+        return {
+            "severe_backtrack": False,
+            "reason": "zero_observed_progress_direction",
+            "target_distance_m": target_distance_m,
+            "angle_deg": None,
+        }
+    if target_distance_m <= 1e-12:
+        return {
+            "severe_backtrack": False,
+            "reason": "target_at_current_position",
+            "target_distance_m": target_distance_m,
+            "angle_deg": None,
+        }
+    cosine = (
+        progress_vector[0] * target_vector[0]
+        + progress_vector[1] * target_vector[1]
+    ) / (progress_norm * target_distance_m)
+    angle_deg = math.degrees(
+        math.acos(max(-1.0, min(1.0, cosine)))
+    )
+    severe = bool(
+        target_distance_m
+        >= minimum_target_distance_m - 1e-12
+        and angle_deg >= backtrack_angle_deg - 1e-12
+    )
+    return {
+        "severe_backtrack": severe,
+        "reason": (
+            "long_target_reverses_observed_progress"
+            if severe
+            else "target_within_direction_guard"
+        ),
+        "target_distance_m": target_distance_m,
+        "angle_deg": angle_deg,
+    }
 
 
 def _event_summary(event: Mapping[str, object] | None) -> dict[str, object]:
@@ -566,6 +628,11 @@ def evaluate_source_replan(
     memory: NavigationFailureMemory,
     robot_xy_by_robot: Mapping[str, object],
     source_stationary_robot_ids: frozenset[str] = frozenset(),
+    progress_vector_by_robot: Mapping[str, object] | None = None,
+    backtrack_min_target_distance_m: float = (
+        DEFAULT_BACKTRACK_MIN_TARGET_DISTANCE_M
+    ),
+    backtrack_angle_deg: float = DEFAULT_BACKTRACK_ANGLE_DEG,
 ) -> tuple[
     frozenset[str],
     dict[str, list[dict[str, object]]],
@@ -576,7 +643,10 @@ def evaluate_source_replan(
     The first return value tells the physical clearance guard which current
     frontier inputs must be treated as rejected.  The second contains
     unoccupied, memory-clear alternatives in each robot's own source score
-    order.  No target is published here.
+    order.  A long frontier in the rear hemisphere of the last observed
+    progress direction is redirected only when the same frozen source batch
+    contains a non-reversing alternative; necessary backtracking therefore
+    remains possible.  No target is published here.
     """
 
     decisions = {item.robot_id: item for item in batch.decisions}
@@ -591,6 +661,20 @@ def evaluate_source_replan(
         )
     if set(decisions) != set(robot_xy_by_robot):
         raise ValueError("source replan requires one position per robot")
+    if progress_vector_by_robot is None:
+        progress_vector_by_robot = {}
+    unknown_progress = set(progress_vector_by_robot).difference(decisions)
+    if unknown_progress:
+        raise ValueError(
+            "progress direction contains robots outside the decision batch"
+        )
+    if (
+        not math.isfinite(backtrack_min_target_distance_m)
+        or backtrack_min_target_distance_m <= 0.0
+        or not math.isfinite(backtrack_angle_deg)
+        or not 90.0 <= backtrack_angle_deg <= 180.0
+    ):
+        raise ValueError("backtrack guard thresholds are invalid")
     for decision in batch.decisions:
         memory._validate_decision_identity(decision)
 
@@ -629,7 +713,34 @@ def evaluate_source_replan(
             robot_xy_by_robot[robot_id],
             field_name=f"{robot_id} position",
         )
+        raw_progress_vector = progress_vector_by_robot.get(robot_id)
+        progress_vector = (
+            None
+            if raw_progress_vector is None
+            else _finite_xy(
+                raw_progress_vector,
+                field_name=f"{robot_id} observed progress vector",
+            )
+        )
         target_xy = _frontier_xy(decision)
+        current_backtrack = (
+            {
+                "severe_backtrack": False,
+                "reason": "inactive_or_non_frontier_target",
+                "target_distance_m": None,
+                "angle_deg": None,
+            }
+            if robot_id not in active or target_xy is None
+            else _backtrack_check(
+                robot_xy=robot_xy,
+                target_xy=target_xy,
+                progress_vector=progress_vector,
+                minimum_target_distance_m=(
+                    backtrack_min_target_distance_m
+                ),
+                backtrack_angle_deg=backtrack_angle_deg,
+            )
+        )
         current_matches = (
             []
             if robot_id not in active or target_xy is None
@@ -675,6 +786,15 @@ def evaluate_source_replan(
                     reason = "navigation_failure_memory_match"
             record = dict(candidate)
             record["source_rank"] = source_rank
+            record["backtrack_check"] = _backtrack_check(
+                robot_xy=robot_xy,
+                target_xy=point,
+                progress_vector=progress_vector,
+                minimum_target_distance_m=(
+                    backtrack_min_target_distance_m
+                ),
+                backtrack_angle_deg=backtrack_angle_deg,
+            )
             if reason is None:
                 accepted_candidates.append(record)
             else:
@@ -685,6 +805,30 @@ def evaluate_source_replan(
                         "memory_matches": memory_matches,
                     }
                 )
+        non_backtracking_candidates = [
+            item
+            for item in accepted_candidates
+            if not bool(item["backtrack_check"]["severe_backtrack"])
+        ]
+        backtracking_candidates = [
+            item
+            for item in accepted_candidates
+            if bool(item["backtrack_check"]["severe_backtrack"])
+        ]
+        backtrack_redirected = bool(
+            robot_id in active
+            and current_backtrack["severe_backtrack"]
+            and non_backtracking_candidates
+        )
+        if backtrack_redirected:
+            # Preserve source score order within each group.  A non-reversing
+            # source candidate is attempted first; reverse candidates remain
+            # available only if the physical clearance guard rejects every
+            # non-reversing option, so exploration completeness is retained.
+            accepted_candidates = (
+                non_backtracking_candidates + backtracking_candidates
+            )
+            rejected.add(robot_id)
         # A no-allocation/HOLD robot is intentionally absent from the
         # coordination active set.  Preserve its source result in ``checks``
         # below, but do not offer physical fallback targets for it to the
@@ -707,10 +851,21 @@ def evaluate_source_replan(
                 None if target_xy is None else list(target_xy)
             ),
             "current_target_rejected": bool(
-                current_matches or source_stationary_replan
+                current_matches
+                or source_stationary_replan
+                or backtrack_redirected
             ),
             "source_stationary_replan": source_stationary_replan,
             "current_memory_matches": current_matches,
+            "observed_progress_vector_xy_m": (
+                None if progress_vector is None else list(progress_vector)
+            ),
+            "current_backtrack_check": current_backtrack,
+            "backtrack_redirected": backtrack_redirected,
+            "non_backtracking_fallback_count": len(
+                non_backtracking_candidates
+            ),
+            "backtracking_fallback_count": len(backtracking_candidates),
             "fallback_ranking_source": ranking_source,
             "accepted_fallback_candidates": accepted_candidates,
             "excluded_fallback_candidates": excluded,
@@ -719,9 +874,9 @@ def evaluate_source_replan(
     report = {
         "schema_version": SOURCE_REPLAN_SCHEMA_VERSION,
         "status": (
-            "remembered_approaches_rejected"
+            "execution_candidates_redirected"
             if rejected
-            else "no_current_failure_memory_match"
+            else "source_candidates_accepted"
         ),
         "classification": (
             "source-derived real-world execution adapter over an unchanged "
@@ -731,13 +886,29 @@ def evaluate_source_replan(
         "source_stationary_robot_ids": sorted(
             source_stationary_robot_ids
         ),
+        "backtrack_policy": {
+            "minimum_target_distance_m": (
+                backtrack_min_target_distance_m
+            ),
+            "minimum_reversal_angle_deg": backtrack_angle_deg,
+            "fallback_policy": (
+                "redirect only when a non-reversing source-ranked candidate "
+                "exists; retain reverse candidates after non-reversing "
+                "candidates for clearance fallback"
+            ),
+        },
         "checks": checks,
         "memory_snapshot": memory.to_dict(),
         "source_fidelity": (
             "raw VLM selections and score vectors remain in the shadow and "
-            "candidate artifacts; only physical execution is redirected, in "
-            "that robot's original score order, after observed local path "
-            "failure or the source 2.5-cell stationary rule"
+            "candidate artifacts; only physical execution is redirected "
+            "after observed local path failure or the source 2.5-cell "
+            "stationary rule; a long target "
+            "in the prior-progress rear hemisphere is grouped behind "
+            "non-reversing candidates while source score order is preserved "
+            "inside each group "
+            "only when the same frozen source batch provides one, while "
+            "necessary backtracking remains available"
         ),
     }
     return frozenset(rejected), fallback_by_robot, report

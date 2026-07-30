@@ -85,6 +85,7 @@ from focus_hub.v2_goal_continuity import (  # noqa: E402
 from focus_hub.v2_route_conflict import apply_route_conflict_guard  # noqa: E402
 from focus_hub.v2_scene_batch import build_batch_from_shadow_manifest  # noqa: E402
 from focus_hub.v2_source_replan import (  # noqa: E402
+    DEFAULT_BACKTRACK_DIRECTION_UPDATE_M,
     SOURCE_STAGNANT_REPLAN_M,
     NavigationFailureMemory,
     evaluate_source_replan,
@@ -1926,6 +1927,7 @@ def main() -> int:
     previous_execution_batch: DecisionBatchV2 | None = None
     previous_clearance_guard: dict[str, object] | None = None
     stagnant_intervals: dict[str, int] = {}
+    last_progress_vectors: dict[str, tuple[float, float]] = {}
 
     def emit(event: str, **fields: object) -> None:
         append_jsonl(
@@ -2479,6 +2481,51 @@ def main() -> int:
                     args.max_consecutive_stagnant_intervals
                 ),
             )
+            progress_direction_updates: dict[str, dict[str, object]] = {}
+            for robot_id in sorted(raw_active):
+                previous_xy = previous_shared_positions.get(robot_id)
+                current_xy = shared_positions.get(robot_id)
+                if (
+                    robot_id not in previous_active_robot_ids
+                    or previous_xy is None
+                    or current_xy is None
+                ):
+                    continue
+                vector = (
+                    current_xy[0] - previous_xy[0],
+                    current_xy[1] - previous_xy[1],
+                )
+                displacement_m = math.hypot(*vector)
+                if (
+                    displacement_m
+                    >= DEFAULT_BACKTRACK_DIRECTION_UPDATE_M - 1e-12
+                ):
+                    last_progress_vectors[robot_id] = vector
+                    progress_direction_updates[robot_id] = {
+                        "vector_xy_m": list(vector),
+                        "displacement_m": displacement_m,
+                        "classification": (
+                            "source_derived_from_adjacent_observed_frozen_"
+                            "shared_frame_boundary_poses"
+                        ),
+                    }
+            progress_guard["backtrack_direction_memory"] = {
+                "minimum_update_displacement_m": (
+                    DEFAULT_BACKTRACK_DIRECTION_UPDATE_M
+                ),
+                "updates": progress_direction_updates,
+                "active_vectors_xy_m": {
+                    robot_id: list(vector)
+                    for robot_id, vector in sorted(
+                        last_progress_vectors.items()
+                    )
+                },
+                "policy": (
+                    "retain the last material observed exploration direction "
+                    "across HOLD-only boundaries; update it only after at "
+                    "least the configured shared-frame displacement"
+                ),
+            }
             progress_guard_path = (
                 round_dir / "cross_round_progress_guard.json"
             )
@@ -2583,6 +2630,7 @@ def main() -> int:
                 memory=navigation_failure_memory,
                 robot_xy_by_robot=shared_positions,
                 source_stationary_robot_ids=source_stall_robot_ids,
+                progress_vector_by_robot=last_progress_vectors,
             )
             source_replan_guard["source_stall_memory_updates"] = (
                 source_stall_memory_updates

@@ -85,6 +85,52 @@ def test_goal_parser_accepts_only_fresh_single_hub_goal():
         router.parse_goal_payload(json.dumps(foreign), now_ns=1_000_000_000)
 
 
+def test_target_refresh_request_is_versioned_and_decision_bound():
+    router = load_router()
+    payload = json.dumps(
+        {
+            "schema_version": (
+                "focus-tinynav-target-refresh-request-v1"
+            ),
+            "decision_id": "decision-1",
+            "requested_at_ns": 1_000_000_000,
+            "path_age_s": 1.2,
+        }
+    )
+
+    assert router.parse_target_refresh_request(payload) == (
+        "decision-1",
+        1_000_000_000,
+    )
+    invalid = json.loads(payload)
+    invalid["schema_version"] = "unknown"
+    with pytest.raises(ValueError, match="schema"):
+        router.parse_target_refresh_request(json.dumps(invalid))
+
+
+def test_new_leg_and_bounded_repair_use_publisher_last_target_handoff():
+    source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
+        encoding="utf-8"
+    )
+    new_leg = source.split(
+        'self.clear_target("GOAL_REPLACED", discard_goal=True)', 1
+    )[1].split(
+        'self.publish_status("ACCEPTED", "FRESH_VERSIONED_GOAL")', 1
+    )[0]
+    assert new_leg.index("self.recreate_target_publisher()") < (
+        new_leg.index("self.goal = goal")
+    )
+    repair = source.split(
+        "def on_target_refresh_request(self, message: String)", 1
+    )[1].split("def on_occupancy(", 1)[0]
+    assert "self.goal.decision_id != decision_id" in repair
+    assert "not self.target_active" in repair
+    assert "odom_age_s > args.input_timeout_s" in repair
+    assert repair.index("self.recreate_target_publisher()") < repair.index(
+        "self.publish_target("
+    )
+
+
 def test_semantic_planner_targets_inside_unchanged_arrival_radius():
     router = load_router()
 

@@ -66,6 +66,9 @@ LIVE_CONFIRMATIONS = {
     "robot-0": LIVE_CONFIRMATION,
     "robot-1": "OPERATOR_PRESENT_AND_YUNJI_CLEAR",
 }
+TARGET_REFRESH_REQUEST_SCHEMA_VERSION = (
+    "focus-tinynav-target-refresh-request-v1"
+)
 # Mirror the independently enforced sender thresholds exactly.  The receiver
 # still recomputes every interval check instead of trusting the producer's
 # ``imu_intervals_valid`` boolean, but must not reject telemetry that the
@@ -840,6 +843,40 @@ def trajectory_gate_state(
     return gate_fresh, terminal_failure, age_s, observed_for_authority
 
 
+def planner_target_refresh_eligible(
+    *,
+    authorized: bool,
+    router_recovery_gate_closed: bool,
+    trajectory_fresh: bool,
+    trajectory_failed: bool,
+    trajectory_age_s: float,
+    trajectory_stale_timeout_s: float,
+    router_state: str,
+    router_reason: str,
+    router_decision_id: str | None,
+    active_decision_id: str,
+    router_waypoint: tuple[float, float] | None,
+) -> bool:
+    """Allow only a same-leg, zero-velocity planner handoff repair."""
+
+    if (
+        not authorized
+        or router_recovery_gate_closed
+        or trajectory_fresh
+        or trajectory_failed
+        or trajectory_age_s < trajectory_stale_timeout_s
+        or router_state != "NAVIGATING"
+        or router_decision_id != active_decision_id
+        or router_waypoint is None
+        or len(router_waypoint) != 2
+        or not all(math.isfinite(float(value)) for value in router_waypoint)
+    ):
+        return False
+    return router_reason.startswith(
+        ("ONLINE_PATH_READY", "ONLINE_PARTIAL_PATH_READY")
+    )
+
+
 def physical_velocity_gate_reason(
     *,
     now_ns: int,
@@ -1146,6 +1183,23 @@ def main() -> int:
     parser.add_argument(
         "--router-status-topic", default="/mapping/buildmap_online_status"
     )
+    parser.add_argument(
+        "--target-refresh-request-topic",
+        default="/mapping/target_refresh_request",
+        help=(
+            "robot-local request channel used only while velocity is already "
+            "zero to rebuild the router-to-planner target publisher"
+        ),
+    )
+    parser.add_argument(
+        "--target-refresh-request-interval-s",
+        type=float,
+        default=1.0,
+        help=(
+            "minimum interval between bounded same-leg planner handoff "
+            "repair requests"
+        ),
+    )
     parser.add_argument("--pause-topic", default="/nav/paused")
     parser.add_argument(
         "--controller-pause-service",
@@ -1394,6 +1448,7 @@ def main() -> int:
         args.trajectory_start_grace_s,
         args.trajectory_stale_timeout_s,
         args.trajectory_recovery_timeout_s,
+        args.target_refresh_request_interval_s,
         args.slam_transient_grace_s,
         args.slam_recovery_grace_s,
         args.odometry_recovery_grace_s,
@@ -1569,7 +1624,14 @@ def main() -> int:
             self.cached_occupancy_motion_valid = False
             self.latest_raw_cmd = (0.0, 0.0)
             self.latest_guard_reason = "startup"
+            self.last_target_refresh_request_ns = 0
+            self.target_refresh_request_count = 0
             self.poi_publisher = self.create_publisher(String, args.cmd_pois_topic, 10)
+            self.target_refresh_request_publisher = self.create_publisher(
+                String,
+                args.target_refresh_request_topic,
+                10,
+            )
             pause_qos = QoSProfile(
                 depth=1,
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -1903,6 +1965,8 @@ def main() -> int:
                 if not self.authorized:
                     self.authority_started_ns = time.time_ns()
                     self.reverse_required_for_authority = False
+                    self.last_target_refresh_request_ns = 0
+                    self.target_refresh_request_count = 0
                 self.authority_deadline_ns = expires_at_ns
                 self.authorized = True
 
@@ -1911,6 +1975,8 @@ def main() -> int:
             self.authority_deadline_ns = 0
             self.authority_started_ns = 0
             self.router_recovery_gate_closed = False
+            self.last_target_refresh_request_ns = 0
+            self.target_refresh_request_count = 0
             self.latest_guard_reason = "revoked"
             if live:
                 self.guarded_publisher.publish(Twist())
@@ -2032,6 +2098,48 @@ def main() -> int:
             self.poi_publisher.publish(message)
             if authorize_motion:
                 self.authorize(expires_at_ns)
+
+        def request_planner_target_refresh(
+            self,
+            *,
+            decision_id: str,
+            path_age_s: float,
+            router_waypoint: tuple[float, float],
+        ) -> int | None:
+            """Request publisher-last repair without opening velocity output."""
+
+            if not live or not self.authorized:
+                return None
+            now_ns = time.time_ns()
+            if (
+                self.last_target_refresh_request_ns > 0
+                and (
+                    now_ns - self.last_target_refresh_request_ns
+                )
+                / 1e9
+                < args.target_refresh_request_interval_s
+            ):
+                return None
+            self.last_target_refresh_request_ns = now_ns
+            self.target_refresh_request_count += 1
+            message = String()
+            message.data = json.dumps(
+                {
+                    "schema_version": (
+                        TARGET_REFRESH_REQUEST_SCHEMA_VERSION
+                    ),
+                    "decision_id": decision_id,
+                    "requested_at_ns": now_ns,
+                    "path_age_s": round(path_age_s, 6),
+                    "router_waypoint": [
+                        float(router_waypoint[0]),
+                        float(router_waypoint[1]),
+                    ],
+                },
+                separators=(",", ":"),
+            )
+            self.target_refresh_request_publisher.publish(message)
+            return self.target_refresh_request_count
 
         def resume_existing_goal(self, expires_at_ns: int) -> None:
             if not live:
@@ -4021,6 +4129,60 @@ def main() -> int:
                     start_grace_s=args.trajectory_start_grace_s,
                     recovery_timeout_s=args.trajectory_recovery_timeout_s,
                 )
+                (
+                    _refresh_router_received_ns,
+                    refresh_router_state,
+                    refresh_router_reason,
+                    refresh_router_decision_id,
+                    _refresh_router_affected_decision_id,
+                    refresh_router_waypoint,
+                    _refresh_router_route_length_m,
+                ) = node.router_status_snapshot()
+                if (
+                    now_ns < active_decision.expires_at_ns
+                    and planner_target_refresh_eligible(
+                        authorized=node.authorized,
+                        router_recovery_gate_closed=(
+                            node.router_recovery_gate_closed
+                        ),
+                        trajectory_fresh=trajectory_fresh,
+                        trajectory_failed=trajectory_failed,
+                        trajectory_age_s=trajectory_age_s,
+                        trajectory_stale_timeout_s=(
+                            args.trajectory_stale_timeout_s
+                        ),
+                        router_state=refresh_router_state,
+                        router_reason=refresh_router_reason,
+                        router_decision_id=refresh_router_decision_id,
+                        active_decision_id=active_decision.decision_id,
+                        router_waypoint=refresh_router_waypoint,
+                    )
+                ):
+                    assert refresh_router_waypoint is not None
+                    refresh_attempt = node.request_planner_target_refresh(
+                        decision_id=active_decision.decision_id,
+                        path_age_s=trajectory_age_s,
+                        router_waypoint=refresh_router_waypoint,
+                    )
+                    if refresh_attempt is not None:
+                        emit(
+                            "local_planner_target_refresh_requested",
+                            decision_id=active_decision.decision_id,
+                            leg_id=active_decision.leg_id,
+                            request_attempt=refresh_attempt,
+                            request_topic=(
+                                args.target_refresh_request_topic
+                            ),
+                            path_age_s=round(trajectory_age_s, 3),
+                            router_state=refresh_router_state,
+                            router_reason=refresh_router_reason,
+                            router_waypoint=list(
+                                refresh_router_waypoint
+                            ),
+                            velocity_gate=(
+                                "trajectory_missing_or_stale"
+                            ),
+                        )
                 if time.time_ns() >= active_decision.expires_at_ns:
                     node.revoke()
                     post(
