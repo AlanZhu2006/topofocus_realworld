@@ -93,6 +93,7 @@ def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():
 
     assert source.count("bash $WSJ_STOPPER") == 4
     assert stopper.count("timeout 5 ros2 topic pub --once") == 2
+    assert "timeout 5 ros2 topic list" in stopper
     assert "/focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}'" in stopper
     assert "tmux rename-session" in source
     assert "run_glm_offline.sh" in source

@@ -30,7 +30,8 @@ source "$SETUP_FILE"
 # high-level target, and the local Go2 bridge retains final stop authority.
 timeout 5 ros2 topic pub --once \
   /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true
-if ros2 topic list 2>/dev/null | grep -qx /focus_guarded_cmd_vel; then
+if timeout 5 ros2 topic list 2>/dev/null \
+    | grep -qx /focus_guarded_cmd_vel; then
   timeout 5 ros2 topic pub --once \
     /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' \
     >/dev/null 2>&1 || true

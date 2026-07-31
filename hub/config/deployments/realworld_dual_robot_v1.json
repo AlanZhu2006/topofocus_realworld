@@ -395,8 +395,8 @@
     },
     {
       "path": "hub/robot_overlay/v2_wsj_receiver.py",
-      "size_bytes": 205342,
-      "sha256": "e10c10990a04eca6ad0bafcb28355e123a4a8ee54a68a7a5825baa1163811cc0",
+      "size_bytes": 209324,
+      "sha256": "bcf86e9ee74f1bd31934fc95d9953089d31b721db9a23160e26a796bf0c19f28",
       "classification": "source-derived"
     },
     {
@@ -545,8 +545,8 @@
     },
     {
       "path": "hub/robot_overlay/stop_wsj_live_command_path.sh",
-      "size_bytes": 1571,
-      "sha256": "178b10679af277d76c5d6e7a3cab97a05ba287e463dbe67196118ddb31873e45",
+      "size_bytes": 1587,
+      "sha256": "b7369baeb8cf7b55bf45417b29f5605b8bafcf564a8700bfda8d60d30b606afc",
       "classification": "source-derived"
     },
     {

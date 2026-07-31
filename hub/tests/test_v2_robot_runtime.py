@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import threading
+import time
+
 import pytest
 
 from focus_hub.transport_v2 import NavigationStatusV2
 from focus_hub.v2_robot_runtime import (
+    HubHeartbeatPump,
     HubV2RobotClient,
     OccupancyGrid2D,
     PathAccumulator,
@@ -78,6 +82,72 @@ def test_receiver_heartbeat_uses_local_health(monkeypatch):
     assert ack.status == "accepted"
     assert captured["path"] == "/v1/robots/robot-1/heartbeat"
     assert captured["body"]["health"]["safety_state"] == "READY"
+
+
+def test_heartbeat_pump_never_blocks_the_decision_owner():
+    health = water_robot_health(
+        {"error_code": "00000000", "move_status": "idle"},
+        odometry_fresh=True,
+    )
+
+    class BlockingClient:
+        robot_id = "robot-0"
+
+        def __init__(self) -> None:
+            self.started = threading.Event()
+            self.release = threading.Event()
+
+        def post_heartbeat(self, _health) -> None:
+            self.started.set()
+            assert self.release.wait(timeout=1.0)
+
+    client = BlockingClient()
+    pump = HubHeartbeatPump(client, period_s=0.01)
+    try:
+        started = time.monotonic()
+        pump.update(health)
+        assert time.monotonic() - started < 0.05
+        assert client.started.wait(timeout=0.5)
+        assert pump.snapshot().request_in_flight is True
+
+        client.release.set()
+        deadline = time.monotonic() + 0.5
+        state = pump.snapshot()
+        while state.result_sequence < 1 and time.monotonic() < deadline:
+            time.sleep(0.005)
+            state = pump.snapshot()
+        assert state.last_result_ok is True
+        assert state.delivered_within(0.5)
+    finally:
+        client.release.set()
+        pump.close(timeout_s=1.0)
+
+
+def test_heartbeat_pump_records_failure_without_losing_latest_health():
+    health = water_robot_health(
+        {"error_code": "00000000", "move_status": "idle"},
+        odometry_fresh=True,
+    )
+
+    class FailingClient:
+        robot_id = "robot-1"
+
+        def post_heartbeat(self, _health) -> None:
+            raise TimeoutError("transport congested")
+
+    pump = HubHeartbeatPump(FailingClient(), period_s=0.05)
+    try:
+        pump.update(health)
+        deadline = time.monotonic() + 0.5
+        state = pump.snapshot()
+        while state.result_sequence < 1 and time.monotonic() < deadline:
+            time.sleep(0.005)
+            state = pump.snapshot()
+        assert state.last_result_ok is False
+        assert state.last_error == "transport congested"
+        assert not state.delivered_within(0.5)
+    finally:
+        pump.close(timeout_s=1.0)
 
 
 def test_path_accumulator_ignores_localization_jump():

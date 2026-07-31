@@ -53,6 +53,7 @@ from focus_hub.v2_goal_adapter import (  # noqa: E402
     V2GoalAdapterConfig,
 )
 from focus_hub.v2_robot_runtime import (  # noqa: E402
+    HubHeartbeatPump,
     HubV2RobotClient,
     OccupancyGrid2D,
     PathAccumulator,
@@ -1375,6 +1376,21 @@ def main() -> int:
         ),
     )
     parser.add_argument("--poll-s", type=float, default=0.5)
+    parser.add_argument(
+        "--heartbeat-period-s",
+        type=float,
+        default=0.5,
+        help=(
+            "period for the independent health worker; heartbeat transport "
+            "never blocks high-priority decision polling"
+        ),
+    )
+    parser.add_argument(
+        "--heartbeat-request-timeout-s",
+        type=float,
+        default=1.0,
+        help="HTTP timeout used only by the independent heartbeat worker",
+    )
     parser.add_argument("--local-data-timeout-s", type=float, default=2.0)
     parser.add_argument(
         "--occupancy-data-timeout-s",
@@ -1566,6 +1582,8 @@ def main() -> int:
         parser.error("--semantic-arrival-radius-m must be within [0.10, 2.0]")
     if min(
         args.poll_s,
+        args.heartbeat_period_s,
+        args.heartbeat_request_timeout_s,
         args.local_data_timeout_s,
         args.occupancy_data_timeout_s,
         args.occupancy_recovery_grace_s,
@@ -2522,6 +2540,12 @@ def main() -> int:
             phase="startup",
         )
     hub = HubV2RobotClient(args.base_url, args.robot_id, token)
+    heartbeat_hub = HubV2RobotClient(
+        args.base_url,
+        args.robot_id,
+        token,
+        timeout_s=args.heartbeat_request_timeout_s,
+    )
 
     tracking_T_map: tuple[float, ...] | None = None
     alignment_deadline = time.monotonic() + 30.0
@@ -2624,6 +2648,14 @@ def main() -> int:
         shared_T_robot_map=list(shared_T_robot_map),
         live=live,
     )
+    heartbeat_pump = (
+        HubHeartbeatPump(
+            heartbeat_hub,
+            period_s=args.heartbeat_period_s,
+        )
+        if live
+        else None
+    )
 
     adapter = V2GoalAdapter(
         V2GoalAdapterConfig(
@@ -2660,6 +2692,8 @@ def main() -> int:
         timeout_s=args.no_progress_timeout_s,
         minimum_improvement_m=args.minimum_goal_progress_m,
     )
+    heartbeat_result_sequence = 0
+    heartbeat_delivery_ready_previous: bool | None = None
 
     def current_pose() -> tuple[float, float, float]:
         if node.world_T_camera is None:
@@ -3095,14 +3129,8 @@ def main() -> int:
             elif recovery_kind == "combined":
                 odometry_recovery_leg_id = None
                 odometry_recovery_started_ns = 0
-            node.update_motion_health(
-                ready=ready,
-                evaluated_ns=now_ns,
-                cached_occupancy_motion_valid=(
-                    cached_occupancy_motion_valid
-                ),
-            )
-            health = RobotHealth(
+            sensor_ready = ready
+            reported_health = RobotHealth(
                 safety_state=SafetyState.READY if ready else SafetyState.HOLD,
                 localization_state=(
                     LocalizationState.TRACKING
@@ -3143,29 +3171,60 @@ def main() -> int:
                     )
                 ),
             )
-            if live:
-                try:
-                    hub.post_heartbeat(health)
-                except Exception as exc:  # noqa: BLE001 - lost health link revokes motion
-                    node.update_motion_health(
-                        ready=False, evaluated_ns=time.time_ns()
+            heartbeat_delivery_ready = True
+            health = reported_health
+            if heartbeat_pump is not None:
+                heartbeat_pump.update(reported_health)
+                heartbeat_state = heartbeat_pump.snapshot()
+                heartbeat_delivery_ready = heartbeat_state.delivered_within(
+                    args.health_gate_timeout_s
+                )
+                if heartbeat_state.result_sequence != heartbeat_result_sequence:
+                    heartbeat_result_sequence = heartbeat_state.result_sequence
+                    emit(
+                        (
+                            "heartbeat_delivered"
+                            if heartbeat_state.last_result_ok
+                            else "heartbeat_delivery_failed"
+                        ),
+                        result_sequence=heartbeat_state.result_sequence,
+                        error=heartbeat_state.last_error,
                     )
-                    if active_decision is not None:
-                        node.revoke()
-                        active_decision = None
-                        active_goal = None
-                        router_recovery_leg_id = None
-                        router_recovery_started_ns = 0
-                        router_recovery_reason = ""
-                        occupancy_recovery_leg_id = None
-                        occupancy_recovery_started_ns = 0
-                        slam_recovery_leg_id = None
-                        slam_recovery_started_ns = 0
-                        odometry_recovery_leg_id = None
-                        odometry_recovery_started_ns = 0
-                    emit("heartbeat_failed_local_hold", error=str(exc)[:500])
-                    time.sleep(args.poll_s)
-                    continue
+                if (
+                    heartbeat_delivery_ready
+                    != heartbeat_delivery_ready_previous
+                ):
+                    emit(
+                        "heartbeat_delivery_gate_changed",
+                        ready=heartbeat_delivery_ready,
+                        request_in_flight=(
+                            heartbeat_state.request_in_flight
+                        ),
+                        physical_velocity_gate_closed=(
+                            not heartbeat_delivery_ready
+                        ),
+                    )
+                    heartbeat_delivery_ready_previous = (
+                        heartbeat_delivery_ready
+                    )
+                if not heartbeat_delivery_ready:
+                    health = reported_health.model_copy(
+                        update={
+                            "safety_state": SafetyState.HOLD,
+                            "detail": bounded_protocol_detail(
+                                reported_health.detail
+                                + "; heartbeat delivery is not fresh"
+                            ),
+                        }
+                    )
+            ready = bool(sensor_ready and heartbeat_delivery_ready)
+            node.update_motion_health(
+                ready=ready,
+                evaluated_ns=now_ns,
+                cached_occupancy_motion_valid=(
+                    cached_occupancy_motion_valid
+                ),
+            )
             if (
                 ready
                 and occupancy_recovery_leg_id is not None
@@ -3839,6 +3898,50 @@ def main() -> int:
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
                 time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
+                continue
+
+            # HOLD and STOP are high-priority safety commands. They bypass all
+            # sensor-recovery and goal-adaptation work, and a failed event POST
+            # deliberately leaves the decision unseen so the next cycle retries
+            # the zero-velocity acknowledgement.
+            if (
+                decision.mode.value in {"HOLD", "STOP"}
+                and decision.decision_id != last_decision_id
+            ):
+                node.revoke()
+                acknowledged = post(
+                    decision,
+                    (
+                        NavigationStatusV2.HOLDING
+                        if decision.mode.value == "HOLD"
+                        else NavigationStatusV2.STOPPED
+                    ),
+                    "HUB_HOLD" if decision.mode.value == "HOLD" else "HUB_STOP",
+                    pose,
+                    zero=True,
+                    detail=decision.reason,
+                    terminal=True,
+                )
+                if acknowledged:
+                    last_decision_id = decision.decision_id
+                active_decision = None
+                active_goal = None
+                router_recovery_leg_id = None
+                router_recovery_started_ns = 0
+                router_recovery_reason = ""
+                occupancy_recovery_leg_id = None
+                occupancy_recovery_started_ns = 0
+                slam_recovery_leg_id = None
+                slam_recovery_started_ns = 0
+                odometry_recovery_leg_id = None
+                odometry_recovery_started_ns = 0
+                progress_watchdog.reset()
+                time.sleep(
+                    max(
+                        0.0,
+                        args.poll_s - (time.monotonic() - cycle_started),
+                    )
+                )
                 continue
 
             active_combined_sensor_recovery = bool(
@@ -4937,6 +5040,8 @@ def main() -> int:
         node.revoke()
         emit("receiver_fault", error=str(exc)[:1000])
     finally:
+        if heartbeat_pump is not None:
+            heartbeat_pump.close(timeout_s=2.0)
         ros_executor.shutdown(timeout_sec=2.0)
         ros_spin_thread.join(timeout=2.0)
         node.destroy_node()

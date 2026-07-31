@@ -1473,6 +1473,23 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert "set_controller_paused_confirmed(False)" in source
     assert '"controller_pause_acknowledged"' in source
     assert '"controller_pause_ack_timeout"' in source
+    assert "HubHeartbeatPump" in source
+    assert "heartbeat_pump.update(reported_health)" in source
+    assert "hub.post_heartbeat(health)" not in source
+    hold_priority = source.index(
+        'decision.mode.value in {"HOLD", "STOP"}'
+    )
+    recovery_renewal = source.index(
+        "active_combined_sensor_recovery = bool(",
+        hold_priority,
+    )
+    assert hold_priority < recovery_renewal
+    priority_branch = source[
+        hold_priority:recovery_renewal
+    ]
+    assert "if acknowledged:" in priority_branch
+    assert "last_decision_id = decision.decision_id" in priority_branch
+    assert "continue" in priority_branch
     assert '"LOCAL_PATH_REVERSE_REQUIRED"' in source
     assert '"LOCAL_PLANNER_TURN_STALLED"' in source
     assert '"reverse_trajectory_rejected"' in source

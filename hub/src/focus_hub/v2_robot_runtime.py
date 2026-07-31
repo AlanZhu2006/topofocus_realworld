@@ -10,6 +10,7 @@ from collections import deque
 import json
 import math
 import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -105,6 +106,121 @@ class HubV2RobotClient:
             },
         )
         return HeartbeatAck.model_validate_json(payload)
+
+
+@dataclass(frozen=True)
+class HeartbeatPumpState:
+    """Thread-safe delivery state for the independent receiver heartbeat."""
+
+    request_in_flight: bool
+    result_sequence: int
+    last_result_ok: bool | None
+    last_success_monotonic: float | None
+    last_error: str | None
+
+    def delivered_within(
+        self,
+        maximum_age_s: float,
+        *,
+        now_monotonic: float | None = None,
+    ) -> bool:
+        if maximum_age_s <= 0.0:
+            raise ValueError("maximum heartbeat age must be positive")
+        if self.last_success_monotonic is None:
+            return False
+        now = time.monotonic() if now_monotonic is None else now_monotonic
+        return 0.0 <= now - self.last_success_monotonic <= maximum_age_s
+
+
+class HubHeartbeatPump:
+    """Coalesce and deliver heartbeats without blocking decision polling.
+
+    RGB-D uploads and other traffic can delay one HTTP request.  A receiver's
+    high-priority HOLD/STOP polling must never sit behind that request, so the
+    heartbeat owns one bounded worker and retains only the newest health value.
+    Local motion code still treats delivery freshness as an independent gate.
+    """
+
+    def __init__(
+        self,
+        client: HubV2RobotClient,
+        *,
+        period_s: float = 0.5,
+    ) -> None:
+        if period_s <= 0.0:
+            raise ValueError("heartbeat period must be positive")
+        self._client = client
+        self._period_s = period_s
+        self._condition = threading.Condition()
+        self._latest_health: RobotHealth | None = None
+        self._stop_requested = False
+        self._request_in_flight = False
+        self._result_sequence = 0
+        self._last_result_ok: bool | None = None
+        self._last_success_monotonic: float | None = None
+        self._last_error: str | None = None
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"focus-{client.robot_id}-heartbeat",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def update(self, health: RobotHealth) -> None:
+        with self._condition:
+            self._latest_health = health
+            self._condition.notify_all()
+
+    def snapshot(self) -> HeartbeatPumpState:
+        with self._condition:
+            return HeartbeatPumpState(
+                request_in_flight=self._request_in_flight,
+                result_sequence=self._result_sequence,
+                last_result_ok=self._last_result_ok,
+                last_success_monotonic=self._last_success_monotonic,
+                last_error=self._last_error,
+            )
+
+    def close(self, *, timeout_s: float = 2.0) -> None:
+        if timeout_s <= 0.0:
+            raise ValueError("heartbeat close timeout must be positive")
+        with self._condition:
+            self._stop_requested = True
+            self._condition.notify_all()
+        self._thread.join(timeout=timeout_s)
+
+    def _run(self) -> None:
+        next_delivery = 0.0
+        while True:
+            with self._condition:
+                while self._latest_health is None and not self._stop_requested:
+                    self._condition.wait()
+                if self._stop_requested:
+                    return
+                wait_s = next_delivery - time.monotonic()
+                if wait_s > 0.0:
+                    self._condition.wait(timeout=wait_s)
+                    continue
+                health = self._latest_health
+                self._request_in_flight = True
+            assert health is not None
+            succeeded = False
+            error: str | None = None
+            try:
+                self._client.post_heartbeat(health)
+                succeeded = True
+            except Exception as exc:  # noqa: BLE001 - state is reported to owner
+                error = str(exc)[:500]
+            completed = time.monotonic()
+            with self._condition:
+                self._request_in_flight = False
+                self._result_sequence += 1
+                self._last_result_ok = succeeded
+                self._last_error = error
+                if succeeded:
+                    self._last_success_monotonic = completed
+                next_delivery = completed + self._period_s
+                self._condition.notify_all()
 
 
 class WaterTcpClient:
