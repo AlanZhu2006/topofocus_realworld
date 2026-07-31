@@ -419,8 +419,8 @@
     },
     {
       "path": "hub/src/focus_hub/v2_frontier_clearance.py",
-      "size_bytes": 49693,
-      "sha256": "ba7a46342a4cd9c1e413a1d6b09e7a6edf904d6e9c314f8a806af0bda4f9765f",
+      "size_bytes": 49834,
+      "sha256": "1657a78726b3098085ab43a754e63834401319f753d09c07a6fbcae459b00058",
       "classification": "source-derived"
     },
     {
@@ -431,14 +431,14 @@
     },
     {
       "path": "hub/src/focus_hub/v2_source_replan.py",
-      "size_bytes": 40374,
-      "sha256": "a638c1affb2cd41d5ce0c5195d73f9e24666c41923f69b95a827fafdd7bca529",
+      "size_bytes": 41024,
+      "sha256": "81e273c8808ed86802d696f608fe09ee4ed64ce28f150af43d503f332d19ed2e",
       "classification": "source-derived"
     },
     {
       "path": "hub/tools/run_v2_source_episode.py",
-      "size_bytes": 133210,
-      "sha256": "6ce333215bf09de109895c8a60b90fe4f63e1bd6b2d020af159611a914c1dd3a",
+      "size_bytes": 135044,
+      "sha256": "a88518211c57f29dde9cb06edf4e7e6943a163c4942c5341aa01fd66d2e9833b",
       "classification": "source-derived"
     },
     {

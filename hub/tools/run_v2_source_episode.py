@@ -967,12 +967,38 @@ def freeze_next_round(
             # A latched map block is immutable for this map process/session.
             # Retrying it for the entire synchronization window cannot recover
             # and used to waste 45 seconds before the same controller HOLD.
-            if "frozen map blocked:" in str(exc):
+            if "map blocked:" in str(exc):
                 raise RuntimeError(f"non-recoverable round input: {exc}") from exc
             time.sleep(poll_s)
     raise TimeoutError(
         f"no fresh synchronized round input within {timeout_s:.1f}s: {last_error}"
     )
+
+
+def live_mapping_blocks(session: RealworldSession) -> dict[str, str]:
+    """Return explicit latched map failures for the active physical session.
+
+    Map status files are atomically replaced by the daemons.  A transiently
+    absent/unreadable status is left to the existing observation/readiness
+    gates, while an explicit mapping latch is irreversible for that map
+    process and must preempt motion without waiting for the next round freeze.
+    """
+
+    blocked: dict[str, str] = {}
+    for robot in session.robots:
+        status_path = (
+            resolve_workspace_path(WORKSPACE, robot.map_dir) / "live_status.json"
+        )
+        try:
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(status, dict):
+            continue
+        reason = status.get("mapping_blocked_reason")
+        if isinstance(reason, str) and reason.strip():
+            blocked[robot.robot_id] = reason.strip()
+    return blocked
 
 
 def run_shadow_round(
@@ -2067,6 +2093,24 @@ def main() -> int:
             final_states = states
             update_event_records(latest_events, states)
             update_event_records(round_latest, states)
+            mapping_blocks = live_mapping_blocks(session)
+            if mapping_blocks:
+                emit(
+                    "live_mapping_block_preempted",
+                    mapping_blocks=mapping_blocks,
+                )
+                final_states = hold_and_confirm("live_mapping_block_hold")
+                return RoundResult(
+                    "failure",
+                    "live shared map blocked: "
+                    + json.dumps(mapping_blocks, sort_keys=True),
+                    final_states,
+                    {},
+                    round_latest,
+                    feedback_counts,
+                    recoverable_failures=recoverable_failures_all,
+                    interrupted_robot_ids=frozenset(recoverable_failures_all),
+                )
             decisions = {item.robot_id: item for item in current.decisions}
             for robot_id in active:
                 event = states[robot_id].get("latest_event")

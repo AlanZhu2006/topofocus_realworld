@@ -302,6 +302,67 @@ def test_freeze_next_round_fails_immediately_for_latched_map(
     assert "frozen map blocked" in rejection_log.read_text(encoding="utf-8")
 
 
+def test_freeze_next_round_fails_immediately_for_runtime_map_wording(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = load_module()
+    calls = 0
+
+    def blocked(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise ValueError(
+            "robot-0 map blocked: pose discontinuity requires a fresh map session"
+        )
+
+    monkeypatch.setattr(module, "freeze", blocked)
+
+    with pytest.raises(RuntimeError, match="non-recoverable round input"):
+        module.freeze_next_round(
+            session_path=tmp_path / "session.json",
+            session=SimpleNamespace(),
+            output=tmp_path / "accepted",
+            minimum_sequences={"robot-0": 1, "robot-1": 1},
+            max_input_age_s=60.0,
+            max_sync_skew_s=5.0,
+            timeout_s=45.0,
+            poll_s=0.01,
+            rejection_log=tmp_path / "freeze_rejections.jsonl",
+        )
+
+    assert calls == 1
+
+
+def test_live_mapping_blocks_reports_only_explicit_latches(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = load_module()
+    monkeypatch.setattr(module, "WORKSPACE", tmp_path)
+    robots = []
+    for robot_id, reason in (
+        ("robot-0", "pose discontinuity"),
+        ("robot-1", None),
+    ):
+        map_dir = tmp_path / "maps" / robot_id
+        map_dir.mkdir(parents=True)
+        (map_dir / "live_status.json").write_text(
+            json.dumps({"mapping_blocked_reason": reason}),
+            encoding="utf-8",
+        )
+        robots.append(
+            SimpleNamespace(
+                robot_id=robot_id,
+                map_dir=str(map_dir.relative_to(tmp_path)),
+            )
+        )
+
+    assert module.live_mapping_blocks(SimpleNamespace(robots=robots)) == {
+        "robot-0": "pose discontinuity"
+    }
+
+
 def test_round_inspection_distinguishes_semantic_and_frontier_arrival(
     tmp_path, observation_factory
 ):

@@ -249,7 +249,13 @@ def write_camera_snapshot(
                 else "source-derived camera optical +Z projected into shared XY"
             ),
             "trajectory": (
-                "robot base positions deduplicated at 0.05 m; latest 2000"
+                "robot base positions deduplicated at 0.05 m; latest 2000; "
+                "frozen at the last continuous prefix after a mapping latch"
+            ),
+            "trajectory_status": (
+                "frozen_last_continuous_prefix"
+                if pipeline.mapping_blocked_reason is not None
+                else "live_continuous_session"
             ),
             "status": (
                 "calibrated base_link pose"

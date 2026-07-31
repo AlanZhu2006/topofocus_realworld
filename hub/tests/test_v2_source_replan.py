@@ -384,6 +384,77 @@ def test_spatially_completed_relabelled_frontier_uses_source_history_fallbacks(
     )
 
 
+def test_exhausted_frontiers_skip_completed_point_and_use_source_history(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
+    state = memory()
+    robot_1 = batch.decisions[1]
+    state.record_frontier_failure(
+        robot_1,
+        reason_code="LOCAL_GOAL_UNREACHABLE",
+        failure_robot_xy_m=(1.0, 2.0),
+        recorded_at_ns=now,
+    )
+    failed_c_raw = robot_1.model_dump(mode="json")
+    failed_c_raw["target"]["frontier_id"] = "C"
+    failed_c_raw["target"]["pose"]["x"] = 4.0
+    failed_c_raw["target"]["pose"]["y"] = 2.0
+    state.record_frontier_failure(
+        type(robot_1).model_validate(failed_c_raw),
+        reason_code="LOCAL_GOAL_UNREACHABLE",
+        failure_robot_xy_m=(1.0, 2.0),
+        recorded_at_ns=now + 1,
+    )
+    manifest = shadow_manifest()
+    result = manifest["robots"][1]
+    result["candidate_frontiers"] = [
+        frontier("B", 2.0, 3.0),
+        frontier("C", 4.0, 2.0),
+        frontier("D", 1.2, 2.0),
+    ]
+    result["choice_probabilities"] = {"B": 0.6, "C": 0.3, "D": 0.1}
+    result["candidate_history_nodes"] = [
+        {
+            "frontier_id": "history-0",
+            "history_index": 0,
+            "x_m": 1.0,
+            "y_m": 5.0,
+            "history_score": 4.0,
+        },
+        {
+            "frontier_id": "history-1",
+            "history_index": 1,
+            "x_m": -2.0,
+            "y_m": 4.0,
+            "history_score": 7.0,
+        },
+    ]
+
+    rejected, fallbacks, report = evaluate_source_replan(
+        batch,
+        shadow_manifest=manifest,
+        memory=state,
+        robot_xy_by_robot={
+            "robot-0": (0.0, 1.0),
+            "robot-1": (1.0, 2.0),
+        },
+    )
+
+    assert rejected == frozenset({"robot-1"})
+    assert [item["frontier_id"] for item in fallbacks["robot-1"]] == [
+        "history-1",
+        "history-0",
+    ]
+    excluded = {
+        item["frontier_id"]: item["excluded_reason"]
+        for item in report["checks"]["robot-1"]["excluded_fallback_candidates"]
+    }
+    assert excluded["C"] == "navigation_failure_memory_match"
+    assert excluded["D"] == "source_arrival_already_satisfied"
+
+
 def test_history_fallback_uses_source_history_score_order(
     observation_factory,
 ):

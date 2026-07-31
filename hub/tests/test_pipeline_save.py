@@ -116,11 +116,13 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
         "container": "central_map.npz",
         "field": "robot_trajectory_xy_m",
         "point_count": 0,
+        "status": "live_continuous_session",
         "last_observation_sequence": None,
         "pose_source": "camera_pose_fallback_no_base_T_camera",
         "classification": (
-            "observed base trajectory in the same atomic map snapshot "
-            "generation"
+            "observed continuous base-trajectory prefix in the same atomic "
+            "map snapshot generation; a discontinuous current pose is never "
+            "appended or allowed to erase that prefix"
         ),
     }
     assert summary["last_map_capture_time_ns"] is None

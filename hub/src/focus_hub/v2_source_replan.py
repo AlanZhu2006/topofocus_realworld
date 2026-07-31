@@ -30,7 +30,7 @@ from typing import Mapping, Sequence
 
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
-SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v3"
+SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v4"
 SOURCE_COLLISION_THRESHOLD_M = 0.10
 SOURCE_STAGNANT_REPLAN_CELLS = 2.5
 SOURCE_MAP_RESOLUTION_M = 0.05
@@ -791,17 +791,17 @@ def evaluate_source_replan(
 
         ranked, ranking_source = _ranked_robot_candidates(results[robot_id])
         if (
-            current_frontier_arrival_already_satisfied
-            and isinstance(results[robot_id].get("final_shadow_selection"), Mapping)
+            isinstance(results[robot_id].get("final_shadow_selection"), Mapping)
             and results[robot_id]["final_shadow_selection"].get("kind") == "frontier"
         ):
-            # Frontier labels A-D are regenerated every source round.  The
-            # same physical boundary can therefore return under a new label
-            # after the robot has already entered its source 10-cell arrival
-            # disk.  Compare in shared XY, then expose only the source's own
-            # frozen history nodes as last-resort exploration alternatives.
-            # The downstream robot-local connectivity and footprint guard
-            # must still approve any such history target before publication.
+            # The immutable source falls back to scored history nodes when it
+            # has no frontier.  On hardware, robot-local connectivity and
+            # footprint checks can make every source frontier non-executable
+            # even though they remain present in the fused source map.  Keep
+            # every frontier first in preserved VLM score order, then expose
+            # only the source's own frozen, scored history nodes as true
+            # last-resort candidates.  The downstream physical guard must
+            # still independently approve any history target.
             existing_ids = {str(candidate["frontier_id"]) for candidate in ranked}
             history = [
                 candidate
@@ -828,6 +828,12 @@ def evaluate_source_replan(
                 for other_id, other_point in occupied_points.items()
             ):
                 reason = "duplicates_peer_guard_input_coordinate"
+            elif math.dist(robot_xy, point) <= SOURCE_FRONTIER_ARRIVAL_RADIUS_M + 1e-12:
+                # Do not spend another physical lease on a fallback whose
+                # source 10-cell arrival disk is already satisfied.  This is
+                # especially important after A-D labels are regenerated and
+                # lets the last-resort source history chain remain usable.
+                reason = "source_arrival_already_satisfied"
             else:
                 memory_matches = memory.matching_entries(
                     robot_id=robot_id,
@@ -952,7 +958,9 @@ def evaluate_source_replan(
             "a long target "
             "in the prior-progress rear hemisphere is grouped behind "
             "non-reversing candidates while source score order is preserved "
-            "inside each group "
+            "inside each group; when every source frontier is physically "
+            "unusable, the source's own frozen history nodes remain available "
+            "after all frontiers in descending source history-score order "
             "only when the same frozen source batch provides one, while "
             "necessary backtracking remains available"
         ),

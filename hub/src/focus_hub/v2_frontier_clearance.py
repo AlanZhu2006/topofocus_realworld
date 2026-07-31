@@ -572,8 +572,9 @@ def _fallback_decision(
     raw["leg_id"] = _bounded_id(f"{previous.leg_id}-frontier-fallback-{frontier_id}")
     raw["decision_id"] = _bounded_id(f"{raw['leg_id']}-lease-0")
     raw["reason"] = (
-        "source-ranked remaining frontier passed the unchanged real-world "
-        "footprint-clearance guard after the VLM-selected frontier was rejected"
+        "source-ranked remaining exploration candidate passed the unchanged "
+        "real-world footprint-clearance guard after the VLM-selected frontier "
+        "was rejected"
     )
     return HighLevelDecisionV2.model_validate(raw)
 
@@ -1148,12 +1149,13 @@ def apply_frontier_clearance_guard(
             "known-free distance transform over each robot's frozen shared-frame "
             "map; require one cell in that robot's reachable known-free component "
             "whose footprint intersects the source frontier arrival disk; rejected "
-            "selections try source-ranked remaining frontiers once"
+            "selections try source-ranked remaining frozen source exploration "
+            "candidates once"
             if use_robot_execution_maps
             else "known-free distance transform over the frozen fused map; require "
             "one footprint-clear cell whose footprint intersects the source "
             "frontier arrival disk; rejected selections try source-ranked "
-            "remaining frontiers once"
+            "remaining frozen source exploration candidates once"
         ),
         "classification": (
             "source-derived real-world physical execution guard over frozen "
@@ -1212,9 +1214,9 @@ def apply_frontier_clearance_guard(
             "robot-local router's configured known-free graph clearance and "
             "producing minimum bounded progress toward the same source "
             "frontier; any "
-            "execution fallback is an unused frontier from the same frozen "
-            "source manifest, ordered by that robot's preserved source score "
-            "when supplied, and must independently pass the same physical-"
-            "clearance guard"
+            "execution fallback is an unused frontier or last-resort scored "
+            "history node from the same frozen source manifest, ordered by "
+            "that robot's preserved source score within each candidate kind, "
+            "and must independently pass the same physical-clearance guard"
         ),
     }

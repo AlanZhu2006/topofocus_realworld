@@ -462,8 +462,13 @@ class SpoolMappingPipeline:
                     f"{type(exc).__name__}: {exc}"
                 )[:300]
         if self.mapping_blocked_reason is not None:
-            self.trajectory_xy_m = [self.last_camera_xy]
-            self.robot_trajectory_xy_m = [self.last_robot_xy]
+            # Keep the last continuous, accepted trajectory prefix intact.
+            # ``last_*`` above deliberately follows the newest observation so
+            # the dashboard can expose the discontinuity, but appending that
+            # pose would draw a false connecting segment and replacing the
+            # list would erase observed motion that happened before the
+            # latch.  A fresh map session is the only authority that may
+            # start a new continuous trajectory.
             self.skipped_non_keyframes += 1
             return KeyframeDecision(
                 False,
@@ -487,8 +492,6 @@ class SpoolMappingPipeline:
                         f"translation_m={discontinuity.translation_m:.3f}, "
                         f"rotation_deg={discontinuity.rotation_deg:.2f}"
                     )
-                    self.trajectory_xy_m = [self.last_camera_xy]
-                    self.robot_trajectory_xy_m = [self.last_robot_xy]
                 return discontinuity
         if (
             not self.trajectory_xy_m
@@ -1132,13 +1135,19 @@ class SpoolMappingPipeline:
                 "container": "central_map.npz",
                 "field": "robot_trajectory_xy_m",
                 "point_count": len(self.robot_trajectory_xy_m),
+                "status": (
+                    "frozen_last_continuous_prefix"
+                    if self.mapping_blocked_reason is not None
+                    else "live_continuous_session"
+                ),
                 "last_observation_sequence": (
                     self.last_observation_sequence
                 ),
                 "pose_source": self.robot_pose_source,
                 "classification": (
-                    "observed base trajectory in the same atomic map "
-                    "snapshot generation"
+                    "observed continuous base-trajectory prefix in the same "
+                    "atomic map snapshot generation; a discontinuous current "
+                    "pose is never appended or allowed to erase that prefix"
                 ),
             },
             "semantic_mapping": {

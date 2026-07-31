@@ -221,19 +221,22 @@ def test_live_keyframe_gate_latches_pose_jump():
         "session-a", keyframe_config=KeyframeConfig(max_interval_sec=5.0)
     )
     pipeline.process(_observation(10, "session-a"))
-    jump_observation = _observation(11, "session-a")
+    moved_observation = _observation(11, "session-a")
+    moved_observation.T_shared_camera[0, 3] = 0.2
+    pipeline.process(moved_observation)
+    jump_observation = _observation(12, "session-a")
     jump_observation.T_shared_camera[0, 3] = 3.0
 
     jump = pipeline.process(jump_observation)
-    after = pipeline.process(_observation(12, "session-a"))
+    after = pipeline.process(_observation(13, "session-a"))
 
     assert jump.pose_jump
     assert after.reason == "pose_jump_latched"
     assert pipeline.mapping_blocked_reason is not None
-    assert segmenter.calls == 1
-    assert pipeline.mapper.calls == 1
-    assert pipeline.trajectory_xy_m == [(0.0, 0.0)]
-    assert pipeline.robot_trajectory_xy_m == [(0.0, 0.0)]
+    assert segmenter.calls == 2
+    assert pipeline.mapper.calls == 2
+    assert pipeline.trajectory_xy_m == [(0.0, 0.0), (0.2, 0.0)]
+    assert pipeline.robot_trajectory_xy_m == [(0.0, 0.0), (0.2, 0.0)]
 
 
 def test_ground_rejected_turns_still_advance_pose_continuity(monkeypatch):
