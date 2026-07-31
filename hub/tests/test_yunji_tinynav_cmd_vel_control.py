@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-
 MODULE_PATH = (
     Path(__file__).resolve().parents[1]
     / "robot_overlay"
@@ -81,9 +80,7 @@ def test_controller_path_contract_accepts_only_finite_world_geometry():
             )
         )
     with pytest.raises(ValueError, match="fewer than two"):
-        MODULE.validate_controller_path_message(
-            _path(_pose_stamped(0.0, 0.0))
-        )
+        MODULE.validate_controller_path_message(_path(_pose_stamped(0.0, 0.0)))
     with pytest.raises(ValueError, match="non-finite"):
         MODULE.validate_controller_path_message(
             _path(
@@ -137,8 +134,7 @@ def test_malformed_path_hold_does_not_claim_reverse_motion():
     error = ValueError("trajectory frame 'map' != 'world'")
 
     assert MODULE.trajectory_contract_hold_reason(error) == (
-        "trajectory_contract_invalid:"
-        "trajectory frame 'map' != 'world'"
+        "trajectory_contract_invalid:" "trajectory frame 'map' != 'world'"
     )
 
 
@@ -157,12 +153,8 @@ def test_controller_path_filter_preserves_rotate_in_place_geometry():
 
 
 def test_controller_rejects_nonfinite_twist_components():
-    assert MODULE.command_components_finite(
-        _twist(linear_x=0.1, angular_z=-0.2)
-    )
-    assert not MODULE.command_components_finite(
-        _twist(linear_x=float("nan"))
-    )
+    assert MODULE.command_components_finite(_twist(linear_x=0.1, angular_z=-0.2))
+    assert not MODULE.command_components_finite(_twist(linear_x=float("nan")))
 
 
 def test_small_intentional_forward_command_reaches_static_friction_floor():
@@ -177,9 +169,7 @@ def test_deployment_linear_floor_is_bounded_to_observed_source_maximum():
     parsed = MODULE.build_parser().parse_args(_deployment_args())
 
     assert parsed.linear_command_floor_mps == pytest.approx(0.18)
-    assert MODULE.MAX_DEPLOYMENT_LINEAR_COMMAND_FLOOR_MPS == pytest.approx(
-        0.20
-    )
+    assert MODULE.MAX_DEPLOYMENT_LINEAR_COMMAND_FLOOR_MPS == pytest.approx(0.20)
     assert MODULE.apply_linear_engagement_floor(
         0.10,
         engage_threshold_mps=0.04,
@@ -240,12 +230,10 @@ def test_verified_forward_only_planner_treats_path_geometry_as_a_turn(
     requested_linear_mps,
     expected_action,
 ):
-    effective_action, violation = (
-        MODULE.resolve_forward_only_control_contract(
-            segment_action,
-            requested_linear_mps,
-            verified_forward_only_planner=True,
-        )
+    effective_action, violation = MODULE.resolve_forward_only_control_contract(
+        segment_action,
+        requested_linear_mps,
+        verified_forward_only_planner=True,
     )
 
     assert effective_action == expected_action
@@ -253,12 +241,10 @@ def test_verified_forward_only_planner_treats_path_geometry_as_a_turn(
 
 
 def test_actual_negative_twist_remains_a_detectable_source_reverse_request():
-    effective_action, violation = (
-        MODULE.resolve_forward_only_control_contract(
-            "allow",
-            -0.01,
-            verified_forward_only_planner=True,
-        )
+    effective_action, violation = MODULE.resolve_forward_only_control_contract(
+        "allow",
+        -0.01,
+        verified_forward_only_planner=True,
     )
 
     assert effective_action == "reject_reverse"
@@ -297,14 +283,17 @@ def test_verified_source_reverse_is_aligned_held_or_rejected_without_reverse(
     expected,
 ):
     heading = None if heading_deg is None else math.radians(heading_deg)
-    assert MODULE.classify_verified_reverse_command_recovery(
-        reverse_requested,
-        heading,
-        recovery_active=recovery_active,
-        rotate_first_enabled=rotate_first,
-        stabilize_large_turn=stabilize,
-        paused=paused,
-    ) == expected
+    assert (
+        MODULE.classify_verified_reverse_command_recovery(
+            reverse_requested,
+            heading,
+            recovery_active=recovery_active,
+            rotate_first_enabled=rotate_first,
+            stabilize_large_turn=stabilize,
+            paused=paused,
+        )
+        == expected
+    )
 
 
 def test_verified_source_reverse_recovery_rejects_invalid_heading():
@@ -429,6 +418,58 @@ def test_stable_path_heading_ignores_near_pose_replan_jitter():
     assert right == pytest.approx(0.5 * math.pi)
 
 
+def test_planner_path_heading_reference_stays_in_the_path_frame():
+    first_path_pose = [
+        [0.0, -1.0, 0.0, 3.0],
+        [1.0, 0.0, 0.0, 4.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    base_t_camera = [
+        [1.0, 0.0, 0.0, 0.23],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.40],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+
+    reference_xy, heading = MODULE.planner_path_base_reference(
+        first_path_pose,
+        base_t_camera,
+    )
+
+    # TinyNav's path translation is already the base centre, so the mount
+    # translation must not be subtracted a second time.
+    assert reference_xy == pytest.approx((3.0, 4.0))
+    assert heading == pytest.approx(math.pi / 2.0)
+
+
+def test_turn_progress_watchdog_allows_convergence_and_stops_stale_yaw():
+    best, last_progress, stalled = MODULE.heading_recovery_progress_state(
+        best_abs_error_rad=math.pi,
+        last_progress_monotonic=10.0,
+        current_error_rad=math.pi,
+        now_monotonic=12.9,
+    )
+    assert not stalled
+
+    best, last_progress, stalled = MODULE.heading_recovery_progress_state(
+        best_abs_error_rad=best,
+        last_progress_monotonic=last_progress,
+        current_error_rad=math.pi - math.radians(6.0),
+        now_monotonic=13.0,
+    )
+    assert not stalled
+    assert last_progress == pytest.approx(13.0)
+
+    _best, _last_progress, stalled = MODULE.heading_recovery_progress_state(
+        best_abs_error_rad=best,
+        last_progress_monotonic=last_progress,
+        current_error_rad=math.pi - math.radians(6.0),
+        now_monotonic=16.0,
+    )
+    assert stalled
+
+
 def test_collision_scored_path_heading_overrides_conflicting_router_seed():
     target_error = MODULE.world_target_heading_error(
         (2.8755, -6.0557),
@@ -448,14 +489,20 @@ def test_collision_scored_path_heading_overrides_conflicting_router_seed():
     assert math.degrees(target_error) == pytest.approx(-50.8, abs=0.3)
     assert reverse_path_error is not None
     assert abs(math.degrees(reverse_path_error)) == pytest.approx(180.0)
-    assert MODULE.select_authoritative_heading_error(
-        path_heading_error_rad=reverse_path_error,
-        router_heading_error_rad=target_error,
-    ) == reverse_path_error
-    assert MODULE.select_authoritative_heading_error(
-        path_heading_error_rad=None,
-        router_heading_error_rad=target_error,
-    ) == target_error
+    assert (
+        MODULE.select_authoritative_heading_error(
+            path_heading_error_rad=reverse_path_error,
+            router_heading_error_rad=target_error,
+        )
+        == reverse_path_error
+    )
+    assert (
+        MODULE.select_authoritative_heading_error(
+            path_heading_error_rad=None,
+            router_heading_error_rad=target_error,
+        )
+        == target_error
+    )
 
 
 def test_short_wall_front_paths_defer_to_stable_router_heading():
@@ -488,14 +535,20 @@ def test_short_wall_front_paths_defer_to_stable_router_heading():
     assert left_jitter is None
     assert right_jitter is None
     assert router_error is not None
-    assert MODULE.select_authoritative_heading_error(
-        path_heading_error_rad=left_jitter,
-        router_heading_error_rad=router_error,
-    ) == router_error
-    assert MODULE.select_authoritative_heading_error(
-        path_heading_error_rad=right_jitter,
-        router_heading_error_rad=router_error,
-    ) == router_error
+    assert (
+        MODULE.select_authoritative_heading_error(
+            path_heading_error_rad=left_jitter,
+            router_heading_error_rad=router_error,
+        )
+        == router_error
+    )
+    assert (
+        MODULE.select_authoritative_heading_error(
+            path_heading_error_rad=right_jitter,
+            router_heading_error_rad=router_error,
+        )
+        == router_error
+    )
 
 
 def test_measured_rear_left_goal_has_one_stable_positive_turn():
@@ -633,9 +686,7 @@ def test_restart14_tiny_reverse_alignment_recovers_from_zero_yaw():
             recovery_active=recovery_active,
             paused=False,
         )
-        commands.append(
-            MODULE.bounded_heading_alignment_angular(heading_error)
-        )
+        commands.append(MODULE.bounded_heading_alignment_angular(heading_error))
         recovery_active = True
 
     assert commands[0] == pytest.approx(0.35)
@@ -745,13 +796,16 @@ def test_reverse_path_uses_stable_heading_when_source_yaw_is_zero():
 
 
 def test_missing_stable_heading_cannot_invent_recovery_yaw():
-    assert MODULE.controller_recovery_angular_request(
-        0.0,
-        None,
-        use_stable_heading=True,
-        continuation_required=False,
-        latched_direction=0,
-    ) == 0.0
+    assert (
+        MODULE.controller_recovery_angular_request(
+            0.0,
+            None,
+            use_stable_heading=True,
+            continuation_required=False,
+            latched_direction=0,
+        )
+        == 0.0
+    )
 
 
 @pytest.mark.parametrize(
@@ -788,9 +842,7 @@ def test_tiny_reverse_continuation_requires_latched_direction():
 
 
 def test_rotate_first_is_explicitly_opt_in():
-    defaults = MODULE.build_parser().parse_args(
-        _deployment_args("yunji-water")
-    )
+    defaults = MODULE.build_parser().parse_args(_deployment_args("yunji-water"))
     enabled = MODULE.build_parser().parse_args(
         _deployment_args()
         + [
@@ -811,6 +863,8 @@ def test_rotate_first_is_explicitly_opt_in():
     assert enabled.verified_forward_only_planner is True
     assert enabled.rotate_first_max_angular_radps == pytest.approx(0.30)
     assert enabled.rotate_first_timeout_s == pytest.approx(8.0)
+    assert defaults.turn_no_progress_timeout_s == pytest.approx(3.0)
+    assert defaults.turn_progress_epsilon_deg == pytest.approx(5.0)
 
 
 def test_controller_profile_is_required_and_common_guards_are_enabled():
@@ -822,14 +876,8 @@ def test_controller_profile_is_required_and_common_guards_are_enabled():
     assert parsed.path_timeout_s == pytest.approx(1.0)
     assert parsed.pose_jump_m == pytest.approx(0.4)
     assert parsed.pose_jump_freeze_s == pytest.approx(0.6)
-    assert (
-        parsed.pause_service
-        == MODULE.DEFAULT_CONTROLLER_PAUSE_SERVICE
-    )
-    assert (
-        parsed.turn_stalled_topic
-        == MODULE.DEFAULT_CONTROLLER_TURN_STALLED_TOPIC
-    )
+    assert parsed.pause_service == MODULE.DEFAULT_CONTROLLER_PAUSE_SERVICE
+    assert parsed.turn_stalled_topic == MODULE.DEFAULT_CONTROLLER_TURN_STALLED_TOPIC
     assert parsed.robot_id == "robot-0"
     assert parsed.base_camera_frame == "camera"
 
@@ -840,9 +888,9 @@ def test_controller_exposes_acknowledged_pause_service():
     assert "from std_srvs.srv import SetBool" in source
     assert "self.create_service(" in source
     assert "self._on_focus_set_paused" in source
-    callback = source.split(
-        "def _on_focus_set_paused", 1
-    )[1].split("def pose_callback", 1)[0]
+    callback = source.split("def _on_focus_set_paused", 1)[1].split(
+        "def pose_callback", 1
+    )[0]
     assert "self._on_paused(Bool(data=requested))" in callback
     assert "response.success = bool(self._paused) == requested" in callback
 
@@ -856,18 +904,28 @@ def test_common_controller_input_guard_fails_closed():
         "paused": False,
     }
     assert MODULE.controller_input_guard_reason(**base) is None
-    assert MODULE.controller_input_guard_reason(
-        **{**base, "paused": True}
-    ) == "navigation_paused"
-    assert MODULE.controller_input_guard_reason(
-        **{**base, "pose_received_monotonic": 9.19}
-    ) == "pose_missing_or_stale"
-    assert MODULE.controller_input_guard_reason(
-        **{**base, "pose_jump_freeze_until_monotonic": 10.1}
-    ) == "pose_jump_freeze"
-    assert MODULE.controller_input_guard_reason(
-        **{**base, "path_received_monotonic": 8.99}
-    ) == "path_missing_or_stale"
+    assert (
+        MODULE.controller_input_guard_reason(**{**base, "paused": True})
+        == "navigation_paused"
+    )
+    assert (
+        MODULE.controller_input_guard_reason(
+            **{**base, "pose_received_monotonic": 9.19}
+        )
+        == "pose_missing_or_stale"
+    )
+    assert (
+        MODULE.controller_input_guard_reason(
+            **{**base, "pose_jump_freeze_until_monotonic": 10.1}
+        )
+        == "pose_jump_freeze"
+    )
+    assert (
+        MODULE.controller_input_guard_reason(
+            **{**base, "path_received_monotonic": 8.99}
+        )
+        == "path_missing_or_stale"
+    )
 
 
 @pytest.mark.parametrize("requested", [-0.2, 0.0, 0.039, 0.1, 0.3])

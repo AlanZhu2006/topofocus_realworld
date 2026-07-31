@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from focus_hub.map_snapshot import MapSnapshot
@@ -61,9 +63,7 @@ def snapshot_from_free_mask(
 def test_wall_adjacent_frontier_is_held_without_suppressing_clear_peer(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -90,9 +90,7 @@ def test_wall_adjacent_frontier_is_held_without_suppressing_clear_peer(
 def test_arrival_disk_intersects_safe_cell_footprint_not_only_its_center(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -114,9 +112,7 @@ def test_arrival_disk_intersects_safe_cell_footprint_not_only_its_center(
     )
 
     check = report["checks"]["robot-0"]
-    assert check["approach_distance_method"] == (
-        "point_to_grid_cell_footprint"
-    )
+    assert check["approach_distance_method"] == ("point_to_grid_cell_footprint")
     assert check["nearest_safe_approach_distance_m"] < 0.5
     assert check["safe_approach_cell_count"] > 0
     assert check["passed"] is True
@@ -126,9 +122,7 @@ def test_arrival_disk_intersects_safe_cell_footprint_not_only_its_center(
 def test_already_arrived_frontier_is_reallocated_before_republish(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -184,9 +178,7 @@ def test_already_arrived_frontier_is_reallocated_before_republish(
 def test_per_robot_execution_map_rejects_disconnected_global_frontier(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -236,16 +228,15 @@ def test_per_robot_execution_map_rejects_disconnected_global_frontier(
     assert robot_0_check["safe_approach_cell_count"] == 0
     assert robot_0_check["reachability_filter_applied"] is True
     assert report["checks"]["robot-1"]["passed"] is True
-    assert report["execution_map_contracts"]["robot-0"][
-        "transform_version"
-    ] == "robot-0-transform-v1"
+    assert (
+        report["execution_map_contracts"]["robot-0"]["transform_version"]
+        == "robot-0-transform-v1"
+    )
     assert [item.mode.value for item in guarded.decisions] == ["HOLD", "GOAL"]
 
 
 def test_clear_frontiers_preserve_candidate_batch(observation_factory):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {"robot-0": (3.0, 3.0), "robot-1": (4.0, 4.0)},
@@ -262,12 +253,75 @@ def test_clear_frontiers_preserve_candidate_batch(observation_factory):
     assert guarded == candidate
 
 
+def test_far_frontier_is_segmented_below_robot_local_admission_limit(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {"robot-0": (12.0, 1.0), "robot-1": (2.0, 2.0)},
+    )
+    execution = snapshot_from_free_mask(
+        np.ones((300, 300), dtype=bool),
+        transform_version="robot-execution-v1",
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        robot_xy_by_robot={
+            "robot-0": (1.0, 1.0),
+            "robot-1": (1.0, 1.0),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+        bounded_approach_projection_by_robot={
+            "robot-0": True,
+            "robot-1": True,
+        },
+        projection_path_clearance_by_robot_m={
+            "robot-0": 0.05,
+            "robot-1": 0.30,
+        },
+        maximum_execution_distance_by_robot_m={
+            "robot-0": 7.5,
+            "robot-1": 7.5,
+        },
+    )
+
+    execution_target = guarded.decisions[0].target
+    assert execution_target is not None
+    execution_distance = math.hypot(
+        execution_target.pose.x - 1.0,
+        execution_target.pose.y - 1.0,
+    )
+    check = report["checks"]["robot-0"]
+    assert check["execution_distance_projection_required"] is True
+    assert check["direct_target_within_execution_limit"] is False
+    assert check["pass_mode"] == "distance_bounded_safe_partial_progress"
+    assert execution_distance <= 7.5 + 1e-12
+    assert execution_distance > 7.0
+    assert report["execution_lineage"]["robot-0"]["source_target_xy_m"] == [
+        12.0,
+        1.0,
+    ]
+    assert report["execution_lineage"]["robot-0"]["execution_target_xy_m"] != [
+        12.0,
+        1.0,
+    ]
+
+
 def test_failure_memory_rejection_uses_robot_specific_source_ranked_fallback(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {"robot-0": (3.0, 3.0), "robot-1": (4.0, 4.0)},
@@ -336,9 +390,7 @@ def test_failure_memory_rejection_uses_robot_specific_source_ranked_fallback(
 def test_start_seed_snap_is_independent_of_clearance_for_both_robots(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {"robot-0": (3.0, 3.0), "robot-1": (4.0, 4.0)},
@@ -395,9 +447,7 @@ def narrow_corridor_snapshot(*, transform_version: str) -> MapSnapshot:
 def test_nearby_unsafe_frontier_projects_to_start_connected_safe_cell(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -405,9 +455,7 @@ def test_nearby_unsafe_frontier_projects_to_start_connected_safe_cell(
             "robot-1": (0.575, 2.525),
         },
     )
-    execution = narrow_corridor_snapshot(
-        transform_version="robot-execution-v1"
-    )
+    execution = narrow_corridor_snapshot(transform_version="robot-execution-v1")
 
     guarded, report = apply_frontier_clearance_guard(
         candidate,
@@ -454,9 +502,7 @@ def test_nearby_unsafe_frontier_projects_to_start_connected_safe_cell(
 def test_start_connected_safe_partial_progress_can_exceed_one_clearance(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -464,9 +510,7 @@ def test_start_connected_safe_partial_progress_can_exceed_one_clearance(
             "robot-1": (0.475, 2.525),
         },
     )
-    execution = narrow_corridor_snapshot(
-        transform_version="robot-execution-v1"
-    )
+    execution = narrow_corridor_snapshot(transform_version="robot-execution-v1")
 
     guarded, report = apply_frontier_clearance_guard(
         candidate,
@@ -503,9 +547,7 @@ def test_start_connected_safe_partial_progress_can_exceed_one_clearance(
 def test_unknown_boundary_frontier_projects_to_start_connected_safe_cell(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -515,9 +557,7 @@ def test_unknown_boundary_frontier_projects_to_start_connected_safe_cell(
             "robot-1": (0.225, 2.525),
         },
     )
-    execution = narrow_corridor_snapshot(
-        transform_version="robot-execution-v1"
-    )
+    execution = narrow_corridor_snapshot(transform_version="robot-execution-v1")
 
     guarded, report = apply_frontier_clearance_guard(
         candidate,
@@ -557,9 +597,7 @@ def test_unknown_boundary_frontier_projects_to_start_connected_safe_cell(
 def test_projection_uses_router_clearance_and_keeps_endpoint_footprint_clear(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -569,9 +607,7 @@ def test_projection_uses_router_clearance_and_keeps_endpoint_footprint_clear(
             "robot-1": (3.0, 3.0),
         },
     )
-    execution = narrow_corridor_snapshot(
-        transform_version="robot-execution-v1"
-    )
+    execution = narrow_corridor_snapshot(transform_version="robot-execution-v1")
 
     guarded, report = apply_frontier_clearance_guard(
         candidate,
@@ -614,9 +650,7 @@ def test_projection_uses_router_clearance_and_keeps_endpoint_footprint_clear(
 def test_safe_partial_progress_holds_when_robot_is_already_at_boundary(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -624,9 +658,7 @@ def test_safe_partial_progress_holds_when_robot_is_already_at_boundary(
             "robot-1": (0.475, 2.525),
         },
     )
-    execution = narrow_corridor_snapshot(
-        transform_version="robot-execution-v1"
-    )
+    execution = narrow_corridor_snapshot(transform_version="robot-execution-v1")
 
     guarded, report = apply_frontier_clearance_guard(
         candidate,
@@ -660,9 +692,7 @@ def test_safe_partial_progress_holds_when_robot_is_already_at_boundary(
 def test_rejected_frontiers_use_one_clear_source_remaining_frontier(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -705,9 +735,7 @@ def test_rejected_frontiers_use_one_clear_source_remaining_frontier(
         }
     ]
     assert report["fallback_checks"]["robot-0"][0]["passed"] is True
-    assert report["fallback_checks"]["robot-0"][0][
-        "required_clearance_m"
-    ] == 0.35
+    assert report["fallback_checks"]["robot-0"][0]["required_clearance_m"] == 0.35
     assert report["fallback_checks"]["robot-1"][0]["passed"] is True
     assert [item.mode.value for item in guarded.decisions] == ["GOAL", "HOLD"]
     target = guarded.decisions[0].target
@@ -722,9 +750,7 @@ def test_rejected_frontiers_use_one_clear_source_remaining_frontier(
 def test_rejected_frontiers_still_hold_when_fallback_is_unsafe(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -737,9 +763,7 @@ def test_rejected_frontiers_still_hold_when_fallback_is_unsafe(
         candidate,
         snapshot_with_one_wall_trap(),
         clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
-        fallback_frontiers=[
-            {"frontier_id": "A", "x_m": 1.075, "y_m": 1.075}
-        ],
+        fallback_frontiers=[{"frontier_id": "A", "x_m": 1.075, "y_m": 1.075}],
         robot_xy_by_robot={"robot-0": (0.0, 0.0)},
     )
 
@@ -753,9 +777,7 @@ def test_rejected_frontiers_still_hold_when_fallback_is_unsafe(
 def test_fallback_matching_maximizes_safe_active_robots(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {
@@ -821,9 +843,7 @@ def test_fallback_matching_maximizes_safe_active_robots(
 
 
 def test_clear_frontiers_ignore_fallback_candidates(observation_factory):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(
         make_batch(observations, digests, now=now),
         {"robot-0": (3.0, 3.0), "robot-1": (4.0, 4.0)},
@@ -833,9 +853,7 @@ def test_clear_frontiers_ignore_fallback_candidates(observation_factory):
         candidate,
         snapshot_with_one_wall_trap(),
         clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
-        fallback_frontiers=[
-            {"frontier_id": "A", "x_m": 5.0, "y_m": 5.0}
-        ],
+        fallback_frontiers=[{"frontier_id": "A", "x_m": 5.0, "y_m": 5.0}],
         robot_xy_by_robot={
             "robot-0": (0.0, 0.0),
             "robot-1": (0.0, 0.0),

@@ -51,9 +51,7 @@ def test_empty_active_set_produces_two_holds(observation_factory):
 def test_initial_readiness_isolation_preserves_ready_lease_zero_goal(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = make_batch(observations, digests, now=now)
 
     scoped = scope_initial_coordination_batch(
@@ -79,9 +77,7 @@ def test_initial_readiness_isolation_preserves_ready_lease_zero_goal(
 def test_initial_readiness_isolation_can_hold_both_candidates(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = make_batch(observations, digests, now=now)
     scoped = scope_initial_coordination_batch(
         candidate,
@@ -97,9 +93,7 @@ def test_initial_readiness_isolation_can_hold_both_candidates(
 def test_only_explicit_local_path_failure_is_recoverable(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
     batch = make_batch(observations, digests, now=now)
     frontier = batch.decisions[1]
 
@@ -131,6 +125,10 @@ def test_only_explicit_local_path_failure_is_recoverable(
             "status": "REJECTED",
             "reason_code": "LOCAL_PLANNER_PATH_STALE",
         },
+    )
+    assert recoverable_local_path_failure(
+        frontier,
+        {"status": "REJECTED", "reason_code": "DISTANCE_LIMIT"},
     )
     assert not recoverable_local_path_failure(
         frontier,

@@ -19,6 +19,7 @@ The automatic evidence bundle is observed evidence for later independent
 annotation; this process never claims that its own model output verifies the
 target or that the stop lies in a pre-surveyed goal region.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,7 +37,6 @@ import time
 import uuid
 
 import httpx
-
 
 WORKSPACE = Path(__file__).resolve().parents[2]
 HUB_DIR = WORKSPACE / "hub"
@@ -75,6 +75,7 @@ from focus_hub.v2_episode_control import (  # noqa: E402
     scope_initial_coordination_batch,
 )
 from focus_hub.v2_frontier_clearance import (  # noqa: E402
+    DEFAULT_MAXIMUM_EXECUTION_LEG_DISTANCE_M,
     apply_frontier_clearance_guard,
 )
 from focus_hub.v2_goal_continuity import (  # noqa: E402
@@ -92,11 +93,11 @@ from focus_hub.v2_source_replan import (  # noqa: E402
     SOURCE_STAGNANT_REPLAN_M,
     NavigationFailureMemory,
     evaluate_source_replan,
+    spatial_frontier_failure_reason,
     source_target_from_clearance_lineage,
 )
 from freeze_realworld_inputs import freeze, stable_copy_map  # noqa: E402
 from manage_realworld_session import resolve_session_argument  # noqa: E402
-
 
 LIVE_CONFIRMATION = "OPERATOR_PRESENT_AND_ROBOTS_CLEAR"
 RUN_SCHEMA_VERSION = "focus-v2-supervised-episode-run-v1"
@@ -137,9 +138,7 @@ class RoundResult:
     semantic_arrivals: dict[str, dict[str, object]]
     latest_events: dict[str, dict[str, object]]
     feedback_counts: dict[str, int]
-    recoverable_failures: dict[str, dict[str, object]] = field(
-        default_factory=dict
-    )
+    recoverable_failures: dict[str, dict[str, object]] = field(default_factory=dict)
     interrupted_robot_ids: frozenset[str] = frozenset()
 
 
@@ -158,14 +157,9 @@ def progress_memory_after_round(
     evidence.
     """
 
-    if (
-        result.status == "replan"
-        and result.reason == SEMANTIC_PATH_REPLAN_REASON
-    ):
+    if result.status == "replan" and result.reason == SEMANTIC_PATH_REPLAN_REASON:
         return set(), {}
-    comparable = set(active_robot_ids).difference(
-        result.interrupted_robot_ids
-    )
+    comparable = set(active_robot_ids).difference(result.interrupted_robot_ids)
     return (
         comparable,
         {
@@ -198,9 +192,7 @@ def partition_recoverable_failures(
             and decisions[robot_id].target.kind == "SEMANTIC_REGION"
         )
     }
-    remaining_active_robot_ids = set(active_robot_ids).difference(
-        failed_robot_ids
-    )
+    remaining_active_robot_ids = set(active_robot_ids).difference(failed_robot_ids)
     remaining_semantic_robot_ids = {
         robot_id
         for robot_id in remaining_active_robot_ids
@@ -214,6 +206,21 @@ def partition_recoverable_failures(
         remaining_active_robot_ids,
         remaining_semantic_robot_ids,
     )
+
+
+def spatially_rejected_robot_ids(
+    recoverable_failures: dict[str, dict[str, object]],
+) -> frozenset[str]:
+    """Return failures that may revoke cross-round frontier continuity."""
+
+    rejected: set[str] = set()
+    for robot_id, failure in recoverable_failures.items():
+        event = failure.get("event")
+        if not isinstance(event, dict):
+            continue
+        if spatial_frontier_failure_reason(str(event.get("reason_code", ""))):
+            rejected.add(robot_id)
+    return frozenset(rejected)
 
 
 def sha256_file(path: Path) -> str:
@@ -323,9 +330,7 @@ def vlm_target_event_payload(
                 target.display_centroid.x,
                 target.display_centroid.y,
             ],
-            "coordinate_authority": (
-                "display_only_semantic_region_centroid"
-            ),
+            "coordinate_authority": ("display_only_semantic_region_centroid"),
             "component_size_cells": target.region.component_size_cells,
             "region_origin_xy_m": list(target.region.origin_xy_m),
             "region_resolution_m": target.region.resolution_m,
@@ -335,14 +340,10 @@ def vlm_target_event_payload(
     active = decision.robot_id in decision.coordination.active_robot_ids
     return {
         "schema_version": VLM_TARGET_EVENT_SCHEMA_VERSION,
-        "event_id": (
-            f"{decision.decision_id}:{publication_reason}"
-        ),
+        "event_id": (f"{decision.decision_id}:{publication_reason}"),
         "published_at_ns": published_at_ns,
         "status": "hub_accepted_high_level_decision",
-        "classification": (
-            "observed_hub_accepted_source_derived_vlm_decision"
-        ),
+        "classification": ("observed_hub_accepted_source_derived_vlm_decision"),
         "robot_id": decision.robot_id,
         "scene_id": decision.scene_id,
         "episode_id": decision.episode_id,
@@ -376,9 +377,7 @@ def write_foxglove_vlm_target_events(
     for robot in session.robots:
         decision = decisions.get(robot.robot_id)
         if decision is None:
-            raise ValueError(
-                f"published batch lacks session robot {robot.robot_id}"
-            )
+            raise ValueError(f"published batch lacks session robot {robot.robot_id}")
         map_dir = resolve_workspace_path(WORKSPACE, robot.map_dir)
         path = map_dir / VLM_TARGET_EVENT_FILENAME
         atomic_write_json(
@@ -422,7 +421,9 @@ def source_round_step_quota(shadow_manifest: dict[str, object]) -> int:
 
     source = shadow_manifest.get("source_episode")
     if not isinstance(source, dict) or source.get("enabled") is not True:
-        raise ValueError("live source episode requires an enabled persistent scene state")
+        raise ValueError(
+            "live source episode requires an enabled persistent scene state"
+        )
     current = source.get("logical_l_step")
     following = source.get("next_logical_l_step")
     if (
@@ -512,12 +513,9 @@ def evaluation_seed_from_events(
             "stop_local_pose": event.get("local_pose"),
             "actual_path_length_m": event.get("path_length_m_from_episode_start"),
             "local_planner_stopped": (
-                status == "ARRIVED"
-                and event.get("velocity_zero_confirmed") is True
+                status == "ARRIVED" and event.get("velocity_zero_confirmed") is True
             ),
-            "terminal_observation_sequence": event.get(
-                "terminal_observation_sequence"
-            ),
+            "terminal_observation_sequence": event.get("terminal_observation_sequence"),
             "arrival_target_kind": (
                 "SEMANTIC_REGION"
                 if robot_id in semantic_arrivals
@@ -557,10 +555,9 @@ def atomic_copy_verified(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
     shutil.copy2(source, temporary)
-    if (
-        temporary.stat().st_size != source.stat().st_size
-        or sha256_file(temporary) != sha256_file(source)
-    ):
+    if temporary.stat().st_size != source.stat().st_size or sha256_file(
+        temporary
+    ) != sha256_file(source):
         temporary.unlink(missing_ok=True)
         raise RuntimeError(f"copied evidence differs from source: {source}")
     os.replace(temporary, destination)
@@ -589,9 +586,7 @@ class EpisodeClient:
         return payload
 
     def state(self, robot_id: str) -> dict[str, object]:
-        response = self.client.get(
-            f"/v2/admin/robots/{robot_id}/navigation-state"
-        )
+        response = self.client.get(f"/v2/admin/robots/{robot_id}/navigation-state")
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
@@ -599,9 +594,7 @@ class EpisodeClient:
         return payload
 
     def readiness(self, robot_id: str) -> dict[str, object]:
-        response = self.client.get(
-            f"/v2/admin/robots/{robot_id}/runtime-readiness"
-        )
+        response = self.client.get(f"/v2/admin/robots/{robot_id}/runtime-readiness")
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
@@ -664,10 +657,7 @@ def partition_goal_readiness(
         raise ValueError("runtime readiness recovery bounds must be positive")
     started = time.monotonic()
     while True:
-        reports = {
-            robot_id: client.readiness(robot_id)
-            for robot_id in sorted(active)
-        }
+        reports = {robot_id: client.readiness(robot_id) for robot_id in sorted(active)}
         blocked = {
             robot_id
             for robot_id, report in reports.items()
@@ -703,13 +693,8 @@ def wait_for_goal_readiness(
     )
     if not blocked_ids:
         return reports, elapsed_s
-    blocked = {
-        robot_id: reports[robot_id] for robot_id in sorted(blocked_ids)
-    }
-    if all(
-        transient_slam_readiness_waitable(report)
-        for report in blocked.values()
-    ):
+    blocked = {robot_id: reports[robot_id] for robot_id in sorted(blocked_ids)}
+    if all(transient_slam_readiness_waitable(report) for report in blocked.values()):
         raise RuntimeError(
             "transient robot-local SLAM readiness did not recover before "
             f"the {timeout_s:.3f}s zero-motion deadline: "
@@ -777,17 +762,13 @@ def wait_and_seal_terminal_evidence(
             readiness = client.readiness(robot_id)
             latest_seen[robot_id] = readiness
             sequence = int(readiness.get("last_observation_sequence", -1))
-            received_at_ns = int(
-                readiness.get("last_observation_received_at_ns", 0)
-            )
+            received_at_ns = int(readiness.get("last_observation_received_at_ns", 0))
             if sequence < decision_inputs.get(robot_id, 0):
                 continue
             if robot_id in semantic_arrivals:
-                if (
-                    sequence <= decision_inputs.get(robot_id, -1)
-                    or received_at_ns
-                    < arrival_received_at_ns.get(robot_id, 0)
-                ):
+                if sequence <= decision_inputs.get(
+                    robot_id, -1
+                ) or received_at_ns < arrival_received_at_ns.get(robot_id, 0):
                     continue
                 status = "observed_post_arrival_hub_observation"
             else:
@@ -867,10 +848,7 @@ def wait_and_seal_terminal_evidence(
         capture_delta_s = (
             None
             if arrival is None
-            else (
-                metadata.capture_time_ns
-                - int(arrival.get("observed_at_ns", 0))
-            )
+            else (metadata.capture_time_ns - int(arrival.get("observed_at_ns", 0)))
             / 1e9
         )
         records[robot_id] = {
@@ -979,9 +957,7 @@ def freeze_next_round(
             # Retrying it for the entire synchronization window cannot recover
             # and used to waste 45 seconds before the same controller HOLD.
             if "frozen map blocked:" in str(exc):
-                raise RuntimeError(
-                    f"non-recoverable round input: {exc}"
-                ) from exc
+                raise RuntimeError(f"non-recoverable round input: {exc}") from exc
             time.sleep(poll_s)
     raise TimeoutError(
         f"no fresh synchronized round input within {timeout_s:.1f}s: {last_error}"
@@ -1080,12 +1056,8 @@ def run_shadow_round(
         text=True,
         check=False,
     )
-    (output.parent / "vlm_stdout.log").write_text(
-        completed.stdout, encoding="utf-8"
-    )
-    (output.parent / "vlm_stderr.log").write_text(
-        completed.stderr, encoding="utf-8"
-    )
+    (output.parent / "vlm_stdout.log").write_text(completed.stdout, encoding="utf-8")
+    (output.parent / "vlm_stderr.log").write_text(completed.stderr, encoding="utf-8")
     if completed.returncode != 0:
         raise RuntimeError(
             f"VLM round failed with exit {completed.returncode}; "
@@ -1099,9 +1071,7 @@ def run_shadow_round(
         manifest.get("source_behavior_contract_version")
         != SOURCE_BEHAVIOR_CONTRACT_VERSION
     ):
-        raise RuntimeError(
-            "VLM round lacks the pinned source behavior contract"
-        )
+        raise RuntimeError("VLM round lacks the pinned source behavior contract")
     source = manifest.get("source_episode")
     if not isinstance(source, dict) or source.get("enabled") is not True:
         raise RuntimeError("VLM round silently fell back to one-shot mode")
@@ -1170,9 +1140,7 @@ def frozen_shared_robot_positions(
             positions[robot_id] = point
             provenance[robot_id] = artifact_record(
                 status_path,
-                classification=(
-                    "source_derived_frozen_shared_frame_robot_pose"
-                ),
+                classification=("source_derived_frozen_shared_frame_robot_pose"),
             )
             provenance[robot_id].update(
                 {
@@ -1224,8 +1192,7 @@ def capture_live_shared_robot_positions(
     for robot_id in sorted(robot_ids):
         robot = by_id[robot_id]
         source_path = (
-            resolve_workspace_path(WORKSPACE, robot.map_dir)
-            / "live_status.json"
+            resolve_workspace_path(WORKSPACE, robot.map_dir) / "live_status.json"
         )
         snapshot_path = output / f"{robot_id}_live_status.json"
         try:
@@ -1234,9 +1201,7 @@ def capture_live_shared_robot_positions(
             record = artifact_record(
                 snapshot_path,
                 source_path=source_path,
-                classification=(
-                    "observed_live_map_status_snapshot_pending_validation"
-                ),
+                classification=("observed_live_map_status_snapshot_pending_validation"),
             )
             provenance[robot_id] = record
             status = json.loads(raw)
@@ -1266,9 +1231,7 @@ def capture_live_shared_robot_positions(
                 or minimum_sequence is None
                 or sequence < minimum_sequence
             ):
-                raise ValueError(
-                    "live status sequence predates the round input"
-                )
+                raise ValueError("live status sequence predates the round input")
             capture_time_ns = status.get("last_capture_time_ns")
             if (
                 isinstance(capture_time_ns, bool)
@@ -1276,25 +1239,18 @@ def capture_live_shared_robot_positions(
                 or capture_time_ns <= 0
             ):
                 raise ValueError("live status capture time is invalid")
-            minimum_capture_time_ns = minimum_capture_times_ns.get(
-                robot_id
-            )
-            if (
-                minimum_capture_time_ns is not None
-                and (
-                    isinstance(minimum_capture_time_ns, bool)
-                    or not isinstance(minimum_capture_time_ns, int)
-                    or minimum_capture_time_ns <= 0
-                )
+            minimum_capture_time_ns = minimum_capture_times_ns.get(robot_id)
+            if minimum_capture_time_ns is not None and (
+                isinstance(minimum_capture_time_ns, bool)
+                or not isinstance(minimum_capture_time_ns, int)
+                or minimum_capture_time_ns <= 0
             ):
                 raise ValueError("minimum failure capture time is invalid")
             if (
                 minimum_capture_time_ns is not None
                 and capture_time_ns < minimum_capture_time_ns
             ):
-                raise ValueError(
-                    "live status capture predates the rejection event"
-                )
+                raise ValueError("live status capture predates the rejection event")
             point = _finite_shared_xy(
                 status.get("last_robot_xy_m"),
                 field_name="last_robot_xy_m",
@@ -1310,16 +1266,13 @@ def capture_live_shared_robot_positions(
             record.update(
                 {
                     "classification": (
-                        "observed_live_shared_frame_robot_pose_after_"
-                        "confirmed_hold"
+                        "observed_live_shared_frame_robot_pose_after_" "confirmed_hold"
                     ),
                     "validation": "accepted_for_failure_pose_authority",
                     "last_observation_sequence": sequence,
                     "minimum_round_input_sequence": minimum_sequence,
                     "last_capture_time_ns": capture_time_ns,
-                    "minimum_failure_capture_time_ns": (
-                        minimum_capture_time_ns
-                    ),
+                    "minimum_failure_capture_time_ns": (minimum_capture_time_ns),
                     "last_robot_xy_m": list(point),
                     "last_robot_heading_deg": (
                         None if heading is None else float(heading)
@@ -1372,9 +1325,7 @@ def cross_round_progress_guard(
     current_active_robot_ids: set[str],
     previous_stagnant_intervals: dict[str, int],
     minimum_progress_m: float = DEFAULT_CROSS_ROUND_MIN_PROGRESS_M,
-    maximum_stagnant_intervals: int = (
-        DEFAULT_MAX_CONSECUTIVE_STAGNANT_INTERVALS
-    ),
+    maximum_stagnant_intervals: int = (DEFAULT_MAX_CONSECUTIVE_STAGNANT_INTERVALS),
 ) -> tuple[dict[str, object], dict[str, int]]:
     """Detect source-equivalent no-progress intervals across round leases.
 
@@ -1387,10 +1338,7 @@ def cross_round_progress_guard(
     safe candidate instead of publishing an unconstrained random point.
     """
 
-    if (
-        not math.isfinite(minimum_progress_m)
-        or minimum_progress_m <= 0.0
-    ):
+    if not math.isfinite(minimum_progress_m) or minimum_progress_m <= 0.0:
         raise ValueError("minimum_progress_m must be finite and positive")
     if maximum_stagnant_intervals < 1:
         raise ValueError("maximum_stagnant_intervals must be positive")
@@ -1416,11 +1364,7 @@ def cross_round_progress_guard(
             current[1] - previous[1],
         )
         stagnant = displacement_m <= minimum_progress_m + 1e-12
-        count = (
-            previous_stagnant_intervals.get(robot_id, 0) + 1
-            if stagnant
-            else 0
-        )
+        count = previous_stagnant_intervals.get(robot_id, 0) + 1 if stagnant else 0
         updated[robot_id] = count
         reports[robot_id] = {
             "status": "stagnant" if stagnant else "progressed",
@@ -1559,6 +1503,26 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--robot-0-maximum-frontier-leg-distance-m",
+        type=float,
+        default=DEFAULT_MAXIMUM_EXECUTION_LEG_DISTANCE_M,
+        help=(
+            "maximum straight-line distance of one WSJ frontier command; a "
+            "farther source frontier is retained and executed through a safe "
+            "start-connected intermediate"
+        ),
+    )
+    parser.add_argument(
+        "--robot-1-maximum-frontier-leg-distance-m",
+        type=float,
+        default=DEFAULT_MAXIMUM_EXECUTION_LEG_DISTANCE_M,
+        help=(
+            "maximum straight-line distance of one Yunji frontier command; a "
+            "farther source frontier is retained and executed through a safe "
+            "start-connected intermediate"
+        ),
+    )
+    parser.add_argument(
         "--max-rounds",
         type=int,
         default=source_decision_round_limit(),
@@ -1590,8 +1554,7 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_MAX_CONSECUTIVE_STAGNANT_INTERVALS,
         choices=(1,),
         help=(
-            "locked to one source interval before invalidating the prior "
-            "approach"
+            "locked to one source interval before invalidating the prior " "approach"
         ),
     )
     parser.add_argument("--enable-live-goal-publication", action="store_true")
@@ -1618,42 +1581,39 @@ def main() -> int:
         raise ValueError("--lease-s must be between 1 and 10 seconds")
     if not 0.5 <= args.renew_before_s < args.lease_s:
         raise ValueError("--renew-before-s must be shorter than the lease")
-    if any(
-        value <= 0.0
-        for value in (
-            args.poll_s,
-            args.max_runtime_s,
-            args.round_input_timeout_s,
-            args.hold_ack_timeout_s,
-            args.runtime_readiness_recovery_s,
-            args.terminal_evidence_timeout_s,
-            args.max_input_age_s,
+    if (
+        any(
+            value <= 0.0
+            for value in (
+                args.poll_s,
+                args.max_runtime_s,
+                args.round_input_timeout_s,
+                args.hold_ack_timeout_s,
+                args.runtime_readiness_recovery_s,
+                args.terminal_evidence_timeout_s,
+                args.max_input_age_s,
+            )
         )
-    ) or args.max_sync_skew_s < 0.0:
+        or args.max_sync_skew_s < 0.0
+    ):
         raise ValueError("runtime/freshness timeouts must be valid and positive")
     if not 1 <= args.max_rounds <= source_decision_round_limit():
         raise ValueError("max rounds exceeds the immutable source episode")
-    if (
-        not math.isfinite(args.cross_round_min_progress_m)
-        or not math.isclose(
-            args.cross_round_min_progress_m,
-            SOURCE_STAGNANT_REPLAN_M,
-            rel_tol=0.0,
-            abs_tol=1e-12,
-        )
+    if not math.isfinite(args.cross_round_min_progress_m) or not math.isclose(
+        args.cross_round_min_progress_m,
+        SOURCE_STAGNANT_REPLAN_M,
+        rel_tol=0.0,
+        abs_tol=1e-12,
     ):
         raise ValueError(
             "--cross-round-min-progress-m is locked to the executable "
             f"source value {SOURCE_STAGNANT_REPLAN_M:.3f} m"
         )
-    if (
-        not math.isfinite(args.goal_continuity_retain_distance_m)
-        or not math.isclose(
-            args.goal_continuity_retain_distance_m,
-            SOURCE_CONTINUITY_RETAIN_DISTANCE_M,
-            rel_tol=0.0,
-            abs_tol=1e-12,
-        )
+    if not math.isfinite(args.goal_continuity_retain_distance_m) or not math.isclose(
+        args.goal_continuity_retain_distance_m,
+        SOURCE_CONTINUITY_RETAIN_DISTANCE_M,
+        rel_tol=0.0,
+        abs_tol=1e-12,
     ):
         raise ValueError(
             "--goal-continuity-retain-distance-m is locked to the executable "
@@ -1677,12 +1637,9 @@ def main() -> int:
             args.robot_1_frontier_clearance_m,
         )
     ):
-        raise ValueError(
-            "frontier clearance must be finite and within [0.15, 0.75] m"
-        )
+        raise ValueError("frontier clearance must be finite and within [0.15, 0.75] m")
     if not all(
-        math.isfinite(path_clearance)
-        and 0.0 < path_clearance <= endpoint_clearance
+        math.isfinite(path_clearance) and 0.0 < path_clearance <= endpoint_clearance
         for path_clearance, endpoint_clearance in (
             (
                 args.robot_0_frontier_path_clearance_m,
@@ -1699,8 +1656,7 @@ def main() -> int:
             "the matching endpoint footprint clearance"
         )
     if not all(
-        math.isfinite(snap_radius)
-        and clearance <= snap_radius <= 2.0
+        math.isfinite(snap_radius) and clearance <= snap_radius <= 2.0
         for clearance, snap_radius in (
             (
                 args.robot_0_frontier_clearance_m,
@@ -1715,6 +1671,17 @@ def main() -> int:
         raise ValueError(
             "frontier start snap radii must be finite, at least the matching "
             "footprint clearance, and no greater than 2.0 m"
+        )
+    if not all(
+        math.isfinite(distance) and 1.0 <= distance < 8.0
+        for distance in (
+            args.robot_0_maximum_frontier_leg_distance_m,
+            args.robot_1_maximum_frontier_leg_distance_m,
+        )
+    ):
+        raise ValueError(
+            "maximum frontier leg distances must be finite, at least 1.0 m, "
+            "and strictly below the robot-local 8.0 m admission limit"
         )
 
     output = prepare_output(args.output)
@@ -1759,9 +1726,7 @@ def main() -> int:
         episode_id=args.episode_id,
         shared_frame_calibration_id=session.calibration.calibration_id,
     )
-    navigation_failure_memory_path = (
-        output / "navigation_failure_memory.json"
-    )
+    navigation_failure_memory_path = output / "navigation_failure_memory.json"
     atomic_write_json(
         navigation_failure_memory_path,
         navigation_failure_memory.to_dict(),
@@ -1802,9 +1767,7 @@ def main() -> int:
             "lease_s": args.lease_s,
             "operator_confirmation": LIVE_CONFIRMATION,
             "route_conflict_guard": {
-                "minimum_separation_m": (
-                    args.route_conflict_min_separation_m
-                ),
+                "minimum_separation_m": (args.route_conflict_min_separation_m),
                 "policy": (
                     "preserve source-derived VLM allocations; serialize "
                     "physical execution when straight shared-frame route "
@@ -1819,20 +1782,16 @@ def main() -> int:
                     "robot-1": args.robot_1_frontier_clearance_m,
                 },
                 "robot_path_clearance_m": {
-                    "robot-0": (
-                        args.robot_0_frontier_path_clearance_m
-                    ),
-                    "robot-1": (
-                        args.robot_1_frontier_path_clearance_m
-                    ),
+                    "robot-0": (args.robot_0_frontier_path_clearance_m),
+                    "robot-1": (args.robot_1_frontier_path_clearance_m),
                 },
                 "robot_start_seed_snap_radius_m": {
-                    "robot-0": (
-                        args.robot_0_frontier_start_snap_radius_m
-                    ),
-                    "robot-1": (
-                        args.robot_1_frontier_start_snap_radius_m
-                    ),
+                    "robot-0": (args.robot_0_frontier_start_snap_radius_m),
+                    "robot-1": (args.robot_1_frontier_start_snap_radius_m),
+                },
+                "robot_maximum_execution_leg_distance_m": {
+                    "robot-0": (args.robot_0_maximum_frontier_leg_distance_m),
+                    "robot-1": (args.robot_1_maximum_frontier_leg_distance_m),
                 },
                 "bounded_safe_approach_projection": True,
                 "policy": (
@@ -1841,7 +1800,8 @@ def main() -> int:
                     "frozen shared-frame map has no reachable known-free, "
                     "footprint-clear cell intersecting its arrival disk or no "
                     "start-connected footprint-clear partial-progress waypoint "
-                    "toward the same source frontier"
+                    "toward the same source frontier; every physical frontier "
+                    "leg is segmented below the robot-local 8 m admission limit"
                 ),
             },
             "goal_continuity_guard": {
@@ -1874,9 +1834,7 @@ def main() -> int:
             },
             "cross_round_progress_guard": {
                 "minimum_progress_m": args.cross_round_min_progress_m,
-                "maximum_stagnant_intervals": (
-                    args.max_consecutive_stagnant_intervals
-                ),
+                "maximum_stagnant_intervals": (args.max_consecutive_stagnant_intervals),
                 "source_rule": "2.5 cells * 0.05 m/cell = 0.125 m",
                 "policy": (
                     "invalidate a stalled physical approach and select the "
@@ -1987,9 +1945,7 @@ def main() -> int:
             reason=reason,
             execution_epoch=epoch,
             decision_batch_id=batch.decisions[0].decision_batch_id,
-            active_robot_ids=list(
-                batch.decisions[0].coordination.active_robot_ids
-            ),
+            active_robot_ids=list(batch.decisions[0].coordination.active_robot_ids),
             decision_ids=[item.decision_id for item in batch.decisions],
             foxglove_vlm_target_events=foxglove_events,
             response=response,
@@ -2002,9 +1958,7 @@ def main() -> int:
         next_epoch = epoch + 1
         issued = time.time_ns()
         ordered = tuple(
-            item.robot_id
-            for item in current.decisions
-            if item.robot_id in active
+            item.robot_id for item in current.decisions if item.robot_id in active
         )
         batch = next_coordination_batch(
             current,
@@ -2070,9 +2024,7 @@ def main() -> int:
             if item.target is not None and item.target.kind == "SEMANTIC_REGION"
         }
         if target_found and not semantic_robot_ids:
-            final_states = hold_and_confirm(
-                "source_target_without_semantic_goal_hold"
-            )
+            final_states = hold_and_confirm("source_target_without_semantic_goal_hold")
             return RoundResult(
                 "failure",
                 "source Find_Goal persisted without a semantic-region decision",
@@ -2081,9 +2033,7 @@ def main() -> int:
                 {},
                 {robot_id: 0 for robot_id in active},
             )
-        seen_event_ids: dict[str, set[str]] = {
-            robot_id: set() for robot_id in active
-        }
+        seen_event_ids: dict[str, set[str]] = {robot_id: set() for robot_id in active}
         feedback_counts = {robot_id: 0 for robot_id in active}
         round_latest: dict[str, dict[str, object]] = {}
         recoverable_failures_all: dict[str, dict[str, object]] = {}
@@ -2098,13 +2048,10 @@ def main() -> int:
                     round_latest,
                     feedback_counts,
                     recoverable_failures=recoverable_failures_all,
-                    interrupted_robot_ids=frozenset(
-                        recoverable_failures_all
-                    ),
+                    interrupted_robot_ids=frozenset(recoverable_failures_all),
                 )
             states = {
-                item.robot_id: client.state(item.robot_id)
-                for item in current.decisions
+                item.robot_id: client.state(item.robot_id) for item in current.decisions
             }
             final_states = states
             update_event_records(latest_events, states)
@@ -2130,18 +2077,14 @@ def main() -> int:
                 recoverable = {
                     robot_id: event
                     for robot_id, event in inspection.failures.items()
-                    if recoverable_local_path_failure(
-                        decisions[robot_id], event
-                    )
+                    if recoverable_local_path_failure(decisions[robot_id], event)
                 }
                 for robot_id, event in recoverable.items():
                     clean_event = dict(event)
                     clean_event.pop("_hub_received_at_ns", None)
                     recoverable_failures_all[robot_id] = {
                         "event": clean_event,
-                        "decision": decisions[
-                            robot_id
-                        ].model_dump(mode="json"),
+                        "decision": decisions[robot_id].model_dump(mode="json"),
                     }
                 terminal = {
                     robot_id: event
@@ -2163,9 +2106,7 @@ def main() -> int:
                         round_latest,
                         feedback_counts,
                         recoverable_failures=recoverable_failures_all,
-                        interrupted_robot_ids=frozenset(
-                            recoverable_failures_all
-                        ),
+                        interrupted_robot_ids=frozenset(recoverable_failures_all),
                     )
                 (
                     failed_semantic_robot_ids,
@@ -2176,17 +2117,12 @@ def main() -> int:
                     active,
                     recoverable,
                 )
-                if (
-                    failed_semantic_robot_ids
-                    and remaining_semantic_robot_ids
-                ):
+                if failed_semantic_robot_ids and remaining_semantic_robot_ids:
                     active = remaining_active_robot_ids
                     emit(
                         "semantic_path_failures_isolated",
                         failed_robot_ids=sorted(recoverable),
-                        failed_semantic_robot_ids=sorted(
-                            failed_semantic_robot_ids
-                        ),
+                        failed_semantic_robot_ids=sorted(failed_semantic_robot_ids),
                         failures={
                             robot_id: {
                                 "status": event.get("status"),
@@ -2194,9 +2130,7 @@ def main() -> int:
                                 "decision_id": event.get("decision_id"),
                                 "leg_id": event.get("leg_id"),
                             }
-                            for robot_id, event in sorted(
-                                recoverable.items()
-                            )
+                            for robot_id, event in sorted(recoverable.items())
                         },
                         remaining_active_robot_ids=sorted(active),
                         remaining_semantic_robot_ids=sorted(
@@ -2209,9 +2143,7 @@ def main() -> int:
                     emit(
                         "semantic_path_failures_replan",
                         failed_robot_ids=sorted(recoverable),
-                        failed_semantic_robot_ids=sorted(
-                            failed_semantic_robot_ids
-                        ),
+                        failed_semantic_robot_ids=sorted(failed_semantic_robot_ids),
                         failures={
                             robot_id: {
                                 "status": event.get("status"),
@@ -2222,9 +2154,7 @@ def main() -> int:
                             for robot_id, event in sorted(recoverable.items())
                         },
                     )
-                    final_states = hold_and_confirm(
-                        "semantic_path_failure_replan_hold"
-                    )
+                    final_states = hold_and_confirm("semantic_path_failure_replan_hold")
                     return RoundResult(
                         "replan",
                         SEMANTIC_PATH_REPLAN_REASON,
@@ -2233,9 +2163,7 @@ def main() -> int:
                         round_latest,
                         feedback_counts,
                         recoverable_failures=recoverable_failures_all,
-                        interrupted_robot_ids=frozenset(
-                            recoverable_failures_all
-                        ),
+                        interrupted_robot_ids=frozenset(recoverable_failures_all),
                     )
                 failed_frontiers = set(recoverable)
                 active = remaining_active_robot_ids
@@ -2256,9 +2184,7 @@ def main() -> int:
                 if active:
                     transition(active, "frontier_failure_isolation")
                     continue
-                final_states = hold_and_confirm(
-                    "all_frontier_failures_replan_hold"
-                )
+                final_states = hold_and_confirm("all_frontier_failures_replan_hold")
                 return RoundResult(
                     "replan",
                     "all active frontier legs were locally blocked; "
@@ -2268,9 +2194,7 @@ def main() -> int:
                     round_latest,
                     feedback_counts,
                     recoverable_failures=recoverable_failures_all,
-                    interrupted_robot_ids=frozenset(
-                        recoverable_failures_all
-                    ),
+                    interrupted_robot_ids=frozenset(recoverable_failures_all),
                 )
             if inspection.semantic_arrivals:
                 arrivals_with_receipts = {}
@@ -2291,16 +2215,12 @@ def main() -> int:
                     round_latest,
                     feedback_counts,
                     recoverable_failures=recoverable_failures_all,
-                    interrupted_robot_ids=frozenset(
-                        recoverable_failures_all
-                    ),
+                    interrupted_robot_ids=frozenset(recoverable_failures_all),
                 )
             if inspection.frontier_arrivals:
                 active.difference_update(inspection.frontier_arrivals)
                 if not active:
-                    final_states = hold_and_confirm(
-                        "frontier_round_complete_hold"
-                    )
+                    final_states = hold_and_confirm("frontier_round_complete_hold")
                     return RoundResult(
                         "replan",
                         "all active frontier legs arrived",
@@ -2309,9 +2229,7 @@ def main() -> int:
                         round_latest,
                         feedback_counts,
                         recoverable_failures=recoverable_failures_all,
-                        interrupted_robot_ids=frozenset(
-                            recoverable_failures_all
-                        ),
+                        interrupted_robot_ids=frozenset(recoverable_failures_all),
                     )
                 transition(active, "frontier_arrival_transition")
                 continue
@@ -2332,21 +2250,15 @@ def main() -> int:
                     round_latest,
                     feedback_counts,
                     recoverable_failures=recoverable_failures_all,
-                    interrupted_robot_ids=frozenset(
-                        recoverable_failures_all
-                    ),
+                    interrupted_robot_ids=frozenset(recoverable_failures_all),
                 )
 
-            current_by_robot = {
-                item.robot_id: item for item in current.decisions
-            }
+            current_by_robot = {item.robot_id: item for item in current.decisions}
             expires_at_ns = min(
-                current_by_robot[robot_id].expires_at_ns
-                for robot_id in active
+                current_by_robot[robot_id].expires_at_ns for robot_id in active
             )
-            if (
-                expires_at_ns - inspection.newest_server_time_ns
-                <= int(args.renew_before_s * 1e9)
+            if expires_at_ns - inspection.newest_server_time_ns <= int(
+                args.renew_before_s * 1e9
             ):
                 if not inspection.current_feedback_ready:
                     final_states = hold_and_confirm("feedback_missing_hold")
@@ -2358,9 +2270,7 @@ def main() -> int:
                         round_latest,
                         feedback_counts,
                         recoverable_failures=recoverable_failures_all,
-                        interrupted_robot_ids=frozenset(
-                            recoverable_failures_all
-                        ),
+                        interrupted_robot_ids=frozenset(recoverable_failures_all),
                     )
                 transition(active, "lease_renewal")
                 continue
@@ -2462,19 +2372,14 @@ def main() -> int:
                 semantic_selection_overrides,
                 semantic_execution_guard,
             ) = evaluate_semantic_execution_guard(shadow_manifest)
-            semantic_execution_guard_path = (
-                round_dir / "semantic_execution_guard.json"
-            )
+            semantic_execution_guard_path = round_dir / "semantic_execution_guard.json"
             atomic_write_json(
                 semantic_execution_guard_path,
                 semantic_execution_guard,
             )
             built = (
                 source_built
-                if (
-                    not semantic_selection_overrides
-                    and not forced_hold_robot_ids
-                )
+                if (not semantic_selection_overrides and not forced_hold_robot_ids)
                 else build_batch_from_shadow_manifest(
                     shadow_path,
                     registry_state,
@@ -2485,21 +2390,16 @@ def main() -> int:
                     robot_config_path=robot_config,
                     lease_duration_ns=int(args.lease_s * 1e9),
                     forced_hold_robot_ids=forced_hold_robot_ids,
-                    execution_selection_overrides=(
-                        semantic_selection_overrides
-                    ),
+                    execution_selection_overrides=(semantic_selection_overrides),
                 )
             )
             target_found = any(
-                decision.robot_id
-                in decision.coordination.active_robot_ids
+                decision.robot_id in decision.coordination.active_robot_ids
                 and decision.target is not None
                 and decision.target.kind == "SEMANTIC_REGION"
                 for decision in built.batch.decisions
             )
-            atomic_write_json(
-                round_dir / "controller_preflight.json", built.report
-            )
+            atomic_write_json(round_dir / "controller_preflight.json", built.report)
             atomic_write_json(
                 round_dir / "vlm_candidate_batch.json",
                 source_built.batch.model_dump(mode="json"),
@@ -2508,9 +2408,7 @@ def main() -> int:
                 round_dir / "execution_candidate_batch.json",
                 built.batch.model_dump(mode="json"),
             )
-            fused_snapshot = load_map_snapshot(
-                shadow_dir / "fused_decision_map.npz"
-            )
+            fused_snapshot = load_map_snapshot(shadow_dir / "fused_decision_map.npz")
             if fused_snapshot is None:
                 raise RuntimeError("shadow round lacks fused decision map")
             execution_snapshots = {}
@@ -2531,9 +2429,7 @@ def main() -> int:
             shared_positions, pose_provenance, pose_errors = (
                 frozen_shared_robot_positions(accepted)
             )
-            raw_active = set(
-                built.batch.decisions[0].coordination.active_robot_ids
-            )
+            raw_active = set(built.batch.decisions[0].coordination.active_robot_ids)
             progress_guard, stagnant_intervals = cross_round_progress_guard(
                 previous_positions=previous_shared_positions,
                 current_positions=shared_positions,
@@ -2541,9 +2437,7 @@ def main() -> int:
                 current_active_robot_ids=raw_active,
                 previous_stagnant_intervals=stagnant_intervals,
                 minimum_progress_m=args.cross_round_min_progress_m,
-                maximum_stagnant_intervals=(
-                    args.max_consecutive_stagnant_intervals
-                ),
+                maximum_stagnant_intervals=(args.max_consecutive_stagnant_intervals),
             )
             progress_direction_updates: dict[str, dict[str, object]] = {}
             for robot_id in sorted(raw_active):
@@ -2560,10 +2454,7 @@ def main() -> int:
                     current_xy[1] - previous_xy[1],
                 )
                 displacement_m = math.hypot(*vector)
-                if (
-                    displacement_m
-                    >= DEFAULT_BACKTRACK_DIRECTION_UPDATE_M - 1e-12
-                ):
+                if displacement_m >= DEFAULT_BACKTRACK_DIRECTION_UPDATE_M - 1e-12:
                     last_progress_vectors[robot_id] = vector
                     progress_direction_updates[robot_id] = {
                         "vector_xy_m": list(vector),
@@ -2574,15 +2465,11 @@ def main() -> int:
                         ),
                     }
             progress_guard["backtrack_direction_memory"] = {
-                "minimum_update_displacement_m": (
-                    DEFAULT_BACKTRACK_DIRECTION_UPDATE_M
-                ),
+                "minimum_update_displacement_m": (DEFAULT_BACKTRACK_DIRECTION_UPDATE_M),
                 "updates": progress_direction_updates,
                 "active_vectors_xy_m": {
                     robot_id: list(vector)
-                    for robot_id, vector in sorted(
-                        last_progress_vectors.items()
-                    )
+                    for robot_id, vector in sorted(last_progress_vectors.items())
                 },
                 "policy": (
                     "retain the last material observed exploration direction "
@@ -2590,9 +2477,7 @@ def main() -> int:
                     "least the configured shared-frame displacement"
                 ),
             }
-            progress_guard_path = (
-                round_dir / "cross_round_progress_guard.json"
-            )
+            progress_guard_path = round_dir / "cross_round_progress_guard.json"
             atomic_write_json(progress_guard_path, progress_guard)
             emit(
                 "cross_round_progress_guard_evaluated",
@@ -2601,8 +2486,7 @@ def main() -> int:
                 robots=progress_guard["robots"],
             )
             source_stall_robot_ids = frozenset(
-                str(robot_id)
-                for robot_id in progress_guard["blocked_robot_ids"]
+                str(robot_id) for robot_id in progress_guard["blocked_robot_ids"]
             )
             source_stall_memory_updates: list[dict[str, object]] = []
             if source_stall_robot_ids:
@@ -2633,12 +2517,8 @@ def main() -> int:
                             source_target_xy_m=source_target,
                             event={
                                 "status": "SOURCE_DERIVED_REPLAN",
-                                "reason_code": (
-                                    "CROSS_ROUND_SOURCE_STALL"
-                                ),
-                                "decision_id": (
-                                    previous_decision.decision_id
-                                ),
+                                "reason_code": ("CROSS_ROUND_SOURCE_STALL"),
+                                "decision_id": (previous_decision.decision_id),
                                 "leg_id": previous_decision.leg_id,
                             },
                             failure_heading_deg=(
@@ -2680,9 +2560,7 @@ def main() -> int:
             emit(
                 "goal_continuity_guard_evaluated",
                 status=goal_continuity_guard["status"],
-                retained_robot_ids=goal_continuity_guard[
-                    "retained_robot_ids"
-                ],
+                retained_robot_ids=goal_continuity_guard["retained_robot_ids"],
             )
             (
                 failure_memory_rejected_robot_ids,
@@ -2699,9 +2577,7 @@ def main() -> int:
             source_replan_guard["source_stall_memory_updates"] = (
                 source_stall_memory_updates
             )
-            source_replan_guard_path = (
-                round_dir / "source_replan_guard.json"
-            )
+            source_replan_guard_path = round_dir / "source_replan_guard.json"
             atomic_write_json(
                 source_replan_guard_path,
                 source_replan_guard,
@@ -2709,9 +2585,7 @@ def main() -> int:
             emit(
                 "source_replan_guard_evaluated",
                 status=source_replan_guard["status"],
-                rejected_robot_ids=sorted(
-                    failure_memory_rejected_robot_ids
-                ),
+                rejected_robot_ids=sorted(failure_memory_rejected_robot_ids),
             )
             clearance_guarded_batch, frontier_clearance_guard = (
                 apply_frontier_clearance_guard(
@@ -2721,33 +2595,25 @@ def main() -> int:
                         "robot-0": args.robot_0_frontier_clearance_m,
                         "robot-1": args.robot_1_frontier_clearance_m,
                     },
-                    fallback_frontiers_by_robot=(
-                        source_ranked_fallbacks_by_robot
-                    ),
-                    pre_rejected_robot_ids=(
-                        failure_memory_rejected_robot_ids
-                    ),
+                    fallback_frontiers_by_robot=(source_ranked_fallbacks_by_robot),
+                    pre_rejected_robot_ids=(failure_memory_rejected_robot_ids),
                     robot_xy_by_robot=shared_positions,
                     execution_snapshots_by_robot=execution_snapshots,
                     start_seed_snap_radius_by_robot_m={
-                        "robot-0": (
-                            args.robot_0_frontier_start_snap_radius_m
-                        ),
-                        "robot-1": (
-                            args.robot_1_frontier_start_snap_radius_m
-                        ),
+                        "robot-0": (args.robot_0_frontier_start_snap_radius_m),
+                        "robot-1": (args.robot_1_frontier_start_snap_radius_m),
                     },
                     bounded_approach_projection_by_robot={
                         "robot-0": True,
                         "robot-1": True,
                     },
                     projection_path_clearance_by_robot_m={
-                        "robot-0": (
-                            args.robot_0_frontier_path_clearance_m
-                        ),
-                        "robot-1": (
-                            args.robot_1_frontier_path_clearance_m
-                        ),
+                        "robot-0": (args.robot_0_frontier_path_clearance_m),
+                        "robot-1": (args.robot_1_frontier_path_clearance_m),
+                    },
+                    maximum_execution_distance_by_robot_m={
+                        "robot-0": (args.robot_0_maximum_frontier_leg_distance_m),
+                        "robot-1": (args.robot_1_maximum_frontier_leg_distance_m),
                     },
                 )
             )
@@ -2762,9 +2628,7 @@ def main() -> int:
                 clearance_guarded_batch,
                 clearance_report=frontier_clearance_guard,
             )
-            continuity_memory_path = (
-                round_dir / "source_continuity_memory.json"
-            )
+            continuity_memory_path = round_dir / "source_continuity_memory.json"
             atomic_write_json(
                 continuity_memory_path,
                 continuity_memory_report,
@@ -2778,9 +2642,7 @@ def main() -> int:
                 effective_active_robot_ids=frontier_clearance_guard[
                     "effective_active_robot_ids"
                 ],
-                blocked_robot_ids=frontier_clearance_guard[
-                    "blocked_robot_ids"
-                ],
+                blocked_robot_ids=frontier_clearance_guard["blocked_robot_ids"],
             )
             goal_evidence = current_goal_evidence_by_robot(
                 shadow_manifest,
@@ -2795,9 +2657,7 @@ def main() -> int:
             )
             route_guard["pose_provenance"] = pose_provenance
             route_guard["pose_errors"] = pose_errors
-            atomic_write_json(
-                round_dir / "route_conflict_guard.json", route_guard
-            )
+            atomic_write_json(round_dir / "route_conflict_guard.json", route_guard)
             atomic_write_json(
                 round_dir / "initial_batch.json",
                 guarded_batch.model_dump(mode="json"),
@@ -2811,30 +2671,20 @@ def main() -> int:
                 minimum_required_separation_m=route_guard[
                     "minimum_required_separation_m"
                 ],
-                original_active_robot_ids=route_guard[
-                    "original_active_robot_ids"
-                ],
-                effective_active_robot_ids=route_guard[
-                    "effective_active_robot_ids"
-                ],
-                serialized_leader_robot_id=route_guard[
-                    "serialized_leader_robot_id"
-                ],
+                original_active_robot_ids=route_guard["original_active_robot_ids"],
+                effective_active_robot_ids=route_guard["effective_active_robot_ids"],
+                serialized_leader_robot_id=route_guard["serialized_leader_robot_id"],
                 serialized_leader_priority_source=route_guard[
                     "serialized_leader_priority_source"
                 ],
-                goal_evidence_by_robot=route_guard[
-                    "goal_evidence_by_robot"
-                ],
+                goal_evidence_by_robot=route_guard["goal_evidence_by_robot"],
             )
             if built.report.get("preflight_ready") is not True:
                 raise RuntimeError(
                     "round command preflight failed: "
                     + json.dumps(built.report.get("blockers"), sort_keys=True)
                 )
-            active = set(
-                guarded_batch.decisions[0].coordination.active_robot_ids
-            )
+            active = set(guarded_batch.decisions[0].coordination.active_robot_ids)
             candidate_semantic_robot_ids = {
                 item.robot_id
                 for item in guarded_batch.decisions
@@ -2877,9 +2727,7 @@ def main() -> int:
                     identity_token=uuid.uuid4().hex[:8],
                 )
                 isolation_report = {
-                    "schema_version": (
-                        "focus-v2-runtime-readiness-isolation-v1"
-                    ),
+                    "schema_version": ("focus-v2-runtime-readiness-isolation-v1"),
                     "status": (
                         "unready_robots_held_ready_peers_continue"
                         if active
@@ -2928,9 +2776,7 @@ def main() -> int:
                     identity_token=uuid.uuid4().hex[:8],
                 )
                 semantic_guard = {
-                    "schema_version": (
-                        "focus-v2-semantic-owner-readiness-guard-v1"
-                    ),
+                    "schema_version": ("focus-v2-semantic-owner-readiness-guard-v1"),
                     "status": "semantic_owner_unavailable_all_hold",
                     "candidate_semantic_robot_ids": sorted(
                         candidate_semantic_robot_ids
@@ -2954,9 +2800,7 @@ def main() -> int:
                 )
                 emit(
                     "semantic_owner_runtime_unavailable_all_hold",
-                    candidate_semantic_robot_ids=sorted(
-                        candidate_semantic_robot_ids
-                    ),
+                    candidate_semantic_robot_ids=sorted(candidate_semantic_robot_ids),
                     previously_active_robot_ids=sorted(previously_active),
                     blocked_robot_ids=sorted(blocked_robot_ids),
                 )
@@ -2971,9 +2815,7 @@ def main() -> int:
                     timeout_s=args.hold_ack_timeout_s,
                     poll_s=args.poll_s,
                 )
-                outcome = (
-                    "failed_semantic_owner_runtime_unready_holding"
-                )
+                outcome = "failed_semantic_owner_runtime_unready_holding"
                 break
             if not active:
                 publish(
@@ -3006,8 +2848,7 @@ def main() -> int:
                 step_quota=step_quota,
             )
             round_input_sequences = {
-                robot_id: int(row["source_sequence"])
-                for robot_id, row in rows.items()
+                robot_id: int(row["source_sequence"]) for robot_id, row in rows.items()
             }
             (
                 observed_failure_positions,
@@ -3020,39 +2861,27 @@ def main() -> int:
                 minimum_sequences=round_input_sequences,
                 minimum_capture_times_ns={
                     robot_id: int(event["event"]["observed_at_ns"])
-                    for robot_id, event in (
-                        round_result.recoverable_failures.items()
-                    )
+                    for robot_id, event in (round_result.recoverable_failures.items())
                     if (
                         isinstance(event.get("event"), dict)
-                        and isinstance(
-                            event["event"].get("observed_at_ns"), int
-                        )
-                        and not isinstance(
-                            event["event"].get("observed_at_ns"), bool
-                        )
+                        and isinstance(event["event"].get("observed_at_ns"), int)
+                        and not isinstance(event["event"].get("observed_at_ns"), bool)
                         and event["event"]["observed_at_ns"] > 0
                     )
                 },
             )
             failure_memory_updates: list[dict[str, object]] = []
-            for robot_id, failure in sorted(
-                round_result.recoverable_failures.items()
-            ):
+            for robot_id, failure in sorted(round_result.recoverable_failures.items()):
                 raw_decision = failure.get("decision")
                 raw_event = failure.get("event")
                 if not isinstance(raw_decision, dict):
                     raise RuntimeError(
                         "recoverable failure lost its decision provenance"
                     )
-                failed_decision = HighLevelDecisionV2.model_validate(
-                    raw_decision
-                )
+                failed_decision = HighLevelDecisionV2.model_validate(raw_decision)
                 event = raw_event if isinstance(raw_event, dict) else {}
                 reason_code = str(event.get("reason_code", ""))
-                observed_failure_position = (
-                    observed_failure_positions.get(robot_id)
-                )
+                observed_failure_position = observed_failure_positions.get(robot_id)
                 if observed_failure_position is None:
                     failure_position = shared_positions[robot_id]
                     pose_classification = (
@@ -3062,8 +2891,7 @@ def main() -> int:
                 else:
                     failure_position = observed_failure_position
                     pose_classification = (
-                        "observed_live_shared_frame_robot_pose_after_"
-                        "confirmed_hold"
+                        "observed_live_shared_frame_robot_pose_after_" "confirmed_hold"
                     )
                 pose_record = failure_pose_provenance.get(robot_id)
                 failure_heading_deg = (
@@ -3142,15 +2970,11 @@ def main() -> int:
                 ),
                 "vlm_candidate_batch": artifact_record(
                     round_dir / "vlm_candidate_batch.json",
-                    classification=(
-                        "source_derived_unmodified_vlm_candidate_batch"
-                    ),
+                    classification=("source_derived_unmodified_vlm_candidate_batch"),
                 ),
                 "semantic_execution_guard": artifact_record(
                     semantic_execution_guard_path,
-                    classification=(
-                        "source_derived_realworld_execution_guard"
-                    ),
+                    classification=("source_derived_realworld_execution_guard"),
                 ),
                 "execution_candidate_batch": artifact_record(
                     round_dir / "execution_candidate_batch.json",
@@ -3160,21 +2984,15 @@ def main() -> int:
                 ),
                 "goal_continuity_guard": artifact_record(
                     round_dir / "goal_continuity_guard.json",
-                    classification=(
-                        "source_derived_realworld_execution_guard"
-                    ),
+                    classification=("source_derived_realworld_execution_guard"),
                 ),
                 "source_replan_guard": artifact_record(
                     source_replan_guard_path,
-                    classification=(
-                        "source_derived_realworld_execution_guard"
-                    ),
+                    classification=("source_derived_realworld_execution_guard"),
                 ),
                 "frontier_clearance_guard": artifact_record(
                     round_dir / "frontier_clearance_guard.json",
-                    classification=(
-                        "source_derived_realworld_execution_guard"
-                    ),
+                    classification=("source_derived_realworld_execution_guard"),
                 ),
                 "source_continuity_memory": artifact_record(
                     continuity_memory_path,
@@ -3184,31 +3002,21 @@ def main() -> int:
                 ),
                 "route_conflict_guard": artifact_record(
                     round_dir / "route_conflict_guard.json",
-                    classification=(
-                        "source_derived_realworld_execution_guard"
-                    ),
+                    classification=("source_derived_realworld_execution_guard"),
                 ),
                 "cross_round_progress_guard": artifact_record(
                     progress_guard_path,
-                    classification=(
-                        "source_derived_realworld_execution_guard"
-                    ),
+                    classification=("source_derived_realworld_execution_guard"),
                 ),
                 "navigation_failure_memory_after_round": artifact_record(
                     failure_memory_after_round_path,
-                    classification=(
-                        "source_derived_realworld_execution_memory"
-                    ),
+                    classification=("source_derived_realworld_execution_memory"),
                 ),
                 "feedback_counts": round_result.feedback_counts,
                 "execution_status": round_result.status,
                 "execution_reason": round_result.reason,
-                "recoverable_local_path_failures": (
-                    round_result.recoverable_failures
-                ),
-                "interrupted_robot_ids": sorted(
-                    round_result.interrupted_robot_ids
-                ),
+                "recoverable_local_path_failures": (round_result.recoverable_failures),
+                "interrupted_robot_ids": sorted(round_result.interrupted_robot_ids),
                 "failure_memory_updates": failure_memory_updates,
                 "failure_pose_provenance": failure_pose_provenance,
                 "failure_pose_errors": failure_pose_errors,
@@ -3235,20 +3043,17 @@ def main() -> int:
                     "cross_round_progress_baseline_reset",
                     reason="peer semantic path rejection shortened the round",
                 )
+            # Keep the source target identity across every non-terminal source
+            # boundary.  Only a genuinely spatial local rejection may revoke
+            # that robot's prior frontier.  Controller yaw timeout, planner
+            # stream staleness, router input recovery and an admission-distance
+            # mismatch are runtime hand-off failures; treating them as blocked
+            # geography caused A-D target jumps and backtracking after retries.
             previous_continuity_batch = (
-                continuity_memory_batch
-                if (
-                    round_result.status == "replan"
-                    and round_result.reason
-                    == (
-                        f"source-derived {step_quota}-tick round "
-                        "completed"
-                    )
-                )
-                else None
+                continuity_memory_batch if round_result.status == "replan" else None
             )
-            previous_continuity_rejected_robot_ids = (
-                round_result.interrupted_robot_ids
+            previous_continuity_rejected_robot_ids = spatially_rejected_robot_ids(
+                round_result.recoverable_failures
             )
             previous_execution_batch = guarded_batch
             previous_clearance_guard = frontier_clearance_guard
@@ -3311,9 +3116,7 @@ def main() -> int:
     finally:
         client.close()
 
-    evaluation_seed = evaluation_seed_from_events(
-        latest_events, semantic_arrivals_all
-    )
+    evaluation_seed = evaluation_seed_from_events(latest_events, semantic_arrivals_all)
     scene_manifest["status"] = outcome
     scene_manifest["completed_at_ns"] = time.time_ns()
     scene_manifest["published_batches"] = publish_count

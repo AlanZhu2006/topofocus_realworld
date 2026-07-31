@@ -20,6 +20,7 @@ This module carries the equivalent *high-level* evidence across boundaries:
 
 It performs no network or robot I/O.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -29,14 +30,11 @@ from typing import Mapping, Sequence
 
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
-
-SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v2"
+SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v3"
 SOURCE_COLLISION_THRESHOLD_M = 0.10
 SOURCE_STAGNANT_REPLAN_CELLS = 2.5
 SOURCE_MAP_RESOLUTION_M = 0.05
-SOURCE_STAGNANT_REPLAN_M = (
-    SOURCE_STAGNANT_REPLAN_CELLS * SOURCE_MAP_RESOLUTION_M
-)
+SOURCE_STAGNANT_REPLAN_M = SOURCE_STAGNANT_REPLAN_CELLS * SOURCE_MAP_RESOLUTION_M
 SOURCE_FRONTIER_ARRIVAL_RADIUS_M = 10 * SOURCE_MAP_RESOLUTION_M
 
 DEFAULT_TARGET_MATCH_RADIUS_M = 0.75
@@ -51,14 +49,34 @@ DEFAULT_BACKTRACK_ANGLE_DEG = 90.0
 SPATIAL_FRONTIER_FAILURE_REASONS = frozenset(
     {
         "LOCAL_GOAL_UNREACHABLE",
-        "LOCAL_PATH_REVERSE_REQUIRED",
-        "LOCAL_PLANNER_TURN_STALLED",
         "LOCAL_PLANNER_NO_PROGRESS",
-        "LOCAL_PLANNER_PATH_STALE",
         "UNREACHABLE",
         "CROSS_ROUND_SOURCE_STALL",
     }
 )
+
+# These are local runtime/hand-off failures, not evidence that a shared-world
+# location or approach sector is blocked.  Recording them as spatial memory
+# previously made a VLM-selected forward frontier disappear after a controller
+# yaw timeout, unresolved reverse geometry, or one dropped planner stream,
+# which then sent the robot toward unrelated A/C fallbacks on the next source
+# boundary.
+TRANSIENT_LOCAL_STACK_FAILURE_REASONS = frozenset(
+    {
+        "LOCAL_PATH_REVERSE_REQUIRED",
+        "LOCAL_PLANNER_TURN_STALLED",
+        "LOCAL_PLANNER_PATH_STALE",
+        "LOCAL_ROUTER_HOLD_TIMEOUT",
+        "DISTANCE_LIMIT",
+    }
+)
+
+
+def spatial_frontier_failure_reason(reason_code: str) -> bool:
+    """Return whether a rejection may safely poison a spatial approach."""
+
+    return reason_code in SPATIAL_FRONTIER_FAILURE_REASONS
+
 
 Point2 = tuple[float, float]
 
@@ -133,15 +151,11 @@ def _backtrack_check(
             "angle_deg": None,
         }
     cosine = (
-        progress_vector[0] * target_vector[0]
-        + progress_vector[1] * target_vector[1]
+        progress_vector[0] * target_vector[0] + progress_vector[1] * target_vector[1]
     ) / (progress_norm * target_distance_m)
-    angle_deg = math.degrees(
-        math.acos(max(-1.0, min(1.0, cosine)))
-    )
+    angle_deg = math.degrees(math.acos(max(-1.0, min(1.0, cosine))))
     severe = bool(
-        target_distance_m
-        >= minimum_target_distance_m - 1e-12
+        target_distance_m >= minimum_target_distance_m - 1e-12
         and angle_deg >= backtrack_angle_deg - 1e-12
     )
     return {
@@ -185,9 +199,7 @@ class NavigationFailureMemory:
     shared_frame_calibration_id: str
     target_match_radius_m: float = DEFAULT_TARGET_MATCH_RADIUS_M
     origin_match_radius_m: float = DEFAULT_ORIGIN_MATCH_RADIUS_M
-    same_sector_origin_radius_m: float = (
-        DEFAULT_SAME_SECTOR_ORIGIN_RADIUS_M
-    )
+    same_sector_origin_radius_m: float = DEFAULT_SAME_SECTOR_ORIGIN_RADIUS_M
     same_sector_angle_deg: float = DEFAULT_SAME_SECTOR_ANGLE_DEG
     max_entries_per_robot: int = DEFAULT_MAX_ENTRIES_PER_ROBOT
     entries: list[dict[str, object]] = field(default_factory=list)
@@ -217,18 +229,14 @@ class NavigationFailureMemory:
         if self.max_entries_per_robot < 1:
             raise ValueError("failure-memory capacity must be positive")
 
-    def _validate_decision_identity(
-        self, decision: HighLevelDecisionV2
-    ) -> None:
+    def _validate_decision_identity(self, decision: HighLevelDecisionV2) -> None:
         if (
             decision.scene_id != self.scene_id
             or decision.episode_id != self.episode_id
             or decision.map_provenance.shared_frame_calibration_id
             != self.shared_frame_calibration_id
         ):
-            raise ValueError(
-                "failure decision identity differs from memory identity"
-            )
+            raise ValueError("failure decision identity differs from memory identity")
 
     def matching_entries(
         self,
@@ -263,8 +271,7 @@ class NavigationFailureMemory:
             if target_distance <= self.target_match_radius_m + 1e-12:
                 match_kind = "near_same_source_target"
             elif (
-                origin_distance
-                <= self.same_sector_origin_radius_m + 1e-12
+                origin_distance <= self.same_sector_origin_radius_m + 1e-12
                 and current_bearing is not None
             ):
                 raw_heading = entry.get("failure_heading_deg")
@@ -282,10 +289,7 @@ class NavigationFailureMemory:
                         current_bearing,
                         failed_bearing,
                     )
-                    if (
-                        angle_difference
-                        <= self.same_sector_angle_deg + 1e-12
-                    ):
+                    if angle_difference <= self.same_sector_angle_deg + 1e-12:
                         match_kind = "same_blocked_approach_sector"
             if match_kind is None:
                 continue
@@ -317,9 +321,7 @@ class NavigationFailureMemory:
         source_target_xy_m: object | None = None,
         event: Mapping[str, object] | None = None,
         failure_heading_deg: float | None = None,
-        pose_classification: str = (
-            "source_derived_frozen_round_start_pose_proxy"
-        ),
+        pose_classification: str = ("source_derived_frozen_round_start_pose_proxy"),
     ) -> dict[str, object]:
         """Record one explicit failure, merging a repeated nearby approach."""
 
@@ -360,10 +362,7 @@ class NavigationFailureMemory:
         normalized_heading = (
             None
             if failure_heading_deg is None
-            else (
-                (float(failure_heading_deg) + 180.0) % 360.0
-                - 180.0
-            )
+            else ((float(failure_heading_deg) + 180.0) % 360.0 - 180.0)
         )
         evidence_classification = (
             "source_derived_from_observed_shared_boundary_poses"
@@ -417,10 +416,7 @@ class NavigationFailureMemory:
                     ),
                     "reason_codes": reasons,
                     "evidence_classifications": evidence_classifications,
-                    "occurrence_count": int(
-                        existing["occurrence_count"]
-                    )
-                    + 1,
+                    "occurrence_count": int(existing["occurrence_count"]) + 1,
                     "last_event": _event_summary(event),
                     "pose_classification": pose_classification,
                 }
@@ -436,17 +432,15 @@ class NavigationFailureMemory:
             f"{self.scene_id}|{self.episode_id}|{decision.robot_id}|"
             f"{decision.round_index}|{decision.leg_id}|{recorded_at_ns}"
         )
-        entry_id = "navfail-" + hashlib.sha256(
-            identity.encode("utf-8")
-        ).hexdigest()[:16]
+        entry_id = (
+            "navfail-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+        )
         entry = {
             "entry_id": entry_id,
             "robot_id": decision.robot_id,
             "scene_id": self.scene_id,
             "episode_id": self.episode_id,
-            "shared_frame_calibration_id": (
-                self.shared_frame_calibration_id
-            ),
+            "shared_frame_calibration_id": (self.shared_frame_calibration_id),
             "first_round_index": decision.round_index,
             "last_round_index": decision.round_index,
             "first_source_step": decision.source_step,
@@ -466,9 +460,7 @@ class NavigationFailureMemory:
         }
         self.entries.append(entry)
         robot_entries = [
-            item
-            for item in self.entries
-            if item.get("robot_id") == decision.robot_id
+            item for item in self.entries if item.get("robot_id") == decision.robot_id
         ]
         while len(robot_entries) > self.max_entries_per_robot:
             oldest = robot_entries.pop(0)
@@ -485,9 +477,7 @@ class NavigationFailureMemory:
             "schema_version": SOURCE_REPLAN_SCHEMA_VERSION,
             "scene_id": self.scene_id,
             "episode_id": self.episode_id,
-            "shared_frame_calibration_id": (
-                self.shared_frame_calibration_id
-            ),
+            "shared_frame_calibration_id": (self.shared_frame_calibration_id),
             "source_contract": {
                 "collision_threshold_m": SOURCE_COLLISION_THRESHOLD_M,
                 "stationary_replan_cells": SOURCE_STAGNANT_REPLAN_CELLS,
@@ -501,9 +491,7 @@ class NavigationFailureMemory:
             "policy": {
                 "target_match_radius_m": self.target_match_radius_m,
                 "origin_match_radius_m": self.origin_match_radius_m,
-                "same_sector_origin_radius_m": (
-                    self.same_sector_origin_radius_m
-                ),
+                "same_sector_origin_radius_m": (self.same_sector_origin_radius_m),
                 "same_sector_angle_deg": self.same_sector_angle_deg,
                 "max_entries_per_robot": self.max_entries_per_robot,
                 "scope": (
@@ -582,9 +570,8 @@ def _ranked_robot_candidates(
         return candidates, "source_vlm_probability_descending"
     if kind == "history":
         raw_candidates = robot_result.get("candidate_history_nodes")
-        if (
-            not isinstance(raw_candidates, Sequence)
-            or isinstance(raw_candidates, (str, bytes))
+        if not isinstance(raw_candidates, Sequence) or isinstance(
+            raw_candidates, (str, bytes)
         ):
             return [], "legacy_manifest_lacks_history_candidates"
         candidates = []
@@ -629,9 +616,8 @@ def _ranked_history_candidates(
     """Return the source's own history candidates in its preserved order."""
 
     raw_candidates = robot_result.get("candidate_history_nodes")
-    if (
-        not isinstance(raw_candidates, Sequence)
-        or isinstance(raw_candidates, (str, bytes))
+    if not isinstance(raw_candidates, Sequence) or isinstance(
+        raw_candidates, (str, bytes)
     ):
         return []
     candidates: list[dict[str, object]] = []
@@ -677,9 +663,7 @@ def evaluate_source_replan(
     robot_xy_by_robot: Mapping[str, object],
     source_stationary_robot_ids: frozenset[str] = frozenset(),
     progress_vector_by_robot: Mapping[str, object] | None = None,
-    backtrack_min_target_distance_m: float = (
-        DEFAULT_BACKTRACK_MIN_TARGET_DISTANCE_M
-    ),
+    backtrack_min_target_distance_m: float = (DEFAULT_BACKTRACK_MIN_TARGET_DISTANCE_M),
     backtrack_angle_deg: float = DEFAULT_BACKTRACK_ANGLE_DEG,
 ) -> tuple[
     frozenset[str],
@@ -699,14 +683,10 @@ def evaluate_source_replan(
 
     decisions = {item.robot_id: item for item in batch.decisions}
     active = set(
-        batch.decisions[0].coordination.active_robot_ids
-        if batch.decisions
-        else ()
+        batch.decisions[0].coordination.active_robot_ids if batch.decisions else ()
     )
     if not source_stationary_robot_ids.issubset(active):
-        raise ValueError(
-            "source-stationary robot is outside the active batch"
-        )
+        raise ValueError("source-stationary robot is outside the active batch")
     if set(decisions) != set(robot_xy_by_robot):
         raise ValueError("source replan requires one position per robot")
     if progress_vector_by_robot is None:
@@ -727,10 +707,7 @@ def evaluate_source_replan(
         memory._validate_decision_identity(decision)
 
     raw_results = shadow_manifest.get("robots")
-    if (
-        not isinstance(raw_results, Sequence)
-        or isinstance(raw_results, (str, bytes))
-    ):
+    if not isinstance(raw_results, Sequence) or isinstance(raw_results, (str, bytes)):
         raise ValueError("shadow manifest robot results are malformed")
     results: dict[str, Mapping[str, object]] = {}
     for raw in raw_results:
@@ -783,9 +760,7 @@ def evaluate_source_replan(
                 robot_xy=robot_xy,
                 target_xy=target_xy,
                 progress_vector=progress_vector,
-                minimum_target_distance_m=(
-                    backtrack_min_target_distance_m
-                ),
+                minimum_target_distance_m=(backtrack_min_target_distance_m),
                 backtrack_angle_deg=backtrack_angle_deg,
             )
         )
@@ -799,8 +774,7 @@ def evaluate_source_replan(
             )
         )
         source_stationary_replan = bool(
-            robot_id in source_stationary_robot_ids
-            and target_xy is not None
+            robot_id in source_stationary_robot_ids and target_xy is not None
         )
         current_frontier_arrival_already_satisfied = bool(
             robot_id in active
@@ -815,16 +789,11 @@ def evaluate_source_replan(
         ):
             rejected.add(robot_id)
 
-        ranked, ranking_source = _ranked_robot_candidates(
-            results[robot_id]
-        )
+        ranked, ranking_source = _ranked_robot_candidates(results[robot_id])
         if (
             current_frontier_arrival_already_satisfied
-            and isinstance(
-                results[robot_id].get("final_shadow_selection"), Mapping
-            )
-            and results[robot_id]["final_shadow_selection"].get("kind")
-            == "frontier"
+            and isinstance(results[robot_id].get("final_shadow_selection"), Mapping)
+            and results[robot_id]["final_shadow_selection"].get("kind") == "frontier"
         ):
             # Frontier labels A-D are regenerated every source round.  The
             # same physical boundary can therefore return under a new label
@@ -833,9 +802,7 @@ def evaluate_source_replan(
             # frozen history nodes as last-resort exploration alternatives.
             # The downstream robot-local connectivity and footprint guard
             # must still approve any such history target before publication.
-            existing_ids = {
-                str(candidate["frontier_id"]) for candidate in ranked
-            }
+            existing_ids = {str(candidate["frontier_id"]) for candidate in ranked}
             history = [
                 candidate
                 for candidate in _ranked_history_candidates(results[robot_id])
@@ -857,8 +824,7 @@ def evaluate_source_replan(
                 reason = "already_assigned_in_guard_input"
             elif any(
                 other_id != robot_id
-                and math.dist(point, other_point)
-                <= SOURCE_MAP_RESOLUTION_M + 1e-12
+                and math.dist(point, other_point) <= SOURCE_MAP_RESOLUTION_M + 1e-12
                 for other_id, other_point in occupied_points.items()
             ):
                 reason = "duplicates_peer_guard_input_coordinate"
@@ -876,9 +842,7 @@ def evaluate_source_replan(
                 robot_xy=robot_xy,
                 target_xy=point,
                 progress_vector=progress_vector,
-                minimum_target_distance_m=(
-                    backtrack_min_target_distance_m
-                ),
+                minimum_target_distance_m=(backtrack_min_target_distance_m),
                 backtrack_angle_deg=backtrack_angle_deg,
             )
             if reason is None:
@@ -911,9 +875,7 @@ def evaluate_source_replan(
             # source candidate is attempted first; reverse candidates remain
             # available only if the physical clearance guard rejects every
             # non-reversing option, so exploration completeness is retained.
-            accepted_candidates = (
-                non_backtracking_candidates + backtracking_candidates
-            )
+            accepted_candidates = non_backtracking_candidates + backtracking_candidates
             rejected.add(robot_id)
         # A no-allocation/HOLD robot is intentionally absent from the
         # coordination active set.  Preserve its source result in ``checks``
@@ -929,13 +891,10 @@ def evaluate_source_replan(
             ),
             "current_frontier_id": (
                 None
-                if decision.target is None
-                or decision.target.kind != "FRONTIER_POINT"
+                if decision.target is None or decision.target.kind != "FRONTIER_POINT"
                 else decision.target.frontier_id
             ),
-            "current_target_xy_m": (
-                None if target_xy is None else list(target_xy)
-            ),
+            "current_target_xy_m": (None if target_xy is None else list(target_xy)),
             "current_target_rejected": bool(
                 current_matches
                 or source_stationary_replan
@@ -945,9 +904,7 @@ def evaluate_source_replan(
             "current_frontier_arrival_already_satisfied": (
                 current_frontier_arrival_already_satisfied
             ),
-            "source_frontier_arrival_radius_m": (
-                SOURCE_FRONTIER_ARRIVAL_RADIUS_M
-            ),
+            "source_frontier_arrival_radius_m": (SOURCE_FRONTIER_ARRIVAL_RADIUS_M),
             "source_stationary_replan": source_stationary_replan,
             "current_memory_matches": current_matches,
             "observed_progress_vector_xy_m": (
@@ -955,9 +912,7 @@ def evaluate_source_replan(
             ),
             "current_backtrack_check": current_backtrack,
             "backtrack_redirected": backtrack_redirected,
-            "non_backtracking_fallback_count": len(
-                non_backtracking_candidates
-            ),
+            "non_backtracking_fallback_count": len(non_backtracking_candidates),
             "backtracking_fallback_count": len(backtracking_candidates),
             "fallback_ranking_source": ranking_source,
             "accepted_fallback_candidates": accepted_candidates,
@@ -976,13 +931,9 @@ def evaluate_source_replan(
             "frozen VLM candidate batch"
         ),
         "current_rejected_robot_ids": sorted(rejected),
-        "source_stationary_robot_ids": sorted(
-            source_stationary_robot_ids
-        ),
+        "source_stationary_robot_ids": sorted(source_stationary_robot_ids),
         "backtrack_policy": {
-            "minimum_target_distance_m": (
-                backtrack_min_target_distance_m
-            ),
+            "minimum_target_distance_m": (backtrack_min_target_distance_m),
             "minimum_reversal_angle_deg": backtrack_angle_deg,
             "fallback_policy": (
                 "redirect only when a non-reversing source-ranked candidate "

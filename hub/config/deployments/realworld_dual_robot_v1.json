@@ -179,6 +179,12 @@
       "reverse_candidate_enabled": false,
       "in_place_yaw_enabled": true,
       "all_candidates_in_collision": "STOP",
+      "sensor_sync": {
+        "mode": "bounded approximate header timestamp",
+        "maximum_skew_s": 0.05,
+        "headerless_messages_allowed": false,
+        "invalid_pair_policy": "skip the pair, retain process, and let the stale-path guard stop motion"
+      },
       "footprints": {
         "robot-0": "TinyNav Go2 rectangular footprint",
         "robot-1": "0.283 m circular body radius plus 0.05 m safety margin"
@@ -196,6 +202,8 @@
       "stable_path_heading_min_horizon_m": 0.3,
       "short_path_heading_fallback": "current router waypoint",
       "continuous_turn_timeout_s": 12.0,
+      "turn_no_progress_timeout_s": 3.0,
+      "turn_progress_minimum_improvement_deg": 5.0,
       "continuous_turn_timeout_result": "LOCAL_PLANNER_TURN_STALLED and fresh source replan",
       "linear_engagement_floor_mps": 0.18,
       "pose_timeout_s": 0.8,
@@ -205,7 +213,8 @@
         "duration_s": 0.6
       },
       "verified_forward_only_path_geometry": "zero-linear bounded heading alignment",
-      "turn_no_progress_authority": "12 s robot-local continuous-turn timeout plus receiver fixed-goal progress watchdog",
+      "turn_no_progress_authority": "3 s path-frame heading convergence watchdog, 12 s absolute timeout, plus receiver fixed-goal progress watchdog",
+      "path_heading_reference": "planner path frame for local path; raw odometry frame only for router fallback",
       "negative_twist_policy": "never forward; use stable-heading zero-linear alignment or reject on missing authority/timeout"
     },
     "semantic_execution_confirmation": {
@@ -222,7 +231,10 @@
       "source_switch_distance_m": 1.25,
       "physical_completion_distance_cells": 10,
       "physical_completion_distance_m": 0.5,
-      "policy": "retain the exact accepted frontier until its arrival disk, local ARRIVED, or explicit rejection"
+      "maximum_execution_leg_distance_m": 7.5,
+      "long_frontier_policy": "project to the closest start-connected footprint-clear point within the robot-local admission distance and retain the original source frontier",
+      "runtime_handoff_failure_policy": "retain source target; only spatial reachability or measured no-progress evidence may poison an approach sector",
+      "policy": "retain the exact accepted frontier until its arrival disk, local ARRIVED, or spatial rejection"
     }
   },
   "control_contract": {
@@ -326,8 +338,8 @@
     },
     {
       "path": "hub/robot_overlay/run_tinynav_buildmap_online_mapping.py",
-      "size_bytes": 8476,
-      "sha256": "8ddce95eae3876c89912634c370ce63b199e1eb3dd15f70425cfe4027ecbdffd",
+      "size_bytes": 9103,
+      "sha256": "cda31f8383739bb03b3d091602a17f50507af2254fc0ebe313d559622a4e0ce5",
       "classification": "source-derived"
     },
     {
@@ -368,14 +380,14 @@
     },
     {
       "path": "hub/robot_overlay/run_yunji_tinynav_planner.py",
-      "size_bytes": 26024,
-      "sha256": "16c3b3595650c37f32010aabdcb0a524fbd6519c84748d61ba8dfef9ecf8dd3b",
+      "size_bytes": 28805,
+      "sha256": "102f534c52d6419adce779256107be1ef58d55b91039ef12f87128c80282ac26",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
-      "size_bytes": 74633,
-      "sha256": "06ebb571457a2d6c341caf0c04cbc68bd131d4709ae9290b4a45e46515bfd6d3",
+      "size_bytes": 79702,
+      "sha256": "d9fc4926ea08594e75f3fe37277d748a34b2e0aea7bf6ba5ad6e365ca04627ba",
       "classification": "source-derived"
     },
     {
@@ -403,21 +415,27 @@
       "classification": "source-derived"
     },
     {
+      "path": "hub/src/focus_hub/v2_frontier_clearance.py",
+      "size_bytes": 49693,
+      "sha256": "ba7a46342a4cd9c1e413a1d6b09e7a6edf904d6e9c314f8a806af0bda4f9765f",
+      "classification": "source-derived"
+    },
+    {
       "path": "hub/src/focus_hub/v2_episode_control.py",
-      "size_bytes": 6555,
-      "sha256": "05c3f62660d95ef5ab60466091e8a3677a3a89413844db0ef90838d81b0984e2",
+      "size_bytes": 6866,
+      "sha256": "bd35091c216ee56a5de1f9a87c5fa61ab4e86802f998f80b223c34590edce6bd",
       "classification": "source-derived"
     },
     {
       "path": "hub/src/focus_hub/v2_source_replan.py",
-      "size_bytes": 40574,
-      "sha256": "8e193a3d1e8a5c6cde0ac71b204b6acc2519ae8db88de78e68016ae37204f2ca",
+      "size_bytes": 40374,
+      "sha256": "a638c1affb2cd41d5ce0c5195d73f9e24666c41923f69b95a827fafdd7bca529",
       "classification": "source-derived"
     },
     {
       "path": "hub/tools/run_v2_source_episode.py",
-      "size_bytes": 134706,
-      "sha256": "0e95cdd5d8193d45606fe25851e226df7d88db34b781dab0db413b325f618c80",
+      "size_bytes": 132751,
+      "sha256": "edd629a4681f0ec4362e3ef3ddb49c99d14855d95f019332b9f153051e40c0a3",
       "classification": "source-derived"
     },
     {
@@ -560,8 +578,8 @@
     },
     {
       "path": "hub/src/focus_hub/public_baseline.py",
-      "size_bytes": 14111,
-      "sha256": "4e37b06436413c9941baf91707b72e121999acb0c31f7358f77cb9d90b3b5b0e",
+      "size_bytes": 15159,
+      "sha256": "e875a8977a3be6fc4793e9d84e21cfb8dafb126c5416fb69e04a2602af7a7119",
       "classification": "source-derived"
     },
     {

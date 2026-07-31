@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
-
 
 MODULE_PATH = (
     Path(__file__).resolve().parents[1]
@@ -21,12 +21,84 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
-def test_forward_only_vocabulary_is_empty_and_shape_compatible():
-    trajectories, parameters = (
-        MODULE.forward_only_predefined_trajectory_vocabularies(
-            duration=3.0,
-            dt=0.1,
+def test_planner_uses_bounded_headered_approximate_sensor_sync():
+    calls = []
+
+    class Approximate:
+        def __init__(
+            self,
+            subscribers,
+            queue_size,
+            slop_s,
+            *,
+            allow_headerless,
+        ):
+            calls.append(
+                (
+                    subscribers,
+                    queue_size,
+                    slop_s,
+                    allow_headerless,
+                )
+            )
+
+    filters = SimpleNamespace(
+        ApproximateTimeSynchronizer=Approximate,
+        TimeSynchronizer=object,
+    )
+    provenance = MODULE.install_bounded_approximate_sensor_sync(
+        SimpleNamespace(message_filters=filters),
+        slop_s=0.05,
+    )
+    filters.TimeSynchronizer(["depth", "odom"], 10)
+
+    assert calls == [(["depth", "odom"], 10, 0.05, False)]
+    assert provenance == {
+        "sensor_synchronizer": "bounded_approximate_header_stamp",
+        "sensor_sync_slop_s": 0.05,
+        "allow_headerless": False,
+    }
+
+
+def test_invalid_synchronized_frame_does_not_terminate_planner():
+    errors = []
+
+    class Logger:
+        def error(self, message):
+            errors.append(message)
+
+    class PlanningNode:
+        def sync_callback(self, _depth, _odom):
+            raise RuntimeError("bad frame")
+
+        def get_logger(self):
+            return Logger()
+
+    module = SimpleNamespace(PlanningNode=PlanningNode)
+    MODULE.install_guarded_planning_callback(module)
+
+    assert PlanningNode().sync_callback(object(), object()) is None
+    assert len(errors) == 1
+    assert "planner remains alive" in errors[0]
+
+
+@pytest.mark.parametrize("slop_s", [0.0, 0.21, float("nan")])
+def test_sensor_sync_rejects_unbounded_skew(slop_s):
+    with pytest.raises(ValueError):
+        MODULE.install_bounded_approximate_sensor_sync(
+            SimpleNamespace(
+                message_filters=SimpleNamespace(
+                    ApproximateTimeSynchronizer=object,
+                )
+            ),
+            slop_s=slop_s,
         )
+
+
+def test_forward_only_vocabulary_is_empty_and_shape_compatible():
+    trajectories, parameters = MODULE.forward_only_predefined_trajectory_vocabularies(
+        duration=3.0,
+        dt=0.1,
     )
 
     assert trajectories.shape == (0, 31, 7)
@@ -116,9 +188,7 @@ def test_stopped_prefixes_preserve_full_paths_and_repeat_safe_end_pose():
     assert augmented_parameters.tolist() == parameters.tolist() * 4
     assert np.array_equal(augmented_trajectories[:2], trajectories)
     for group_index, last_index in enumerate((5, 10, 20), start=1):
-        group = augmented_trajectories[
-            group_index * 2 : (group_index + 1) * 2
-        ]
+        group = augmented_trajectories[group_index * 2 : (group_index + 1) * 2]
         assert np.array_equal(
             group[:, : last_index + 1],
             trajectories[:, : last_index + 1],
@@ -147,10 +217,14 @@ def test_progress_library_removes_noop_before_adding_stopped_prefixes():
     )
 
     assert trajectories.shape == (8, 31, 7)
-    assert parameters.tolist() == [
-        [0.0, -0.5],
-        [0.2, 0.0],
-    ] * 4
+    assert (
+        parameters.tolist()
+        == [
+            [0.0, -0.5],
+            [0.2, 0.0],
+        ]
+        * 4
+    )
     assert not np.any(np.all(parameters == 0.0, axis=1))
 
 
@@ -257,17 +331,15 @@ def test_circular_scorer_uses_measured_radius_not_square_corner_radius():
     trajectories = np.zeros((1, 3, 7), dtype=np.float64)
     trajectories[0, :, :2] = [0.5, 0.5]
 
-    scores, closest_steps = (
-        MODULE.score_circular_trajectories_by_esdf(
-            trajectories,
-            esdf,
-            origin=[0.0, 0.0, 0.0],
-            resolution=0.05,
-            safety_radius=0.05,
-            front_len=0.283,
-            rear_len=0.283,
-            half_w=0.283,
-        )
+    scores, closest_steps = MODULE.score_circular_trajectories_by_esdf(
+        trajectories,
+        esdf,
+        origin=[0.0, 0.0, 0.0],
+        resolution=0.05,
+        safety_radius=0.05,
+        front_len=0.283,
+        rear_len=0.283,
+        half_w=0.283,
     )
 
     assert esdf[15, 15] == 0.0
@@ -286,17 +358,15 @@ def test_circular_scorer_rejects_true_body_overlap_and_out_of_map_path():
     trajectories[0, :, :2] = [0.5, 0.5]
     trajectories[1, :, :2] = [-0.01, 0.5]
 
-    scores, closest_steps = (
-        MODULE.score_circular_trajectories_by_esdf(
-            trajectories,
-            esdf,
-            origin=[0.0, 0.0],
-            resolution=0.05,
-            safety_radius=0.05,
-            front_len=0.283,
-            rear_len=0.283,
-            half_w=0.283,
-        )
+    scores, closest_steps = MODULE.score_circular_trajectories_by_esdf(
+        trajectories,
+        esdf,
+        origin=[0.0, 0.0],
+        resolution=0.05,
+        safety_radius=0.05,
+        front_len=0.283,
+        rear_len=0.283,
+        half_w=0.283,
     )
 
     assert scores == [float("inf"), float("inf")]
@@ -309,17 +379,15 @@ def test_circular_scorer_preserves_source_xy_order_on_non_square_esdf():
     trajectories = np.zeros((1, 2, 7), dtype=np.float64)
     trajectories[0, :, :2] = [1.55, 2.75]
 
-    scores, closest_steps = (
-        MODULE.score_circular_trajectories_by_esdf(
-            trajectories,
-            esdf,
-            origin=[1.0, 2.0],
-            resolution=0.1,
-            safety_radius=0.05,
-            front_len=0.20,
-            rear_len=0.20,
-            half_w=0.20,
-        )
+    scores, closest_steps = MODULE.score_circular_trajectories_by_esdf(
+        trajectories,
+        esdf,
+        origin=[1.0, 2.0],
+        resolution=0.1,
+        safety_radius=0.05,
+        front_len=0.20,
+        rear_len=0.20,
+        half_w=0.20,
     )
 
     assert scores == [float("inf")]
@@ -333,17 +401,15 @@ def test_circular_scorer_preserves_open_space_and_closest_step_decay():
     trajectories[1, :, :2] = [0.5, 0.5]
     esdf[10, 10] = 0.32
 
-    scores, closest_steps = (
-        MODULE.score_circular_trajectories_by_esdf(
-            trajectories,
-            esdf,
-            origin=[0.0, 0.0],
-            resolution=0.05,
-            safety_radius=0.05,
-            front_len=0.283,
-            rear_len=0.283,
-            half_w=0.283,
-        )
+    scores, closest_steps = MODULE.score_circular_trajectories_by_esdf(
+        trajectories,
+        esdf,
+        origin=[0.0, 0.0],
+        resolution=0.05,
+        safety_radius=0.05,
+        front_len=0.283,
+        rear_len=0.283,
+        half_w=0.283,
     )
 
     assert scores[0] == pytest.approx(1.0 / (0.037 + 0.001))
@@ -418,12 +484,8 @@ def test_stationary_filter_fails_closed_if_source_has_no_actionable_row():
 
 
 def test_planner_profiles_are_explicit():
-    yunji = MODULE.build_parser().parse_args(
-        ["--robot-profile", "yunji-water"]
-    )
-    source = MODULE.build_parser().parse_args(
-        ["--robot-profile", "source-default"]
-    )
+    yunji = MODULE.build_parser().parse_args(["--robot-profile", "yunji-water"])
+    source = MODULE.build_parser().parse_args(["--robot-profile", "source-default"])
 
     assert yunji.robot_profile == "yunji-water"
     assert source.robot_profile == "source-default"

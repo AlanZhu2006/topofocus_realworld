@@ -13,7 +13,6 @@ from focus_hub.models import ObservationMetadata
 from focus_hub.v2_scene_batch import build_batch_from_shadow_manifest
 from test_v2_scene_batch import prepare_round
 
-
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 
 
@@ -70,24 +69,30 @@ def navigation_event(
 def test_source_round_step_quota_matches_source_clock():
     module = load_module()
 
-    assert module.source_round_step_quota(
-        {
-            "source_episode": {
-                "enabled": True,
-                "logical_l_step": 0,
-                "next_logical_l_step": 24,
+    assert (
+        module.source_round_step_quota(
+            {
+                "source_episode": {
+                    "enabled": True,
+                    "logical_l_step": 0,
+                    "next_logical_l_step": 24,
+                }
             }
-        }
-    ) == 24
-    assert module.source_round_step_quota(
-        {
-            "source_episode": {
-                "enabled": True,
-                "logical_l_step": 24,
-                "next_logical_l_step": 49,
+        )
+        == 24
+    )
+    assert (
+        module.source_round_step_quota(
+            {
+                "source_episode": {
+                    "enabled": True,
+                    "logical_l_step": 24,
+                    "next_logical_l_step": 49,
+                }
             }
-        }
-    ) == 25
+        )
+        == 25
+    )
     with pytest.raises(ValueError, match="persistent scene state"):
         module.source_round_step_quota(
             {
@@ -176,6 +181,27 @@ def test_current_goal_evidence_maps_detector_name_to_goal_category():
     assert evidence == {"robot-0": 0.56, "robot-1": 0.88}
 
 
+def test_only_spatial_failures_revoke_cross_round_goal_continuity():
+    module = load_module()
+
+    rejected = module.spatially_rejected_robot_ids(
+        {
+            "robot-0": {
+                "event": {
+                    "reason_code": "LOCAL_PLANNER_TURN_STALLED",
+                }
+            },
+            "robot-1": {
+                "event": {
+                    "reason_code": "LOCAL_GOAL_UNREACHABLE",
+                }
+            },
+        }
+    )
+
+    assert rejected == frozenset({"robot-1"})
+
+
 @pytest.mark.parametrize(
     "tool_name",
     (
@@ -224,26 +250,14 @@ def test_every_frozen_manifest_entrypoint_applies_semantic_execution_guard(
         ).read_text(encoding="utf-8")
     )
     source = json.loads(
-        (output / "source_candidate_batch.json").read_text(
-            encoding="utf-8"
-        )
+        (output / "source_candidate_batch.json").read_text(encoding="utf-8")
     )
-    source_by_robot = {
-        item["robot_id"]: item for item in source["decisions"]
-    }
-    execution_by_robot = {
-        item["robot_id"]: item for item in execution["decisions"]
-    }
-    assert source_by_robot["robot-0"]["target"]["kind"] == (
-        "SEMANTIC_REGION"
-    )
-    assert execution_by_robot["robot-0"]["target"]["kind"] == (
-        "FRONTIER_POINT"
-    )
+    source_by_robot = {item["robot_id"]: item for item in source["decisions"]}
+    execution_by_robot = {item["robot_id"]: item for item in execution["decisions"]}
+    assert source_by_robot["robot-0"]["target"]["kind"] == ("SEMANTIC_REGION")
+    assert execution_by_robot["robot-0"]["target"]["kind"] == ("FRONTIER_POINT")
     guard = json.loads(
-        (output / "semantic_execution_guard.json").read_text(
-            encoding="utf-8"
-        )
+        (output / "semantic_execution_guard.json").read_text(encoding="utf-8")
     )
     assert guard["rejected_robot_ids"] == ["robot-0"]
 
@@ -258,9 +272,7 @@ def test_freeze_next_round_fails_immediately_for_latched_map(
     def blocked(*_args, **_kwargs):
         nonlocal calls
         calls += 1
-        raise ValueError(
-            "robot-0 frozen map blocked: ground plane tilt drift"
-        )
+        raise ValueError("robot-0 frozen map blocked: ground plane tilt drift")
 
     monkeypatch.setattr(module, "freeze", blocked)
     rejection_log = tmp_path / "freeze_rejections.jsonl"
@@ -286,9 +298,7 @@ def test_round_inspection_distinguishes_semantic_and_frontier_arrival(
     tmp_path, observation_factory
 ):
     module = load_module()
-    now, manifest, registry, config = prepare_round(
-        tmp_path, observation_factory
-    )
+    now, manifest, registry, config = prepare_round(tmp_path, observation_factory)
     built = build_batch_from_shadow_manifest(
         manifest,
         registry,
@@ -313,9 +323,7 @@ def test_round_inspection_distinguishes_semantic_and_frontier_arrival(
         for robot_id, decision in decisions.items()
     }
 
-    inspected = module.inspect_round_states(
-        states, built.batch, set(decisions)
-    )
+    inspected = module.inspect_round_states(states, built.batch, set(decisions))
 
     assert set(inspected.semantic_arrivals) == {"robot-0"}
     assert set(inspected.frontier_arrivals) == {"robot-1"}
@@ -327,9 +335,7 @@ def test_round_inspection_distinguishes_semantic_and_frontier_arrival(
         "REJECTED",
         event_id="robot-1-rejected",
     )
-    inspected = module.inspect_round_states(
-        states, built.batch, set(decisions)
-    )
+    inspected = module.inspect_round_states(states, built.batch, set(decisions))
     assert set(inspected.failures) == {"robot-1"}
     assert inspected.frontier_arrivals == {}
 
@@ -338,9 +344,7 @@ def test_semantic_local_failure_keeps_healthy_semantic_peer_active(
     tmp_path, observation_factory
 ):
     module = load_module()
-    now, manifest, registry, config = prepare_round(
-        tmp_path, observation_factory
-    )
+    now, manifest, registry, config = prepare_round(tmp_path, observation_factory)
     built = build_batch_from_shadow_manifest(
         manifest,
         registry,
@@ -381,9 +385,7 @@ def test_semantic_local_failure_replans_when_only_frontier_peer_remains(
     tmp_path, observation_factory
 ):
     module = load_module()
-    now, manifest, registry, config = prepare_round(
-        tmp_path, observation_factory
-    )
+    now, manifest, registry, config = prepare_round(tmp_path, observation_factory)
     built = build_batch_from_shadow_manifest(
         manifest,
         registry,
@@ -422,9 +424,7 @@ def test_foxglove_target_events_record_the_actual_post_guard_batch(
 ):
     module = load_module()
     monkeypatch.setattr(module, "WORKSPACE", tmp_path)
-    now, manifest, registry, config = prepare_round(
-        tmp_path, observation_factory
-    )
+    now, manifest, registry, config = prepare_round(tmp_path, observation_factory)
     built = build_batch_from_shadow_manifest(
         manifest,
         registry,
@@ -456,11 +456,9 @@ def test_foxglove_target_events_record_the_actual_post_guard_batch(
     assert set(paths) == {"robot-0", "robot-1"}
     events = {
         robot.robot_id: json.loads(
-            (
-                tmp_path
-                / robot.map_dir
-                / module.VLM_TARGET_EVENT_FILENAME
-            ).read_text(encoding="utf-8")
+            (tmp_path / robot.map_dir / module.VLM_TARGET_EVENT_FILENAME).read_text(
+                encoding="utf-8"
+            )
         )
         for robot in robots
     }
@@ -535,10 +533,7 @@ def transient_slam_readiness(*, ready: bool = False) -> dict[str, object]:
             "detail": (
                 "slam_optimizer_imu_valid"
                 if ready
-                else (
-                    "optimizer_status=skipped_imu_invalid; "
-                    "odom_age=0.693s/5.000s"
-                )
+                else ("optimizer_status=skipped_imu_invalid; " "odom_age=0.693s/5.000s")
             ),
         },
     }
@@ -549,9 +544,7 @@ def test_pre_goal_readiness_waits_only_for_transient_slam_hold(
 ):
     module = load_module()
 
-    assert module.transient_slam_readiness_waitable(
-        transient_slam_readiness()
-    )
+    assert module.transient_slam_readiness_waitable(transient_slam_readiness())
     hard = transient_slam_readiness()
     hard["health"]["detail"] = "optimizer_status=failed"
     assert not module.transient_slam_readiness_waitable(hard)
@@ -598,17 +591,13 @@ def test_pre_goal_readiness_partitions_hard_block_from_ready_peer():
     module = load_module()
     ready = transient_slam_readiness(ready=True)
     hard = transient_slam_readiness()
-    hard["health"]["detail"] = (
-        "slam_optimizer_imu_valid; odom_age=7.949s/5.000s"
-    )
+    hard["health"]["detail"] = "slam_optimizer_imu_valid; odom_age=7.949s/5.000s"
 
-    reports, ready_ids, blocked_ids, waited_s = (
-        module.partition_goal_readiness(
-            ReadinessClient({"robot-0": hard, "robot-1": ready}),
-            {"robot-0", "robot-1"},
-            timeout_s=1.0,
-            poll_s=0.01,
-        )
+    reports, ready_ids, blocked_ids, waited_s = module.partition_goal_readiness(
+        ReadinessClient({"robot-0": hard, "robot-1": ready}),
+        {"robot-0", "robot-1"},
+        timeout_s=1.0,
+        poll_s=0.01,
     )
 
     assert reports["robot-0"]["ready_for_goal"] is False
@@ -641,9 +630,7 @@ def write_terminal_observation(
     metadata = ObservationMetadata.model_validate(raw)
     (source / "rgb.jpg").write_bytes(rgb)
     (source / "depth.png").write_bytes(depth)
-    (source / "metadata.json").write_text(
-        metadata.model_dump_json(), encoding="utf-8"
-    )
+    (source / "metadata.json").write_text(metadata.model_dump_json(), encoding="utf-8")
 
 
 def test_terminal_evidence_seals_verified_post_arrival_bytes(
@@ -787,9 +774,7 @@ def test_live_failure_pose_snapshot_requires_full_session_identity(
                 "frame_id": "shared_world",
                 "transform_version": transform,
                 "shared_frame_calibration_id": (
-                    "calibration-v1"
-                    if robot_id == "robot-0"
-                    else "wrong-calibration"
+                    "calibration-v1" if robot_id == "robot-0" else "wrong-calibration"
                 ),
                 "mapping_blocked_reason": None,
                 "last_observation_sequence": 20 + index,
@@ -813,17 +798,15 @@ def test_live_failure_pose_snapshot_requires_full_session_identity(
         calibration=SimpleNamespace(calibration_id="calibration-v1"),
     )
 
-    positions, provenance, errors = (
-        module.capture_live_shared_robot_positions(
-            session,
-            tmp_path / "failure-pose",
-            robot_ids={"robot-0", "robot-1"},
-            minimum_sequences={"robot-0": 20, "robot-1": 21},
-            minimum_capture_times_ns={
-                "robot-0": 4_000_000_000,
-                "robot-1": 4_000_000_000,
-            },
-        )
+    positions, provenance, errors = module.capture_live_shared_robot_positions(
+        session,
+        tmp_path / "failure-pose",
+        robot_ids={"robot-0", "robot-1"},
+        minimum_sequences={"robot-0": 20, "robot-1": 21},
+        minimum_capture_times_ns={
+            "robot-0": 4_000_000_000,
+            "robot-1": 4_000_000_000,
+        },
     )
 
     assert positions == {"robot-0": (1.0, 2.0)}
@@ -833,14 +816,10 @@ def test_live_failure_pose_snapshot_requires_full_session_identity(
     assert provenance["robot-0"]["validation"] == (
         "accepted_for_failure_pose_authority"
     )
-    assert provenance["robot-0"]["minimum_failure_capture_time_ns"] == (
-        4_000_000_000
-    )
+    assert provenance["robot-0"]["minimum_failure_capture_time_ns"] == (4_000_000_000)
     assert provenance["robot-1"]["validation"] == "rejected"
     for robot_id in ("robot-0", "robot-1"):
-        preserved = (
-            tmp_path / "failure-pose" / f"{robot_id}_live_status.json"
-        )
+        preserved = tmp_path / "failure-pose" / f"{robot_id}_live_status.json"
         assert preserved.read_bytes() == source_bytes[robot_id]
         assert module.sha256_file(preserved) == provenance[robot_id]["sha256"]
 

@@ -32,6 +32,7 @@ freeze.  Source-specific depth, turn, acceleration and arrival guards remain
 authoritative where present.  Rotate-first remains an explicit launcher
 option.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,7 +42,6 @@ import math
 from pathlib import Path
 import sys
 import time
-
 
 OVERLAY = Path(__file__).resolve().parent
 if str(OVERLAY) not in sys.path:
@@ -61,7 +61,6 @@ from tinynav_source_contract import (  # noqa: E402
     verify_tinynav_source,
 )
 
-
 MEANINGFUL_REVERSE_SEGMENT_M = 0.02
 NEGATIVE_LINEAR_COMMAND_EPSILON_MPS = 1e-6
 MINIMUM_DISTINCT_PATH_POSE_M = 0.01
@@ -71,6 +70,8 @@ MAX_DEPLOYMENT_LINEAR_COMMAND_FLOOR_MPS = 0.20
 DEFAULT_ROTATE_FIRST_MAX_ANGULAR_RADPS = 0.35
 DEFAULT_ROTATE_FIRST_MIN_ANGULAR_RADPS = 0.10
 DEFAULT_ROTATE_FIRST_TIMEOUT_S = 12.0
+DEFAULT_TURN_NO_PROGRESS_TIMEOUT_S = 3.0
+DEFAULT_TURN_PROGRESS_EPSILON_RAD = math.radians(5.0)
 DEFAULT_STABLE_TURN_LOOKAHEAD_M = 0.35
 # A collision-scored trajectory shorter than the robot-scale lookahead does
 # not carry a reliable route direction: the measured Scene 03 wall-front
@@ -128,9 +129,7 @@ def validate_controller_path_message(
         raise ValueError("trajectory has no poses field")
     frame_id = str(getattr(getattr(message, "header", None), "frame_id", ""))
     if frame_id != expected_frame:
-        raise ValueError(
-            f"trajectory frame {frame_id!r} != {expected_frame!r}"
-        )
+        raise ValueError(f"trajectory frame {frame_id!r} != {expected_frame!r}")
     if len(poses) < 2:
         raise ValueError("trajectory has fewer than two poses")
     for index, pose_stamped in enumerate(poses):
@@ -148,18 +147,12 @@ def validate_controller_path_message(
                 float(orientation.w),
             )
         except (AttributeError, TypeError, ValueError) as exc:
-            raise ValueError(
-                f"trajectory pose {index} is malformed"
-            ) from exc
+            raise ValueError(f"trajectory pose {index} is malformed") from exc
         if not all(math.isfinite(value) for value in values):
-            raise ValueError(
-                f"trajectory pose {index} contains a non-finite value"
-            )
+            raise ValueError(f"trajectory pose {index} contains a non-finite value")
         quaternion_norm = math.sqrt(sum(value * value for value in values[3:]))
         if quaternion_norm < 1e-9:
-            raise ValueError(
-                f"trajectory pose {index} has a zero quaternion"
-            )
+            raise ValueError(f"trajectory pose {index} has a zero quaternion")
     return len(poses)
 
 
@@ -167,9 +160,7 @@ def distinct_controller_path_pose_indices(
     message: object,
     *,
     minimum_translation_m: float = MINIMUM_DISTINCT_PATH_POSE_M,
-    minimum_rotation_rad: float = (
-        MINIMUM_DISTINCT_PATH_POSE_ROTATION_RAD
-    ),
+    minimum_rotation_rad: float = (MINIMUM_DISTINCT_PATH_POSE_ROTATION_RAD),
 ) -> tuple[int, ...]:
     """Drop consecutive duplicate transforms before source control.
 
@@ -182,17 +173,9 @@ def distinct_controller_path_pose_indices(
     the first meaningful segment.
     """
 
-    if (
-        not math.isfinite(minimum_translation_m)
-        or minimum_translation_m <= 0.0
-    ):
-        raise ValueError(
-            "minimum path-pose translation must be positive"
-        )
-    if (
-        not math.isfinite(minimum_rotation_rad)
-        or minimum_rotation_rad <= 0.0
-    ):
+    if not math.isfinite(minimum_translation_m) or minimum_translation_m <= 0.0:
+        raise ValueError("minimum path-pose translation must be positive")
+    if not math.isfinite(minimum_rotation_rad) or minimum_rotation_rad <= 0.0:
         raise ValueError("minimum path-pose rotation must be positive")
     poses = getattr(message, "poses", None)
     if poses is None or len(poses) < 2:
@@ -226,9 +209,7 @@ def distinct_controller_path_pose_indices(
         translation_distance = math.sqrt(
             sum(
                 (current - previous) ** 2
-                for current, previous in zip(
-                    translation, previous_translation
-                )
+                for current, previous in zip(translation, previous_translation)
             )
         )
         quaternion_dot = min(
@@ -236,9 +217,7 @@ def distinct_controller_path_pose_indices(
             abs(
                 sum(
                     current * previous
-                    for current, previous in zip(
-                        quaternion, previous_quaternion
-                    )
+                    for current, previous in zip(quaternion, previous_quaternion)
                 )
             ),
         )
@@ -288,9 +267,7 @@ def path_segment_forward_component(
         raise ValueError("trajectory segment values must be finite")
     dx = second_xy[0] - first_xy[0]
     dy = second_xy[1] - first_xy[1]
-    return dx * math.cos(robot_heading_rad) + dy * math.sin(
-        robot_heading_rad
-    )
+    return dx * math.cos(robot_heading_rad) + dy * math.sin(robot_heading_rad)
 
 
 def apply_linear_engagement_floor(
@@ -344,9 +321,7 @@ def resolve_forward_only_control_contract(
     requested_linear_mps: float,
     *,
     verified_forward_only_planner: bool,
-    negative_command_epsilon_mps: float = (
-        NEGATIVE_LINEAR_COMMAND_EPSILON_MPS
-    ),
+    negative_command_epsilon_mps: float = (NEGATIVE_LINEAR_COMMAND_EPSILON_MPS),
 ) -> tuple[str, bool]:
     """Separate non-executable Path geometry from a source reverse request.
 
@@ -470,9 +445,7 @@ def bounded_rotate_first_angular(
     if requested_radps == 0.0:
         return 0.0
     direction = (
-        latched_direction
-        if latched_direction
-        else (1 if requested_radps > 0.0 else -1)
+        latched_direction if latched_direction else (1 if requested_radps > 0.0 else -1)
     )
     magnitude = min(
         maximum_radps,
@@ -535,6 +508,90 @@ def stable_path_heading_error(
     return math.atan2(
         math.sin(world_bearing - robot_heading_rad),
         math.cos(world_bearing - robot_heading_rad),
+    )
+
+
+def planner_path_base_reference(
+    first_path_pose: object,
+    base_T_camera: object,
+) -> tuple[tuple[float, float], float]:
+    """Recover a base-heading reference in the planner path's own frame.
+
+    TinyNav publishes robot-centre translations with camera orientations after
+    its optional gravity alignment.  Comparing those translations with the raw
+    odometry frame mixes two coordinate systems and can keep a valid local path
+    perpetually off-axis.  Retain the published centre translation, convert
+    only the camera orientation through the measured mount, and compute every
+    path bearing in that one frame.
+    """
+
+    import numpy as np
+
+    path = np.asarray(first_path_pose, dtype=np.float64)
+    mount = np.asarray(base_T_camera, dtype=np.float64)
+    if (
+        path.shape != (4, 4)
+        or mount.shape != (4, 4)
+        or not np.all(np.isfinite(path))
+        or not np.all(np.isfinite(mount))
+    ):
+        raise ValueError("planner path reference requires finite rigid matrices")
+    base_rotation = path[:3, :3] @ np.linalg.inv(mount)[:3, :3]
+    heading_rad = math.atan2(
+        float(base_rotation[1, 0]),
+        float(base_rotation[0, 0]),
+    )
+    return (
+        (float(path[0, 3]), float(path[1, 3])),
+        heading_rad,
+    )
+
+
+def heading_recovery_progress_state(
+    *,
+    best_abs_error_rad: float | None,
+    last_progress_monotonic: float,
+    current_error_rad: float | None,
+    now_monotonic: float,
+    minimum_improvement_rad: float = DEFAULT_TURN_PROGRESS_EPSILON_RAD,
+    no_progress_timeout_s: float = DEFAULT_TURN_NO_PROGRESS_TIMEOUT_S,
+) -> tuple[float | None, float, bool]:
+    """Update convergence evidence for one continuous in-place turn."""
+
+    values = (
+        last_progress_monotonic,
+        now_monotonic,
+        minimum_improvement_rad,
+        no_progress_timeout_s,
+    )
+    optional = (best_abs_error_rad, current_error_rad)
+    if not all(math.isfinite(value) for value in values) or any(
+        value is not None and not math.isfinite(value) for value in optional
+    ):
+        raise ValueError("turn-progress values must be finite")
+    if (
+        last_progress_monotonic < 0.0
+        or now_monotonic < last_progress_monotonic
+        or minimum_improvement_rad <= 0.0
+        or no_progress_timeout_s <= 0.0
+    ):
+        raise ValueError("turn-progress bounds are invalid")
+    if current_error_rad is None:
+        return (
+            best_abs_error_rad,
+            last_progress_monotonic,
+            now_monotonic - last_progress_monotonic >= no_progress_timeout_s,
+        )
+    current_abs = abs(current_error_rad)
+    if (
+        best_abs_error_rad is None
+        or current_abs <= best_abs_error_rad - minimum_improvement_rad + 1e-12
+    ):
+        return current_abs, now_monotonic, False
+    return (
+        best_abs_error_rad,
+        last_progress_monotonic,
+        now_monotonic - last_progress_monotonic >= no_progress_timeout_s,
     )
 
 
@@ -616,10 +673,7 @@ def large_turn_stabilization_required(
         # bounded minimum yaw request; the existing recovery deadline still
         # rejects a turn that does not converge.
         return abs(heading_error_rad) >= exit_rad
-    if (
-        abs(requested_linear_mps) <= 1e-9
-        and abs(requested_angular_radps) <= 1e-9
-    ):
+    if abs(requested_linear_mps) <= 1e-9 and abs(requested_angular_radps) <= 1e-9:
         return False
     return bool(
         abs(requested_linear_mps) <= 1e-9
@@ -690,11 +744,7 @@ def tiny_reverse_alignment_required(
         raise ValueError("alignment angular thresholds must be finite")
     if not 0.0 < exit_rad < enter_rad <= math.pi:
         raise ValueError("alignment angular thresholds are invalid")
-    if (
-        paused
-        or segment_action != "zero_tiny_reverse"
-        or heading_error_rad is None
-    ):
+    if paused or segment_action != "zero_tiny_reverse" or heading_error_rad is None:
         return False
     threshold = exit_rad if recovery_active else enter_rad
     return abs(heading_error_rad) >= threshold
@@ -729,9 +779,7 @@ def latched_heading_target_crossed(
     heading_error_rad: float | None,
     *,
     latched_direction: int,
-    crossing_window_rad: float = (
-        DEFAULT_TINY_REVERSE_ALIGNMENT_ENTER_RAD
-    ),
+    crossing_window_rad: float = (DEFAULT_TINY_REVERSE_ALIGNMENT_ENTER_RAD),
 ) -> bool:
     """Stop a latched alignment after a small, genuine zero crossing."""
 
@@ -818,19 +866,13 @@ def rotate_first_continuation_request(
 ) -> float:
     """Preserve an already-authorized turn when pinned output crosses zero."""
 
-    if not all(
-        math.isfinite(value) for value in (requested_radps, minimum_radps)
-    ):
+    if not all(math.isfinite(value) for value in (requested_radps, minimum_radps)):
         raise ValueError("continuation angular values must be finite")
     if minimum_radps <= 0.0:
         raise ValueError("continuation minimum angular speed must be positive")
     if latched_direction not in {-1, 0, 1}:
         raise ValueError("latched_direction must be -1, 0 or 1")
-    if (
-        continuation_required
-        and requested_radps == 0.0
-        and latched_direction == 0
-    ):
+    if continuation_required and requested_radps == 0.0 and latched_direction == 0:
         raise ValueError("active continuation requires a latched direction")
     if continuation_required and requested_radps == 0.0:
         return float(latched_direction * minimum_radps)
@@ -1033,6 +1075,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_ROTATE_FIRST_TIMEOUT_S,
     )
     parser.add_argument(
+        "--turn-no-progress-timeout-s",
+        type=float,
+        default=DEFAULT_TURN_NO_PROGRESS_TIMEOUT_S,
+        help=(
+            "stop a continuous in-place recovery early when its path-frame "
+            "heading error does not measurably converge"
+        ),
+    )
+    parser.add_argument(
+        "--turn-progress-epsilon-deg",
+        type=float,
+        default=math.degrees(DEFAULT_TURN_PROGRESS_EPSILON_RAD),
+        help="minimum accumulated heading-error reduction counted as progress",
+    )
+    parser.add_argument(
         "--pose-timeout-s",
         type=float,
         default=DEFAULT_CONTROLLER_POSE_TIMEOUT_S,
@@ -1080,12 +1137,24 @@ def main(args: list[str] | None = None) -> None:
         not math.isfinite(deployment_args.rotate_first_timeout_s)
         or deployment_args.rotate_first_timeout_s <= 0.0
     ):
+        raise SystemExit("--rotate-first-timeout-s must be finite and positive")
+    if (
+        not math.isfinite(deployment_args.turn_no_progress_timeout_s)
+        or not 0.5
+        <= deployment_args.turn_no_progress_timeout_s
+        < deployment_args.rotate_first_timeout_s
+    ):
         raise SystemExit(
-            "--rotate-first-timeout-s must be finite and positive"
+            "--turn-no-progress-timeout-s must be at least 0.5 s and shorter "
+            "than --rotate-first-timeout-s"
         )
+    if (
+        not math.isfinite(deployment_args.turn_progress_epsilon_deg)
+        or not 1.0 <= deployment_args.turn_progress_epsilon_deg <= 30.0
+    ):
+        raise SystemExit("--turn-progress-epsilon-deg must be within [1, 30] degrees")
     if deployment_args.verified_forward_only_planner and not (
-        deployment_args.rotate_first_on_reverse
-        and deployment_args.stabilize_large_turn
+        deployment_args.rotate_first_on_reverse and deployment_args.stabilize_large_turn
     ):
         raise SystemExit(
             "--verified-forward-only-planner requires "
@@ -1127,7 +1196,7 @@ def main(args: list[str] | None = None) -> None:
     )
     provenance.update(
         {
-            "schema_version": "focus-tinynav-controller-wrapper-v3",
+            "schema_version": "focus-tinynav-controller-wrapper-v4",
             "adaptations": [
                 "linear_engagement_floor",
                 "bounded_deployment_linear_floor",
@@ -1140,28 +1209,27 @@ def main(args: list[str] | None = None) -> None:
                 "bounded_tiny_reverse_heading_alignment",
                 "bounded_all_in_place_turns",
                 "measured_base_pose_for_stable_heading",
+                "planner_path_frame_heading_reference",
+                "turn_heading_convergence_watchdog",
                 "common_pose_path_stale_stop",
                 "common_pose_jump_freeze",
                 "acknowledged_pause_service",
             ],
-            "linear_command_floor_mps": (
-                deployment_args.linear_command_floor_mps
-            ),
+            "linear_command_floor_mps": (deployment_args.linear_command_floor_mps),
             "verified_forward_only_planner": (
                 deployment_args.verified_forward_only_planner
             ),
             "turn_no_progress_authority": (
-                "controller_turn_timeout_plus_receiver_goal_progress_watchdog"
+                "controller_heading_convergence_and_absolute_turn_timeouts_"
+                "plus_receiver_goal_progress_watchdog"
             ),
+            "turn_no_progress_timeout_s": (deployment_args.turn_no_progress_timeout_s),
+            "turn_progress_epsilon_deg": (deployment_args.turn_progress_epsilon_deg),
             "base_camera_calibration": {
                 "source_path": base_camera_calibration.source_path,
-                "source_size_bytes": (
-                    base_camera_calibration.source_size_bytes
-                ),
+                "source_size_bytes": (base_camera_calibration.source_size_bytes),
                 "source_sha256": base_camera_calibration.source_sha256,
-                "measurement_status": (
-                    base_camera_calibration.measurement_status
-                ),
+                "measurement_status": (base_camera_calibration.measurement_status),
             },
         }
     )
@@ -1178,6 +1246,8 @@ def main(args: list[str] | None = None) -> None:
             self._last_focus_input_guard_log = 0.0
             self._focus_rotation_recovery_started: float | None = None
             self._focus_rotation_turn_direction = 0
+            self._focus_rotation_best_abs_heading_error: float | None = None
+            self._focus_rotation_last_progress_monotonic = 0.0
             self._focus_router_target_xy: tuple[float, float] | None = None
             self._focus_router_target_received_monotonic = 0.0
             self._focus_pose_received_monotonic = 0.0
@@ -1209,6 +1279,8 @@ def main(args: list[str] | None = None) -> None:
         def _reset_focus_rotation_recovery(self) -> None:
             self._focus_rotation_recovery_started = None
             self._focus_rotation_turn_direction = 0
+            self._focus_rotation_best_abs_heading_error = None
+            self._focus_rotation_last_progress_monotonic = 0.0
             if hasattr(self, "_turn_stalled_publisher"):
                 self._turn_stalled_publisher.publish(Bool(data=False))
 
@@ -1277,9 +1349,7 @@ def main(args: list[str] | None = None) -> None:
             ):
                 self._focus_pose_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
-                self._publish_focus_guarded_zero(
-                    "source_pose_callback_failed"
-                )
+                self._publish_focus_guarded_zero("source_pose_callback_failed")
                 return
             self._focus_last_pose_xy = current_xy
             self._focus_pose_received_monotonic = now
@@ -1290,21 +1360,15 @@ def main(args: list[str] | None = None) -> None:
             self.cmd_pub.publish(Twist())
             now = time.monotonic()
             if now - self._last_focus_input_guard_log >= 2.0:
-                self.get_logger().warning(
-                    f"Focus TinyNav controller hold: {reason}"
-                )
+                self.get_logger().warning(f"Focus TinyNav controller hold: {reason}")
                 self._last_focus_input_guard_log = now
 
         def cmd_timer_callback(self) -> None:
             now = time.monotonic()
             reason = controller_input_guard_reason(
                 now_monotonic=now,
-                pose_received_monotonic=(
-                    self._focus_pose_received_monotonic
-                ),
-                path_received_monotonic=(
-                    self._focus_path_received_monotonic
-                ),
+                pose_received_monotonic=(self._focus_pose_received_monotonic),
+                path_received_monotonic=(self._focus_path_received_monotonic),
                 pose_jump_freeze_until_monotonic=(
                     self._focus_pose_jump_freeze_until_monotonic
                 ),
@@ -1336,9 +1400,7 @@ def main(args: list[str] | None = None) -> None:
             if math.sqrt(sum(value * value for value in values[3:])) < 1e-9:
                 raise ValueError("pose quaternion has zero norm")
             matrix = np.eye(4, dtype=np.float64)
-            matrix[:3, :3] = R.from_quat(
-                list(values[3:])
-            ).as_matrix()
+            matrix[:3, :3] = R.from_quat(list(values[3:])).as_matrix()
             matrix[:3, 3] = list(values[:3])
             return matrix
 
@@ -1348,9 +1410,7 @@ def main(args: list[str] | None = None) -> None:
 
         def _control_segment_forward_m(self, message) -> float:
             first = message.poses[0]
-            step_index = int(
-                min(self.lookahead_steps, len(message.poses) - 1)
-            )
+            step_index = int(min(self.lookahead_steps, len(message.poses) - 1))
             second = message.poses[step_index]
             first_robot = self._pose_matrix(first) @ self.T_robot_to_camera
             second_robot = self._pose_matrix(second) @ self.T_robot_to_camera
@@ -1381,7 +1441,7 @@ def main(args: list[str] | None = None) -> None:
                 float(current_robot[1, 0]),
                 float(current_robot[0, 0]),
             )
-            path_robot_xy = []
+            path_points_xy = []
             for pose_stamped in message.poses:
                 # TinyNav's planner initializes every trajectory at
                 # camera_to_robot_center(T); path translation is therefore
@@ -1389,12 +1449,21 @@ def main(args: list[str] | None = None) -> None:
                 # orientation and is intentionally ignored for these XY
                 # lookahead bearings.
                 position = pose_stamped.pose.position
-                path_robot_xy.append(
+                path_points_xy.append(
                     (
                         float(position.x),
                         float(position.y),
                     )
                 )
+            # The collision-scored local path may be gravity-aligned while the
+            # live odometry used above remains in the raw tracking frame.  Use
+            # the path's own first centre/orientation as the path-bearing
+            # reference; retain the raw measured base only for the independent
+            # router-waypoint fallback, which is expressed in that raw frame.
+            path_reference_xy, path_robot_heading_rad = planner_path_base_reference(
+                self._pose_matrix(message.poses[0]),
+                self._focus_base_T_camera,
+            )
             # The collision-scored local path is authoritative.  A router
             # waypoint may intentionally sit behind the measured base while
             # the start seed is being repaired; letting that seed override a
@@ -1403,15 +1472,14 @@ def main(args: list[str] | None = None) -> None:
             # fixed router waypoint only when the path is too short to define
             # a meaningful bearing.
             path_error = stable_path_heading_error(
-                robot_xy,
-                robot_heading_rad=robot_heading_rad,
-                path_xy=path_robot_xy,
+                path_reference_xy,
+                robot_heading_rad=path_robot_heading_rad,
+                path_xy=path_points_xy,
             )
             router_error = None
             if (
                 self._focus_router_target_xy is not None
-                and time.monotonic()
-                - self._focus_router_target_received_monotonic
+                and time.monotonic() - self._focus_router_target_received_monotonic
                 <= DEFAULT_ROUTER_TARGET_TIMEOUT_S
             ):
                 router_error = world_target_heading_error(
@@ -1427,9 +1495,7 @@ def main(args: list[str] | None = None) -> None:
         def path_callback(self, message) -> None:
             try:
                 validate_controller_path_message(message)
-                distinct_indices = distinct_controller_path_pose_indices(
-                    message
-                )
+                distinct_indices = distinct_controller_path_pose_indices(message)
             except ValueError as exc:
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
@@ -1438,14 +1504,10 @@ def main(args: list[str] | None = None) -> None:
                 # Only a measured negative control segment below publishes
                 # reverse_required=True.
                 self._reverse_required_publisher.publish(Bool(data=False))
-                self._publish_focus_guarded_zero(
-                    trajectory_contract_hold_reason(exc)
-                )
+                self._publish_focus_guarded_zero(trajectory_contract_hold_reason(exc))
                 return
             if len(distinct_indices) != len(message.poses):
-                message.poses = [
-                    message.poses[index] for index in distinct_indices
-                ]
+                message.poses = [message.poses[index] for index in distinct_indices]
             if self.pose is None:
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
@@ -1456,12 +1518,8 @@ def main(args: list[str] | None = None) -> None:
             stable_heading_error_rad = None
             geometry_error = False
             try:
-                control_segment_forward_m = (
-                    self._control_segment_forward_m(message)
-                )
-                stable_heading_error_rad = (
-                    self._stable_path_heading_error(message)
-                )
+                control_segment_forward_m = self._control_segment_forward_m(message)
+                stable_heading_error_rad = self._stable_path_heading_error(message)
             except (
                 AttributeError,
                 TypeError,
@@ -1473,9 +1531,7 @@ def main(args: list[str] | None = None) -> None:
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
                 self._reverse_required_publisher.publish(Bool(data=False))
-                self._publish_focus_guarded_zero(
-                    "trajectory_geometry_invalid"
-                )
+                self._publish_focus_guarded_zero("trajectory_geometry_invalid")
                 return
             try:
                 super().path_callback(message)
@@ -1488,17 +1544,13 @@ def main(args: list[str] | None = None) -> None:
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
                 self._reverse_required_publisher.publish(Bool(data=False))
-                self._publish_focus_guarded_zero(
-                    "source_path_callback_failed"
-                )
+                self._publish_focus_guarded_zero("source_path_callback_failed")
                 return
             if not command_components_finite(self.latest_cmd):
                 self._focus_path_received_monotonic = 0.0
                 self._reset_focus_rotation_recovery()
                 self._reverse_required_publisher.publish(Bool(data=False))
-                self._publish_focus_guarded_zero(
-                    "source_controller_command_nonfinite"
-                )
+                self._publish_focus_guarded_zero("source_controller_command_nonfinite")
                 return
             measured_segment_action = classify_forward_component(
                 control_segment_forward_m
@@ -1518,12 +1570,8 @@ def main(args: list[str] | None = None) -> None:
             now = time.monotonic()
             self._focus_path_received_monotonic = now
             source_goal_distance = getattr(self, "goal_dist", None)
-            source_goal_distance_time = float(
-                getattr(self, "goal_dist_time", 0.0)
-            )
-            source_arrival_radius = float(
-                getattr(self, "arrival_radius", 0.5)
-            )
+            source_goal_distance_time = float(getattr(self, "goal_dist_time", 0.0))
+            source_arrival_radius = float(getattr(self, "arrival_radius", 0.5))
             try:
                 source_arrival_stop = source_arrival_stop_active(
                     (
@@ -1546,22 +1594,14 @@ def main(args: list[str] | None = None) -> None:
                 self.prev_cmd = Twist()
                 self.cmd_pub.publish(Twist())
                 return
-            recovery_active = (
-                self._focus_rotation_recovery_started is not None
-            )
-            source_reverse_recovery = (
-                classify_verified_reverse_command_recovery(
-                    forward_only_contract_violation,
-                    stable_heading_error_rad,
-                    recovery_active=recovery_active,
-                    rotate_first_enabled=(
-                        deployment_args.rotate_first_on_reverse
-                    ),
-                    stabilize_large_turn=(
-                        deployment_args.stabilize_large_turn
-                    ),
-                    paused=bool(self._paused),
-                )
+            recovery_active = self._focus_rotation_recovery_started is not None
+            source_reverse_recovery = classify_verified_reverse_command_recovery(
+                forward_only_contract_violation,
+                stable_heading_error_rad,
+                recovery_active=recovery_active,
+                rotate_first_enabled=(deployment_args.rotate_first_on_reverse),
+                stabilize_large_turn=(deployment_args.stabilize_large_turn),
+                paused=bool(self._paused),
             )
             source_reverse_alignment_requested = bool(
                 source_reverse_recovery == "align"
@@ -1600,9 +1640,7 @@ def main(args: list[str] | None = None) -> None:
                 and recovery_active
                 and latched_heading_target_crossed(
                     stable_heading_error_rad,
-                    latched_direction=(
-                        self._focus_rotation_turn_direction
-                    ),
+                    latched_direction=(self._focus_rotation_turn_direction),
                 )
             )
             if alignment_target_crossed:
@@ -1616,9 +1654,7 @@ def main(args: list[str] | None = None) -> None:
                     segment_action,
                     stable_heading_error_rad,
                     recovery_active=recovery_active,
-                    rotate_first_enabled=(
-                        deployment_args.rotate_first_on_reverse
-                    ),
+                    rotate_first_enabled=(deployment_args.rotate_first_on_reverse),
                     paused=self._paused,
                 )
             )
@@ -1631,6 +1667,12 @@ def main(args: list[str] | None = None) -> None:
             ):
                 if self._focus_rotation_recovery_started is None:
                     self._focus_rotation_recovery_started = now
+                    self._focus_rotation_last_progress_monotonic = now
+                    self._focus_rotation_best_abs_heading_error = (
+                        None
+                        if stable_heading_error_rad is None
+                        else abs(stable_heading_error_rad)
+                    )
                     if (
                         stable_heading_error_rad is not None
                         and abs(stable_heading_error_rad) > 1e-9
@@ -1642,20 +1684,33 @@ def main(args: list[str] | None = None) -> None:
                         self._focus_rotation_turn_direction = (
                             1 if requested_angular > 0.0 else -1
                         )
-                expired = controller_recovery_timeout_is_terminal(
-                    expired=reverse_recovery_expired(
-                        started_monotonic=(
-                            self._focus_rotation_recovery_started
-                        ),
-                        now_monotonic=now,
-                        timeout_s=deployment_args.rotate_first_timeout_s,
+                (
+                    self._focus_rotation_best_abs_heading_error,
+                    self._focus_rotation_last_progress_monotonic,
+                    convergence_stalled,
+                ) = heading_recovery_progress_state(
+                    best_abs_error_rad=(self._focus_rotation_best_abs_heading_error),
+                    last_progress_monotonic=(
+                        self._focus_rotation_last_progress_monotonic
                     ),
+                    current_error_rad=stable_heading_error_rad,
+                    now_monotonic=now,
+                    minimum_improvement_rad=math.radians(
+                        deployment_args.turn_progress_epsilon_deg
+                    ),
+                    no_progress_timeout_s=(deployment_args.turn_no_progress_timeout_s),
+                )
+                absolute_timeout_expired = reverse_recovery_expired(
+                    started_monotonic=(self._focus_rotation_recovery_started),
+                    now_monotonic=now,
+                    timeout_s=deployment_args.rotate_first_timeout_s,
+                )
+                expired = controller_recovery_timeout_is_terminal(
+                    expired=bool(absolute_timeout_expired or convergence_stalled),
                     verified_forward_only_planner=(
                         deployment_args.verified_forward_only_planner
                     ),
-                    source_reverse_command=(
-                        forward_only_contract_violation
-                    ),
+                    source_reverse_command=(forward_only_contract_violation),
                 )
                 rotate_angular = controller_recovery_angular_request(
                     requested_angular,
@@ -1667,17 +1722,10 @@ def main(args: list[str] | None = None) -> None:
                     ),
                     continuation_required=bool(
                         tiny_reverse_recovery_requested
-                        or (
-                            recovery_active
-                            and large_turn_recovery_requested
-                        )
+                        or (recovery_active and large_turn_recovery_requested)
                     ),
-                    latched_direction=(
-                        self._focus_rotation_turn_direction
-                    ),
-                    maximum_radps=(
-                        deployment_args.rotate_first_max_angular_radps
-                    ),
+                    latched_direction=(self._focus_rotation_turn_direction),
+                    maximum_radps=(deployment_args.rotate_first_max_angular_radps),
                 )
                 if not expired and rotate_angular != 0.0:
                     # Do not publish directly here. The pinned timer keeps
@@ -1690,9 +1738,7 @@ def main(args: list[str] | None = None) -> None:
                     self._reverse_required_publisher.publish(Bool(data=False))
                     self._turn_stalled_publisher.publish(Bool(data=False))
                     if now - self._last_focus_rotate_first_log >= 2.0:
-                        elapsed = (
-                            now - self._focus_rotation_recovery_started
-                        )
+                        elapsed = now - self._focus_rotation_recovery_started
                         context = (
                             "source_reverse_command"
                             if source_reverse_alignment_requested
@@ -1748,15 +1794,18 @@ def main(args: list[str] | None = None) -> None:
                 if now - self._last_focus_reverse_log >= 2.0:
                     self.get_logger().warning(
                         "Focus TinyNav rejected an unresolved in-place "
-                        "heading recovery: bounded turn timeout expired"
+                        "heading recovery: "
+                        + (
+                            "heading error did not converge inside the "
+                            "bounded progress window"
+                            if convergence_stalled
+                            else "bounded absolute turn timeout expired"
+                        )
                     )
                     self._last_focus_reverse_log = now
                 return
 
-            if (
-                forward_only_contract_violation
-                and source_reverse_recovery == "hold"
-            ):
+            if forward_only_contract_violation and source_reverse_recovery == "hold":
                 # Never pass the pinned controller's fixed negative velocity.
                 # A valid heading inside the deadband needs only a fresh
                 # forward path; the receiver's metric watchdog bounds a

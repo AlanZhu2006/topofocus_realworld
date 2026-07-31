@@ -94,12 +94,8 @@ def memory() -> NavigationFailureMemory:
 def test_local_rejection_blocks_same_target_and_preserves_robot_score_order(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
-    batch = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
     state = memory()
     update = state.record_frontier_failure(
         batch.decisions[0],
@@ -130,12 +126,8 @@ def test_local_rejection_blocks_same_target_and_preserves_robot_score_order(
     ]
     assert state.entries[0]["last_event"]["observed_at_ns"] == now + 1
     assert rejected == frozenset({"robot-0"})
-    assert [
-        item["frontier_id"] for item in fallbacks["robot-0"]
-    ] == ["C", "D"]
-    assert [
-        item["frontier_id"] for item in fallbacks["robot-1"]
-    ] == ["D", "C"]
+    assert [item["frontier_id"] for item in fallbacks["robot-0"]] == ["C", "D"]
+    assert [item["frontier_id"] for item in fallbacks["robot-1"]] == ["D", "C"]
     check = report["checks"]["robot-0"]
     assert check["current_target_rejected"] is True
     assert check["current_memory_matches"][0]["match_kind"] == (
@@ -154,12 +146,10 @@ def test_local_rejection_blocks_same_target_and_preserves_robot_score_order(
 def test_inactive_hold_robot_has_no_physical_fallback_candidates(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    raw = with_source_frontiers(make_batch(observations, digests, now=now)).model_dump(
+        mode="json"
     )
-    raw = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    ).model_dump(mode="json")
     for decision in raw["decisions"]:
         decision["coordination"]["active_robot_ids"] = ["robot-0"]
         if decision["robot_id"] == "robot-1":
@@ -182,21 +172,15 @@ def test_inactive_hold_robot_has_no_physical_fallback_candidates(
     assert report["checks"]["robot-1"]["active"] is False
     assert [
         item["frontier_id"]
-        for item in report["checks"]["robot-1"][
-            "accepted_fallback_candidates"
-        ]
+        for item in report["checks"]["robot-1"]["accepted_fallback_candidates"]
     ] == ["B", "D", "C"]
 
 
 def test_same_blocked_sector_matches_shifted_label_but_material_move_expires_it(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
-    batch = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
     raw = batch.model_dump(mode="json")
     raw["decisions"][0]["target"]["pose"]["x"] = 3.0
     raw["decisions"][0]["target"]["pose"]["y"] = 0.0
@@ -204,7 +188,7 @@ def test_same_blocked_sector_matches_shifted_label_but_material_move_expires_it(
     state = memory()
     state.record_frontier_failure(
         failed,
-        reason_code="LOCAL_PLANNER_PATH_STALE",
+        reason_code="LOCAL_PLANNER_NO_PROGRESS",
         failure_robot_xy_m=(0.0, 0.0),
         recorded_at_ns=now,
     )
@@ -227,12 +211,8 @@ def test_same_blocked_sector_matches_shifted_label_but_material_move_expires_it(
 def test_observed_failure_heading_defines_blocked_sector(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
-    batch = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
     raw = batch.model_dump(mode="json")
     raw["decisions"][0]["target"]["pose"]["x"] = 3.0
     raw["decisions"][0]["target"]["pose"]["y"] = 0.0
@@ -240,7 +220,7 @@ def test_observed_failure_heading_defines_blocked_sector(
     state = memory()
     state.record_frontier_failure(
         failed,
-        reason_code="LOCAL_PLANNER_PATH_STALE",
+        reason_code="LOCAL_PLANNER_NO_PROGRESS",
         failure_robot_xy_m=(0.0, 0.0),
         failure_heading_deg=90.0,
         recorded_at_ns=now,
@@ -257,29 +237,34 @@ def test_observed_failure_heading_defines_blocked_sector(
         robot_xy_m=(0.0, 0.0),
     )
 
-    assert heading_sector[0]["match_kind"] == (
-        "same_blocked_approach_sector"
-    )
+    assert heading_sector[0]["match_kind"] == ("same_blocked_approach_sector")
     assert heading_sector[0]["blocked_bearing_source"] == (
         "observed_failure_base_heading"
     )
     assert old_target_sector == []
 
 
-def test_transient_router_timeout_does_not_poison_spatial_target(
+@pytest.mark.parametrize(
+    "reason_code",
+    [
+        "LOCAL_PATH_REVERSE_REQUIRED",
+        "LOCAL_ROUTER_HOLD_TIMEOUT",
+        "LOCAL_PLANNER_PATH_STALE",
+        "LOCAL_PLANNER_TURN_STALLED",
+        "DISTANCE_LIMIT",
+    ],
+)
+def test_transient_local_stack_failure_does_not_poison_spatial_target(
     observation_factory,
+    reason_code,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
-    batch = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
     state = memory()
 
     update = state.record_frontier_failure(
         batch.decisions[0],
-        reason_code="LOCAL_ROUTER_HOLD_TIMEOUT",
+        reason_code=reason_code,
         failure_robot_xy_m=(0.0, 1.0),
         recorded_at_ns=now,
     )
@@ -295,12 +280,8 @@ def test_source_stationary_threshold_is_two_and_a_half_cells():
 def test_source_stationary_evidence_is_not_labelled_observed(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
-    batch = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
     state = memory()
 
     state.record_frontier_failure(
@@ -319,12 +300,8 @@ def test_source_stationary_evidence_is_not_labelled_observed(
 def test_source_stationary_rule_rejects_current_frontier_even_if_vlm_changed_it(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
-    batch = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
 
     rejected, fallbacks, report = evaluate_source_replan(
         batch,
@@ -339,20 +316,16 @@ def test_source_stationary_rule_rejects_current_frontier_even_if_vlm_changed_it(
 
     assert rejected == frozenset({"robot-0"})
     assert report["checks"]["robot-0"]["source_stationary_replan"] is True
-    assert [
-        item["frontier_id"] for item in fallbacks["robot-0"]
-    ] == ["C", "D"]
+    assert [item["frontier_id"] for item in fallbacks["robot-0"]] == ["C", "D"]
 
 
 def test_spatially_completed_relabelled_frontier_uses_source_history_fallbacks(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    raw = with_source_frontiers(make_batch(observations, digests, now=now)).model_dump(
+        mode="json"
     )
-    raw = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    ).model_dump(mode="json")
     robot_1_decision = next(
         item for item in raw["decisions"] if item["robot_id"] == "robot-1"
     )
@@ -402,9 +375,10 @@ def test_spatially_completed_relabelled_frontier_uses_source_history_fallbacks(
     assert check["current_frontier_arrival_already_satisfied"] is True
     assert check["current_target_rejected"] is True
     assert check["source_frontier_arrival_radius_m"] == 0.5
-    assert [
-        item["frontier_id"] for item in fallbacks["robot-1"]
-    ] == ["history-1", "history-0"]
+    assert [item["frontier_id"] for item in fallbacks["robot-1"]] == [
+        "history-1",
+        "history-0",
+    ]
     assert check["fallback_ranking_source"].endswith(
         "_then_source_history_score_descending"
     )
@@ -413,12 +387,8 @@ def test_spatially_completed_relabelled_frontier_uses_source_history_fallbacks(
 def test_history_fallback_uses_source_history_score_order(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
-    )
-    batch = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    )
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
     raw = batch.model_dump(mode="json")
     raw["decisions"][0]["target"]["frontier_id"] = "history-0"
     batch = DecisionBatchV2.model_validate(raw)
@@ -462,9 +432,10 @@ def test_history_fallback_uses_source_history_score_order(
         },
     )
 
-    assert [
-        item["frontier_id"] for item in fallbacks["robot-0"]
-    ] == ["history-1", "history-2"]
+    assert [item["frontier_id"] for item in fallbacks["robot-0"]] == [
+        "history-1",
+        "history-2",
+    ]
     assert report["checks"]["robot-0"]["fallback_ranking_source"] == (
         "source_history_score_descending_first_max"
     )
@@ -473,15 +444,11 @@ def test_history_fallback_uses_source_history_score_order(
 def test_long_cross_round_reversal_prefers_source_ranked_forward_alternative(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    raw = with_source_frontiers(make_batch(observations, digests, now=now)).model_dump(
+        mode="json"
     )
-    raw = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    ).model_dump(mode="json")
-    robot_1 = next(
-        item for item in raw["decisions"] if item["robot_id"] == "robot-1"
-    )
+    robot_1 = next(item for item in raw["decisions"] if item["robot_id"] == "robot-1")
     robot_1["target"]["pose"]["x"] = -7.461922679552056
     robot_1["target"]["pose"]["y"] = 5.323087209529522
     batch = DecisionBatchV2.model_validate(raw)
@@ -513,9 +480,7 @@ def test_long_cross_round_reversal_prefers_source_ranked_forward_alternative(
     )
 
     assert rejected == frozenset({"robot-1"})
-    assert [
-        item["frontier_id"] for item in fallbacks["robot-1"]
-    ] == ["C"]
+    assert [item["frontier_id"] for item in fallbacks["robot-1"]] == ["C"]
     check = report["checks"]["robot-1"]
     assert check["backtrack_redirected"] is True
     assert check["current_backtrack_check"]["severe_backtrack"] is True
@@ -528,15 +493,11 @@ def test_long_cross_round_reversal_prefers_source_ranked_forward_alternative(
 def test_backtracking_remains_available_when_source_has_no_forward_alternative(
     observation_factory,
 ):
-    observations, _registry, digests, now = ready_registries(
-        observation_factory
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    raw = with_source_frontiers(make_batch(observations, digests, now=now)).model_dump(
+        mode="json"
     )
-    raw = with_source_frontiers(
-        make_batch(observations, digests, now=now)
-    ).model_dump(mode="json")
-    robot_1 = next(
-        item for item in raw["decisions"] if item["robot_id"] == "robot-1"
-    )
+    robot_1 = next(item for item in raw["decisions"] if item["robot_id"] == "robot-1")
     robot_1["target"]["pose"]["x"] = -5.0
     robot_1["target"]["pose"]["y"] = 0.0
     batch = DecisionBatchV2.model_validate(raw)

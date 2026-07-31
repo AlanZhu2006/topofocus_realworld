@@ -1,11 +1,11 @@
 """Pure helpers for independent leases in one concurrent v2 episode."""
+
 from __future__ import annotations
 
 import hashlib
 from typing import Iterable, Mapping
 
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
-
 
 RECOVERABLE_LOCAL_PATH_REJECTIONS = frozenset(
     {
@@ -15,6 +15,11 @@ RECOVERABLE_LOCAL_PATH_REJECTIONS = frozenset(
         "LOCAL_PLANNER_NO_PROGRESS",
         "LOCAL_PLANNER_PATH_STALE",
         "LOCAL_ROUTER_HOLD_TIMEOUT",
+        # This is a Hub/receiver admission-contract mismatch, never evidence
+        # that the physical episode must terminate.  The upstream frontier
+        # distance segmenter should prevent it; retaining it here makes an old
+        # or independently configured sender fail into HOLD + fresh replan.
+        "DISTANCE_LIMIT",
         "UNREACHABLE",
     }
 )
@@ -103,9 +108,7 @@ def scope_initial_coordination_batch(
 
     active = tuple(active_robot_ids)
     active_set = set(active)
-    current_by_robot = {
-        decision.robot_id: decision for decision in candidate.decisions
-    }
+    current_by_robot = {decision.robot_id: decision for decision in candidate.decisions}
     if not active_set.issubset(current_by_robot):
         raise ValueError("active robot is outside the candidate batch")
     if len(active_set) != len(active):
@@ -162,6 +165,5 @@ def recoverable_local_path_failure(
     return bool(
         target is not None
         and str(event.get("status", "")) == "REJECTED"
-        and str(event.get("reason_code", ""))
-        in RECOVERABLE_LOCAL_PATH_REJECTIONS
+        and str(event.get("reason_code", "")) in RECOVERABLE_LOCAL_PATH_REJECTIONS
     )

@@ -75,7 +75,10 @@ def test_public_baseline_locks_cleanroom_safety(
 @pytest.mark.parametrize(
     ("section", "field", "value"),
     (
+        ("local_planner", "sensor_sync", {}),
         ("controller", "continuous_turn_timeout_s", 0.0),
+        ("controller", "turn_no_progress_timeout_s", 12.0),
+        ("controller", "turn_progress_minimum_improvement_deg", 0.0),
         (
             "semantic_execution_confirmation",
             "component_area_alone_grants_execution_authority",
@@ -90,6 +93,11 @@ def test_public_baseline_locks_cleanroom_safety(
             "frontier_goal_continuity",
             "physical_completion_distance_m",
             1.25,
+        ),
+        (
+            "frontier_goal_continuity",
+            "maximum_execution_leg_distance_m",
+            8.0,
         ),
     ),
 )

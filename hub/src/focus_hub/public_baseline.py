@@ -168,6 +168,24 @@ def _validate_control_contract(manifest: dict[str, Any]) -> None:
         "STOP",
         "planning.local_planner.all_candidates_in_collision",
     )
+    sensor_sync = _mapping(
+        local.get("sensor_sync"), "planning.local_planner.sensor_sync"
+    )
+    _expect(
+        sensor_sync.get("mode"),
+        "bounded approximate header timestamp",
+        "planning.local_planner.sensor_sync.mode",
+    )
+    _expect(
+        sensor_sync.get("maximum_skew_s"),
+        0.05,
+        "planning.local_planner.sensor_sync.maximum_skew_s",
+    )
+    _expect(
+        sensor_sync.get("headerless_messages_allowed"),
+        False,
+        "planning.local_planner.sensor_sync.headerless_messages_allowed",
+    )
     controller = _mapping(planning.get("controller"), "planning.controller")
     _expect(
         controller.get("implementation"),
@@ -178,6 +196,16 @@ def _validate_control_contract(manifest: dict[str, Any]) -> None:
         controller.get("continuous_turn_timeout_s"),
         12.0,
         "planning.controller.continuous_turn_timeout_s",
+    )
+    _expect(
+        controller.get("turn_no_progress_timeout_s"),
+        3.0,
+        "planning.controller.turn_no_progress_timeout_s",
+    )
+    _expect(
+        controller.get("turn_progress_minimum_improvement_deg"),
+        5.0,
+        "planning.controller.turn_progress_minimum_improvement_deg",
     )
     _expect(
         controller.get("continuous_turn_timeout_result"),
@@ -235,6 +263,12 @@ def _validate_control_contract(manifest: dict[str, Any]) -> None:
         0.5,
         "planning.frontier_goal_continuity."
         "physical_completion_distance_m",
+    )
+    _expect(
+        continuity.get("maximum_execution_leg_distance_m"),
+        7.5,
+        "planning.frontier_goal_continuity."
+        "maximum_execution_leg_distance_m",
     )
 
 

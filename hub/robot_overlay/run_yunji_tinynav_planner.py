@@ -35,6 +35,7 @@ the current physical body before the source computes its ESDF.  Dilation,
 external obstacle cells, trajectory scoring, and the robot-local stop authority
 remain unchanged outside the body's current footprint.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -46,7 +47,6 @@ from pathlib import Path
 import sys
 import time
 
-
 OVERLAY = Path(__file__).resolve().parent
 if str(OVERLAY) not in sys.path:
     sys.path.insert(0, str(OVERLAY))
@@ -56,10 +56,75 @@ from tinynav_source_contract import (  # noqa: E402
     verify_tinynav_source,
 )
 
-
 SOURCE_DEFAULT_TRAJECTORY_DT_S = 0.1
 STOPPED_PREFIX_HORIZONS_S = (0.5, 1.0, 2.0)
 SCORE_OBSERVABILITY_INTERVAL_S = 30.0
+DEFAULT_SENSOR_SYNC_SLOP_S = 0.05
+
+
+def install_bounded_approximate_sensor_sync(
+    planning_node_module: object,
+    *,
+    slop_s: float = DEFAULT_SENSOR_SYNC_SLOP_S,
+) -> dict[str, object]:
+    """Replace only the source's exact depth/odometry timestamp matcher.
+
+    The two topics describe the same local sensing pipeline but traverse
+    independent ROS publishers.  Tiny timestamp skew caused the immutable
+    ``TimeSynchronizer`` to stop invoking the planner even while both topics
+    remained live.  This adapter keeps the source queue depth and callback
+    unchanged while accepting only a bounded, header-bearing pair.
+    """
+
+    if not math.isfinite(slop_s) or not 0.0 < slop_s <= 0.20:
+        raise ValueError("sensor synchronization slop must be in (0, 0.20] s")
+    filters = getattr(planning_node_module, "message_filters", None)
+    approximate = getattr(filters, "ApproximateTimeSynchronizer", None)
+    if filters is None or approximate is None:
+        raise RuntimeError("pinned planner lacks ApproximateTimeSynchronizer support")
+
+    class BoundedApproximateTimeSynchronizer(approximate):
+        def __init__(self, subscribers, queue_size):
+            super().__init__(
+                subscribers,
+                queue_size,
+                slop_s,
+                allow_headerless=False,
+            )
+
+    filters.TimeSynchronizer = BoundedApproximateTimeSynchronizer
+    return {
+        "sensor_synchronizer": "bounded_approximate_header_stamp",
+        "sensor_sync_slop_s": slop_s,
+        "allow_headerless": False,
+    }
+
+
+def install_guarded_planning_callback(
+    planning_node_module: object,
+) -> None:
+    """Keep one malformed synchronized frame from terminating the planner."""
+
+    planning_class = getattr(planning_node_module, "PlanningNode", None)
+    source_callback = getattr(planning_class, "sync_callback", None)
+    if planning_class is None or not callable(source_callback):
+        raise RuntimeError("pinned planner sync callback is unavailable")
+
+    def guarded_sync_callback(self, depth_msg, odom_msg):
+        try:
+            return source_callback(self, depth_msg, odom_msg)
+        except Exception as exc:  # noqa: BLE001 - physical output remains gated
+            now = time.monotonic()
+            last_log = float(getattr(self, "_focus_last_sync_exception_log", 0.0))
+            if now - last_log >= 2.0:
+                self.get_logger().error(
+                    "Focus TinyNav skipped one invalid synchronized frame; "
+                    f"planner remains alive and stale-path gate stays closed: {exc}"
+                )
+                self._focus_last_sync_exception_log = now
+            return None
+
+    planning_class.sync_callback = guarded_sync_callback
 
 
 def forward_only_predefined_trajectory_vocabularies(
@@ -104,10 +169,7 @@ def remove_stationary_trajectory_candidate(
         or trajectories.shape[0] != parameters.shape[0]
     ):
         raise ValueError("source trajectory lattice has incompatible shapes")
-    if (
-        not math.isfinite(zero_tolerance)
-        or zero_tolerance < 0.0
-    ):
+    if not math.isfinite(zero_tolerance) or zero_tolerance < 0.0:
         raise ValueError("zero tolerance must be finite and non-negative")
     moving_or_turning = np.logical_or(
         np.abs(parameters[:, 0]) > zero_tolerance,
@@ -127,11 +189,7 @@ def source_trajectory_dt_s(
     value = (
         kwargs["dt"]
         if "dt" in kwargs
-        else (
-            args[2]
-            if len(args) >= 3
-            else SOURCE_DEFAULT_TRAJECTORY_DT_S
-        )
+        else (args[2] if len(args) >= 3 else SOURCE_DEFAULT_TRAJECTORY_DT_S)
     )
     try:
         dt_s = float(value)
@@ -177,9 +235,7 @@ def append_stopped_prefix_trajectories(
     prefix_last_indices: list[int] = []
     for horizon_s in horizons_s:
         if not math.isfinite(horizon_s) or horizon_s <= 0.0:
-            raise ValueError(
-                "stopped-prefix horizons must be finite and positive"
-            )
+            raise ValueError("stopped-prefix horizons must be finite and positive")
         last_index = max(1, int(round(horizon_s / dt_s)))
         if (
             last_index < trajectories.shape[1] - 1
@@ -194,9 +250,7 @@ def append_stopped_prefix_trajectories(
     parameter_groups = [parameters]
     for last_index in prefix_last_indices:
         stopped = trajectories.copy()
-        stopped[:, last_index + 1 :, :] = stopped[
-            :, last_index : last_index + 1, :
-        ]
+        stopped[:, last_index + 1 :, :] = stopped[:, last_index : last_index + 1, :]
         trajectory_groups.append(stopped)
         parameter_groups.append(parameters.copy())
     return (
@@ -208,9 +262,7 @@ def append_stopped_prefix_trajectories(
 def progress_capable_trajectory_library(
     source_generator: Callable[..., tuple[object, object]],
     *args,
-    stopped_prefix_horizons_s: tuple[float, ...] = (
-        STOPPED_PREFIX_HORIZONS_S
-    ),
+    stopped_prefix_horizons_s: tuple[float, ...] = (STOPPED_PREFIX_HORIZONS_S),
     **kwargs,
 ):
     """Generate the pinned lattice and add safe stopped-prefix candidates."""
@@ -255,9 +307,7 @@ def trajectory_score_summary(
         "classification": classification,
         "candidate_count": int(len(score_array)),
         "finite_candidate_count": int(np.count_nonzero(finite)),
-        "finite_in_place_candidate_count": int(
-            np.count_nonzero(finite & in_place)
-        ),
+        "finite_in_place_candidate_count": int(np.count_nonzero(finite & in_place)),
         "all_candidates_in_collision": bool(not np.any(finite)),
     }
 
@@ -307,18 +357,15 @@ def clear_current_circular_footprint(
 
     rows, columns = mask.shape
     cell_x = (
-        float(origin_array[0])
-        + (np.arange(rows, dtype=np.float64) + 0.5) * resolution
+        float(origin_array[0]) + (np.arange(rows, dtype=np.float64) + 0.5) * resolution
     )
     cell_y = (
         float(origin_array[1])
         + (np.arange(columns, dtype=np.float64) + 0.5) * resolution
     )
-    inside_body = (
-        (cell_x[:, np.newaxis] - float(center_array[0])) ** 2
-        + (cell_y[np.newaxis, :] - float(center_array[1])) ** 2
-        <= body_radius**2
-    )
+    inside_body = (cell_x[:, np.newaxis] - float(center_array[0])) ** 2 + (
+        cell_y[np.newaxis, :] - float(center_array[1])
+    ) ** 2 <= body_radius**2
     cleared = np.asarray(mask, dtype=bool).copy()
     cleared_cell_count = int(np.count_nonzero(cleared & inside_body))
     cleared[inside_body] = False
@@ -386,9 +433,7 @@ def score_circular_trajectories_by_esdf(
         math.isclose(body_radius, float(rear_len), abs_tol=1e-9)
         and math.isclose(body_radius, float(half_w), abs_tol=1e-9)
     ):
-        raise ValueError(
-            "circular trajectory scorer requires one measured body radius"
-        )
+        raise ValueError("circular trajectory scorer requires one measured body radius")
 
     rows, columns = esdf_array.shape
     scores: list[float] = []
@@ -406,18 +451,11 @@ def score_circular_trajectories_by_esdf(
                 break
             x_grid = (x_world - float(origin_array[0])) / resolution
             y_grid = (y_world - float(origin_array[1])) / resolution
-            if (
-                x_grid < 0.0
-                or y_grid < 0.0
-                or x_grid >= rows
-                or y_grid >= columns
-            ):
+            if x_grid < 0.0 or y_grid < 0.0 or x_grid >= rows or y_grid >= columns:
                 invalid_or_outside = True
                 closest_step = step_index
                 break
-            center_clearance = float(
-                esdf_array[int(x_grid), int(y_grid)]
-            )
+            center_clearance = float(esdf_array[int(x_grid), int(y_grid)])
             if not math.isfinite(center_clearance) or center_clearance < 0.0:
                 invalid_or_outside = True
                 closest_step = step_index
@@ -427,21 +465,13 @@ def score_circular_trajectories_by_esdf(
                 minimum_body_clearance = body_clearance
                 closest_step = step_index
 
-        if (
-            invalid_or_outside
-            or closest_step < 0
-            or minimum_body_clearance <= 0.0
-        ):
+        if invalid_or_outside or closest_step < 0 or minimum_body_clearance <= 0.0:
             scores.append(float("inf"))
         elif minimum_body_clearance > safety_radius:
             scores.append(0.0)
         else:
-            decay_factor = (
-                len(trajectory) - closest_step
-            ) / len(trajectory)
-            scores.append(
-                decay_factor / (minimum_body_clearance + 1e-3)
-            )
+            decay_factor = (len(trajectory) - closest_step) / len(trajectory)
+            scores.append(decay_factor / (minimum_body_clearance + 1e-3))
         occupied_points.append(closest_step)
     return scores, occupied_points
 
@@ -491,11 +521,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.05,
         help="additional planner ESDF margin outside the body",
     )
+    parser.add_argument(
+        "--sensor-sync-slop-s",
+        type=float,
+        default=DEFAULT_SENSOR_SYNC_SLOP_S,
+        help=(
+            "maximum header-stamp skew for one depth/odometry planning pair; "
+            "headerless messages remain rejected"
+        ),
+    )
     return parser
 
 
 def main() -> int:
     args, ros_args = build_parser().parse_known_args()
+    if (
+        not math.isfinite(args.sensor_sync_slop_s)
+        or not 0.0 < args.sensor_sync_slop_s <= 0.20
+    ):
+        raise SystemExit("--sensor-sync-slop-s must be in (0, 0.20] seconds")
     if args.robot_profile == "yunji-water":
         values = (
             args.body_radius_m,
@@ -509,13 +553,17 @@ def main() -> int:
             or not 0.0 <= args.camera_forward_m <= args.body_radius_m
             or not 0.02 <= args.safety_margin_m <= 0.30
         ):
-            raise SystemExit(
-                "Yunji planner geometry is outside deployment bounds"
-            )
+            raise SystemExit("Yunji planner geometry is outside deployment bounds")
 
     import rclpy
     from rclpy.executors import ExternalShutdownException
     from tinynav.core import planning_node
+
+    sensor_sync_provenance = install_bounded_approximate_sensor_sync(
+        planning_node,
+        slop_s=args.sensor_sync_slop_s,
+    )
+    install_guarded_planning_callback(planning_node)
 
     if args.robot_profile == "yunji-water":
         planning_node.GO2_CONFIG = planning_node.RobotConfig(
@@ -531,9 +579,7 @@ def main() -> int:
     planning_node.generate_predefined_trajectory_vocabularies = (
         forward_only_predefined_trajectory_vocabularies
     )
-    source_trajectory_generator = (
-        planning_node.generate_trajectory_library_3d
-    )
+    source_trajectory_generator = planning_node.generate_trajectory_library_3d
     source_trajectory_scorer = planning_node.score_trajectories_by_ESDF
     source_raycasting = planning_node.run_raycasting_loopy
     source_obstacle_builder = planning_node.build_obstacle_map
@@ -549,18 +595,11 @@ def main() -> int:
         transform = (
             raycast_kwargs["T_cam_to_world"]
             if "T_cam_to_world" in raycast_kwargs
-            else (
-                raycast_args[1]
-                if len(raycast_args) >= 2
-                else None
-            )
+            else (raycast_args[1] if len(raycast_args) >= 2 else None)
         )
         if transform is not None:
             transform_array = np.asarray(transform, dtype=np.float64)
-            if (
-                transform_array.shape == (4, 4)
-                and np.all(np.isfinite(transform_array))
-            ):
+            if transform_array.shape == (4, 4) and np.all(np.isfinite(transform_array)):
                 latest_planner_transform[0] = transform_array.copy()
             else:
                 latest_planner_transform[0] = None
@@ -590,18 +629,12 @@ def main() -> int:
         if transform is None:
             latest_footprint_clearing[0] = {
                 "current_footprint_clearing": False,
-                "current_footprint_clearing_reason": (
-                    "planner_transform_unavailable"
-                ),
+                "current_footprint_clearing_reason": ("planner_transform_unavailable"),
             }
             return obstacle_mask
-        center = (
-            transform[:3, 3]
-            - transform[:3, :3]
-            @ np.asarray(
-                planning_node.GO2_CONFIG.cam_offset_3d,
-                dtype=np.float64,
-            )
+        center = transform[:3, 3] - transform[:3, :3] @ np.asarray(
+            planning_node.GO2_CONFIG.cam_offset_3d,
+            dtype=np.float64,
         )
         cleared, clearing = clear_current_circular_footprint(
             obstacle_mask,
@@ -616,14 +649,10 @@ def main() -> int:
     def score_with_observability(*score_args, **score_kwargs):
         nonlocal last_score_state, last_score_log_monotonic
         if args.robot_profile == "yunji-water":
-            scores, occupied_points = (
-                score_circular_trajectories_by_esdf(
-                    *score_args, **score_kwargs
-                )
+            scores, occupied_points = score_circular_trajectories_by_esdf(
+                *score_args, **score_kwargs
             )
-            score_classification = (
-                "deployment_measured_circle_esdf_scores"
-            )
+            score_classification = "deployment_measured_circle_esdf_scores"
         else:
             scores, occupied_points = source_trajectory_scorer(
                 *score_args, **score_kwargs
@@ -634,9 +663,7 @@ def main() -> int:
         # state using the wrapper's most recently generated lattice.
         parameters = latest_parameters[0]
         if parameters is None:
-            raise RuntimeError(
-                "source scorer ran before trajectory generation"
-            )
+            raise RuntimeError("source scorer ran before trajectory generation")
         summary = trajectory_score_summary(
             scores,
             parameters,
@@ -654,8 +681,7 @@ def main() -> int:
         now = time.monotonic()
         if (
             state != last_score_state
-            or now - last_score_log_monotonic
-            >= SCORE_OBSERVABILITY_INTERVAL_S
+            or now - last_score_log_monotonic >= SCORE_OBSERVABILITY_INTERVAL_S
         ):
             print(json.dumps(summary, sort_keys=True), flush=True)
             last_score_state = state
@@ -687,7 +713,7 @@ def main() -> int:
     )
     provenance.update(
         {
-            "schema_version": "focus-progress-capable-tinynav-planner-v6",
+            "schema_version": "focus-progress-capable-tinynav-planner-v7",
             "adaptation": (
                 "source_reverse_and_exact_stationary_vocabularies_removed_"
                 "with_collision_scored_stopped_prefixes_and_measured_"
@@ -708,15 +734,16 @@ def main() -> int:
             ),
             "external_obstacle_cells_preserved": True,
             "source_rectangle_scorer_unchanged_for_wsj": True,
+            **sensor_sync_provenance,
+            "synchronized_frame_exception_policy": (
+                "skip_invalid_pair_keep_process_alive_and_allow_receiver_"
+                "stale_path_gate_to_reject"
+            ),
             "yunji_body_radius_m": (
-                args.body_radius_m
-                if args.robot_profile == "yunji-water"
-                else None
+                args.body_radius_m if args.robot_profile == "yunji-water" else None
             ),
             "yunji_safety_margin_m": (
-                args.safety_margin_m
-                if args.robot_profile == "yunji-water"
-                else None
+                args.safety_margin_m if args.robot_profile == "yunji-water" else None
             ),
         }
     )
