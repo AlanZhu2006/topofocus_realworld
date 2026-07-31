@@ -23,7 +23,9 @@ authority.
 ## System architecture
 
 <p align="center">
-  <img src="media/image/system_architecture.png" width="1000" alt="TopoFocus architecture: RTX 4090 Hub coordinating Robot 0 and Robot 1 while planning, control and safety remain robot-local">
+  <a href="media/image/system_architecture.png">
+    <img src="media/image/system_architecture.png" width="100%" alt="TopoFocus system architecture: shared semantic perception and VLM coordination on the RTX 4090 Hub with robot-local planning, control and safety">
+  </a>
 </p>
 
 ## Real-world deployment
@@ -40,11 +42,70 @@ reachability and data-freshness checks gate raw `/cmd_vel` before an
 independent Unitree SDK2 or WATER watchdog. Any invalid or all-collision state
 stops locally.
 
+### Clean-room deployment
+
+The Hub and Go2 Jetson use different operating systems and architectures, so
+deployment is one reviewed command per host rather than one command that
+silently changes every machine. Clone the same Git revision on both hosts:
+
+```bash
+git clone https://github.com/AlanZhu2006/topofocus_realworld.git
+cd topofocus_realworld
+git rev-parse HEAD
+```
+
+First run the repository-only gate. It checks the deployment contract and
+file hashes; it does not install software or connect to a robot:
+
 ```bash
 python3 hub/tools/verify_public_baseline.py --workspace .
 ```
 
-[Robot 0 reproducibility guide](docs/ROBOT0_REPRODUCIBLE_BASELINE.md) ·
+On the Ubuntu 22.04 RTX 4090 Hub, the first command prints the complete plan
+and the second creates the locked Python/CUDA environment, obtains the pinned
+real-world models after license acknowledgement, builds Detectron2 and runs
+the Hub tests:
+
+```bash
+bash hub/scripts/bootstrap_gpu_hub_cleanroom.sh
+bash hub/scripts/bootstrap_gpu_hub_cleanroom.sh \
+  --apply \
+  --fetch-models \
+  --accept-model-licenses
+```
+
+On Robot 0, first flash the recorded JetPack 6.2.1/L4T 36.4.7 image. From the
+same repository revision on the Jetson Orin NX, review and apply the software
+and dedicated Go2 Ethernet plans:
+
+```bash
+bash hub/robot_overlay/bootstrap_robot0_cleanroom.sh
+bash hub/robot_overlay/bootstrap_robot0_cleanroom.sh --apply
+
+bash hub/robot_overlay/configure_go2_network.sh
+bash hub/robot_overlay/configure_go2_network.sh --apply
+```
+
+Then run the no-motion hardware gate:
+
+```bash
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/topofocus"
+set -a
+source "$config_root/robot-0.env"
+set +a
+source "$TINYNAV_SETUP"
+"$TINYNAV_PYTHON" hub/robot_overlay/verify_robot0_cleanroom.py \
+  --level hardware
+```
+
+The installers do not start ROS, planning, DDS actuation or robot motion.
+Provision the runtime token separately as a mode-600 file, then create a fresh
+cross-robot calibration/session and obtain explicit per-run motion
+authorization through the linked operator workflow.
+
+[Clean-room RTX 4090 + Unitree Go2 deployment](docs/ROBOT0_REPRODUCIBLE_BASELINE.md) ·
+[Calibration and supervised-run workflow](hub/docs/ONECLICK_SESSION_WORKFLOW.md) ·
+[Reproduction levels](docs/REPRODUCE.md) ·
 [Machine-readable deployment contract](hub/config/deployments/realworld_dual_robot_v1.json)
 
 ## Cross-robot calibration
@@ -283,3 +344,103 @@ the operator-provided independently measured shortest feasible path
 
 The long-range setting retains the plant target while increasing travel
 distance and requiring both robots to explore and coordinate across the route.
+
+| Trials | Success | SR | Mean source-compatible SPL | Mean Standard SPL |
+| ---: | ---: | ---: | ---: | ---: |
+| `5` | `3` | `0.600000` | `0.365962` | `0.546194` |
+
+Both means count the two time-limit failures at zero contribution. Standard
+SPL uses the independently measured approximate shortest feasible path
+`L≈14 m`.
+
+### Explored semantic map
+
+<p align="center">
+  <img src="media/image/experiment_3_map.png" width="560" alt="Experiment 3 explored semantic map with Robot 0 and Robot 1 trajectories">
+</p>
+
+### Real-robot rollouts
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Formal 01 · FAILURE</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene03_formal_01_preview.gif" width="440" alt="Formal 01 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene03_formal_01_dashboard.gif" width="440" alt="Formal 01 failure dashboard"><br>
+      Exploration reached the test-time limit before finding and reaching a
+      verified plant target; both robot trajectories were retained.<br>
+      <a href="media/demo/scene03_formal_01_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene03_formal_01_dashboard.mp4">Dashboard</a>
+    </td>
+    <td width="50%" align="center">
+      <strong>Formal 02 · FAILURE</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene03_formal_02_preview.gif" width="440" alt="Formal 02 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene03_formal_02_dashboard.gif" width="440" alt="Formal 02 failure dashboard"><br>
+      Exploration reached the test-time limit before finding and reaching a
+      verified plant target; both robots finish in synchronized HOLD.<br>
+      <a href="media/demo/scene03_formal_02_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene03_formal_02_dashboard.mp4">Dashboard</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Formal 03 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene03_formal_03_preview.gif" width="440" alt="Formal 03 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene03_formal_03_dashboard.gif" width="440" alt="Formal 03 dashboard"><br>
+      Both robots explore long-range frontiers; Robot 1 switches to the plant
+      semantic region and reaches the target, confirmed by the operator.<br>
+      <a href="media/demo/scene03_formal_03_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene03_formal_03_dashboard.mp4">Dashboard</a>
+    </td>
+    <td width="50%" align="center">
+      <strong>Formal 04 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene03_formal_04_preview.gif" width="440" alt="Formal 04 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene03_formal_04_dashboard.gif" width="440" alt="Formal 04 dashboard"><br>
+      Robot 0 advances along an independent frontier while Robot 1 completes
+      the plant semantic route and auto-ARRIVED, confirmed by the operator.<br>
+      <a href="media/demo/scene03_formal_04_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene03_formal_04_dashboard.mp4">Dashboard</a>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <strong>Formal 05 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene03_formal_05_preview.gif" width="440" alt="Formal 05 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene03_formal_05_dashboard.gif" width="440" alt="Formal 05 dashboard"><br>
+      Coordinated role assignment preserves Robot 0 observations while Robot 1
+      completes long-range exploration, switches to the plant semantic region
+      and auto-ARRIVED, confirmed by the operator.<br>
+      <a href="media/demo/scene03_formal_05_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene03_formal_05_dashboard.mp4">Dashboard</a>
+    </td>
+  </tr>
+</table>
+
+### Per-run metrics
+
+| Run | Result | Robot 0 trajectory | Robot 1 trajectory | Source-compatible SPL | Standard SPL |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Formal 01 | FAILURE | `18.577107 m` | `14.162235 m` | `0.0` | `0.0` |
+| Formal 02 | FAILURE | `5.754388 m` | `17.902160 m` | `0.0` | `0.0` |
+| Formal 03 | SUCCESS | `9.037490 m` | `11.606679 m` | `0.689524` | `1.000000` |
+| Formal 04 | SUCCESS | `9.391253 m` | `13.010775 m` | `0.693557` | `1.000000` |
+| Formal 05 | SUCCESS | `0.006053 m` | `19.152683 m` | `0.446727` | `0.730968` |
+
+[Full five-experiment archive](audit/SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md)
+· [Formal 01 failure record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md)
+· [Formal 02 failure record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260731.md)
+· [Formal 03 success record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_03_SUCCESS_20260731.md)
+· [Formal 04 success record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_04_SUCCESS_20260731.md)
+· [Formal 05 success record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260731.md)
+· [Machine-readable results](manifests/scene03_plant_formal_experiments_20260731.json)
+· [Media manifest](media/README.md)

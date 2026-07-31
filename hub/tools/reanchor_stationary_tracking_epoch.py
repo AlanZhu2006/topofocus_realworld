@@ -332,17 +332,21 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
         expected_robot_id=args.robot_id,
         expected_transform_version=old_version,
     )
+    post_transform_version = args.post_transform_version or old_version
     post_matrices, post_evidence = load_observations(
         sequence_paths(
             args.spool, first=args.post_first, last=args.post_last
         ),
         workspace=workspace,
         expected_robot_id=args.robot_id,
-        expected_transform_version=old_version,
+        expected_transform_version=post_transform_version,
     )
     if pre_evidence[-1]["capture_time_ns"] >= post_evidence[0]["capture_time_ns"]:
         raise ValueError("post-restart observations do not follow pre-restart ones")
     pre_anchor = anchor_pose(pre_matrices)
+    post_raw_anchor = anchor_pose(post_matrices)
+    if args.post_observations_are_raw_tracking:
+        post_matrices = [old_transform @ matrix for matrix in post_matrices]
     post_anchor = anchor_pose(post_matrices)
     pre_stability = stability_metrics(pre_matrices, pre_anchor)
     post_stability = stability_metrics(post_matrices, post_anchor)
@@ -412,6 +416,12 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
         "operator_confirmation": args.operator_confirmation,
         "tracking_restart_boot_id": args.tracking_restart_boot_id,
         "old_transform_version": old_version,
+        "post_observation_transform_version": post_transform_version,
+        "post_observation_pose_model": (
+            "raw_tracking_normalized_with_old_shared_transform"
+            if args.post_observations_are_raw_tracking
+            else "old_shared_transform_already_applied"
+        ),
         "new_transform_version": args.new_transform_version,
         "pre_restart_observations": pre_evidence,
         "post_restart_observations": post_evidence,
@@ -420,6 +430,9 @@ def build_artifact(args: argparse.Namespace) -> dict[str, object]:
         ),
         "post_restart_anchor_reported_with_old_transform": matrix_wire(
             post_anchor, child_frame=tracking_child_frame
+        ),
+        "post_restart_anchor_as_recorded": matrix_wire(
+            post_raw_anchor, child_frame=tracking_child_frame
         ),
         "planar_shared_frame_correction": matrix_wire(
             correction, child_frame="previous_shared_world"
@@ -521,6 +534,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pre-last", type=int, required=True)
     parser.add_argument("--post-first", type=int, required=True)
     parser.add_argument("--post-last", type=int, required=True)
+    parser.add_argument(
+        "--post-transform-version",
+        default=None,
+        help=(
+            "transform version carried by post-restart observations; defaults "
+            "to the source calibration's old version"
+        ),
+    )
+    parser.add_argument(
+        "--post-observations-are-raw-tracking",
+        action="store_true",
+        help=(
+            "post-restart poses are raw tracking poses; normalize them with "
+            "the source shared transform before computing the handover"
+        ),
+    )
     parser.add_argument("--new-calibration-id", required=True)
     parser.add_argument("--new-transform-version", required=True)
     parser.add_argument("--tracking-restart-boot-id", required=True)

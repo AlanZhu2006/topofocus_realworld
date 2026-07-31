@@ -26,21 +26,38 @@ the same committed `hub/src/focus_hub` and `hub/robot_overlay` bytes. The
 scripts verify every tracked file in those two trees through the existing
 SSH/tmux sessions before touching a robot process.
 
-Required defaults:
+Create one persistent SSH/tmux shell per robot. The Robot 0 tunnel exposes the
+Hub and preview only on Robot 0 loopback:
 
-```text
-WSJ SSH pane     focus_wsj_tunnel_20260722:sensor-audit
-Yunji SSH pane   focus_yunji_tunnel_20260722:sensor-audit
-WSJ release      /home/nvidia/topofocus_buildmap_v2_20260723
-Yunji release    /home/nyu/topofocus_buildmap_v2_20260723
-Hub API          127.0.0.1:8188
-GLM              127.0.0.1:31511/v1
-Foxglove         ports 8765 / 8766
+```bash
+tmux new-session -d -s focus_robot0_ssh -n shell \
+  "ssh -o ExitOnForwardFailure=yes \
+    -R 127.0.0.1:18089:127.0.0.1:8188 \
+    -R 127.0.0.1:18766:127.0.0.1:8766 \
+    <robot0-ssh-destination>"
+tmux new-session -d -s focus_robot1_ssh -n shell \
+  "ssh -o ExitOnForwardFailure=yes \
+    -R 127.0.0.1:18089:127.0.0.1:8188 \
+    <robot1-ssh-destination>"
 ```
 
-Override a deployment value only through its documented `FOCUS_*`
-environment variable. A session records the resolved values; debug and live
-do not silently fall back to a different root, map, transform or tunnel.
+Resolve the deployment paths on each host and export them explicitly. These
+values are runtime configuration and are never committed:
+
+```bash
+export FOCUS_ROBOT0_SSH_TMUX=focus_robot0_ssh:shell
+export FOCUS_ROBOT1_SSH_TMUX=focus_robot1_ssh:shell
+export FOCUS_ROBOT0_RELEASE_ROOT=<absolute-robot0-repository-root>
+export FOCUS_ROBOT1_RELEASE_ROOT=<absolute-robot1-repository-root>
+export FOCUS_ROBOT0_ENV_FILE=<absolute-robot0-env-file>
+export FOCUS_ROBOT0_BASE_CAMERA_CALIBRATION=<absolute-robot0-camera-base-json>
+export FOCUS_ROBOT1_BASE_CAMERA_CALIBRATION=<absolute-robot1-camera-base-json>
+```
+
+The Hub API is `127.0.0.1:8188`, GLM is
+`127.0.0.1:31511/v1`, and Foxglove uses ports 8765/8766. A session records all
+resolved values; debug and live never silently fall back to another release,
+map, transform or tunnel.
 
 ## 1. One-command board calibration and debug
 
@@ -48,8 +65,6 @@ Keep both robots stationary and make the existing symmetric 7 × 10 circle
 board visible to both cameras:
 
 ```bash
-cd /home/asus/Research/focus_realworld_workspace
-
 SESSION_ID="scene02-plant-$(date +%Y%m%d-%H%M%S)"
 bash hub/scripts/calibrate_realworld_session.sh \
   --session-id "$SESSION_ID" \
@@ -253,12 +268,14 @@ a certification of robot-local obstacle detours.
 Yunji's deployment controller also handles a robot-relative lookahead that
 temporarily falls behind after a local replan. Translation remains exactly
 zero while it turns in one latched direction at no more than `0.35 rad/s`.
-Normal forward tracking must return within 12 seconds; otherwise the receiver
-reports `LOCAL_PATH_REVERSE_REQUIRED` and retains guarded zero output. Explicit
-frontier path/progress rejections are robot-local: that robot transitions to
-HOLD while a healthy peer retains its existing leg. Transform, localization,
-e-stop, semantic and protocol failures remain episode-wide fail-closed
-conditions.
+Both robot launchers verify the forward-only planner wrapper, so Path geometry
+alone cannot be labelled as executable reverse motion. A genuinely negative
+controller Twist still fails closed. A turn that does not converge is bounded
+by the receiver's fixed-goal progress watchdog and reported as
+`LOCAL_PLANNER_NO_PROGRESS`. Explicit frontier path/progress rejections are
+robot-local: that robot transitions to HOLD while a healthy peer retains its
+existing leg. Transform, localization, e-stop, semantic and protocol failures
+remain episode-wide fail-closed conditions.
 
 This guard was added after the 2026-07-25 physical run assigned distinct
 frontiers whose shared-frame routes nevertheless intersected. The observed

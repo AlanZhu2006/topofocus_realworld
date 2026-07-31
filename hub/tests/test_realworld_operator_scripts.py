@@ -87,8 +87,13 @@ def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():
 
 def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():
     source = (SCRIPTS / "realworld_oneclick.sh").read_text()
+    stopper = (
+        OVERLAY / "stop_wsj_live_command_path.sh"
+    ).read_text()
 
-    assert source.count("timeout 5 ros2 topic pub --once") == 8
+    assert source.count("bash $WSJ_STOPPER") == 4
+    assert stopper.count("timeout 5 ros2 topic pub --once") == 2
+    assert "/focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}'" in stopper
     assert "tmux rename-session" in source
     assert "run_glm_offline.sh" in source
     assert "GLM endpoint is live but not owned by a verified GLM tmux." in source
@@ -133,10 +138,18 @@ def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
     assert source.index("INITIAL_BOARD_FIT_READY") < source.index(
         "CALIBRATION_HOLDOUT_PASSED"
     )
-    assert source.count("read -r -p") == 1
+    assert source.count("read -r -p") == 2
+    assert "Inspect BOTH Foxglove camera previews." in source
+    assert source.index("CALIBRATION_PREVIEW_READY") < source.index(
+        "Inspect BOTH Foxglove camera previews."
+    )
+    assert source.index("Inspect BOTH Foxglove camera previews.") < source.index(
+        "Capturing the initial fit from this fresh read-only sensor epoch."
+    )
     assert "Capturing the initial fit from this fresh read-only sensor epoch." in source
     assert 'row.get("camera_ready") is not True' in source
     assert "--min-board-spacing-px" in source
+    assert "--stationary-camera-holdout" in source
     assert "BOARD_TOO_SMALL" in source
     assert "ensure_ssh_tmux_shell" in source
     assert "tmux respawn-pane -k" in source
@@ -154,6 +167,56 @@ def test_wsj_calibration_uses_one_native_infrared_geometry_frame():
     assert "--rgb-topic /camera/camera/color/image_raw" not in launcher
     assert "--register-rgb-to-depth" not in launcher
     assert "no RGB-to-depth mosaic can create a second board" in launcher
+
+
+def test_wsj_calibration_retries_publisher_discovery_without_replacing_sender():
+    launcher = (OVERLAY / "start_wsj_calibration_observation.sh").read_text()
+
+    sender_pid_probe = launcher.index("calibration_sender_pid()")
+    python_executable_gate = launcher.index(
+        '[[ "${executable##*/}" == python* ]]',
+        sender_pid_probe,
+    )
+    prewarm = launcher.index(
+        'until [[ -n "$(calibration_sender_pid)" ]]'
+    )
+    sender_pid = launcher.index(
+        'expected_calibration_sender_pid="$(calibration_sender_pid)"'
+    )
+    first_baseline = launcher.index(
+        'calibration_epoch_baseline="$(latest_hub_sequence)"'
+    )
+    first_recovery = launcher.index("restart_calibration_publishers initial")
+    retry = launcher.index(
+        "restart_calibration_publishers rediscovery_retry"
+    )
+
+    assert (
+        sender_pid_probe
+        < python_executable_gate
+        < prewarm
+        < sender_pid
+        < first_baseline
+        < first_recovery
+        < retry
+    )
+    assert "until pgrep -af" not in launcher
+    assert (
+        'current_calibration_sender_pid="$(calibration_sender_pid)"'
+        in launcher
+    )
+    assert "WSJ calibration sender PID changed during" in launcher
+    assert (
+        'wait_for_calibration_sequence_advance '
+        '"$calibration_epoch_baseline" 45'
+        in launcher
+    )
+    assert "sender_pid_preserved=true" in launcher
+    assert (
+        "No fresh WSJ calibration observation arrived after bounded "
+        "publisher rediscovery."
+        in launcher
+    )
 
 
 def test_wsj_formal_observation_replaces_non_color_calibration_preview():
@@ -215,6 +278,12 @@ def test_wsj_formal_observation_recovers_only_a_proven_stale_sender_reader():
     assert "fresh_reader_can_assemble_observation" in launcher
     assert "recover_stale_sender_reader" in launcher
     assert "WSJ_STALE_SENDER_READER_RECOVERED" in launcher
+    assert "active_receipt_frames_seen" in launcher
+    assert "sender_frame_error_since" in launcher
+    assert (
+        "Activate a Hub session with the same transform/calibration contract"
+        in launcher
+    )
     assert "probe_wsj_observation_sync.py" in launcher
     assert "observed_read_only_fresh_dds_reader" in probe
     assert '"robot_commands_issued": False' in probe
@@ -275,6 +344,17 @@ def test_yunji_calibration_recovers_only_the_readonly_odin_driver():
     assert "/api/joy_control" not in network
 
 
+def test_odin_verifier_retries_transient_ros_graph_discovery():
+    verifier = (OVERLAY / "verify_odin1.sh").read_text()
+
+    assert "ODIN_TOPIC_READY_TIMEOUT_S:-12" in verifier
+    assert "wait_for_live_topic()" in verifier
+    assert "timeout 4 ros2 topic list -t" in verifier
+    assert 'timeout 5 ros2 topic echo --once "${topic}"' in verifier
+    assert "while (( SECONDS < deadline ))" in verifier
+    assert "ros2 daemon stop" not in verifier
+
+
 def test_every_yunji_observation_entry_verifies_the_water_link():
     for name in (
         "run_yunji_mapping_observation.sh",
@@ -316,7 +396,7 @@ def test_wsj_planner_and_controller_reload_wait_out_stale_dds_identity():
     assert "_NODE_.*_UNKNOWN_" in source
     assert "run_yunji_tinynav_planner.py" in source
     assert "--robot-profile source-default" in source
-    assert "--rotate-first-on-reverse" not in source
+    assert "--rotate-first-on-reverse" in source
     assert "--stabilize-large-turn" in source
     assert source.index("remain-on-exit on") < source.index(
         "tmux respawn-pane -t"
@@ -661,7 +741,10 @@ def test_robot_sender_liveness_is_bounded_without_duplicate_wsj_probes():
         oneclick.index("ensure_local_services_parallel()")
     ]
     assert "tinynav_semantic_nav_auto:hub-sender" not in read_only_start
-    assert "tinynav_semantic_nav_auto:calibration-sender" in read_only_start
+    assert "bash $WSJ_STOPPER" in read_only_start
+    assert "calibration-sender" in (
+        OVERLAY / "stop_wsj_live_command_path.sh"
+    ).read_text()
     assert "fresh_topic_once" not in wsj
     assert "timeout -k 2 15 ros2 topic echo" not in wsj
     assert "--fresh-camera-info-topic /camera/camera/color/camera_info" in wsj
@@ -725,6 +808,21 @@ def test_wsj_publisher_recovery_preserves_sender_and_requires_reanchor():
         'wait_for_sender_tuple_advance "$parked_tuple_baseline"'
     )
     assert "WSJ DDS sender PID changed during publisher recovery" in recovery
+    assert "--capture-stationary-reanchor" in recovery
+    assert (
+        "WSJ_STATIONARY_REANCHOR_SUBSCRIBER_PREWARMED" in recovery
+    )
+    capture_start = recovery.index(
+        "start_stationary_reanchor_capture"
+    )
+    marker_started = recovery.index(
+        "write_reanchor_marker recovery_started"
+    )
+    assert capture_start < marker_started < stop_perception
+    assert "focus-wsj-stationary-reanchor-capture-v1" in recovery
+    assert "STATIONARY_REANCHOR_PRE_RANGE" in recovery
+    assert "STATIONARY_REANCHOR_POST_RANGE" in recovery
+    assert '"camera_preserved": True' in recovery
 
 
 def test_wsj_mapping_only_launcher_has_stationary_reanchor_mode():

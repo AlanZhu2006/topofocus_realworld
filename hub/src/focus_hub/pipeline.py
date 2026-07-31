@@ -37,6 +37,9 @@ from .pose_gate import (
 from .semantic_yolo import SemanticYoloConfig, reinforce_rednet_prediction
 
 
+POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER = 3.0
+
+
 @dataclass(frozen=True)
 class SpooledObservation:
     sequence: int
@@ -322,8 +325,16 @@ class SpoolMappingPipeline:
             >= self.ground_drift_stationary_rotation_deg * 2.0
         )
         bounded_local_plane = (
-            tilt_delta_deg <= self.max_ground_tilt_delta_deg * 2.0
-            and height_delta_m <= self.max_ground_height_delta_m * 2.0
+            tilt_delta_deg
+            <= (
+                self.max_ground_tilt_delta_deg
+                * POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER
+            )
+            and height_delta_m
+            <= (
+                self.max_ground_height_delta_m
+                * POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER
+            )
         )
         return motion_recent and motion_material and bounded_local_plane
 
@@ -452,6 +463,24 @@ class SpoolMappingPipeline:
                 0.0,
                 0.0,
             )
+        if self.keyframes is not None:
+            discontinuity = self.keyframes.observe(
+                observation.T_shared_camera
+            )
+            if discontinuity is not None:
+                self.pose_jump_events += 1
+                self.skipped_non_keyframes += 1
+                if self.halt_on_pose_jump:
+                    self.mapping_blocked_kind = "pose_jump"
+                    self.mapping_blocked_reason = (
+                        "pose discontinuity requires a fresh map session: "
+                        f"sequence={observation.sequence}, "
+                        f"translation_m={discontinuity.translation_m:.3f}, "
+                        f"rotation_deg={discontinuity.rotation_deg:.2f}"
+                    )
+                    self.trajectory_xy_m = [self.last_camera_xy]
+                    self.robot_trajectory_xy_m = [self.last_robot_xy]
+                return discontinuity
         if (
             not self.trajectory_xy_m
             or np.linalg.norm(
@@ -485,6 +514,21 @@ class SpoolMappingPipeline:
         # consistency checks.
         ground_candidate = None
         if self.ground_plane_config is not None:
+            capture_time_ns = int(observation.metadata.capture_time_ns)
+            if ground_pose_moving:
+                # Post-motion floor rebasing must be justified by the
+                # observed robot trajectory, not only by those moving frames
+                # whose plane fit also happened to cross the drift gate.
+                # A quadruped can walk with an in-gate floor estimate and
+                # settle into a bounded, stable pitch/height offset only
+                # after stopping. Recording all material pose motion lets
+                # that stable local plane use the existing temporal,
+                # consistency and bounded rebase checks below.
+                self._record_ground_drift_motion(
+                    capture_time_ns=capture_time_ns,
+                    translation_m=ground_pose_translation_m,
+                    rotation_deg=ground_pose_rotation_deg,
+                )
             ground_candidate = fit_ground_candidate(
                 depth_points_world(
                     observation,
@@ -559,14 +603,8 @@ class SpoolMappingPipeline:
                 # stops and then latches on the configured stationary run.
                 self.ground_drift_frames += 1
                 self.skipped_non_keyframes += 1
-                capture_time_ns = int(observation.metadata.capture_time_ns)
                 if ground_pose_moving:
                     self.ground_drift_motion_deferred_frames += 1
-                    self._record_ground_drift_motion(
-                        capture_time_ns=capture_time_ns,
-                        translation_m=ground_pose_translation_m,
-                        rotation_deg=ground_pose_rotation_deg,
-                    )
                     self._reset_ground_drift_confirmation()
                     self.last_ground_reason = "drift_deferred_while_moving"
                     return KeyframeDecision(
@@ -689,23 +727,9 @@ class SpoolMappingPipeline:
         if self.keyframes is None:
             decision = KeyframeDecision(True, "unfiltered", 0.0, 0.0, 0.0)
         else:
-            decision = self.keyframes.evaluate(
+            decision = self.keyframes.select_keyframe(
                 observation.T_shared_camera, observation.metadata.capture_time_ns
             )
-        if decision.pose_jump:
-            self.pose_jump_events += 1
-            self.skipped_non_keyframes += 1
-            if self.halt_on_pose_jump:
-                self.mapping_blocked_kind = "pose_jump"
-                self.mapping_blocked_reason = (
-                    "pose discontinuity requires a fresh map session: "
-                    f"sequence={observation.sequence}, "
-                    f"translation_m={decision.translation_m:.3f}, "
-                    f"rotation_deg={decision.rotation_deg:.2f}"
-                )
-                self.trajectory_xy_m = [self.last_camera_xy]
-                self.robot_trajectory_xy_m = [self.last_robot_xy]
-            return decision
         if not decision.accept:
             self.skipped_non_keyframes += 1
             return decision
@@ -1025,10 +1049,12 @@ class SpoolMappingPipeline:
                         self.ground_drift_stationary_rotation_deg * 2.0
                     ),
                     "maximum_tilt_delta_deg": (
-                        self.max_ground_tilt_delta_deg * 2.0
+                        self.max_ground_tilt_delta_deg
+                        * POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER
                     ),
                     "maximum_height_delta_m": (
-                        self.max_ground_height_delta_m * 2.0
+                        self.max_ground_height_delta_m
+                        * POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER
                     ),
                     "plane_consistency_tolerance_deg": (
                         self.max_ground_tilt_delta_deg * 0.5

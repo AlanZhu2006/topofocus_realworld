@@ -321,6 +321,7 @@ def test_gravity_board_calibrator_supports_direct_camera_pose():
     assert "--min-board-spacing-px" in result.stdout
     assert "--min-holdout-board-translation-m" in result.stdout
     assert "--min-holdout-board-rotation-deg" in result.stdout
+    assert "--stationary-camera-holdout" in result.stdout
 
 
 def test_gravity_board_calibrator_measures_holdout_rotation():
@@ -341,6 +342,31 @@ def test_gravity_board_calibrator_measures_holdout_rotation():
     ]
 
     assert module.rotation_delta_deg(first, second) == pytest.approx(12.0)
+
+
+def test_gravity_board_calibrator_freezes_operator_confirmed_static_camera():
+    path = TOOLS / "calibrate_gravity_shared_frame_via_board.py"
+    spec = importlib.util.spec_from_file_location(
+        "focus_test_gravity_board_stationary_holdout", path
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    fit_camera = np.eye(4)
+    drifted_camera = np.eye(4)
+    drifted_camera[:3, 3] = [0.18, -0.03, 0.0]
+    camera_from_board = np.eye(4)
+    camera_from_board[:3, 3] = [0.25, 1.4, 0.1]
+    recorded_board = drifted_camera @ camera_from_board
+
+    frozen = module.holdout_board_with_fit_camera(
+        fit_camera,
+        drifted_camera,
+        recorded_board,
+    )
+
+    assert frozen == pytest.approx(fit_camera @ camera_from_board)
 
 
 def test_headless_launch_and_services_contain_no_motion_stack():

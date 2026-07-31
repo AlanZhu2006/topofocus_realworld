@@ -2,6 +2,7 @@
   "schema_version": "focus-realworld-deployment-v1",
   "baseline_id": "rtx4090-go2-orin-nx-dual-robot-v1",
   "recorded_on": "2026-07-30",
+  "last_verified_on": "2026-07-31",
   "publication": {
     "code_scope": "hub/",
     "intended_release": "public reproducible deployment package",
@@ -51,7 +52,7 @@
     "hub_semantic_runtime": {
       "python": "3.10.20",
       "pytorch": "2.8.0+cu128",
-      "torchvision": "0.23.0",
+      "torchvision": "0.23.0+cu128",
       "cuda_runtime": "12.8",
       "detectron2": "0.6",
       "classification": "observed",
@@ -74,7 +75,7 @@
       "classification": "source-derived",
       "source": "reconstructed TinyNav pyproject.toml and uv.lock"
     },
-    "wsj_middleware": {
+    "robot0_middleware": {
       "ros": "ROS 2 Humble",
       "rmw_package": "CycloneDDS 1.3.4",
       "python_cyclonedds_lock": "0.10.2",
@@ -83,7 +84,60 @@
       "camera_firmware": "5.17.0.10",
       "classification": "observed",
       "source": "docs/ROBOT0_BASELINE_20260721.md"
+    },
+    "cleanroom_install": {
+      "source_lock": "hub/config/deployments/robot0_cleanroom_sources_v1.json",
+      "hub_installer": "hub/scripts/bootstrap_gpu_hub_cleanroom.sh",
+      "robot0_installer": "hub/robot_overlay/bootstrap_robot0_cleanroom.sh",
+      "default_mode": "read-only plan",
+      "starts_robot_processes": false,
+      "downloads_simulator_data": false,
+      "classification": "source-derived"
+    },
+    "robot0_perception_runtime": {
+      "entry_point": "hub/robot_overlay/wsj_perception_entry.py",
+      "imu_rate_hz": 200,
+      "imu_dds_history_depth": 200,
+      "imu_dds_history_hard_maximum": 400,
+      "stale_or_incomplete_imu_policy": "reject optimization and stop motion",
+      "classification": "source-derived"
     }
+  },
+  "navigation_mapping": {
+    "implementation": "hub/robot_overlay/navigation_occupancy_mapper.py",
+    "upstream_snapshot_modified": false,
+    "authoritative_topic": "/semantic_mapping/occupancy_bev",
+    "unknown_cells_traversable": false,
+    "current_footprint_clear": {
+      "provenance": "measured base-camera transform plus source planner footprint",
+      "robot-0": {
+        "shape": "rectangle",
+        "front_m": 0.35,
+        "rear_m": 0.35,
+        "half_width_m": 0.35
+      },
+      "robot-1": {
+        "shape": "circle",
+        "radius_m": 0.283
+      },
+      "scope": "current physical footprint only; saved sensor map remains unchanged"
+    },
+    "keyframe_continuity": {
+      "fixed_translation_floor_m": 1.0,
+      "maximum_translation_speed_mps": 0.25,
+      "translation_margin_m": 0.2,
+      "dynamic_translation_cap_m": 1.5,
+      "fixed_rotation_floor_deg": 90.0,
+      "dynamic_rotation_cap_deg": 150.0,
+      "post_jump_pause_frames": 0
+    },
+    "robot1_max_rays_per_frame": 3000,
+    "startup_gate": {
+      "minimum_unique_occupancy_updates": 2,
+      "maximum_source_or_receive_interval_s": 4.0,
+      "reachable_component_cells_minimum": 1
+    },
+    "classification": "source-derived"
   },
   "planning": {
     "execution_location": "robot-local",
@@ -135,6 +189,14 @@
       "source": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
       "measured_base_camera_transform_required": true,
       "rotate_first_large_turn": true,
+      "path_turn_direction_latch": {
+        "enter_deg": 15.0,
+        "exit_deg": 8.0
+      },
+      "stable_path_heading_min_horizon_m": 0.3,
+      "short_path_heading_fallback": "current router waypoint",
+      "continuous_turn_timeout_s": 12.0,
+      "continuous_turn_timeout_result": "LOCAL_PLANNER_TURN_STALLED and fresh source replan",
       "linear_engagement_floor_mps": 0.18,
       "pose_timeout_s": 0.8,
       "path_timeout_s": 1.0,
@@ -142,7 +204,25 @@
         "threshold_m": 0.4,
         "duration_s": 0.6
       },
-      "reverse_segment_policy": "reject and stop"
+      "verified_forward_only_path_geometry": "zero-linear bounded heading alignment",
+      "turn_no_progress_authority": "12 s robot-local continuous-turn timeout plus receiver fixed-goal progress watchdog",
+      "negative_twist_policy": "never forward; use stable-heading zero-linear alignment or reject on missing authority/timeout"
+    },
+    "semantic_execution_confirmation": {
+      "source_semantic_map_preserved": true,
+      "minimum_component_cells": 3,
+      "component_area_alone_grants_execution_authority": false,
+      "independent_current_frame_detector_required_for_all_components": true,
+      "minimum_detector_confidence": 0.5,
+      "semantic_map_reinforcement": false,
+      "unconfirmed_policy": "execute the exact frozen exploration selection before the semantic override; HOLD if absent"
+    },
+    "frontier_goal_continuity": {
+      "source_switch_distance_cells": 25,
+      "source_switch_distance_m": 1.25,
+      "physical_completion_distance_cells": 10,
+      "physical_completion_distance_m": 0.5,
+      "policy": "retain the exact accepted frontier until its arrival disk, local ARRIVED, or explicit rejection"
     }
   },
   "control_contract": {
@@ -162,6 +242,7 @@
       "odometry freshness",
       "occupancy freshness",
       "trajectory freshness",
+      "bounded turn-stall latch",
       "reachability",
       "acknowledged controller pause"
     ],
@@ -172,7 +253,8 @@
         "watchdog_s": 0.35,
         "max_linear_x_mps": 0.2,
         "max_linear_y_mps": 0.0,
-        "max_angular_z_radps": 0.5
+        "max_angular_z_radps": 0.5,
+        "guarded_zero_release": "Move(0)+StopMove once after each active command"
       },
       "robot-1": {
         "implementation": "WATER /api/joy_control",
@@ -185,7 +267,13 @@
   "network_contract": {
     "robot_to_hub_endpoint": "http://127.0.0.1:18089",
     "transport_exposure": "loopback-only SSH tunnel",
-    "tokens_in_repository": false
+    "tokens_in_repository": false,
+    "robot0_unitree_lan": {
+      "default_interface": "eth0",
+      "host_address": "192.168.123.100/24",
+      "robot_address": "192.168.123.161",
+      "configuration_contacts_robot": false
+    }
   },
   "file_contracts": [
     {
@@ -196,14 +284,14 @@
     },
     {
       "path": "hub/robot_overlay/bootstrap_go2.sh",
-      "size_bytes": 6463,
-      "sha256": "7a21bb78e5cfe86b6d2b5ed1b1a107851a52dbdb25f84319bdb82d709518d980",
+      "size_bytes": 6456,
+      "sha256": "7db0f23bbb139504e6388d452f921f4139673a5806280fb7ed5a2d784458a432",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/verify_go2.sh",
-      "size_bytes": 5191,
-      "sha256": "df2629f39ea7a5108829824b266274cf158fc0285f99fb63d0df6546743a4297",
+      "size_bytes": 5177,
+      "sha256": "b417be3ba52e6146b8b707dd8f256f13cd6764c9fa8e5738caf21a888b0c730a",
       "classification": "source-derived"
     },
     {
@@ -220,32 +308,278 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-      "size_bytes": 35004,
-      "sha256": "b5649ca0d16b0bffef784c8ffec8f491afdecfe2941d30a410ddfd4bbefdff4f",
+      "size_bytes": 39420,
+      "sha256": "e8d2c650f7fb48de085fb3e50b8bf1283b4e0a861e460d7194473f3d52223d5a",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_yunji_v2.sh",
+      "size_bytes": 25902,
+      "sha256": "8e5f4bded655c21669e3a7cf03ab5281766df8f682b1fffece05776a57b79d24",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/navigation_occupancy_mapper.py",
+      "size_bytes": 13109,
+      "sha256": "0c4be18f1c4e6cf2365ead61ba79b8c1261cc4e8e54f4f54f87d4a895c5480d7",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/run_tinynav_buildmap_online_mapping.py",
+      "size_bytes": 8476,
+      "sha256": "8ddce95eae3876c89912634c370ce63b199e1eb3dd15f70425cfe4027ecbdffd",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/run_yunji_tinynav_component.sh",
+      "size_bytes": 1959,
+      "sha256": "70b6e38ebad026617f04298bd07e8593f1af1f53f668753b80d8a29b6d05b16d",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/verify_tinynav_data_plane.py",
+      "size_bytes": 49165,
+      "sha256": "e3edfdfef1704b1f4ab274e8f5a2fee2386bd72fdd99b25ae597dadf18fb29ad",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/navigation_occupancy.py",
+      "size_bytes": 5822,
+      "sha256": "896c14956752a47b9f6427e617ea50159516e736da7fd3a3ac7b6802ed49a9e2",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/rate_aware_keyframes.py",
+      "size_bytes": 8270,
+      "sha256": "52e8b1d1f9be1c570b6616e77ebf5bc5acc79d89693eca00e7512feb6db425f0",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/wsj_perception_entry.py",
+      "size_bytes": 3102,
+      "sha256": "d3c2dab2f68a58916c3cb79f71366ac94503b39a07282eee99bb9633b2571c74",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/tinynav_buildmap_goal_router.py",
-      "size_bytes": 49419,
-      "sha256": "c7121fe6bf42c4c2410e4b7255ad532da5e33d26c556e38d753294670578ddf2",
+      "size_bytes": 55467,
+      "sha256": "096a5c12b8f310eddf32231dd4e3c6deffcd210be356576752698495d908f13e",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/run_yunji_tinynav_planner.py",
-      "size_bytes": 20096,
-      "sha256": "4ff3cb8bfb09c148922d719fa76218dcc722dc4503b7d241a7bc731326beaa63",
+      "size_bytes": 26024,
+      "sha256": "16c3b3595650c37f32010aabdcb0a524fbd6519c84748d61ba8dfef9ecf8dd3b",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
-      "size_bytes": 61712,
-      "sha256": "3b4cc66bed5d8ac540e72ec69ed3b673e3512d3717e402d558defb9e94485d7a",
+      "size_bytes": 74633,
+      "sha256": "06ebb571457a2d6c341caf0c04cbc68bd131d4709ae9290b4a45e46515bfd6d3",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/v2_wsj_receiver.py",
-      "size_bytes": 180919,
-      "sha256": "e8bf15a3e736375b24b7ff844ad0ffb39b1b27ec43bc6d780bbcc5884e49b49d",
+      "size_bytes": 194178,
+      "sha256": "21e30e06df2df651c03895684c18d2fdb21cbdd88bb7e8f8f24865738840a761",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_goal_continuity.py",
+      "size_bytes": 16940,
+      "sha256": "1d5bab6d777409b1429fe2d6fdca96d4eed3497dd451ce2d3a561a9d6d2cc7ca",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_semantic_execution.py",
+      "size_bytes": 11672,
+      "sha256": "e005fed94e806d6dcb4f5157129388753df2f24d7c04387c5ff5344e0b596b5d",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_scene_batch.py",
+      "size_bytes": 65107,
+      "sha256": "2c335b97f945565589fa0c616c6658f25bb1e2413890ee2f200fbb7d20c368e8",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_episode_control.py",
+      "size_bytes": 6555,
+      "sha256": "05c3f62660d95ef5ab60466091e8a3677a3a89413844db0ef90838d81b0984e2",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_source_replan.py",
+      "size_bytes": 40574,
+      "sha256": "8e193a3d1e8a5c6cde0ac71b204b6acc2519ae8db88de78e68016ae37204f2ca",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/run_v2_source_episode.py",
+      "size_bytes": 134706,
+      "sha256": "0e95cdd5d8193d45606fe25851e226df7d88db34b781dab0db413b325f618c80",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/run_v2_supervised_episode.py",
+      "size_bytes": 18331,
+      "sha256": "0fdf480a1b22879cb64ee57bb68cbe79b0e9549dbc18e0e2ebd650acab16ddf8",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/build_v2_decision_batch.py",
+      "size_bytes": 4346,
+      "sha256": "3ef970ac817c416e18a77848e447b96564a2685e6cd9f1d148009b2f1b758adf",
+      "classification": "source-derived"
+    },
+    {
+      "path": "manifests/artifacts.json",
+      "size_bytes": 2345,
+      "sha256": "3d7d14c3c79e326ef3ddbbc1188bb045ba4b3667021e104d2ae0ea627d1d5489",
+      "classification": "observed"
+    },
+    {
+      "path": "hub/config/deployments/robot0_cleanroom_sources_v1.json",
+      "size_bytes": 6509,
+      "sha256": "b17c592ca304795f40edf9d8f966858ec2267d9ccca2bd00d56dca4de1601c5c",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/gpu_runtime/pyproject.toml",
+      "size_bytes": 1214,
+      "sha256": "64c1dfaf4a0cdc571c99924f4171314f2255633a503b232e0ee02307e9fac3e0",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/gpu_runtime/uv.lock",
+      "size_bytes": 219837,
+      "sha256": "6629b9e02cc3e50a54340ababb26cc0e194792eafcbf3361659ef2bc4b823eb2",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/bootstrap_robot0_cleanroom.sh",
+      "size_bytes": 16865,
+      "sha256": "a8ab7d6d215a3f33953655ed01e0e1795d6ddb10f9ab89f017858f9197ea2dd8",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/config/go2.env.example",
+      "size_bytes": 1386,
+      "sha256": "d0bef0901d7e2b45a43a76fe92b01a938409acd77f97ebe82355fde73ed06a5e",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/configure_go2_network.sh",
+      "size_bytes": 3975,
+      "sha256": "aff853864ca1a887bd6080603410a7efb5c1741147332bd6cc76079b385e22ab",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/recover_wsj_publishers_after_sender.sh",
+      "size_bytes": 21022,
+      "sha256": "f8aab7faf1b6b65a101064fabda8aecd24ae161964044384afe32e94063654a7",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/save_go2_buildmap.sh",
+      "size_bytes": 2141,
+      "sha256": "bf979d44490042fa425ed4cc6c9f985cc544c7e44c5f68e1e998bb093613f09b",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_go2_buildmap.sh",
+      "size_bytes": 4320,
+      "sha256": "24e83e3698e013ca8f86287a4e413185cd68e7304acc5428add38c18ecea5d86",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_go2_observation.sh",
+      "size_bytes": 5984,
+      "sha256": "f30dd35647002ed58dd3d3e06af70830ded8e9cd0472c2637087f149d39c149d",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_tinynav_buildmap_online_nav.sh",
+      "size_bytes": 9322,
+      "sha256": "8ec7e0ba65e9c40ea013ccf60a58ace5e681e7777f7c3d2f288652e131cc5a23",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_wsj_calibration_observation.sh",
+      "size_bytes": 20116,
+      "sha256": "a89639c319107f30278cdf5e3507d8df55264f8cb1748943a43fd772dd412a74",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_wsj_command_observation.sh",
+      "size_bytes": 29624,
+      "sha256": "f947a9de686239e8bbe98d547e40d55d52f9a06148012daee348fac13f53b3c0",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/stop_tinynav_buildmap_online_nav.sh",
+      "size_bytes": 2011,
+      "sha256": "35458b0e5d07f912fe64b4596ba123924b8b653dc54931e7231c2b9aa0e654ff",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/stop_wsj_live_command_path.sh",
+      "size_bytes": 1571,
+      "sha256": "178b10679af277d76c5d6e7a3cab97a05ba287e463dbe67196118ddb31873e45",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/verify_robot0_cleanroom.py",
+      "size_bytes": 22119,
+      "sha256": "3630ee8ff4763f3c003be91198b60993946edfd761a3441d693c0ace8f58cf1c",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/scripts/bootstrap_gpu_hub_cleanroom.sh",
+      "size_bytes": 6774,
+      "sha256": "483f4cc61e27baed1c1e00db0aa1060be814ca614df8489b7bf5168b55760d64",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/scripts/calibrate_realworld_session.sh",
+      "size_bytes": 33920,
+      "sha256": "037ca3fee0959d211716bd9e7e7a093d7f6cce810128f6c4de0bd8e82851d07b",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/scripts/install_source_semantic_stack.sh",
+      "size_bytes": 6211,
+      "sha256": "4919dc75955668ac8c8b4365971078da4dc62d8629946830f41f3fcf9b390779",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/scripts/realworld_oneclick.sh",
+      "size_bytes": 48854,
+      "sha256": "5fb1b57abdb7bacbe03786a1c852c1b9f2b475825a88f9299c44b7a63dfb645e",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/public_baseline.py",
+      "size_bytes": 14111,
+      "sha256": "4e37b06436413c9941baf91707b72e121999acb0c31f7358f77cb9d90b3b5b0e",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/fetch_cleanroom_models.py",
+      "size_bytes": 20295,
+      "sha256": "04609992d072f9adfd4cec58ca8c97062cce2062555bf7953e82d99cf18e8ed7",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/manage_realworld_session.py",
+      "size_bytes": 20638,
+      "sha256": "018bd593abaf4bf9246520d8d061dc840f22dfa90e5d64c8cc461030af9c6480",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/verify_gpu_cleanroom.py",
+      "size_bytes": 13161,
+      "sha256": "678cb2d0d64b3eeb16695de61a8784cb6a916def07cd3d422381fd5b5486d077",
       "classification": "source-derived"
     }
   ]

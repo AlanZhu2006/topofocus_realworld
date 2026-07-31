@@ -215,23 +215,26 @@ class V2GoalAdapter:
         else:  # pragma: no cover - discriminated Pydantic union is exhaustive
             return self._hold("UNSAFE", "unsupported v2 target kind")
 
-        distance = math.hypot(
-            local_goal.x - current_position_robot_map[0],
-            local_goal.y - current_position_robot_map[1],
-        )
-        if distance > self.config.max_goal_distance_m:
-            return self._hold(
-                "DISTANCE_LIMIT",
-                f"goal is {distance:.2f}m away, above "
-                f"{self.config.max_goal_distance_m:.2f}m limit",
-            )
         if cached_goal is None:
+            distance = math.hypot(
+                local_goal.x - current_position_robot_map[0],
+                local_goal.y - current_position_robot_map[1],
+            )
+            if distance > self.config.max_goal_distance_m:
+                return self._hold(
+                    "DISTANCE_LIMIT",
+                    f"goal is {distance:.2f}m away, above "
+                    f"{self.config.max_goal_distance_m:.2f}m limit",
+                )
             # A lease renews authority for one already selected local
             # navigation leg; it must not retarget the robot.  In particular,
             # semantic approach selection depends on the current pose and live
             # free-space component, so recomputing it on every short lease can
             # move the POI and make the local router reject an otherwise valid
-            # renewal.  Freeze the first fully validated local reduction.
+            # renewal.  Freeze the first fully validated local reduction.  The
+            # maximum leg distance is likewise an admission bound: reapplying
+            # it to the same frozen goal after a collision-avoiding detour can
+            # revoke a valid leg merely because straight-line distance grew.
             self._resolved_goal_by_leg[decision.leg_id] = (
                 target_fingerprint,
                 local_goal,

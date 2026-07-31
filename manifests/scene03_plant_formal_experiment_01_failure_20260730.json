@@ -1,0 +1,205 @@
+{
+  "schema_version": "focus-scene-formal-experiment-v1",
+  "scene_id": "scene03-plant",
+  "target_category": "plant",
+  "formal_index": 1,
+  "result": "FAILURE",
+  "session_id": "scene03-plant-20260730-2054-hotfix11-formal09r1",
+  "episode_id": "formal09-restart",
+  "session_git_commit": "8d637405cc0761f0eecede49f455c7a20e274e4d",
+  "session_contract_sha256": "3ceb6eed6055bd2241ea07938d95d316023d1c1a90646dc316992def45179904",
+  "calibration_id": "shared-board-odin1-scene03-plant-20260730-2022-recalibration9-v1",
+  "classification": {
+    "primary": "execution_engineering_failure",
+    "terminal_reason": "episode runtime timeout",
+    "vlm_failure": false,
+    "official_reason": "Formal 01 detected and assigned the plant semantic region, but robot-local navigation did not complete semantic arrival before the episode runtime timeout.",
+    "basis": "Robot 1's short local trajectory prefixes caused alternating wall-front yaw requests during exploration. Robot 0 later received a valid semantic route and repeated non-zero bridge commands, but the measured pose stopped responding before arrival."
+  },
+  "public_summary": "The test budget elapsed before exploration found and reached a verified plant target.",
+  "metrics": {
+    "success": 0,
+    "sr": 0.0,
+    "source_compatible_spl": 0.0,
+    "standard_spl": 0.0,
+    "standard_shortest_feasible_path_m": 14.0,
+    "standard_shortest_path_status": "operator-provided approximate independent Scene 03 reference; S=0 makes this episode's Standard SPL zero"
+  },
+  "execution": {
+    "source_rounds_completed": 16,
+    "source_step_final": 374,
+    "high_level_batches_published": 87,
+    "automatic_terminal_candidate_complete": false,
+    "official_success_verified": false,
+    "outcome": "failed_robot_or_controller_holding",
+    "exact_terminal_reason": "episode runtime timeout",
+    "final_velocity_zero_confirmed": {
+      "robot-0": true,
+      "robot-1": true
+    },
+    "robots": {
+      "robot-0": {
+        "actual_path_length_m": 18.57710702408058,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD"
+      },
+      "robot-1": {
+        "actual_path_length_m": 14.162235364087437,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD"
+      }
+    }
+  },
+  "behavior": [
+    "Robot 1 explored during the early rounds; near a wall, its collision-scored local trajectory repeatedly collapsed to a short prefix whose bearing crossed the body axis, producing alternating left/right yaw requests.",
+    "Robot 0's exploration path was physically consistent with the selected route.",
+    "The plant semantic region was first selected for Robot 0 in round 12 and remained selected through the terminal rounds.",
+    "Robot 0 produced a valid local route and repeated non-zero angular commands, and the Go2 bridge logged matching Move calls; measured yaw then remained nearly unchanged.",
+    "The semantic leg was retried after LOCAL_PLANNER_PATH_STALE and LOCAL_PLANNER_NO_PROGRESS, then the episode failed closed at its runtime limit."
+  ],
+  "vlm_evidence": {
+    "target_found": true,
+    "first_semantic_round_index": 12,
+    "first_semantic_source_step": 299,
+    "robot_id": "robot-0",
+    "target_kind": "SEMANTIC_REGION",
+    "semantic_category": "plant",
+    "semantic_component_size_cells": 39,
+    "display_centroid_shared_xy_m": [
+      -8.03131848729514,
+      5.331569928241777
+    ],
+    "status": "source-derived model inference, map projected and unverified; target selection was not the terminal failure"
+  },
+  "terminal_execution_evidence": {
+    "robot_id": "robot-0",
+    "semantic_retry_reason_codes": [
+      "LOCAL_PLANNER_PATH_STALE",
+      "LOCAL_PLANNER_NO_PROGRESS",
+      "LOCAL_PLANNER_NO_PROGRESS"
+    ],
+    "last_recorded_remaining_distance_m": 2.015,
+    "last_no_progress_window_s": 20.307,
+    "receiver_command_status": "observed repeated non-zero guarded angular command",
+    "bridge_command_status": "observed matching SportClient.Move calls",
+    "odometry_response_status": "observed terminal yaw response approximately zero despite the repeated command"
+  },
+  "post_run_diagnosis": {
+    "robot-1": {
+      "classification": "source-derived from observed controller telemetry",
+      "issue": "a 5-20 cm local trajectory prefix was incorrectly treated as stable directional authority ahead of the fixed router waypoint",
+      "correction": "require a 0.30 m reliable local-path horizon; otherwise use the current router waypoint for turn direction"
+    },
+    "robot-0": {
+      "classification": "source-derived engineering diagnosis; physical confirmation pending the next separately authorized run",
+      "issue": "coordinated HOLD sent repeated zero Move calls without releasing the active SportClient state",
+      "correction": "on the first guarded zero after an active command, issue Move(0)+StopMove once; subsequent zeros remain no-ops until a new non-zero command"
+    }
+  },
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2054-hotfix11-formal09r1_live_scene03-plant_20260730_205815_038680549/episode_report.json",
+      "size_bytes": 9872,
+      "sha256": "2d5d58bf1e928296907e1afbc0dff56c8589b2535870859d26a3a8247833c331",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2054-hotfix11-formal09r1_live_scene03-plant_20260730_205815_038680549/controller_events.jsonl",
+      "size_bytes": 231170,
+      "sha256": "1806d0f0713fd9ed6d4a3043b65de98267dfe16c3b308dd6cc95bd6765ae754e",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2054-hotfix11-formal09r1_live_scene03-plant_20260730_205815_038680549/scene_manifest.json",
+      "size_bytes": 204384,
+      "sha256": "2c21c60dbf7e8bbf8e0fb701c016f3031f209f0b4d3866d0427ece49bbc523a3",
+      "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2054-hotfix11-formal09r1_live_scene03-plant_20260730_205815_038680549/round_12_step_299/vlm_candidate_batch.json",
+      "size_bytes": 6561,
+      "sha256": "7644a5580bcf7bf51f94d07bfaa9b79f49e4eb5c0a7580a684891523d9b435f1",
+      "classification": "source-derived unmodified VLM candidate batch; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene03-plant-20260730-2054-hotfix11-formal09r1/session.json",
+      "size_bytes": 4409,
+      "sha256": "1eaaae4a55669a7efc0144107cfaf3021b381f38c1176fa3e2f501b3801a8927",
+      "classification": "source-derived session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene03-plant-20260730-2022-recalibration9/shared_frame.json",
+      "size_bytes": 6000,
+      "sha256": "f62b3d5b2552f0fa214d160c4e7b8d28f3f6d3ac6c29182269307d76a71505ab",
+      "classification": "observed and source-derived shared-frame calibration; runtime file ignored by Git"
+    },
+    {
+      "path": "/home/nvidia/.local/state/topofocus/wsj-v2-buildmap-live-20260730T125802Z.jsonl",
+      "size_bytes": 392050,
+      "sha256": "839d3c1c30f5c48a57cd062ab87880056dff39d8ebc52d751304e8ff5b90e7f0",
+      "classification": "observed robot-0 receiver log verified through the existing SSH/tmux session; bytes remain on robot-0"
+    },
+    {
+      "path": "/home/nvidia/.local/state/topofocus/wsj-go2-bridge-20260730T125802Z.log",
+      "size_bytes": 221808,
+      "sha256": "8ddd4b2819d0c5f4e2e0a9b9259c659812320d1dc684b3cecfdbe6384a658c72",
+      "classification": "observed robot-0 Go2 bridge log verified through the existing SSH/tmux session; bytes remain on robot-0"
+    },
+    {
+      "path": "/home/nyu/.local/state/topofocus/yunji-v2-tinynav-live-20260730T125744Z.jsonl",
+      "size_bytes": 286478,
+      "sha256": "8dd149d825e9a452e25eb9e054bcef32f63d76e9bd384dcd0e361e93b3410a71",
+      "classification": "observed robot-1 controller log verified through the existing SSH/tmux session; bytes remain on robot-1"
+    }
+  ],
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_3/experiment_3_failure_1.mp4",
+      "size_bytes": 12310239,
+      "sha256": "1c2e23e9b64b90c3162f64e0c3d850ca4e952b4527c07ca30efb2e1342bcb49e",
+      "duration_s": 167.533333,
+      "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene03_formal_01_third_view.mp4",
+      "size_bytes": 7712497,
+      "sha256": "8d64d7b2152d58d58f40d6a3088ec0417bfe3e733561fd5b5a071b9729b2bfde",
+      "duration_s": 167.534,
+      "classification": "source-derived H.264 public derivative of the observed external-view master"
+    },
+    {
+      "path": "media/demo/scene03_formal_01_preview.gif",
+      "size_bytes": 6417004,
+      "sha256": "87e138498cb8cae0467d46e5279b377e592f5f2ea03cd39a48d1cd1dddebbacd",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to 64 frames at 8 fps"
+    },
+    {
+      "path": "media/video/dashboard/experiment_3/experiment_3_failure_1_dashboard.mov",
+      "size_bytes": 277644298,
+      "sha256": "87d1d9d1c05d561d80bd2246a308bb2e32e4394ed2a5d8abb43f14db7053c884",
+      "duration_s": 455.367,
+      "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS under media/video"
+    },
+    {
+      "path": "media/demo/scene03_formal_01_dashboard.mp4",
+      "size_bytes": 4195809,
+      "sha256": "7d07adcac31ed3361583ba40eaf29a152dbbf2f26af0407acc3192c9c45821de",
+      "duration_s": 455.3,
+      "classification": "source-derived H.264 public derivative of the observed Dashboard master, scaled to 1280px wide"
+    },
+    {
+      "path": "media/demo/scene03_formal_01_dashboard.gif",
+      "size_bytes": 3252425,
+      "sha256": "e3c961fc97c22a7ed58500c5d9df10977a85fe8c90834ffde12f696b658e65ab",
+      "duration_s": 8.01,
+      "classification": "source-derived README-embedded preview, entire clip time-lapsed to 64 frames at 8 fps"
+    }
+  ],
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "cleanup_state": "both robots HOLDING with velocity_zero_confirmed=true; live receiver and robot-0 bridge stopped",
+    "post_episode_motion_authority": false
+  }
+}

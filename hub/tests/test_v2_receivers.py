@@ -206,6 +206,71 @@ def test_data_plane_cached_occupancy_requires_stationary_no_goal_hold():
         assert valid is False
 
 
+def test_data_plane_rejects_nonempty_map_when_base_has_no_free_component():
+    verifier = load_overlay("verify_tinynav_data_plane.py")
+    width = 5
+    height = 5
+    values = [-1] * (width * height)
+    for row in range(height):
+        values[row * width + 3] = 0
+    occupancy = SimpleNamespace(
+        header=SimpleNamespace(frame_id="world"),
+        info=SimpleNamespace(
+            width=width,
+            height=height,
+            resolution=0.1,
+            origin=SimpleNamespace(
+                position=SimpleNamespace(x=0.0, y=0.0)
+            ),
+        ),
+        data=values,
+    )
+    odometry = SimpleNamespace(
+        pose=SimpleNamespace(pose=pose(x=0.7, y=0.25))
+    )
+    identity = (
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    )
+
+    with pytest.raises(ValueError, match="no start-connected"):
+        verifier.validate_start_reachability(
+            occupancy,
+            odometry,
+            frame_id="world",
+            base_T_camera=identity,
+            clearance_m=0.0,
+            start_snap_radius_m=0.5,
+            start_footprint_override_m=0.19,
+        )
+
+    report = verifier.validate_start_reachability(
+        occupancy,
+        odometry,
+        frame_id="world",
+        base_T_camera=identity,
+        clearance_m=0.0,
+        start_snap_radius_m=0.5,
+        start_footprint_override_m=0.21,
+    )
+    assert report["base_inside_grid"] is False
+    assert report["reachable_component_cells"] == height
+
+
 def test_data_plane_collects_messages_before_expensive_graph_queries():
     source = (OVERLAY / "verify_tinynav_data_plane.py").read_text(
         encoding="utf-8"
@@ -606,6 +671,35 @@ def test_wsj_trajectory_gate_keeps_never_started_path_grace_bounded():
     assert state == (False, True, pytest.approx(1.501), False)
 
 
+def test_planner_target_refresh_requires_same_active_ready_leg_at_zero_velocity():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    ready = {
+        "authorized": True,
+        "router_recovery_gate_closed": False,
+        "trajectory_fresh": False,
+        "trajectory_failed": False,
+        "trajectory_age_s": 1.1,
+        "trajectory_stale_timeout_s": 1.0,
+        "router_state": "NAVIGATING",
+        "router_reason": "ONLINE_PATH_READY",
+        "router_decision_id": "decision-1",
+        "active_decision_id": "decision-1",
+        "router_waypoint": (2.0, 3.0),
+    }
+
+    assert wsj.planner_target_refresh_eligible(**ready) is True
+    for field, value in (
+        ("trajectory_fresh", True),
+        ("trajectory_failed", True),
+        ("router_recovery_gate_closed", True),
+        ("router_state", "HOLD"),
+        ("router_decision_id", "another-decision"),
+        ("router_waypoint", None),
+    ):
+        candidate = {**ready, field: value}
+        assert wsj.planner_target_refresh_eligible(**candidate) is False
+
+
 def test_final_velocity_gate_rechecks_all_health_at_control_rate():
     wsj = load_overlay("v2_wsj_receiver.py")
     base = {
@@ -661,6 +755,7 @@ def test_final_velocity_gate_rechecks_all_health_at_control_rate():
         ),
         "platform_pass": (False, "platform_health_not_ready"),
         "reverse_required": (True, "reverse_trajectory_rejected"),
+        "turn_stalled": (True, "turn_recovery_stalled"),
         "trajectory_fresh": (False, "trajectory_missing_or_stale"),
         "router_recovery_gate_closed": (
             True,
@@ -1089,6 +1184,30 @@ def test_wsj_recovers_only_transient_router_input_lag_with_ready_gate():
     "target_kind",
     ["FRONTIER_POINT", "SEMANTIC_REGION"],
 )
+def test_no_path_gets_bounded_zero_velocity_map_recovery(target_kind):
+    receiver = load_overlay("v2_wsj_receiver.py")
+
+    assert receiver.router_hold_recovery_eligible(
+        target_kind,
+        "NO_KNOWN_FREE_PATH",
+        receiver_runtime_ready=True,
+    )
+    assert not receiver.router_hold_recovery_eligible(
+        target_kind,
+        "NO_KNOWN_FREE_PATH",
+        receiver_runtime_ready=False,
+    )
+    assert receiver.router_hold_recovery_eligible(
+        target_kind,
+        "ODOMETRY_STALE",
+        receiver_runtime_ready=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "target_kind",
+    ["FRONTIER_POINT", "SEMANTIC_REGION"],
+)
 def test_no_known_free_path_replans_both_high_level_target_kinds(
     target_kind,
 ):
@@ -1268,6 +1387,8 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert "--semantic-arrival-radius-m" in source
     assert "--reverse-required-topic" in source
     assert "--reject-reverse-trajectory" in source
+    assert "--turn-stalled-topic" in source
+    assert "--reject-stalled-turn" in source
     assert "--controller-pause-service" in source
     assert "--controller-pause-ack-timeout-s" in source
     assert "--controller-pause-startup-timeout-s" in source
@@ -1278,6 +1399,7 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert '"controller_pause_acknowledged"' in source
     assert '"controller_pause_ack_timeout"' in source
     assert '"LOCAL_PATH_REVERSE_REQUIRED"' in source
+    assert '"LOCAL_PLANNER_TURN_STALLED"' in source
     assert '"reverse_trajectory_rejected"' in source
     assert '"trajectory_missing_or_stale"' in source
     assert '"LOCAL_PLANNER_PATH_STALE"' in source
@@ -1287,6 +1409,11 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     )[0].rsplit("elif (", 1)[1]
     assert "active_goal.target_kind" not in path_stale_branch
     assert "and trajectory_failed" in path_stale_branch
+    assert (
+        "and router_recovery_leg_id\n"
+        "                    != active_decision.leg_id"
+        in path_stale_branch
+    )
     assert '"frontier_no_path_rejected"' in source
     assert '"semantic_no_path_rejected"' in source
     assert '"LOCAL_GOAL_UNREACHABLE"' in source
@@ -1366,7 +1493,22 @@ def test_wsj_maploc_repair_is_no_bridge_and_fail_closed() -> None:
     assert "v2_wsj_receiver\\.py.*--enable-live-go2-motion" in buildmap
     assert 'missing_windows[0]}" == "maploc"' in launcher
     assert "--repair-online-stack" in launcher
-    assert "Refusing ambiguous partial online stack" in launcher
+    assert "rebuild_verified_partial_online_stack" in launcher
+    assert "Refusing partial-stack rebuild while a live command path exists." in (
+        launcher
+    )
+    assert "Refusing unrecognized partial-stack window" in launcher
+    assert "Rebuilding verified partial online stack" in launcher
+    rebuild = launcher.split(
+        "rebuild_verified_partial_online_stack() {", 1
+    )[1].split("\n}\n", 1)[0]
+    assert "/nav/paused" in rebuild
+    assert "/focus_guarded_cmd_vel" in rebuild
+    assert "go2-bridge" in rebuild
+    assert "--enable-live-go2-motion" in rebuild
+    assert "verified_online_window" in rebuild
+    assert 'tmux kill-window -t "$SESSION:$window"' in rebuild
+    assert "start_tinynav_buildmap_online_nav.sh" in rebuild
 
 
 def test_wsj_live_bridge_uses_observed_effective_command_floors() -> None:
@@ -1380,9 +1522,14 @@ def test_wsj_live_bridge_uses_observed_effective_command_floors() -> None:
     assert 'GO2_MIN_CMD_V=\\"$LINEAR_COMMAND_FLOOR_MPS\\"' in launcher
     assert '--linear-command-floor-mps \\"$LINEAR_COMMAND_FLOOR_MPS\\"' in launcher
     assert "GO2_MIN_CMD_W=0.30" in launcher
-    assert "GO2_SEND_ZERO_WHEN_IDLE=true" in launcher
-    assert "--start-snap-radius-m 0.75" in launcher
-    assert "--start-footprint-override-m 0.35" in launcher
+    assert "GO2_SEND_ZERO_WHEN_IDLE=false" in launcher
+    assert "Move(0)+StopMove" in launcher
+    assert '--start-snap-radius-m "$START_SNAP_RADIUS_M"' in launcher
+    assert (
+        '--start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"'
+        in launcher
+    )
+    assert 'FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35' in launcher
 
 
 def test_wsj_stale_occupancy_recovery_is_publisher_last_and_no_bridge() -> None:
@@ -1464,6 +1611,7 @@ def test_wsj_launcher_reloads_persistent_goal_router_before_receiver() -> None:
     assert 'tmux send-keys -t "$SESSION:control" C-c' in launcher
     assert 'tmux respawn-pane -k -t "$SESSION:control"' not in launcher
     assert "yunji_tinynav_cmd_vel_control.py" in launcher
+    assert "--reject-stalled-turn" in launcher
     assert "WSJ goal-router reloaded from the current deployment" in launcher
     assert '--start-snap-radius-m \\"$START_SNAP_RADIUS_M\\"' in launcher
     assert (
@@ -1491,10 +1639,17 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert "--external-odometry-health" in launcher
     assert "--enable-live-tinynav-motion" in launcher
     assert "--reject-reverse-trajectory" in launcher
-    assert "--rotate-first-on-reverse" not in launcher
+    assert "--reject-stalled-turn" in launcher
+    assert "--rotate-first-on-reverse" in launcher
     assert "--stabilize-large-turn" in launcher
+    assert "--verified-forward-only-planner" in launcher
     assert "--rotate-first-max-angular-radps" in launcher
     assert "--rotate-first-timeout-s" in launcher
+    assert "-p keyframe.pose_jump_translation_m:=1.0" in launcher
+    assert "-p keyframe.pose_jump_rotation_deg:=90.0" in launcher
+    assert "-p keyframe.pause_frames_after_jump:=0" in launcher
+    assert "-p integration.max_rays_per_frame:=3000" in launcher
+    assert "navigation_occupancy_mapper.py" in component
     assert "FOCUS_YUNJI_REVERSE_ROTATE_MAX_ANGULAR_RADPS:-0.35" in launcher
     assert "FOCUS_YUNJI_REVERSE_ROTATE_TIMEOUT_S:-12.0" in launcher
     assert "/focus_guarded_cmd_vel" in launcher
@@ -1508,7 +1663,7 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert '--input-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"' in launcher
     assert launcher.count(
         '--start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"'
-    ) == 2
+    ) == 3
     assert "--reuse-verified-debug-core" in launcher
     assert "without process restarts" in launcher
     assert 'systemctl is-active --quiet "$unit"' in launcher
@@ -1555,6 +1710,12 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--camera-info-topic /slam/camera_info" in wsj
     assert "--geometry-width 848" in wsj
     assert "--geometry-height 480" in wsj
+    assert "--require-reachable-start" in wsj
+    assert "--require-reachable-start" in yunji
+    assert "--minimum-occupancy-updates 2" in wsj
+    assert "--minimum-occupancy-updates 2" in yunji
+    assert "--maximum-occupancy-update-interval-s 4.0" in wsj
+    assert "--maximum-occupancy-update-interval-s 4.0" in yunji
     assert "--odom-topic /slam/odometry_visual" in wsj
     assert "--max-occupancy-age-s 12" in wsj
     assert (
@@ -1576,8 +1737,9 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0' in wsj
     assert 'FOCUS_WSJ_RECEIVER_LOCAL_DATA_TIMEOUT_S:-5.0' in wsj
     assert 'FOCUS_WSJ_RECEIVER_ODOMETRY_RECOVERY_GRACE_S:-7.0' in wsj
+    assert 'FOCUS_WSJ_TRAJECTORY_START_GRACE_S:-12.0' in wsj
     assert 'FOCUS_WSJ_TRAJECTORY_STALE_TIMEOUT_S:-1.0' in wsj
-    assert 'FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-5.0' in wsj
+    assert 'FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-12.0' in wsj
     assert (
         '--local-data-timeout-s "$RECEIVER_LOCAL_DATA_TIMEOUT_S"'
         in wsj
@@ -1585,6 +1747,10 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert (
         '--odometry-recovery-grace-s '
         '"$RECEIVER_ODOMETRY_RECOVERY_GRACE_S"'
+        in wsj
+    )
+    assert (
+        '--trajectory-start-grace-s "$TRAJECTORY_START_GRACE_S"'
         in wsj
     )
     assert (
@@ -1596,8 +1762,13 @@ def test_robot_launchers_require_live_data_plane_verification():
         '"$TRAJECTORY_RECOVERY_TIMEOUT_S"'
         in wsj
     )
+    assert 'FOCUS_YUNJI_TRAJECTORY_START_GRACE_S:-12.0' in yunji
     assert 'FOCUS_YUNJI_TRAJECTORY_STALE_TIMEOUT_S:-1.0' in yunji
-    assert 'FOCUS_YUNJI_TRAJECTORY_RECOVERY_TIMEOUT_S:-5.0' in yunji
+    assert 'FOCUS_YUNJI_TRAJECTORY_RECOVERY_TIMEOUT_S:-12.0' in yunji
+    assert (
+        '--trajectory-start-grace-s "$TRAJECTORY_START_GRACE_S"'
+        in yunji
+    )
     assert (
         '--trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"'
         in yunji
@@ -1665,7 +1836,8 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     assert "--pose-topic /slam/odometry_visual" in launcher
     assert "--depth-topic /slam/keyframe_depth" not in launcher
     assert "--pose-topic /slam/keyframe_odom" not in launcher
-    assert "latest_sequence > initial_sequence" in launcher
+    assert "latest_sequence > baseline" in launcher
+    assert 'calibration_epoch_baseline="$(latest_hub_sequence)"' in launcher
     assert "continuous_tuple_gate=sender_sequence" in launcher
     assert launcher.count("verify_ros_geometry_profile.py") >= 2
     assert "--image-topic /slam/depth" in launcher

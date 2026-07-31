@@ -4,7 +4,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+env_file="${FOCUS_ROBOT0_ENV_FILE:-${FOCUS_WSJ_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/topofocus/robot-0.env}}"
+env_from_cli="false"
 session="${FOCUS_REHEARSAL_SESSION:-focus_live_rehearsal}"
+session_from_cli="false"
 TINYNAV_ROOT="${TINYNAV_ROOT:-$HOME/twork/tinynav}"
 PATCHED_ROOT="${TINYNAV_PATCHED_ROOT:-$HOME/twork/tinynav-topofocus}"
 SETUP_FILE="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
@@ -14,16 +17,34 @@ repair_online_stack="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --session) session="$2"; shift 2 ;;
+    --env) env_file="$2"; env_from_cli="true"; shift 2 ;;
+    --session) session="$2"; session_from_cli="true"; shift 2 ;;
     --output) OUTPUT_DIR="$2"; shift 2 ;;
     --repair-online-stack) repair_online_stack="true"; shift ;;
     -h|--help)
-      echo "Usage: $0 [--session NAME] [--output DIR] [--repair-online-stack]"
+      echo "Usage: $0 [--env FILE] [--session NAME] [--output DIR] [--repair-online-stack]"
       exit 0
       ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+
+if [[ -r "$env_file" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file"
+  set +a
+elif [[ "$env_from_cli" == "true" ]]; then
+  echo "Missing environment file: $env_file" >&2
+  exit 1
+fi
+if [[ "$session_from_cli" != "true" ]]; then
+  session="${FOCUS_REHEARSAL_SESSION:-$session}"
+fi
+TINYNAV_ROOT="${TINYNAV_ROOT:-$HOME/twork/tinynav}"
+PATCHED_ROOT="${TINYNAV_PATCHED_ROOT:-$HOME/twork/tinynav-topofocus}"
+SETUP_FILE="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
+PYTHON_BIN="${TINYNAV_PYTHON:-$TINYNAV_ROOT/.venv/bin/python}"
 
 tmux has-session -t "$session" 2>/dev/null || {
   echo "Observation session is not running: $session" >&2

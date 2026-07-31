@@ -4,6 +4,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SESSION="${FOCUS_WSJ_NAV_SESSION:-tinynav_semantic_nav_auto}"
+ENV_FILE="${FOCUS_WSJ_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/topofocus/robot-0.env}"
+if [[ -r "$ENV_FILE" ]]; then
+  set -a
+  # bootstrap_robot0_cleanroom.sh emits shell-quoted assignments only.
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
 SETUP_FILE="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
 TINYNAV_ROOT="${TINYNAV_ROOT:-$HOME/twork/tinynav}"
 PYTHON_BIN="${TINYNAV_PYTHON:-$TINYNAV_ROOT/.venv/bin/python}"
@@ -59,18 +67,24 @@ RECEIVER_ODOMETRY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_ODOMETRY_RECOVERY_GRACE
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
 # The guarded velocity output is zeroed after one second without a fresh path.
-# Physical semantic legs observed 1.016 s and 3.365 s planner publication gaps
-# while the router still reported ONLINE_PATH_READY. Keep the zero-output gate
-# at one second, but allow five seconds for the planner to republish before
-# terminally rejecting the semantic leg.
+# Physical legs observed a 1.900-1.921 s first-path delay and later 1.016 s and
+# 3.365 s planner publication gaps while the router was still producing an
+# online path. Keep the zero-output gate at one second, but use twelve-second
+# terminal verdicts so a stopped local recovery is not misreported as an
+# immediate leg failure. A router-owned bounded map-maturation wait takes
+# precedence over both trajectory verdicts.
+TRAJECTORY_START_GRACE_S="${FOCUS_WSJ_TRAJECTORY_START_GRACE_S:-12.0}"
 TRAJECTORY_STALE_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_STALE_TIMEOUT_S:-1.0}"
-TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-5.0}"
+TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_WSJ_TRAJECTORY_RECOVERY_TIMEOUT_S:-12.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_WSJ_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry
 # input.  Its observed interval can also exceed 2 s under live perception load.
 SLAM_DATA_TIMEOUT_S="${FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0}"
 START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
+# The navigation map explicitly clears the source rectangular Go2 footprint.
+# Retain the original bounded radial graph bridge; unknown cells outside the
+# measured current-base region remain blocked.
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 # The source semantic mask keeps its radius-10-cell approach region unchanged.
 # The selected semantic approach point is already on the source radius-10-cell
@@ -257,6 +271,85 @@ for window in "${required_windows[@]}"; do
   tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx "$window" \
     || missing_windows+=("$window")
 done
+
+verified_online_window() {
+  local window="$1" pane_start
+  pane_start="$(
+    tmux display-message -p -t "$SESSION:$window" \
+      '#{pane_start_command}' 2>/dev/null || true
+  )"
+  case "$window" in
+    maploc)
+      [[ "$pane_start" == *"$SCRIPT_DIR/run_tinynav_buildmap_live.py"* ]]
+      ;;
+    online-map)
+      [[ "$pane_start" == \
+        *"$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py"* ]]
+      ;;
+    planning)
+      [[ "$pane_start" == *"run_yunji_tinynav_planner.py"* \
+         || "$pane_start" == *"planning_node.py"* ]]
+      ;;
+    goal-router)
+      [[ "$pane_start" == *"$SCRIPT_DIR/tinynav_buildmap_goal_router.py"* ]]
+      ;;
+    control)
+      [[ "$pane_start" == *"yunji_tinynav_cmd_vel_control.py"* \
+         || "$pane_start" == *"cmd_vel_control.py"* ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+rebuild_verified_partial_online_stack() {
+  local window deadline
+  if tmux list-windows -t "$SESSION" -F '#{window_name}' \
+      | grep -qx go2-bridge \
+     || pgrep -af 'go2_cmd_bridge|nav2_controller' >/dev/null 2>&1 \
+     || pgrep -af 'v2_wsj_receiver\.py.*--enable-live-go2-motion' \
+        >/dev/null 2>&1; then
+    echo "Refusing partial-stack rebuild while a live command path exists." >&2
+    return 1
+  fi
+  for window in "${required_windows[@]}"; do
+    tmux list-windows -t "$SESSION" -F '#{window_name}' \
+      | grep -qx "$window" || continue
+    verified_online_window "$window" || {
+      echo "Refusing unrecognized partial-stack window: $SESSION:$window" >&2
+      return 1
+    }
+  done
+
+  # The bridge and live receiver were proven absent above.  Latch pause/zero,
+  # remove only the verified session-local planning windows, and reconstruct a
+  # complete graph.  This turns an interrupted debug/live cleanup into an
+  # idempotent next launch instead of requiring operator-side tmux surgery.
+  timeout 5 ros2 topic pub --once \
+    /nav/paused std_msgs/msg/Bool '{data: true}' \
+    >/dev/null 2>&1 || true
+  timeout 5 ros2 topic pub --once \
+    /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' \
+    >/dev/null 2>&1 || true
+  echo "Rebuilding verified partial online stack; missing: ${missing_windows[*]}"
+  for window in "${required_windows[@]}"; do
+    tmux kill-window -t "$SESSION:$window" >/dev/null 2>&1 || true
+  done
+  deadline=$((SECONDS + 20))
+  while pgrep -af \
+      'planning_node.py|run_yunji_tinynav_planner.py|cmd_vel_control.py|tinynav_buildmap_goal_router.py|run_tinynav_buildmap_online_mapping.py|run_tinynav_buildmap_live.py' \
+      >/dev/null 2>&1; do
+    (( SECONDS < deadline )) || {
+      echo "A verified partial-stack process survived its tmux window." >&2
+      return 1
+    }
+    sleep 1
+  done
+  bash "$SCRIPT_DIR/start_tinynav_buildmap_online_nav.sh" --session "$SESSION"
+  online_stack_started="true"
+}
+
 if [[ ${#missing_windows[@]} -eq 1 \
       && "${missing_windows[0]}" == "maploc" ]]; then
   bash "$SCRIPT_DIR/start_go2_buildmap.sh" \
@@ -266,8 +359,7 @@ elif [[ ${#missing_windows[@]} -eq ${#required_windows[@]} ]]; then
   bash "$SCRIPT_DIR/start_tinynav_buildmap_online_nav.sh" --session "$SESSION"
   online_stack_started="true"
 elif [[ ${#missing_windows[@]} -ne 0 ]]; then
-  echo "Refusing ambiguous partial online stack; missing: ${missing_windows[*]}" >&2
-  exit 1
+  rebuild_verified_partial_online_stack
 fi
 
 # Keep the formal DDS subscriber alive before any bounded publisher recovery.
@@ -291,6 +383,9 @@ online_map_contract="$(
     "continuous-depth-online-map-v1" \
     "$(sha256sum \
       "$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py" \
+      "$SCRIPT_DIR/navigation_occupancy_mapper.py" \
+      "$SCRIPT_DIR/../src/focus_hub/navigation_occupancy.py" \
+      "$SCRIPT_DIR/../src/focus_hub/rate_aware_keyframes.py" \
       | awk '{print $1}')" \
     "$(sha256sum \
       "$SCRIPT_DIR/ros_continuous_depth_geometry_rgb.py" \
@@ -348,6 +443,13 @@ sensor_map_verifier=(
   --geometry-height 480
   --max-occupancy-age-s 12
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
+  --minimum-occupancy-updates 2
+  --maximum-occupancy-update-interval-s 4.0
+  --require-reachable-start
+  --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION_FILE"
+  --reachability-clearance-m 0.05
+  --start-snap-radius-m "$START_SNAP_RADIUS_M"
+  --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"
 )
 
 recover_online_map_publisher() {
@@ -478,7 +580,7 @@ bash "$SCRIPT_DIR/start_wsj_command_observation.sh" \
   --hub-url "$HUB_URL"
 
 planning_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/run_yunji_tinynav_planner.py\" --robot-profile source-default'"
-control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --robot-profile source-default --robot-id robot-0 --base-camera-frame camera --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --stabilize-large-turn --linear-command-floor-mps \"$LINEAR_COMMAND_FLOOR_MPS\" --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
+control_command="bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --robot-profile source-default --robot-id robot-0 --base-camera-frame camera --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --verified-forward-only-planner --rotate-first-on-reverse --stabilize-large-turn --linear-command-floor-mps \"$LINEAR_COMMAND_FLOOR_MPS\" --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
 
 if [[ "$reuse_verified_debug_core" == true ]]; then
   component_contract_matches \
@@ -493,9 +595,10 @@ if [[ "$reuse_verified_debug_core" == true ]]; then
   }
   echo "Reusing verified WSJ planner/controller without DDS participant churn."
 else
-# The persistent source planner includes a fixed reverse vocabulary that both
-# deployed chassis paths reject. Replace it with the forward-only deployment
-# wrapper while the chassis bridge is absent and navigation is paused.
+# The persistent source planner includes a fixed reverse vocabulary. Replace
+# it with the forward-only deployment wrapper while the chassis bridge is
+# absent and navigation is paused; the controller can then resolve a bounded
+# behind-heading segment by yawing in place before moving forward.
 timeout 5 ros2 topic pub --once \
   /nav/paused std_msgs/msg/Bool '{data: true}' \
   >/dev/null 2>&1 || true
@@ -749,14 +852,16 @@ receiver=(
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
   --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"
+  --trajectory-start-grace-s "$TRAJECTORY_START_GRACE_S"
   --trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"
   --trajectory-recovery-timeout-s "$TRAJECTORY_RECOVERY_TIMEOUT_S"
   --semantic-arrival-radius-m "$SEMANTIC_ARRIVAL_RADIUS_M"
   --no-progress-timeout-s "$NO_PROGRESS_TIMEOUT_S"
   --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"
   --reject-reverse-trajectory
-  --start-snap-radius-m 0.75
-  --start-footprint-override-m 0.35
+  --reject-stalled-turn
+  --start-snap-radius-m "$START_SNAP_RADIUS_M"
+  --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"
   --alignment-output "$alignment"
   --log "$log"
 )
@@ -807,11 +912,12 @@ if [[ "$mode" == live ]]; then
   }
   # Both remote dependencies were checked against the observed 2026-07-27
   # size/SHA-256 contracts before any ROS command path was created.
-  # Fresh guarded zero messages therefore keep a bounded zero Move instead of
-  # repeatedly calling StopMove during short planner gaps. A dead receiver
-  # still triggers the bridge's independent cmd_vel timeout and StopMove.
+  # A confirmed guarded zero releases an active SportClient command exactly
+  # once via Move(0)+StopMove. Subsequent zero messages are no-ops until a
+  # fresh non-zero command reacquires control. This prevents a stale Sport
+  # state from surviving a coordinated HOLD or planner retry.
   tmux new-window -d -t "$SESSION" -n go2-bridge \
-    "bash -lc 'set -o pipefail; export GO2_CMD_TOPIC=/focus_guarded_cmd_vel GO2_MAX_VX=0.20 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.50 GO2_MIN_CMD_V=\"$LINEAR_COMMAND_FLOOR_MPS\" GO2_MIN_CMD_W=0.30 GO2_REMOTE_PRIORITY=true GO2_SEND_ZERO_WHEN_IDLE=true GO2_LOG_COMMANDS=true GO2_LOG_INTERVAL_SEC=0.2; bash \"$GO2_BRIDGE_RUNNER\" 2>&1 | tee \"$bridge_log\"'"
+    "bash -lc 'set -o pipefail; export GO2_CMD_TOPIC=/focus_guarded_cmd_vel GO2_MAX_VX=0.20 GO2_MAX_VY=0.00 GO2_MAX_WZ=0.50 GO2_MIN_CMD_V=\"$LINEAR_COMMAND_FLOOR_MPS\" GO2_MIN_CMD_W=0.30 GO2_REMOTE_PRIORITY=true GO2_SEND_ZERO_WHEN_IDLE=false GO2_LOG_COMMANDS=true GO2_LOG_INTERVAL_SEC=0.2; bash \"$GO2_BRIDGE_RUNNER\" 2>&1 | tee \"$bridge_log\"'"
   echo "WSJ Go2 bridge command log: $bridge_log"
   "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_tinynav_data_plane.py" \
     --robot-id robot-0 \

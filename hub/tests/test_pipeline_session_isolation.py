@@ -236,6 +236,67 @@ def test_live_keyframe_gate_latches_pose_jump():
     assert pipeline.robot_trajectory_xy_m == [(0.0, 0.0)]
 
 
+def test_ground_rejected_turns_still_advance_pose_continuity(monkeypatch):
+    pipeline, segmenter = _pipeline(
+        "session-a",
+        keyframe_config=KeyframeConfig(max_interval_sec=5.0),
+        ground_guard=True,
+    )
+    accepted = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=0.0,
+        plane_coefficients=(0.0, 0.0, 0.0),
+    )
+    rejected = GroundCandidate(
+        accepted=False,
+        ground_z_m=None,
+        reason="no_valid_plane",
+        candidate_points=0,
+        inlier_points=0,
+        inlier_ratio=0.0,
+        tilt_deg=None,
+        plane_coefficients=None,
+    )
+    candidates = iter((accepted, rejected, rejected, accepted))
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate",
+        lambda *_args: next(candidates),
+    )
+
+    observations = [
+        _observation(sequence, "session-a")
+        for sequence in range(10, 14)
+    ]
+    for observation, yaw_deg in zip(
+        observations, (0.0, 35.0, 70.0, 105.0), strict=True
+    ):
+        yaw = np.deg2rad(yaw_deg)
+        observation.T_shared_camera[:2, :2] = [
+            [np.cos(yaw), -np.sin(yaw)],
+            [np.sin(yaw), np.cos(yaw)],
+        ]
+
+    assert pipeline.process(observations[0]).accept
+    assert pipeline.process(observations[1]).reason == "ground_no_valid_plane"
+    assert pipeline.process(observations[2]).reason == "ground_no_valid_plane"
+    final = pipeline.process(observations[3])
+
+    assert final.accept
+    assert final.reason == "rotation"
+    assert pipeline.mapping_blocked_reason is None
+    assert pipeline.pose_jump_events == 0
+    assert segmenter.calls == 2
+    assert pipeline.mapper.calls == 2
+
+
 def test_ground_guard_latches_only_after_consecutive_drift_before_segmentation(
     monkeypatch,
 ):
@@ -449,21 +510,22 @@ def test_ground_guard_rebases_consistent_local_plane_after_observed_motion(
     )
     locally_tilted = GroundCandidate(
         accepted=True,
-        ground_z_m=-0.06,
+        ground_z_m=-0.23,
         reason="accepted",
         candidate_points=1000,
         inlier_points=900,
         inlier_ratio=0.9,
-        tilt_deg=4.0,
-        plane_coefficients=(0.0, 0.07, -0.06),
+        tilt_deg=6.1,
+        plane_coefficients=(0.0, 0.107, -0.23),
     )
-    # The in-range frame between motion and the confirmed local plane mirrors
-    # the observed Yunji run: fits oscillated around the 3-degree gate, but
-    # that did not erase the fact that the posture change followed motion.
+    # The motion itself can keep an in-range floor estimate.  The bounded
+    # posture offset may appear only after the quadruped stops, so rebase
+    # authority must come from all observed pose motion rather than only from
+    # moving frames whose floor estimate was already outside the gate.
     candidates = iter(
         [
             stable,
-            locally_tilted,
+            stable,
             stable,
             locally_tilted,
             locally_tilted,
@@ -492,10 +554,7 @@ def test_ground_guard_rebases_consistent_local_plane_after_observed_motion(
         observation.T_shared_camera[0, 3] = 0.15
 
     assert pipeline.process(baseline).accept
-    assert (
-        pipeline.process(moving).reason
-        == "ground_drift_motion_deferred"
-    )
+    assert pipeline.process(moving).accept
     assert pipeline.process(recovered_during_settle).accept
     assert pipeline.process(stationary[0]).reason == "ground_drift_pending"
     assert pipeline.process(stationary[1]).reason == "ground_drift_pending"
@@ -513,8 +572,8 @@ def test_ground_guard_rebases_consistent_local_plane_after_observed_motion(
         pipeline.ground_reference_plane_coefficients,
         locally_tilted.plane_coefficients,
     )
-    assert segmenter.calls == 4
-    assert pipeline.mapper.calls == 4
+    assert segmenter.calls == 5
+    assert pipeline.mapper.calls == 5
 
 
 def test_2d_ground_guard_tolerates_pure_world_z_translation(monkeypatch):

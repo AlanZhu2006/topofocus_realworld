@@ -29,6 +29,17 @@ def load_module():
     return module
 
 
+def load_tool(name: str):
+    spec = importlib.util.spec_from_file_location(
+        f"focus_test_{name}",
+        TOOLS / f"{name}.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def navigation_event(
     decision,
     status: str,
@@ -165,6 +176,78 @@ def test_current_goal_evidence_maps_detector_name_to_goal_category():
     assert evidence == {"robot-0": 0.56, "robot-1": 0.88}
 
 
+@pytest.mark.parametrize(
+    "tool_name",
+    (
+        "build_v2_decision_batch",
+        "run_v2_supervised_episode",
+    ),
+)
+def test_every_frozen_manifest_entrypoint_applies_semantic_execution_guard(
+    tmp_path,
+    observation_factory,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name,
+):
+    _now, manifest, registry, config = prepare_round(
+        tmp_path / "inputs",
+        observation_factory,
+    )
+    output = tmp_path / f"{tool_name}-output"
+    arguments = [
+        f"{tool_name}.py",
+        "--manifest",
+        str(manifest),
+        "--registry-state",
+        str(registry),
+        "--robot-config",
+        str(config),
+        "--scene-id",
+        "scene-guard-test",
+        "--episode-id",
+        "episode-guard-test",
+        "--output",
+        str(output),
+    ]
+    monkeypatch.setattr(sys, "argv", arguments)
+
+    assert load_tool(tool_name).main() == 0
+
+    execution = json.loads(
+        (
+            output
+            / (
+                "decision_batch.json"
+                if tool_name == "build_v2_decision_batch"
+                else "batch_000_initial.json"
+            )
+        ).read_text(encoding="utf-8")
+    )
+    source = json.loads(
+        (output / "source_candidate_batch.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    source_by_robot = {
+        item["robot_id"]: item for item in source["decisions"]
+    }
+    execution_by_robot = {
+        item["robot_id"]: item for item in execution["decisions"]
+    }
+    assert source_by_robot["robot-0"]["target"]["kind"] == (
+        "SEMANTIC_REGION"
+    )
+    assert execution_by_robot["robot-0"]["target"]["kind"] == (
+        "FRONTIER_POINT"
+    )
+    guard = json.loads(
+        (output / "semantic_execution_guard.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert guard["rejected_robot_ids"] == ["robot-0"]
+
+
 def test_freeze_next_round_fails_immediately_for_latched_map(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -249,6 +332,87 @@ def test_round_inspection_distinguishes_semantic_and_frontier_arrival(
     )
     assert set(inspected.failures) == {"robot-1"}
     assert inspected.frontier_arrivals == {}
+
+
+def test_semantic_local_failure_keeps_healthy_semantic_peer_active(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now, manifest, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    built = build_batch_from_shadow_manifest(
+        manifest,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-trial-1",
+        execution_epoch=0,
+        now_ns=now,
+        robot_config_path=config,
+    )
+    decisions = {item.robot_id: item for item in built.batch.decisions}
+    semantic_target = decisions["robot-0"].target
+    assert semantic_target is not None
+    decisions["robot-1"] = decisions["robot-1"].model_copy(
+        update={"target": semantic_target}
+    )
+
+    (
+        failed_semantic,
+        remaining_active,
+        remaining_semantic,
+    ) = module.partition_recoverable_failures(
+        decisions,
+        {"robot-0", "robot-1"},
+        {
+            "robot-1": {
+                "status": "REJECTED",
+                "reason_code": "LOCAL_GOAL_UNREACHABLE",
+            }
+        },
+    )
+
+    assert failed_semantic == {"robot-1"}
+    assert remaining_active == {"robot-0"}
+    assert remaining_semantic == {"robot-0"}
+
+
+def test_semantic_local_failure_replans_when_only_frontier_peer_remains(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now, manifest, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    built = build_batch_from_shadow_manifest(
+        manifest,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-trial-1",
+        execution_epoch=0,
+        now_ns=now,
+        robot_config_path=config,
+    )
+    decisions = {item.robot_id: item for item in built.batch.decisions}
+
+    (
+        failed_semantic,
+        remaining_active,
+        remaining_semantic,
+    ) = module.partition_recoverable_failures(
+        decisions,
+        {"robot-0", "robot-1"},
+        {
+            "robot-0": {
+                "status": "REJECTED",
+                "reason_code": "LOCAL_GOAL_UNREACHABLE",
+            }
+        },
+    )
+
+    assert failed_semantic == {"robot-0"}
+    assert remaining_active == {"robot-1"}
+    assert remaining_semantic == set()
 
 
 def test_foxglove_target_events_record_the_actual_post_guard_batch(

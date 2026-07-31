@@ -66,6 +66,9 @@ LIVE_CONFIRMATIONS = {
     "robot-0": LIVE_CONFIRMATION,
     "robot-1": "OPERATOR_PRESENT_AND_YUNJI_CLEAR",
 }
+TARGET_REFRESH_REQUEST_SCHEMA_VERSION = (
+    "focus-tinynav-target-refresh-request-v1"
+)
 # Mirror the independently enforced sender thresholds exactly.  The receiver
 # still recomputes every interval check instead of trusting the producer's
 # ``imu_intervals_valid`` boolean, but must not reject telemetry that the
@@ -154,6 +157,36 @@ def no_known_free_path_requires_replan(
     return bool(
         target_kind in REPLANNABLE_TARGET_KINDS
         and router_reason == "NO_KNOWN_FREE_PATH"
+    )
+
+
+def router_hold_recovery_eligible(
+    target_kind: str | None,
+    router_reason: str,
+    *,
+    receiver_runtime_ready: bool,
+) -> bool:
+    """Keep a zero-velocity leg while fresh local-map evidence can recover it.
+
+    The online occupancy grid updates more slowly than the router replans, so
+    the first ``NO_KNOWN_FREE_PATH`` may describe an incomplete known-free
+    component rather than a physically impossible route. Preserve the same
+    bounded recovery window used for transient router input lag, but only
+    while every independent receiver health gate remains READY.
+    """
+
+    return bool(
+        recoverable_router_hold(
+            router_reason,
+            receiver_runtime_ready=receiver_runtime_ready,
+        )
+        or (
+            receiver_runtime_ready
+            and no_known_free_path_requires_replan(
+                target_kind,
+                router_reason,
+            )
+        )
     )
 
 
@@ -810,6 +843,40 @@ def trajectory_gate_state(
     return gate_fresh, terminal_failure, age_s, observed_for_authority
 
 
+def planner_target_refresh_eligible(
+    *,
+    authorized: bool,
+    router_recovery_gate_closed: bool,
+    trajectory_fresh: bool,
+    trajectory_failed: bool,
+    trajectory_age_s: float,
+    trajectory_stale_timeout_s: float,
+    router_state: str,
+    router_reason: str,
+    router_decision_id: str | None,
+    active_decision_id: str,
+    router_waypoint: tuple[float, float] | None,
+) -> bool:
+    """Allow only a same-leg, zero-velocity planner handoff repair."""
+
+    if (
+        not authorized
+        or router_recovery_gate_closed
+        or trajectory_fresh
+        or trajectory_failed
+        or trajectory_age_s < trajectory_stale_timeout_s
+        or router_state != "NAVIGATING"
+        or router_decision_id != active_decision_id
+        or router_waypoint is None
+        or len(router_waypoint) != 2
+        or not all(math.isfinite(float(value)) for value in router_waypoint)
+    ):
+        return False
+    return router_reason.startswith(
+        ("ONLINE_PATH_READY", "ONLINE_PARTIAL_PATH_READY")
+    )
+
+
 def physical_velocity_gate_reason(
     *,
     now_ns: int,
@@ -833,6 +900,7 @@ def physical_velocity_gate_reason(
     platform_timeout_s: float,
     platform_pass: bool,
     router_recovery_gate_closed: bool = False,
+    turn_stalled: bool = False,
 ) -> str | None:
     """Evaluate every final velocity-authority input at control rate."""
 
@@ -890,6 +958,8 @@ def physical_velocity_gate_reason(
             return "platform_health_not_ready"
     if reverse_required:
         return "reverse_trajectory_rejected"
+    if turn_stalled:
+        return "turn_recovery_stalled"
     if not trajectory_fresh:
         return "trajectory_missing_or_stale"
     return None
@@ -1116,6 +1186,23 @@ def main() -> int:
     parser.add_argument(
         "--router-status-topic", default="/mapping/buildmap_online_status"
     )
+    parser.add_argument(
+        "--target-refresh-request-topic",
+        default="/mapping/target_refresh_request",
+        help=(
+            "robot-local request channel used only while velocity is already "
+            "zero to republish the verified router-to-planner target"
+        ),
+    )
+    parser.add_argument(
+        "--target-refresh-request-interval-s",
+        type=float,
+        default=1.0,
+        help=(
+            "minimum interval between bounded same-leg planner handoff "
+            "repair requests"
+        ),
+    )
     parser.add_argument("--pause-topic", default="/nav/paused")
     parser.add_argument(
         "--controller-pause-service",
@@ -1159,6 +1246,22 @@ def main() -> int:
         action="store_true",
         help=(
             "latch a fresh reverse-required status for the current authority, "
+            "zero output, and reject that leg for a fresh Hub replan"
+        ),
+    )
+    parser.add_argument(
+        "--turn-stalled-topic",
+        default="/planning/turn_stalled",
+        help=(
+            "local controller status topic declaring that one continuous "
+            "zero-linear heading recovery exceeded its bounded deadline"
+        ),
+    )
+    parser.add_argument(
+        "--reject-stalled-turn",
+        action="store_true",
+        help=(
+            "latch a fresh turn-stalled status for the current authority, "
             "zero output, and reject that leg for a fresh Hub replan"
         ),
     )
@@ -1207,8 +1310,8 @@ def main() -> int:
         default=12.0,
         help=(
             "zero-velocity recovery window for transient goal-router "
-            "odometry/occupancy lag while this receiver independently "
-            "remains READY"
+            "odometry/occupancy lag or a still-maturing known-free map while "
+            "this receiver independently remains READY"
         ),
     )
     parser.add_argument(
@@ -1229,8 +1332,12 @@ def main() -> int:
     parser.add_argument(
         "--trajectory-start-grace-s",
         type=float,
-        default=1.5,
-        help="maximum delay from local authorization to the first non-empty path",
+        default=12.0,
+        help=(
+            "terminal deadline from local authorization to the first "
+            "non-empty path; physical output remains zero until that path "
+            "is fresh"
+        ),
     )
     parser.add_argument(
         "--trajectory-stale-timeout-s",
@@ -1244,7 +1351,7 @@ def main() -> int:
     parser.add_argument(
         "--trajectory-recovery-timeout-s",
         type=float,
-        default=5.0,
+        default=12.0,
         help=(
             "terminal semantic-leg deadline after a previously observed "
             "trajectory becomes stale; the physical gate remains governed "
@@ -1360,6 +1467,7 @@ def main() -> int:
         args.trajectory_start_grace_s,
         args.trajectory_stale_timeout_s,
         args.trajectory_recovery_timeout_s,
+        args.target_refresh_request_interval_s,
         args.slam_transient_grace_s,
         args.slam_recovery_grace_s,
         args.odometry_recovery_grace_s,
@@ -1518,6 +1626,9 @@ def main() -> int:
             self.reverse_required = False
             self.reverse_required_received_ns = 0
             self.reverse_required_for_authority = False
+            self.turn_stalled = False
+            self.turn_stalled_received_ns = 0
+            self.turn_stalled_for_authority = False
             self.router_status_lock = threading.Lock()
             self.router_status_received_ns = 0
             self.router_state = ""
@@ -1535,7 +1646,14 @@ def main() -> int:
             self.cached_occupancy_motion_valid = False
             self.latest_raw_cmd = (0.0, 0.0)
             self.latest_guard_reason = "startup"
+            self.last_target_refresh_request_ns = 0
+            self.target_refresh_request_count = 0
             self.poi_publisher = self.create_publisher(String, args.cmd_pois_topic, 10)
+            self.target_refresh_request_publisher = self.create_publisher(
+                String,
+                args.target_refresh_request_topic,
+                10,
+            )
             pause_qos = QoSProfile(
                 depth=1,
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -1583,6 +1701,13 @@ def main() -> int:
                     Bool,
                     args.reverse_required_topic,
                     self.on_reverse_required,
+                    10,
+                )
+            if args.reject_stalled_turn:
+                self.create_subscription(
+                    Bool,
+                    args.turn_stalled_topic,
+                    self.on_turn_stalled,
                     10,
                 )
             self.create_timer(0.05, self.enforce_gate)
@@ -1705,6 +1830,24 @@ def main() -> int:
                     self.guarded_publisher.publish(Twist())
                     self.latest_guard_reason = "reverse_trajectory_rejected"
 
+        def on_turn_stalled(self, message: Bool) -> None:
+            received_ns = time.time_ns()
+            self.turn_stalled = bool(message.data)
+            self.turn_stalled_received_ns = received_ns
+            if (
+                self.turn_stalled
+                and self.authorized
+                and self.authority_started_ns > 0
+                and received_ns >= self.authority_started_ns
+            ):
+                # Latch for this authority exactly like a reverse rejection.
+                # Later controller callbacks may clear the status topic, but
+                # only a fresh high-level authority may clear the failure.
+                self.turn_stalled_for_authority = True
+                if live:
+                    self.guarded_publisher.publish(Twist())
+                    self.latest_guard_reason = "turn_recovery_stalled"
+
         def on_router_status(self, message: String) -> None:
             try:
                 payload = json.loads(message.data)
@@ -1814,6 +1957,7 @@ def main() -> int:
                 authority_deadline_ns=self.authority_deadline_ns,
                 trajectory_fresh=path_fresh,
                 reverse_required=self.reverse_required_for_authority,
+                turn_stalled=self.turn_stalled_for_authority,
                 health_pass=self.motion_health_pass,
                 health_evaluated_ns=self.motion_health_evaluated_ns,
                 health_timeout_s=args.health_gate_timeout_s,
@@ -1869,6 +2013,9 @@ def main() -> int:
                 if not self.authorized:
                     self.authority_started_ns = time.time_ns()
                     self.reverse_required_for_authority = False
+                    self.turn_stalled_for_authority = False
+                    self.last_target_refresh_request_ns = 0
+                    self.target_refresh_request_count = 0
                 self.authority_deadline_ns = expires_at_ns
                 self.authorized = True
 
@@ -1877,6 +2024,8 @@ def main() -> int:
             self.authority_deadline_ns = 0
             self.authority_started_ns = 0
             self.router_recovery_gate_closed = False
+            self.last_target_refresh_request_ns = 0
+            self.target_refresh_request_count = 0
             self.latest_guard_reason = "revoked"
             if live:
                 self.guarded_publisher.publish(Twist())
@@ -1998,6 +2147,48 @@ def main() -> int:
             self.poi_publisher.publish(message)
             if authorize_motion:
                 self.authorize(expires_at_ns)
+
+        def request_planner_target_refresh(
+            self,
+            *,
+            decision_id: str,
+            path_age_s: float,
+            router_waypoint: tuple[float, float],
+        ) -> int | None:
+            """Request bounded target re-publication without velocity output."""
+
+            if not live or not self.authorized:
+                return None
+            now_ns = time.time_ns()
+            if (
+                self.last_target_refresh_request_ns > 0
+                and (
+                    now_ns - self.last_target_refresh_request_ns
+                )
+                / 1e9
+                < args.target_refresh_request_interval_s
+            ):
+                return None
+            self.last_target_refresh_request_ns = now_ns
+            self.target_refresh_request_count += 1
+            message = String()
+            message.data = json.dumps(
+                {
+                    "schema_version": (
+                        TARGET_REFRESH_REQUEST_SCHEMA_VERSION
+                    ),
+                    "decision_id": decision_id,
+                    "requested_at_ns": now_ns,
+                    "path_age_s": round(path_age_s, 6),
+                    "router_waypoint": [
+                        float(router_waypoint[0]),
+                        float(router_waypoint[1]),
+                    ],
+                },
+                separators=(",", ":"),
+            )
+            self.target_refresh_request_publisher.publish(message)
+            return self.target_refresh_request_count
 
         def resume_existing_goal(self, expires_at_ns: int) -> None:
             if not live:
@@ -3273,45 +3464,12 @@ def main() -> int:
                         router_reason,
                     )
                 )
-                if no_path_waiting_for_replan:
-                    # A target without a route must not generate synthetic
-                    # ACCEPTED ticks while the physical gate is closed. Reject
-                    # it explicitly so the Hub can freeze a fresh source round.
-                    assert active_goal is not None
-                    node.revoke()
-                    post(
-                        held_decision,
-                        NavigationStatusV2.REJECTED,
-                        "LOCAL_GOAL_UNREACHABLE",
-                        pose,
-                        zero=True,
-                        goal=active_goal,
-                        detail=(
-                            "online router found no known-free path from the "
-                            "measured robot base for "
-                            f"{active_goal.target_kind}"
-                        ),
-                        terminal=True,
-                    )
-                    emit(
-                        (
-                            "frontier_no_path_rejected"
-                            if active_goal.target_kind == "FRONTIER_POINT"
-                            else "semantic_no_path_rejected"
-                        ),
-                        state=router_state,
-                        reason=router_reason,
-                        target_kind=active_goal.target_kind,
-                        decision_id=held_decision.decision_id,
-                        leg_id=held_decision.leg_id,
-                    )
-                    active_decision = None
-                    active_goal = None
-                    progress_watchdog.reset()
-                    router_recovery_leg_id = None
-                    router_recovery_started_ns = 0
-                    router_recovery_reason = ""
-                elif recoverable_router_hold(
+                if router_hold_recovery_eligible(
+                    (
+                        None
+                        if active_goal is None
+                        else active_goal.target_kind
+                    ),
                     router_reason,
                     receiver_runtime_ready=ready,
                 ):
@@ -3331,37 +3489,101 @@ def main() -> int:
                             grace_s=args.router_recovery_grace_s,
                             receiver_odom_age_s=round(odom_age_s, 3),
                             decision_id=held_decision.decision_id,
+                            recovery_class=(
+                                "known_free_map_maturation"
+                                if no_path_waiting_for_replan
+                                else "router_input_lag"
+                            ),
                         )
                     recovery_age_s = (
                         now_ns - router_recovery_started_ns
                     ) / 1e9
                     if recovery_age_s > args.router_recovery_grace_s:
+                        terminal_reason_code = (
+                            "LOCAL_GOAL_UNREACHABLE"
+                            if no_path_waiting_for_replan
+                            else "LOCAL_ROUTER_HOLD_TIMEOUT"
+                        )
                         node.revoke()
                         post(
                             held_decision,
                             NavigationStatusV2.REJECTED,
-                            "LOCAL_ROUTER_HOLD_TIMEOUT",
+                            terminal_reason_code,
                             pose,
                             zero=True,
+                            goal=(
+                                active_goal
+                                if no_path_waiting_for_replan
+                                else None
+                            ),
                             detail=(
                                 f"online router state={router_state} "
                                 f"reason={router_reason}; "
-                                f"recovery_age_s={recovery_age_s:.3f}"
+                                f"recovery_age_s={recovery_age_s:.3f}; "
+                                "bounded fresh-map recovery exhausted"
                             ),
                             terminal=True,
                         )
                         emit(
-                            "online_router_recovery_timeout",
+                            (
+                                "online_router_no_path_recovery_timeout"
+                                if no_path_waiting_for_replan
+                                else "online_router_recovery_timeout"
+                            ),
                             state=router_state,
                             reason=router_reason,
                             recovery_age_s=round(recovery_age_s, 3),
                             decision_id=held_decision.decision_id,
+                            target_kind=(
+                                None
+                                if active_goal is None
+                                else active_goal.target_kind
+                            ),
                         )
                         active_decision = None
                         active_goal = None
                         router_recovery_leg_id = None
                         router_recovery_started_ns = 0
                         router_recovery_reason = ""
+                elif no_path_waiting_for_replan:
+                    # If independent receiver health is not READY, no
+                    # map-maturation wait is authorized. The physical gate is
+                    # already closed, so reject without weakening local safety.
+                    assert active_goal is not None
+                    node.revoke()
+                    post(
+                        held_decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_GOAL_UNREACHABLE",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=(
+                            "online router found no known-free path and "
+                            "receiver health did not permit bounded recovery "
+                            f"for {active_goal.target_kind}"
+                        ),
+                        terminal=True,
+                    )
+                    emit(
+                        (
+                            "frontier_no_path_rejected"
+                            if active_goal.target_kind == "FRONTIER_POINT"
+                            else "semantic_no_path_rejected"
+                        ),
+                        state=router_state,
+                        reason=router_reason,
+                        target_kind=active_goal.target_kind,
+                        decision_id=held_decision.decision_id,
+                        leg_id=held_decision.leg_id,
+                        recovery_permitted=False,
+                    )
+                    active_decision = None
+                    active_goal = None
+                    progress_watchdog.reset()
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
                 else:
                     node.revoke()
                     post(
@@ -3956,6 +4178,60 @@ def main() -> int:
                     start_grace_s=args.trajectory_start_grace_s,
                     recovery_timeout_s=args.trajectory_recovery_timeout_s,
                 )
+                (
+                    _refresh_router_received_ns,
+                    refresh_router_state,
+                    refresh_router_reason,
+                    refresh_router_decision_id,
+                    _refresh_router_affected_decision_id,
+                    refresh_router_waypoint,
+                    _refresh_router_route_length_m,
+                ) = node.router_status_snapshot()
+                if (
+                    now_ns < active_decision.expires_at_ns
+                    and planner_target_refresh_eligible(
+                        authorized=node.authorized,
+                        router_recovery_gate_closed=(
+                            node.router_recovery_gate_closed
+                        ),
+                        trajectory_fresh=trajectory_fresh,
+                        trajectory_failed=trajectory_failed,
+                        trajectory_age_s=trajectory_age_s,
+                        trajectory_stale_timeout_s=(
+                            args.trajectory_stale_timeout_s
+                        ),
+                        router_state=refresh_router_state,
+                        router_reason=refresh_router_reason,
+                        router_decision_id=refresh_router_decision_id,
+                        active_decision_id=active_decision.decision_id,
+                        router_waypoint=refresh_router_waypoint,
+                    )
+                ):
+                    assert refresh_router_waypoint is not None
+                    refresh_attempt = node.request_planner_target_refresh(
+                        decision_id=active_decision.decision_id,
+                        path_age_s=trajectory_age_s,
+                        router_waypoint=refresh_router_waypoint,
+                    )
+                    if refresh_attempt is not None:
+                        emit(
+                            "local_planner_target_refresh_requested",
+                            decision_id=active_decision.decision_id,
+                            leg_id=active_decision.leg_id,
+                            request_attempt=refresh_attempt,
+                            request_topic=(
+                                args.target_refresh_request_topic
+                            ),
+                            path_age_s=round(trajectory_age_s, 3),
+                            router_state=refresh_router_state,
+                            router_reason=refresh_router_reason,
+                            router_waypoint=list(
+                                refresh_router_waypoint
+                            ),
+                            velocity_gate=(
+                                "trajectory_missing_or_stale"
+                            ),
+                        )
                 if time.time_ns() >= active_decision.expires_at_ns:
                     node.revoke()
                     post(
@@ -3969,6 +4245,45 @@ def main() -> int:
                     )
                     active_decision = None
                     active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
+                elif (
+                    args.reject_stalled_turn
+                    and node.turn_stalled_for_authority
+                ):
+                    failed_decision = active_decision
+                    node.revoke()
+                    post(
+                        failed_decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_PLANNER_TURN_STALLED",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=(
+                            "TinyNav continuous in-place heading recovery "
+                            "exceeded its robot-local bounded deadline"
+                        ),
+                        terminal=True,
+                    )
+                    emit(
+                        "local_planner_turn_stalled",
+                        decision_id=failed_decision.decision_id,
+                        leg_id=failed_decision.leg_id,
+                        turn_stalled_received_ns=(
+                            node.turn_stalled_received_ns
+                        ),
+                        trajectory_pose_count=node.trajectory_pose_count,
+                        trajectory_first_xy=node.trajectory_first_xy,
+                        trajectory_lookahead_xy=(
+                            node.trajectory_lookahead_xy
+                        ),
+                        latest_raw_cmd=list(node.latest_raw_cmd),
+                    )
+                    active_decision = None
+                    active_goal = None
+                    progress_watchdog.reset()
                     router_recovery_leg_id = None
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
@@ -4040,6 +4355,11 @@ def main() -> int:
                     node.authorized
                     and node.authority_started_ns > 0
                     and trajectory_failed
+                    # A router-owned recovery already keeps physical output
+                    # at zero and has its own bounded terminal verdict. Do not
+                    # let the shorter trajectory timer preempt that state.
+                    and router_recovery_leg_id
+                    != active_decision.leg_id
                 ):
                     failed_decision = active_decision
                     failure_timeout_s = (
@@ -4311,6 +4631,9 @@ def main() -> int:
                             ),
                             reverse_required=(
                                 node.reverse_required_for_authority
+                            ),
+                            turn_stalled=(
+                                node.turn_stalled_for_authority
                             ),
                             raw_cmd=list(node.latest_raw_cmd),
                             guard_reason=node.latest_guard_reason,

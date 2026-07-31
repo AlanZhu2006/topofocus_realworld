@@ -51,18 +51,20 @@ MAX_PLAN_DURATION_S="${FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50}"
 # physical gate zeros and the seven-second recovery window begins.
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
-# Match WSJ's common TinyNav receiver contract: immediately zero after one
-# second without a fresh collision-free path, but keep an already-started
-# semantic leg alive for a bounded five-second republish window. This changes
-# no WATER velocity authority; its independent stale-command watchdog remains
-# final.
+# Match Robot 0's common TinyNav receiver contract: immediately zero after one
+# second without a fresh collision-free path, while allowing twelve seconds
+# for a terminal first-path or transient-republish verdict. The router's
+# bounded map-maturation recovery takes precedence. This changes no WATER
+# velocity authority; its independent stale-command watchdog remains final.
+TRAJECTORY_START_GRACE_S="${FOCUS_YUNJI_TRAJECTORY_START_GRACE_S:-12.0}"
 TRAJECTORY_STALE_TIMEOUT_S="${FOCUS_YUNJI_TRAJECTORY_STALE_TIMEOUT_S:-1.0}"
-TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_YUNJI_TRAJECTORY_RECOVERY_TIMEOUT_S:-5.0}"
+TRAJECTORY_RECOVERY_TIMEOUT_S="${FOCUS_YUNJI_TRAJECTORY_RECOVERY_TIMEOUT_S:-12.0}"
 NO_PROGRESS_TIMEOUT_S="${FOCUS_YUNJI_NO_PROGRESS_TIMEOUT_S:-20.0}"
 MINIMUM_GOAL_PROGRESS_M="${FOCUS_YUNJI_MINIMUM_GOAL_PROGRESS_M:-0.05}"
-# The forward-only planner contains collision-scored zero-linear turns.  The
-# controller stabilizes those turns, while any unexpected reverse segment is
-# rejected immediately instead of being converted into another recovery loop.
+# The forward-only planner contains collision-scored zero-linear turns. The
+# controller stabilizes those turns and resolves a behind-heading segment with
+# zero-linear yaw. The receiver's fixed-goal progress watchdog owns the
+# terminal no-progress verdict; Path geometry alone is never called reverse.
 REVERSE_ROTATE_MAX_ANGULAR_RADPS="${FOCUS_YUNJI_REVERSE_ROTATE_MAX_ANGULAR_RADPS:-0.35}"
 REVERSE_ROTATE_TIMEOUT_S="${FOCUS_YUNJI_REVERSE_ROTATE_TIMEOUT_S:-12.0}"
 # The selected semantic approach point is already on the source radius-10-cell
@@ -216,6 +218,9 @@ CORE_CONTRACT_SHA256="$(
       "$FACTORY_CALIBRATION" \
       "$BASE_CAMERA_CALIBRATION" \
       "$SCRIPT_DIR/odin1_tinynav_adapter.py" \
+      "$SCRIPT_DIR/navigation_occupancy_mapper.py" \
+      "$SCRIPT_DIR/../src/focus_hub/navigation_occupancy.py" \
+      "$SCRIPT_DIR/../src/focus_hub/rate_aware_keyframes.py" \
       "$SCRIPT_DIR/run_yunji_tinynav_component.sh" \
       "$SCRIPT_DIR/run_yunji_tinynav_planner.py" \
       "$SCRIPT_DIR/tinynav_buildmap_goal_router.py" \
@@ -379,6 +384,8 @@ start_controller() {
       --robot-id robot-1 \
       --base-camera-frame odin1_camera_optical_frame \
       --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
+      --verified-forward-only-planner \
+      --rotate-first-on-reverse \
       --stabilize-large-turn \
       --linear-command-floor-mps "$LINEAR_COMMAND_FLOOR_MPS" \
       --rotate-first-max-angular-radps \
@@ -502,7 +509,16 @@ else
       -p frames.target_frame:=world \
       -p output.directory:="$map_output" \
       -p output.save_on_shutdown:=true \
-      -p bev.publish_rate_hz:=2.0
+      -p bev.publish_rate_hz:=2.0 \
+      -p integration.max_rays_per_frame:=3000 \
+      -p keyframe.pose_jump_translation_m:=1.0 \
+      -p keyframe.pose_jump_rotation_deg:=90.0 \
+      -p keyframe.pause_frames_after_jump:=0 \
+      -p navigation.robot_id:=robot-1 \
+      -p navigation.camera_frame:=odin1_camera_optical_frame \
+      -p navigation.base_camera_calibration_file:="$BASE_CAMERA_CALIBRATION" \
+      -p navigation.footprint_shape:=circle \
+      -p navigation.footprint_radius_m:=0.283
 
   start_unit focus-yunji-tinynav-planner-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" planner \
@@ -553,11 +569,13 @@ receiver_args=(
   --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
+  --trajectory-start-grace-s "$TRAJECTORY_START_GRACE_S"
   --trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"
   --trajectory-recovery-timeout-s "$TRAJECTORY_RECOVERY_TIMEOUT_S"
   --external-odometry-health
   --platform-health-topic /focus/water/cmd_bridge_status
   --reject-reverse-trajectory
+  --reject-stalled-turn
   --reachability-clearance-m "$REACHABILITY_CLEARANCE_M"
   --start-snap-radius-m "$START_SNAP_RADIUS_M"
   --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"
@@ -610,6 +628,13 @@ bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" verify \
   --camera-info-topic /slam/camera_info \
   --max-occupancy-age-s 12 \
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
+  --minimum-occupancy-updates 2 \
+  --maximum-occupancy-update-interval-s 4.0 \
+  --require-reachable-start \
+  --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
+  --reachability-clearance-m "$REACHABILITY_CLEARANCE_M" \
+  --start-snap-radius-m "$START_SNAP_RADIUS_M" \
+  --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
   --platform-status-topic /focus/water/cmd_bridge_status \
   --timeout-s 35
 

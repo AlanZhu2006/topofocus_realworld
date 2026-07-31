@@ -13,7 +13,7 @@ import json
 import math
 from pathlib import Path
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import cv2
 import numpy as np
@@ -819,15 +819,41 @@ def _validate_vlm_selection_bindings(
     contract = manifest.get("vlm_frontier_contract")
     if not isinstance(contract, dict):
         raise ValueError("shadow manifest lacks the VLM frontier contract")
+    per_robot_view = contract.get("per_robot_view")
+    owner_filtered_frontiers = per_robot_view == (
+        "locally supported subset of remaining shared candidates "
+        "in canonical A-D order"
+    )
     if (
         contract.get("scope") != "one shared fused-map A-D set"
         or contract.get("label_identity")
         != "stable across image, prompt, score vector and target"
-        or contract.get("per_robot_view")
-        != "remaining shared candidates in canonical A-D order"
+        or per_robot_view
+        not in {
+            "remaining shared candidates in canonical A-D order",
+            (
+                "locally supported subset of remaining shared candidates "
+                "in canonical A-D order"
+            ),
+        }
         or contract.get("allocation")
         != "selected frontier removed before the next robot"
         or contract.get("duplicate_physical_frontier_targets") is not False
+        or (
+            owner_filtered_frontiers
+            and (
+                contract.get("frontier_ownership_filter") is not True
+                or contract.get("disconnected_component_balance") is not True
+            )
+        )
+        or (
+            not owner_filtered_frontiers
+            and (
+                contract.get("frontier_ownership_filter", False) is not False
+                or contract.get("disconnected_component_balance", False)
+                is not False
+            )
+        )
         or (
             "source_later_agent_image_prompt_mismatch_corrected" in contract
             and contract.get(
@@ -907,6 +933,77 @@ def _validate_vlm_selection_bindings(
         resolution_m=resolution_m,
         shape_hw=shape_hw,
     )
+    frontier_ownership: dict[str, set[str]] = {}
+    if owner_filtered_frontiers:
+        ownership_raw = manifest.get("frontier_ownership")
+        shared_ids = {
+            str(record["frontier_id"]) for record in shared
+        }
+        robot_ids = {
+            str(record.get("robot_id", ""))
+            for record in robot_results_raw
+        }
+        if (
+            not isinstance(ownership_raw, dict)
+            or set(ownership_raw) != shared_ids
+            or "" in robot_ids
+        ):
+            raise ValueError(
+                "owner-filtered VLM frontier provenance is malformed"
+            )
+        for frontier_id in shared_ids:
+            ownership_record = ownership_raw[frontier_id]
+            eligible_raw = (
+                ownership_record.get("eligible_robot_ids")
+                if isinstance(ownership_record, dict)
+                else None
+            )
+            source_records = (
+                ownership_record.get("source_local_frontiers")
+                if isinstance(ownership_record, dict)
+                else None
+            )
+            if (
+                not isinstance(ownership_record, dict)
+                or ownership_record.get("frontier_id") != frontier_id
+                or not isinstance(eligible_raw, list)
+                or not eligible_raw
+                or any(
+                    not isinstance(robot_id, str) or not robot_id
+                    for robot_id in eligible_raw
+                )
+                or len(set(eligible_raw)) != len(eligible_raw)
+                or not set(eligible_raw).issubset(robot_ids)
+                or ownership_record.get("fabricated") is not False
+                or not isinstance(source_records, list)
+                or not source_records
+            ):
+                raise ValueError(
+                    f"owner-filtered VLM frontier {frontier_id} "
+                    "provenance is malformed"
+                )
+            source_robot_ids = {
+                str(record.get("robot_id", ""))
+                for record in source_records
+                if isinstance(record, dict)
+            }
+            if (
+                not set(eligible_raw).issubset(source_robot_ids)
+                or any(
+                    not isinstance(record, dict)
+                    or record.get("classification")
+                    != (
+                        "source-derived from observed frozen "
+                        "robot-local map"
+                    )
+                    for record in source_records
+                )
+            ):
+                raise ValueError(
+                    f"owner-filtered VLM frontier {frontier_id} lacks "
+                    "observed local-map provenance"
+                )
+            frontier_ownership[frontier_id] = set(eligible_raw)
     remaining = {
         str(record["frontier_id"]): record
         for record in shared
@@ -926,7 +1023,14 @@ def _validate_vlm_selection_bindings(
             result.get("candidate_frontiers"),
             context=f"{robot_id} candidate",
         )
-        expected_candidates = list(remaining.values())
+        expected_candidates = [
+            record
+            for frontier_id, record in remaining.items()
+            if (
+                not owner_filtered_frontiers
+                or robot_id in frontier_ownership[frontier_id]
+            )
+        ]
         if len(candidates) != len(expected_candidates) or any(
             not _frontier_record_matches(actual, expected)
             for actual, expected in zip(
@@ -1021,80 +1125,129 @@ def _validate_vlm_selection_bindings(
             raise ValueError(
                 f"{robot_id} final VLM selection differs across manifest sections"
             )
-        if selection is None:
-            continue
-        if not isinstance(selection, dict):
-            raise ValueError(f"{robot_id} final VLM selection is malformed")
-        kind = selection.get("kind")
-        if kind == "frontier":
+
+        # The source cascade commits its exploration choice before a
+        # semantic target may override the final destination.  Validate and
+        # consume that first-stage choice independently; otherwise a history
+        # node selected immediately before a semantic override is left in the
+        # validator's remaining set even though the source episode correctly
+        # removed it.
+        exploration = result.get(
+            "exploration_selection_before_target_override"
+        )
+        if exploration is not None and not isinstance(exploration, dict):
+            raise ValueError(
+                f"{robot_id} exploration VLM selection is malformed"
+            )
+        exploration_kind = (
+            None if exploration is None else exploration.get("kind")
+        )
+        if exploration_kind == "frontier":
             if allocated is None:
                 raise ValueError(
                     f"{robot_id} frontier target has no score-selected ABCD source"
                 )
             selected_record = _validated_frontier_record(
-                selection,
+                exploration,
                 context=f"{robot_id} selected",
             )
             if (
-                selection.get("target_id") != selected_record["frontier_id"]
+                exploration.get("target_id")
+                != selected_record["frontier_id"]
                 or not _frontier_record_matches(selected_record, allocated)
-                or result.get("exploration_selection_before_target_override")
-                != selection
+                or result.get("selected_history_index") is not None
             ):
                 raise ValueError(
                     f"{robot_id} frontier target is not bound to its ABCD choice"
+                )
+        elif exploration_kind == "history":
+            if (
+                exploration.get("history_index")
+                != result.get("selected_history_index")
+            ):
+                raise ValueError(
+                    f"{robot_id} history target differs from the source gate choice"
+                )
+            if history_candidates is None:
+                raise ValueError(
+                    f"{robot_id} history target has no frozen candidates"
+                )
+            # Source history selections carry their stable identity as
+            # ``target_id``; frozen candidate records carry the same identity
+            # as ``frontier_id``. Normalize only that alias before validating
+            # the complete grid/score binding.
+            exploration_history_record = dict(exploration)
+            exploration_history_record["frontier_id"] = exploration.get(
+                "target_id"
+            )
+            validated_selection = _validated_history_list(
+                [exploration_history_record],
+                context=f"{robot_id} selected",
+                origin_xy_m=origin_xy_m,
+                resolution_m=resolution_m,
+                shape_hw=shape_hw,
+            )[0]
+            selected_index = validated_selection["history_index"]
+            selected = next(
+                (
+                    item
+                    for item in history_candidates
+                    if item["history_index"] == selected_index
+                ),
+                None,
+            )
+            if (
+                selected is None
+                or validated_selection != selected
+                or exploration.get("target_id")
+                != validated_selection["frontier_id"]
+            ):
+                raise ValueError(
+                    f"{robot_id} history target is outside its frozen "
+                    "source-history candidates"
+                )
+            if remaining_history is not None and len(remaining_history) > 1:
+                remaining_history = [
+                    item
+                    for item in remaining_history
+                    if item["history_index"] != selected_index
+                ]
+        elif exploration_kind is None:
+            if result.get("selected_history_index") is not None:
+                raise ValueError(
+                    f"{robot_id} source history index has no exploration target"
+                )
+        else:
+            raise ValueError(
+                f"{robot_id} has unsupported exploration VLM selection kind"
+            )
+
+        if selection is None:
+            if (
+                exploration is not None
+                or result.get("semantic_goal_override") is not None
+            ):
+                raise ValueError(
+                    f"{robot_id} has an intermediate VLM target but no final selection"
+                )
+            continue
+        if not isinstance(selection, dict):
+            raise ValueError(f"{robot_id} final VLM selection is malformed")
+        kind = selection.get("kind")
+        if kind in {"frontier", "history"}:
+            if (
+                selection != exploration
+                or result.get("semantic_goal_override") is not None
+            ):
+                raise ValueError(
+                    f"{robot_id} final exploration target differs from "
+                    "the source gate choice"
                 )
         elif kind == "semantic_goal":
             if result.get("semantic_goal_override") != selection:
                 raise ValueError(
                     f"{robot_id} semantic target differs across VLM result fields"
                 )
-        elif kind == "history":
-            if (
-                result.get("exploration_selection_before_target_override")
-                != selection
-                or selection.get("history_index")
-                != result.get("selected_history_index")
-            ):
-                raise ValueError(
-                    f"{robot_id} history target differs from the source gate choice"
-                )
-            if history_candidates is not None:
-                validated_selection = _validated_history_list(
-                    [selection],
-                    context=f"{robot_id} selected",
-                    origin_xy_m=origin_xy_m,
-                    resolution_m=resolution_m,
-                    shape_hw=shape_hw,
-                )[0]
-                selected_index = validated_selection["history_index"]
-                selected = next(
-                    (
-                        item
-                        for item in history_candidates
-                        if item["history_index"] == selected_index
-                    ),
-                    None,
-                )
-                if (
-                    selected is None
-                    or validated_selection != selected
-                    or selection.get("target_id")
-                    != validated_selection["frontier_id"]
-                ):
-                    raise ValueError(
-                        f"{robot_id} history target is outside its frozen "
-                        "source-history candidates"
-                    )
-                if (
-                    remaining_history is not None
-                    and len(remaining_history) > 1
-                ):
-                    remaining_history = [
-                        item
-                        for item in remaining_history
-                        if item["history_index"] != selected_index
-                    ]
         else:
             raise ValueError(f"{robot_id} has unsupported VLM selection kind")
 
@@ -1136,6 +1289,10 @@ def build_batch_from_shadow_manifest(
     robot_config_path: Path | str | None = None,
     lease_duration_ns: int = 8_000_000_000,
     forced_hold_robot_ids: Iterable[str] = (),
+    execution_selection_overrides: Mapping[
+        str, Mapping[str, object] | None
+    ]
+    | None = None,
 ) -> SceneBatchBuild:
     """Build and preflight a two-robot v2 batch without publishing it.
 
@@ -1143,6 +1300,12 @@ def build_batch_from_shadow_manifest(
     rewrite. The original selections remain preserved and fully validated in
     the shadow manifest; listed robots are converted to explicit HOLD
     decisions before any command-capable batch is constructed.
+
+    ``execution_selection_overrides`` is narrower: it may replace a source
+    semantic goal only with that robot's exact frozen
+    ``exploration_selection_before_target_override`` or explicit HOLD.  This
+    lets a separate, versioned real-world semantic confirmation guard decline
+    physical authority without changing the source result.
     """
 
     manifest_path = Path(manifest_path).expanduser().resolve()
@@ -1176,6 +1339,36 @@ def build_batch_from_shadow_manifest(
         selections_raw,
     )
     robot_ids = tuple(record["robot_id"] for record in robot_results_raw)
+    selection_overrides = (
+        {}
+        if execution_selection_overrides is None
+        else dict(execution_selection_overrides)
+    )
+    unknown_overrides = set(selection_overrides).difference(robot_ids)
+    if unknown_overrides:
+        raise ValueError(
+            "execution selection override contains unknown robot IDs: "
+            + ", ".join(sorted(unknown_overrides))
+        )
+    for robot_id, override in selection_overrides.items():
+        source_selection = selections_raw.get(robot_id)
+        robot_result = robot_results[robot_id]
+        frozen_exploration = robot_result.get(
+            "exploration_selection_before_target_override"
+        )
+        if (
+            not isinstance(source_selection, dict)
+            or source_selection.get("kind") != "semantic_goal"
+        ):
+            raise ValueError(
+                f"{robot_id} execution override requires a source semantic "
+                "selection"
+            )
+        if override is not None and override != frozen_exploration:
+            raise ValueError(
+                f"{robot_id} execution override differs from its exact "
+                "frozen pre-semantic exploration selection"
+            )
     forced_holds = frozenset(str(value) for value in forced_hold_robot_ids)
     unknown_forced_holds = forced_holds.difference(robot_ids)
     if unknown_forced_holds:
@@ -1183,9 +1376,15 @@ def build_batch_from_shadow_manifest(
             "forced HOLD contains unknown robot IDs: "
             + ", ".join(sorted(unknown_forced_holds))
         )
+    execution_selections = dict(selections_raw)
+    for robot_id, override in selection_overrides.items():
+        if override is None:
+            execution_selections.pop(robot_id, None)
+        else:
+            execution_selections[robot_id] = dict(override)
     execution_selections = {
         robot_id: selection
-        for robot_id, selection in selections_raw.items()
+        for robot_id, selection in execution_selections.items()
         if robot_id not in forced_holds
     }
     registry_entries = _registry_entries(registry_state)
@@ -1442,6 +1641,13 @@ def build_batch_from_shadow_manifest(
                 )
                 if robot_id in forced_holds
                 else (
+                    "real-world semantic confirmation declined the source "
+                    "semantic override; exact frozen "
+                    f"{selection.get('kind') if selection else 'HOLD'} "
+                    f"selection used from manifest {run_id}"
+                )
+                if robot_id in selection_overrides
+                else (
                     "source-faithful VLM "
                     f"{selection.get('kind') if selection else 'no-selection'} "
                     f"from frozen manifest {run_id}"
@@ -1469,6 +1675,9 @@ def build_batch_from_shadow_manifest(
             robot_id for robot_id in robot_ids if robot_id in selections_raw
         ],
         "forced_hold_robot_ids": sorted(forced_holds),
+        "execution_selection_override_robot_ids": sorted(
+            selection_overrides
+        ),
         "robot_commands_sent": False,
         "network_used": False,
         "preflight_ready": not blockers,

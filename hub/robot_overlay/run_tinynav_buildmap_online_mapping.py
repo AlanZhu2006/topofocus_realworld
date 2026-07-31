@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Launch continuous TinyNav geometry/occupancy in the fresh ``world`` frame.
+"""Launch continuous TinyNav geometry/occupancy in world or saved-map frame.
 
 The installed ``semantic_mapping`` package normally targets a relocalized
-saved-map frame and RealSense aligned depth. This deployment launch keeps the
-package unchanged but overrides it to consume TinyNav's continuously
+saved-map frame and RealSense aligned depth. This deployment launcher keeps
+the package unchanged but overrides it to consume TinyNav's continuously
 published, timestamp-matched geometry products:
 
 ``/slam/depth + /slam/camera_info + world->camera TF``.
+
+When target and tracking frames differ, the semantic point-cloud node uses the
+latest validated ``map <- world`` alignment while retaining the exact
+``world <- camera`` transform at each image stamp.  When both are ``world``,
+the existing fresh BuildMap behavior is unchanged.
 
 The point-cloud node requires an RGB field although occupancy uses only XYZ.
 A read-only adapter therefore supplies a strictly stamped black RGB companion
@@ -20,15 +25,57 @@ from pathlib import Path
 import sys
 
 
+def ros_parameter_override_arguments(
+    overrides: dict[str, object],
+) -> list[str]:
+    """Encode non-empty ROS parameter overrides for a process command.
+
+    ROS 2 rejects an override such as ``-p input.directory:=`` before the
+    node starts.  Online mapping intentionally has no input directory, so an
+    empty optional value must use the parameter file's default instead of
+    being serialized onto the command line.
+    """
+
+    arguments: list[str] = []
+    for name, raw_value in overrides.items():
+        if raw_value is None or raw_value == "":
+            continue
+        value = (
+            "true"
+            if raw_value is True
+            else "false"
+            if raw_value is False
+            else str(raw_value)
+        )
+        arguments.extend(("-p", f"{name}:={value}"))
+    return arguments
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target-frame", default="world")
+    parser.add_argument(
+        "--tracking-frame",
+        help=(
+            "raw odometry/TF parent frame; defaults to --target-frame for "
+            "fresh online BuildMap, use world with target map for saved-map "
+            "relocalization"
+        ),
+    )
     parser.add_argument("--output-directory", type=Path, required=True)
+    parser.add_argument("--robot-id", default="robot-0")
+    parser.add_argument("--camera-frame", default="camera")
+    parser.add_argument(
+        "--base-camera-calibration-file", type=Path, required=True
+    )
     parser.add_argument("--max-rate-hz", type=float, default=3.0)
     parser.add_argument("--depth-stride", type=int, default=3)
     args = parser.parse_args()
     if not args.target_frame:
         parser.error("--target-frame is required")
+    tracking_frame = args.tracking_frame or args.target_frame
+    if not tracking_frame:
+        parser.error("--tracking-frame is required")
     if args.max_rate_hz <= 0:
         parser.error("--max-rate-hz must be positive")
     if args.depth_stride <= 0:
@@ -53,7 +100,16 @@ def main() -> int:
             f"continuous geometry RGB adapter is missing: "
             f"{geometry_rgb_script}"
         )
+    navigation_occupancy_script = Path(__file__).resolve().with_name(
+        "navigation_occupancy_mapper.py"
+    )
+    if not navigation_occupancy_script.is_file():
+        parser.error(
+            "navigation occupancy adapter is missing: "
+            f"{navigation_occupancy_script}"
+        )
     geometry_rgb_topic = "/focus/slam/continuous_depth_geometry_rgb"
+    relocalized_map = tracking_frame != args.target_frame
 
     geometry_overrides = {
         "topics.rgb": geometry_rgb_topic,
@@ -62,7 +118,7 @@ def main() -> int:
         "topics.pointcloud": "/semantic_mapping/semantic_pointcloud",
         "topics.camera_pose": "/semantic_mapping/camera_pose",
         "frames.target_frame": args.target_frame,
-        "frames.odom_frame": args.target_frame,
+        "frames.odom_frame": tracking_frame,
         "frames.pose_camera_frame": "camera",
         "frames.tracking_camera_frame": "camera",
         "frames.camera_frame": "camera",
@@ -71,8 +127,8 @@ def main() -> int:
         # validated by the persistent WSJ observation sender.  Its measured
         # pose skew is 0 ms; retain the sender's 50 ms fail-closed sync bound.
         "sync.max_slop_sec": 0.05,
-        "pose.allow_latest_map_alignment": False,
-        "pose.wait_for_target_alignment": False,
+        "pose.allow_latest_map_alignment": relocalized_map,
+        "pose.wait_for_target_alignment": relocalized_map,
         "processing.max_rate_hz": args.max_rate_hz,
         "depth.stride": args.depth_stride,
         "validation.require_frame_ids": True,
@@ -86,16 +142,41 @@ def main() -> int:
         "output.directory": str(output),
         "input.directory": "",
         "input.allow_frame_id_override": False,
-        # Observed during supervised Go2 motion on 2026-07-25: the
-        # low-rate synchronized keyframes legitimately differed by
-        # 22.24--23.24 degrees while the local controller commanded a turn.
-        # The source 20-degree discontinuity threshold therefore suppressed
-        # every fresh grid until the router stopped the robot.  Keep genuine
-        # larger relocalization discontinuities fail-closed while admitting
-        # the measured physical motion.
-        "keyframe.pose_jump_rotation_deg": 35.0,
+        # Observed during supervised Go2 motion on 2026-07-30: this deployment
+        # receives occupancy pairs at about 0.62 Hz. Consecutive valid camera
+        # poses during ordinary guarded motion differed by as much as 0.856 m
+        # and 39.00 degrees. The source 0.50 m/20 degree limits, and the
+        # previous rotation-only 35 degree override, therefore classified
+        # physical motion as relocalization and withheld two grids. Admit the
+        # measured low-rate motion with bounded margin while still rejecting
+        # the separately observed 3.930 m discontinuity.
+        "keyframe.pose_jump_translation_m": 1.0,
+        "keyframe.pose_jump_rotation_deg": 90.0,
+        # One discontinuous sample is rejected and becomes the new continuity
+        # anchor. The deployment selector then accepts the next stable sample;
+        # two additional low-rate pauses can otherwise starve the authoritative
+        # grid beyond the receiver's bounded recovery window.
+        "keyframe.pause_frames_after_jump": 0,
+        "navigation.robot_id": args.robot_id,
+        "navigation.camera_frame": args.camera_frame,
+        "navigation.base_camera_calibration_file": str(
+            args.base_camera_calibration_file.expanduser().resolve()
+        ),
+        "navigation.footprint_shape": "rectangle",
+        "navigation.footprint_front_m": 0.35,
+        "navigation.footprint_rear_m": 0.35,
+        "navigation.footprint_half_width_m": 0.35,
         "use_sim_time": False,
     }
+    occupancy_command = [
+        sys.executable,
+        "-u",
+        str(navigation_occupancy_script),
+        "--ros-args",
+        "--params-file",
+        str(default_config),
+    ]
+    occupancy_command.extend(ros_parameter_override_arguments(occupancy_overrides))
     description = LaunchDescription(
         [
             ExecuteProcess(
@@ -126,12 +207,10 @@ def main() -> int:
                 output="screen",
                 parameters=[str(default_config), geometry_overrides],
             ),
-            Node(
-                package="semantic_mapping",
-                executable="occupancy_mapper_node",
-                name="occupancy_mapper_node",
+            ExecuteProcess(
+                cmd=occupancy_command,
+                name="focus_navigation_occupancy_mapper",
                 output="screen",
-                parameters=[str(default_config), occupancy_overrides],
             ),
         ]
     )

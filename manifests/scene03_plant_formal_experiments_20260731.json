@@ -1,0 +1,132 @@
+{
+  "schema_version": "focus-scene-formal-experiments-v1",
+  "scene_id": "scene03-plant",
+  "target_category": "plant",
+  "campaign_status": "complete",
+  "formal_experiments": 5,
+  "successes": 3,
+  "failures": 2,
+  "sr": 0.6,
+  "metric_protocol": {
+    "physical_success_radius_m": 0.5,
+    "source_compatible_spl_formula": "S * D / max(D, P)",
+    "standard_spl_formula": "S * L / max(L, P)",
+    "independently_measured_shortest_feasible_path_m": 14.0,
+    "shortest_path_measurement_precision": "approximate",
+    "shortest_path_evidence": {
+      "path": "manifests/scene03_plant_shortest_feasible_path_20260731.json",
+      "size_bytes": 1099,
+      "sha256": "78ec54595f651248599e9646699f6ce9818008c4cbc0d68ba31d0b7a20ddbb1d",
+      "classification": "observed operator-provided independent measurement"
+    }
+  },
+  "aggregate_metrics": {
+    "mean_source_compatible_spl_with_failures_zero": 0.365961721746991,
+    "mean_standard_spl_with_failures_zero": 0.54619361696575
+  },
+  "experiments": [
+    {
+      "formal_index": 1,
+      "result": "FAILURE",
+      "arriving_robot_id": null,
+      "robot_0_actual_path_length_m": 18.57710702408058,
+      "robot_1_actual_path_length_m": 14.162235364087437,
+      "source_compatible_spl": 0.0,
+      "standard_spl": 0.0,
+      "public_summary": "The test budget elapsed before exploration found and reached a verified plant target.",
+      "record": {
+        "path": "manifests/scene03_plant_formal_experiment_01_failure_20260730.json",
+        "size_bytes": 10538,
+        "sha256": "bf9d19b8ea49fd8e5118bda3e4a11a519e04da6f73ee6a5a45c23d54951523d9",
+        "classification": "authoritative machine-readable Formal 01 archive"
+      }
+    },
+    {
+      "formal_index": 2,
+      "result": "FAILURE",
+      "arriving_robot_id": null,
+      "robot_0_actual_path_length_m": 5.754388385130265,
+      "robot_1_actual_path_length_m": 17.902159740277195,
+      "source_compatible_spl": 0.0,
+      "standard_spl": 0.0,
+      "public_summary": "The test budget elapsed before exploration found and reached a verified plant target.",
+      "record": {
+        "path": "manifests/scene03_plant_formal_experiment_02_failure_20260731.json",
+        "size_bytes": 14603,
+        "sha256": "1b3cd08a0a7c9f69d5f3227527cb1c7a6539ba624516d860cfb7704fb5e3cdeb",
+        "classification": "authoritative machine-readable Formal 02 archive"
+      }
+    },
+    {
+      "formal_index": 3,
+      "result": "SUCCESS",
+      "arriving_robot_id": "robot-1",
+      "robot_0_actual_path_length_m": 9.037489961077558,
+      "robot_1_actual_path_length_m": 11.60667889663771,
+      "arriving_robot_start_to_stop_displacement_m": 8.003081540002764,
+      "source_compatible_spl": 0.689523817387689,
+      "standard_spl": 1.0,
+      "success_basis": "observed onsite operator confirmation of physical plant arrival; immutable automatic report retained separately without semantic ARRIVED",
+      "record": {
+        "path": "manifests/scene03_plant_formal_experiment_03_success_20260731.json",
+        "size_bytes": 12363,
+        "sha256": "8c10d7d8948a510dfca2c2df25e7f7924de6d619636d3f5d3f40afbb4dd3549b",
+        "classification": "authoritative machine-readable Formal 03 archive"
+      }
+    },
+    {
+      "formal_index": 4,
+      "result": "SUCCESS",
+      "arriving_robot_id": "robot-1",
+      "robot_0_actual_path_length_m": 9.39125270693893,
+      "robot_1_actual_path_length_m": 13.010774642813228,
+      "arriving_robot_start_to_stop_displacement_m": 9.023717829323921,
+      "source_compatible_spl": 0.6935573074665742,
+      "standard_spl": 1.0,
+      "success_basis": "automatic Robot 1 semantic ARRIVED and zero-velocity evidence, plus observed onsite operator confirmation of physical plant arrival",
+      "record": {
+        "path": "manifests/scene03_plant_formal_experiment_04_success_20260731.json",
+        "size_bytes": 11976,
+        "sha256": "7e1fb4ee4838b64c7291276a63673f7769f78dcb6d10fb0d65ab9db1244af14d",
+        "classification": "authoritative machine-readable Formal 04 archive"
+      }
+    },
+    {
+      "formal_index": 5,
+      "result": "SUCCESS",
+      "arriving_robot_id": "robot-1",
+      "robot_0_policy_role": "HOLD",
+      "robot_0_actual_path_length_m": 2.4777573431304116,
+      "robot_0_start_to_stop_displacement_m": 0.006053133631631,
+      "robot_0_path_interpretation": "raw accumulated odometry retained as observed provenance; the 0.006053 m net pose change is consistent with the coordination-policy HOLD role and the integrated path is not interpreted as physical route execution",
+      "robot_1_actual_path_length_m": 19.152682983799288,
+      "arriving_robot_start_to_stop_displacement_m": 8.556029878917236,
+      "source_compatible_spl": 0.446727483880694,
+      "standard_spl": 0.730968084828752,
+      "success_basis": "automatic Robot 1 semantic ARRIVED and zero-velocity evidence, terminal RGB clearly containing the plant, and observed onsite operator confirmation; Robot 0 remained in coordination-policy HOLD",
+      "record": {
+        "path": "manifests/scene03_plant_formal_experiment_05_success_20260731.json",
+        "size_bytes": 16438,
+        "sha256": "d89d58035e30ec265cb6321c38c27c6a17a0e057565a22ae1bbff5741dbd57c5",
+        "classification": "authoritative machine-readable Formal 05 archive"
+      }
+    }
+  ],
+  "scene_map_media": {
+    "path": "media/image/experiment_3_map.png",
+    "size_bytes": 156500,
+    "sha256": "95f9c92f31f84c59dcdc691ece700c41e725da3171bcbb488573905c325fce32",
+    "classification": "observed user-provided explored semantic map for Experiment 3 with Robot 0 and Robot 1 trajectories"
+  },
+  "media_convention": {
+    "master_storage": "media/video/** through Git LFS",
+    "browser_video": "H.264 yuv420p MP4 under media/demo/",
+    "inline_preview": "complete display clip time-lapsed to 64 frames at 8 fps",
+    "formal_binding": "failure_1/failure_2 map to Formal 01/02; success_1/success_2/success_3 map to Formal 03/04/05"
+  },
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "post_episode_motion_authority": false
+  }
+}

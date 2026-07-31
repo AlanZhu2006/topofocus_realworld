@@ -28,6 +28,8 @@ COLOR_PREVIEW_TOPIC="/camera/camera/color/image_raw"
 REGISTRATION_MIN_COVERAGE="${FOCUS_WSJ_REGISTRATION_MIN_COVERAGE:-0.38}"
 RGB_CACHE_SIZE="${FOCUS_WSJ_RGB_CACHE_SIZE:-90}"
 LATEST_RGB_MAX_SKEW_S="${FOCUS_WSJ_LATEST_RGB_MAX_SKEW_S:-0.05}"
+POSE_TOPIC="${FOCUS_WSJ_OBSERVATION_POSE_TOPIC:-/slam/odometry_visual}"
+POSE_FRAME="${FOCUS_WSJ_OBSERVATION_POSE_FRAME:-world}"
 # A stale persistent DataReader can expose every publisher endpoint yet stop
 # delivering synchronized tuples.  Twelve seconds covers the observed healthy
 # cadence without spending most of a test window on a dead reader.  A fresh
@@ -48,6 +50,8 @@ Usage: start_wsj_command_observation.sh [options]
   --shared-frame-calibration-id ID
   --transform-version ID
   --goal-category CATEGORY
+  --pose-topic /slam/odometry_visual|/focus/maploc/odometry_visual
+  --pose-frame world|map
   --hub-url http://127.0.0.1:PORT
   --preview-url http://127.0.0.1:PORT
 
@@ -67,6 +71,8 @@ while [[ $# -gt 0 ]]; do
     --shared-frame-calibration-id) SHARED_FRAME_CALIBRATION_ID="$2"; shift 2 ;;
     --transform-version) TRANSFORM_VERSION="$2"; shift 2 ;;
     --goal-category) GOAL_CATEGORY="$2"; shift 2 ;;
+    --pose-topic) POSE_TOPIC="$2"; shift 2 ;;
+    --pose-frame) POSE_FRAME="$2"; shift 2 ;;
     --hub-url) HUB_URL="$2"; shift 2 ;;
     --preview-url) PREVIEW_URL="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -82,6 +88,13 @@ done
   echo "Foxglove preview URL must remain loopback-only." >&2
   exit 2
 }
+case "$POSE_TOPIC:$POSE_FRAME" in
+  /slam/odometry_visual:world|/focus/maploc/odometry_visual:map) ;;
+  *)
+    echo "Unsupported WSJ observation pose contract: $POSE_TOPIC frame=$POSE_FRAME" >&2
+    exit 2
+    ;;
+esac
 [[ "$DEPLOYMENT_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
   echo "FOCUS_DEPLOYMENT_COMMIT must be the explicit 40-character Git commit." >&2
   exit 2
@@ -153,6 +166,8 @@ PROCESS_CONTRACT_SHA256="$(
       "$REGISTRATION_MIN_COVERAGE" \
       "$RGB_CACHE_SIZE" \
       "$LATEST_RGB_MAX_SKEW_S" \
+      "$POSE_TOPIC" \
+      "$POSE_FRAME" \
       "$FASTDDS_BUILTIN_TRANSPORTS_VALUE"
     sha256sum "$SCRIPT_DIR/focus_ros_sender.py"
   } | sha256sum | awk '{print $1}'
@@ -237,7 +252,7 @@ launch_sender() {
     --rgb-topic /camera/camera/color/image_raw
     --depth-topic /slam/depth
     --info-topic /slam/camera_info
-    --pose-topic /slam/odometry_visual
+    --pose-topic "$POSE_TOPIC"
     --camera-frame camera
     --register-rgb-to-depth
     --rgb-info-topic /camera/camera/color/camera_info
@@ -334,7 +349,8 @@ ensure_sender_process() {
     )"
     if [[ ! "$deployment" =~ ^[0-9a-f]{40}$ \
           || ( "$process_contract" != "$PROCESS_CONTRACT_SHA256" \
-               && "$process_contract" != "$legacy_contract" ) ]]; then
+               && ( "$POSE_TOPIC" != /slam/odometry_visual \
+                    || "$process_contract" != "$legacy_contract" ) ) ]]; then
       echo "Replacing the WSJ sender once for a changed process contract; the verified UDPv4 subscriber must receive a fresh frame before use."
       stop_tracked_sender
       sender_window=false
@@ -373,6 +389,8 @@ write_active_contract() {
   FOCUS_TRANSFORM_VERSION="$TRANSFORM_VERSION" \
   FOCUS_CALIBRATION_ID="$SHARED_FRAME_CALIBRATION_ID" \
   FOCUS_GOAL_CATEGORY="$GOAL_CATEGORY" \
+  FOCUS_POSE_TOPIC="$POSE_TOPIC" \
+  FOCUS_POSE_FRAME="$POSE_FRAME" \
   FOCUS_BASE_CALIBRATION="$BASE_CAMERA_CALIBRATION" \
   FOCUS_SHARED_CALIBRATION="$SHARED_TRACKING_CALIBRATION" \
   FOCUS_RESOLVED_RESTART_BOOT_ID="$resolved_restart_boot_id" \
@@ -403,6 +421,13 @@ payload = {
     "transform_version": os.environ["FOCUS_TRANSFORM_VERSION"],
     "shared_frame_calibration_id": os.environ["FOCUS_CALIBRATION_ID"],
     "goal_category": os.environ["FOCUS_GOAL_CATEGORY"],
+    "pose_topic": os.environ["FOCUS_POSE_TOPIC"],
+    "pose_frame": os.environ["FOCUS_POSE_FRAME"],
+    "pose_source_status": (
+        "observed_validated_saved_map_relocalization"
+        if os.environ["FOCUS_POSE_FRAME"] == "map"
+        else "observed_tracking_odometry"
+    ),
     "base_camera_calibration": artifact(
         os.environ["FOCUS_BASE_CALIBRATION"]
     ),
@@ -503,6 +528,58 @@ PY
   return 1
 }
 
+active_receipt_frames_seen() {
+  local expected_sha="$1" expected_pid
+  expected_pid="$(sender_pid)"
+  FOCUS_RECEIPT="$RUNTIME_RECEIPT_FILE" \
+  FOCUS_EXPECT_SHA="$expected_sha" \
+  FOCUS_EXPECT_PID="$expected_pid" \
+  "$PYTHON_BIN" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+payload = json.loads(Path(os.environ["FOCUS_RECEIPT"]).read_text())
+if payload.get("status") != "active":
+    raise SystemExit("WSJ sender receipt is not active")
+if payload.get("contract_sha256") != os.environ["FOCUS_EXPECT_SHA"]:
+    raise SystemExit("WSJ sender receipt contract mismatch")
+if int(payload.get("pid", -1)) != int(os.environ["FOCUS_EXPECT_PID"]):
+    raise SystemExit("WSJ sender receipt PID mismatch")
+print(int(payload.get("frames_seen", -1)))
+PY
+}
+
+sender_frame_error_since() {
+  local baseline_frames="$1" expected_sha="$2" expected_pid
+  expected_pid="$(sender_pid)"
+  FOCUS_RECEIPT="$RUNTIME_RECEIPT_FILE" \
+  FOCUS_EXPECT_SHA="$expected_sha" \
+  FOCUS_EXPECT_PID="$expected_pid" \
+  FOCUS_BASELINE_FRAMES="$baseline_frames" \
+  "$PYTHON_BIN" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+payload = json.loads(Path(os.environ["FOCUS_RECEIPT"]).read_text())
+if payload.get("status") != "active":
+    raise SystemExit(1)
+if payload.get("contract_sha256") != os.environ["FOCUS_EXPECT_SHA"]:
+    raise SystemExit(1)
+if int(payload.get("pid", -1)) != int(os.environ["FOCUS_EXPECT_PID"]):
+    raise SystemExit(1)
+if int(payload.get("frames_seen", -1)) <= int(
+    os.environ["FOCUS_BASELINE_FRAMES"]
+):
+    raise SystemExit(1)
+error = payload.get("last_frame_error")
+if not isinstance(error, str) or not error:
+    raise SystemExit(1)
+print(error)
+PY
+}
+
 hub_latest_sequence() {
   local token payload
   token="$(<"$TOKEN_FILE")"
@@ -538,11 +615,12 @@ fresh_reader_can_assemble_observation() {
       --sync-queue-size 50 \
       --sync-slop-s 0.05 \
       --rgb-cache-size "$RGB_CACHE_SIZE" \
-      --latest-rgb-max-skew-s "$LATEST_RGB_MAX_SKEW_S"
+      --latest-rgb-max-skew-s "$LATEST_RGB_MAX_SKEW_S" \
+      --odometry-topic "$POSE_TOPIC"
 }
 
 recover_stale_sender_reader() {
-  local old_pid new_pid baseline
+  local old_pid new_pid baseline receipt_frames frame_error
   old_pid="$(sender_pid)"
   [[ "$old_pid" =~ ^[1-9][0-9]*$ ]] || {
     echo "Persistent WSJ sender PID is unavailable for reader recovery." >&2
@@ -569,7 +647,15 @@ recover_stale_sender_reader() {
   baseline="$(hub_latest_sequence)"
   contract_sha256="$(write_active_contract)"
   wait_for_receipt active "$contract_sha256"
+  receipt_frames="$(active_receipt_frames_seen "$contract_sha256")"
   if ! wait_for_hub_sequence_advance "$baseline"; then
+    if frame_error="$(
+      sender_frame_error_since "$receipt_frames" "$contract_sha256"
+    )"; then
+      echo "WSJ sender receives synchronized tuples, but Hub rejected frame processing: $frame_error" >&2
+      echo "Activate a Hub session with the same transform/calibration contract before retrying the sender." >&2
+      return 1
+    fi
     echo "Fresh WSJ sender reader did not advance after a passing sync probe." >&2
     return 1
   fi
@@ -671,7 +757,15 @@ validate_reanchor_marker
 initial_sequence="$(hub_latest_sequence)"
 contract_sha256="$(write_active_contract)"
 wait_for_receipt active "$contract_sha256"
+receipt_frames="$(active_receipt_frames_seen "$contract_sha256")"
 if ! wait_for_hub_sequence_advance "$initial_sequence"; then
+  if frame_error="$(
+    sender_frame_error_since "$receipt_frames" "$contract_sha256"
+  )"; then
+    echo "WSJ sender receives synchronized tuples, but Hub rejected frame processing: $frame_error" >&2
+    echo "Activate a Hub session with the same transform/calibration contract before retrying the sender." >&2
+    exit 1
+  fi
   echo "WSJ persistent sender did not advance; probing the publisher tuple with a fresh read-only participant." >&2
   if fresh_reader_can_assemble_observation; then
     echo "Fresh reader proved the publishers healthy; replacing only the stale observation sender." >&2

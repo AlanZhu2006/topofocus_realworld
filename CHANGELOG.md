@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Scene 03 complete formal archive (2026-07-31)
+
+- Finalize the five-run long-range cooperative plant campaign with two
+  time-limit failures and three operator-confirmed successes:
+  `SR=0.6`, mean source-compatible SPL `0.365961721746991`.
+- Record the operator-provided approximate independent shortest feasible path
+  `L≈14 m`; Standard SPL is `1.0`, `1.0` and `0.730968084828752` for Formal
+  03-05, respectively, and the five-run mean with failures at zero is
+  `0.54619361696575`.
+- Preserve five third-view and five Dashboard masters byte-for-byte through
+  Git LFS, publish H.264/GIF derivatives for every run, and add the explored
+  semantic map with both robot trajectories.
+
 ### Scene 02 Standard SPL and Formal 02 replacement media (2026-07-28)
 
 - Record the operator-provided independently measured Scene 02 shortest

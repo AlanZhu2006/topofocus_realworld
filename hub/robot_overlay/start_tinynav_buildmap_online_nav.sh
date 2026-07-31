@@ -29,9 +29,10 @@ MAP_TIMEOUT_S="${FOCUS_WSJ_MAP_TIMEOUT_S:-12.0}"
 # fail-closed while allowing that measured transient rather than rejecting the
 # first supervised goal at the old 1.0 s default.
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
-# The WSJ forward-looking grid was observed to begin 0.318 m ahead of the
-# measured base after reboot.  Bridge only that bounded camera/base footprint;
-# the selected seed must still be known-free with the requested clearance.
+# The navigation occupancy adapter pads and clears the exact current 0.35 m
+# front/rear by 0.35 m half-width source footprint. Keep the graph's additional
+# radial bridge at the original 0.35 m; unknown space outside that bounded
+# current-base region is never admitted, and TinyNav remains final authority.
 START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 # Keep the semantic ARRIVED contract unchanged, but make online A* target its
@@ -70,6 +71,7 @@ for required in \
   "$TINYNAV_ROOT/tinynav/platforms/cmd_vel_control.py" \
   "$SCRIPT_DIR/run_tinynav_buildmap_live.py" \
   "$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py" \
+  "$SCRIPT_DIR/navigation_occupancy_mapper.py" \
   "$SCRIPT_DIR/ros_continuous_depth_geometry_rgb.py" \
   "$SCRIPT_DIR/tinynav_source_contract.py" \
   "$SCRIPT_DIR/run_yunji_tinynav_planner.py" \
@@ -138,7 +140,7 @@ trap cleanup_partial_start ERR
 
 online_output="$OUTPUT_DIR.online_occupancy"
 tmux new-window -d -t "$SESSION" -n online-map \
-  "bash -lc 'source \"$SETUP_FILE\"; source \"$TINYNAV_ROOT/install/setup.bash\" 2>/dev/null || true; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py\" --target-frame \"$FRAME_ID\" --output-directory \"$online_output\"'"
+  "bash -lc 'source \"$SETUP_FILE\"; source \"$TINYNAV_ROOT/install/setup.bash\" 2>/dev/null || true; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py\" --target-frame \"$FRAME_ID\" --output-directory \"$online_output\" --robot-id robot-0 --camera-frame camera --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\"'"
 started_windows+=("online-map")
 
 tmux new-window -d -t "$SESSION" -n planning \
@@ -150,7 +152,7 @@ tmux new-window -d -t "$SESSION" -n goal-router \
 started_windows+=("goal-router")
 
 tmux new-window -d -t "$SESSION" -n control \
-  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --robot-profile source-default --robot-id robot-0 --base-camera-frame camera --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --stabilize-large-turn --linear-command-floor-mps 0.18 --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
+  "bash -lc 'source \"$SETUP_FILE\"; cd \"$TINYNAV_ROOT\"; uv run python \"$SCRIPT_DIR/yunji_tinynav_cmd_vel_control.py\" --robot-profile source-default --robot-id robot-0 --base-camera-frame camera --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --verified-forward-only-planner --rotate-first-on-reverse --stabilize-large-turn --linear-command-floor-mps 0.18 --rotate-first-max-angular-radps 0.35 --rotate-first-timeout-s 12.0'"
 started_windows+=("control")
 
 source "$SETUP_FILE"

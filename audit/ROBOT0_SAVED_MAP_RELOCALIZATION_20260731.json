@@ -1,0 +1,112 @@
+{
+  "schema_version": "focus-robot0-saved-map-relocalization-audit-v1",
+  "recorded_at": "2026-07-31T01:16:18+08:00",
+  "robot_id": "robot-0",
+  "operation": "read_only_saved_map_relocalization",
+  "parent_map": {
+    "map_id": "tinynav-saved-map-e8223d65fa4af902",
+    "manifest": {
+      "path": "/home/nvidia/.local/share/topofocus/maps/buildmap_online_20260730T154346Z/focus_saved_map_manifest.json",
+      "size_bytes": 5080,
+      "sha256": "418625f5ba877c4495c58f374d086698885cf5d84ac0d119ed6ea0d5158bee85",
+      "status": "observed"
+    }
+  },
+  "derived_map": {
+    "directory": "/home/nvidia/.local/share/topofocus/maps/buildmap_reanchored_scene03_start_20260730T154346Z",
+    "map_id": "tinynav-saved-map-e86374deda8ada82",
+    "map_snapshot_sha256": "e86374deda8ada82b68267c526d6b689af345237e9e05c7400aa01bb191a0a3a",
+    "manifest": {
+      "path": "/home/nvidia/.local/share/topofocus/maps/buildmap_reanchored_scene03_start_20260730T154346Z/focus_saved_map_manifest.json",
+      "size_bytes": 8738,
+      "sha256": "e2bccd66e9a95863c331f6b9263d07b3ac39346e4ead64d80aaf61a33394157c",
+      "status": "observed"
+    },
+    "derivation": {
+      "path": "/home/nvidia/.local/share/topofocus/maps/buildmap_reanchored_scene03_start_20260730T154346Z/focus_reanchored_map_derivation.json",
+      "size_bytes": 3026,
+      "sha256": "a59401f930d214570a7802514d22c1aaaa24b3f5ed4f587b010c8e55bacdd32f",
+      "status": "observed"
+    },
+    "poses": {
+      "path": "/home/nvidia/.local/share/topofocus/maps/buildmap_reanchored_scene03_start_20260730T154346Z/poses.npy",
+      "size_bytes": 209143,
+      "sha256": "668bd0876839b9c162511276ea56613652b612c2a6b72ddfa2e8da44fe4beca0",
+      "status": "source_derived"
+    },
+    "selection": {
+      "retained_outbound_keyframes": 861,
+      "reanchored_stationary_tail_keyframes": 219,
+      "discarded_return_transition_keyframes": 339,
+      "target_anchor_stamp_ns": 1785426590112532227,
+      "source_anchor_stamp_ns": 1785429964401773682,
+      "anchor_status": "source_derived_from_operator_reported_same_physical_start_pose"
+    },
+    "immutable_database_storage": {
+      "artifact": "depths.db",
+      "size_bytes": 2330968064,
+      "parent_inode": 6882050,
+      "derived_inode": 6882050,
+      "link_count": 3,
+      "status": "observed_hardlink_to_parent"
+    }
+  },
+  "implementation": {
+    "git_commit": "6f8fb69dbd33c5ce7ec4edb4152510cd2e5dd2bd",
+    "relocalized_odometry": {
+      "path": "/home/nvidia/topofocus_buildmap_v2_20260723/hub/robot_overlay/tinynav_relocalized_odometry.py",
+      "size_bytes": 20000,
+      "sha256": "352e51ca65611477daec82dd56225739686a4dc821510922f38f5d57677ab905",
+      "status": "observed_deployed"
+    },
+    "reanchoring_tool": {
+      "path": "/home/nvidia/topofocus_buildmap_v2_20260723/hub/robot_overlay/derive_tinynav_reanchored_map.py",
+      "size_bytes": 12310,
+      "sha256": "b9b641f7dbb50bd9d0af0b892b40098be26420acc194a018d32cd5b656ac288a",
+      "status": "observed_deployed"
+    },
+    "local_tests": {
+      "passed": 62,
+      "failed": 0,
+      "status": "observed"
+    }
+  },
+  "runtime_validation": {
+    "preflight": {
+      "passed": true,
+      "classification": "observed_read_only_saved_map_relocalization",
+      "status_reason": "READY",
+      "support": 7,
+      "exact_stamp_samples": 3
+    },
+    "observed_map_camera_pose": {
+      "position_m": [
+        -0.0010038333344806194,
+        -0.00030087273016871086,
+        0.0007787039189041806
+      ],
+      "orientation_xyzw": [
+        -0.8052810782394436,
+        -0.11486404894345867,
+        0.0010104752104181994,
+        0.5816593627112718
+      ],
+      "status": "observed"
+    },
+    "odometry_qos": {
+      "publisher_reliability": "RELIABLE",
+      "goal_router_subscription_reliability": "RELIABLE",
+      "status": "observed_compatible"
+    },
+    "nav_paused_topic_sample": {
+      "status": "unverified_no_sample_during_audit"
+    }
+  },
+  "safety": {
+    "receiver_process_present": false,
+    "chassis_bridge_process_present": false,
+    "robot_commands_issued": false,
+    "status": "observed_non_actuating_hold"
+  },
+  "result_status": "observed_ready_for_later_guarded_activation"
+}

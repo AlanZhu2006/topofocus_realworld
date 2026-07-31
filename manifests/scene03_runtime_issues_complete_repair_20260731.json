@@ -1,0 +1,207 @@
+{
+  "schema_version": "focus-scene03-runtime-issues-complete-repair-v1",
+  "recorded_at": "2026-07-31T06:27:48+08:00",
+  "scope": {
+    "scene_id": "scene03",
+    "robots": [
+      "robot-0",
+      "robot-1"
+    ],
+    "source_tree_modified": false,
+    "dependencies_tree_modified": false,
+    "network_used": false,
+    "robot_commands_issued": false
+  },
+  "issues": [
+    {
+      "issue_id": "robot1_wall_front_yaw_oscillation",
+      "status": "code_repaired_offline",
+      "root_cause": "short 0.05-0.20 m collision-scored prefixes crossed the body axis and ordinary continuous yaw lacked its own bounded terminal reason",
+      "repair": {
+        "minimum_stable_path_horizon_m": 0.3,
+        "short_path_fallback": "current router waypoint",
+        "turn_direction_hysteresis_deg": {
+          "enter": 15.0,
+          "exit": 8.0
+        },
+        "continuous_turn_timeout_s": 12.0,
+        "terminal_reason": "LOCAL_PLANNER_TURN_STALLED"
+      }
+    },
+    {
+      "issue_id": "robot1_unfinished_leg_history_reversal",
+      "status": "code_repaired_offline",
+      "root_cause": "the source 25-cell high-level switch boundary changed history target while the physical leg remained outside the source 10-cell arrival disk",
+      "observed_measurement": {
+        "round_16_distance_to_previous_target_m": 0.9435682729080608,
+        "source_switch_distance_m": 1.25,
+        "physical_completion_distance_m": 0.5,
+        "previous_target_xy_m": [
+          -1.0850726802376052,
+          0.990669750033291
+        ],
+        "new_source_target_xy_m": [
+          -0.33507268023760517,
+          2.4906697500332893
+        ]
+      },
+      "repair": "retain the exact accepted prior target until the 0.50 m arrival disk, local ARRIVED, or explicit rejection; re-run current-map clearance before publication"
+    },
+    {
+      "issue_id": "robot0_false_semantic_region_and_arrival",
+      "status": "code_repaired_offline",
+      "root_cause": "source Find_Goal grants a semantic candidate to any positive persistent target-map cell, so a tiny stale region could reach the local arrival contract",
+      "observed_false_candidates": [
+        {
+          "component_cells": 7,
+          "current_frame_target_detection": null
+        },
+        {
+          "component_cells": 2,
+          "current_frame_target_detection": null
+        }
+      ],
+      "observed_success_controls": [
+        {
+          "component_cells": 176,
+          "current_frame_target_detection": null,
+          "confirmation_mode": "strong_source_component"
+        },
+        {
+          "component_cells": 5,
+          "current_frame_target_detection": {
+            "class_name": "potted plant",
+            "confidence": 0.8516193628311157
+          },
+          "confirmation_mode": "compact_component_with_current_frame_detector"
+        }
+      ],
+      "repair": {
+        "strong_component_cells": 25,
+        "minimum_compact_component_cells": 3,
+        "minimum_current_frame_detector_confidence": 0.5,
+        "semantic_map_reinforcement": false,
+        "unconfirmed_action": "exact frozen pre-semantic exploration selection or HOLD"
+      }
+    },
+    {
+      "issue_id": "reverse_twist_zero_yaw_deadlock",
+      "status": "code_repaired_offline",
+      "root_cause": "the pinned controller represents a behind lookahead with forbidden negative linear velocity and zero yaw",
+      "repair": "never forward negative velocity; derive bounded zero-linear yaw from the validated stable path/router heading, reject if heading authority is unavailable"
+    },
+    {
+      "issue_id": "guard_bypass_across_batch_entrypoints",
+      "status": "code_repaired_offline",
+      "repair": "the formal source runner, supervised runner, and offline batch builder all preserve a source candidate and apply the same semantic execution guard before producing a command-capable batch"
+    },
+    {
+      "issue_id": "path_refresh_relabelled_frontier_ground_drift",
+      "status": "previous_repairs_audited",
+      "repair_commits": [
+        "ad2da37",
+        "80bd306",
+        "fc581bf"
+      ],
+      "current_behavior": "same-participant target refresh, bounded failure memory across relabelled frontier IDs, and stable post-motion ground-plane rebasing remain enabled"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2349-formal-start_live_scene03_20260730_235458_576402645/round_15_step_374/shadow/shadow_manifest.json",
+      "size_bytes": 36580,
+      "sha256": "763980758264168d42150c42133a8544dc8aad0624ec99336e955c8a7e082c8b",
+      "classification": "source-derived frozen VLM/history evidence"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260730-2349-formal-start_live_scene03_20260730_235458_576402645/round_16_step_399/shadow/shadow_manifest.json",
+      "size_bytes": 36939,
+      "sha256": "2357a8c5572a6c4324146bbcdfdeae58e46c3937459a07ef5475e47f66a2b5c6",
+      "classification": "source-derived frozen VLM/history evidence"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0325-formal05_live_scene03_20260731_032816_045070790/round_07_step_174/shadow/shadow_manifest.json",
+      "size_bytes": 39447,
+      "sha256": "b4666d9b520ec1f01a0f62e4c4bf9f399bd63ab7083676a20fffe257a9782418",
+      "classification": "source-derived seven-cell false semantic candidate"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0325-formal05_live_scene03_20260731_032816_045070790/round_07_step_174/shadow/inputs/wsj/source_161240.jpg",
+      "size_bytes": 142975,
+      "sha256": "260bb5318ab8135cc5095214736d72affbc3c10481f4d1e387cfeee6628c6bac",
+      "classification": "observed exact frozen RGB"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0421-formal05-rerun2_live_scene03_20260731_042657_466212878/round_05_step_124/shadow/shadow_manifest.json",
+      "size_bytes": 38166,
+      "sha256": "091a1f93215cd74a512978d4007f8b58b59e766e10748c7ac6df257457c85d6a",
+      "classification": "source-derived two-cell false semantic candidate"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0421-formal05-rerun2_live_scene03_20260731_042657_466212878/round_05_step_124/shadow/inputs/wsj/source_164121.jpg",
+      "size_bytes": 147970,
+      "sha256": "a22055878f0546386b83385f125c4b1ccfb1cfb7556ed372701fa52f33a15d22",
+      "classification": "observed exact frozen RGB"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-022816-formal04_live_scene03-formal04_20260731_023143_863454849/round_04_step_099/shadow/shadow_manifest.json",
+      "size_bytes": 39010,
+      "sha256": "1b5141f86f212865d8c2e3b380765eb8218eaaa56c6a13e80985f1e814bc58a9",
+      "classification": "source-derived 176-cell successful semantic candidate"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/round_10_step_249/shadow/shadow_manifest.json",
+      "size_bytes": 37870,
+      "sha256": "34f04f15a9fcde2b7e08cdf67880422ce1fcac4fde51185d3f94025e7a77883c",
+      "classification": "source-derived five-cell detector-confirmed candidate"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene03-plant-20260731-0444-robot1-continue01-start_live_scene03_20260731_045516_219395014/round_10_step_249/shadow/inputs/yunji/source_393032.jpg",
+      "size_bytes": 143642,
+      "sha256": "cae7795166399e7abb5b54785594f78325fd7da2a10ef20d4f83387967d0be0f",
+      "classification": "observed exact frozen RGB"
+    }
+  ],
+  "implementation_artifacts": [
+    {
+      "path": "hub/src/focus_hub/v2_goal_continuity.py",
+      "size_bytes": 16940,
+      "sha256": "1d5bab6d777409b1429fe2d6fdca96d4eed3497dd451ce2d3a561a9d6d2cc7ca",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/v2_semantic_execution.py",
+      "size_bytes": 12264,
+      "sha256": "55fadc6a946bc4e7da413da1b7c8c0de327c2f67937dd02d316350be1c7370b6",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
+      "size_bytes": 74633,
+      "sha256": "06ebb571457a2d6c341caf0c04cbc68bd131d4709ae9290b4a45e46515bfd6d3",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/v2_wsj_receiver.py",
+      "size_bytes": 194178,
+      "sha256": "21e30e06df2df651c03895684c18d2fdb21cbdd88bb7e8f8f24865738840a761",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/run_v2_source_episode.py",
+      "size_bytes": 134700,
+      "sha256": "cf3b439dd7ca4738dcaa47c1e5fbcb76b384510efee95aa5c36f57b70a65a406",
+      "classification": "source-derived"
+    }
+  ],
+  "verification": {
+    "python_compilation": "passed",
+    "shell_syntax": "passed",
+    "json_validation": "passed",
+    "git_diff_check": "passed",
+    "targeted_tests": "204 passed",
+    "full_hub_tests": "826 passed, 1 third-party deprecation warning",
+    "physical_post_repair_motion": "unverified_not_run"
+  },
+  "result_status": "offline_repair_complete_pending_physical_validation"
+}

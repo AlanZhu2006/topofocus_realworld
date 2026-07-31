@@ -11,7 +11,6 @@ LOCK_FILE="$HUB_DIR/config/deployments/robot0_cleanroom_sources_v1.json"
 
 apply=false
 skip_system_packages=false
-skip_engines=false
 jobs="${FOCUS_BUILD_JOBS:-2}"
 install_root="${FOCUS_ROBOT0_INSTALL_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/topofocus/robot-0}"
 config_root="${FOCUS_ROBOT0_CONFIG_ROOT:-${XDG_CONFIG_HOME:-$HOME/.config}/topofocus}"
@@ -29,7 +28,6 @@ Options:
   --state-root DIR         runtime state directory
   --jobs N                 bounded source-build parallelism (default: 2)
   --skip-system-packages   do not configure ROS or install apt packages
-  --skip-engines           do not compile TensorRT plans
 
 Without --apply, the script prints the complete plan and changes nothing.
 It assumes the Jetson has already been flashed with the recorded JetPack
@@ -45,7 +43,6 @@ while [[ $# -gt 0 ]]; do
     --state-root) state_root="$2"; shift 2 ;;
     --jobs) jobs="$2"; shift 2 ;;
     --skip-system-packages) skip_system_packages=true; shift ;;
-    --skip-engines) skip_engines=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -97,6 +94,14 @@ realsense_ros_commit="$(lock_value sources.realsense_ros.commit)"
 message_filters_url="$(lock_value sources.message_filters.url)"
 message_filters_commit="$(lock_value sources.message_filters.commit)"
 uv_version="$(lock_value tools.uv)"
+python_version="$(lock_value tools.python)"
+l4t_version_expected="$(lock_value base_platform.l4t_package)"
+ros_base_version="$(lock_value host_packages.exact_reference_versions.ros-humble-ros-base)"
+rmw_cyclonedds_version="$(lock_value host_packages.exact_reference_versions.ros-humble-rmw-cyclonedds-cpp)"
+unitree_interface="$(lock_value network_defaults.unitree_interface)"
+unitree_host_cidr="$(lock_value network_defaults.host_address)"
+unitree_robot_address="$(lock_value network_defaults.robot_address)"
+hub_endpoint="$(lock_value network_defaults.hub_endpoint)"
 
 src_root="$install_root/src"
 build_root="$install_root/build"
@@ -121,7 +126,7 @@ Robot 0 clean-room plan
   TinyNav commit:   $tinynav_commit
   TinyNav tree:     $tinynav_tree
   system packages:  $([[ "$skip_system_packages" == true ]] && echo skip || echo install)
-  TensorRT engines: $([[ "$skip_engines" == true ]] && echo skip || echo build)
+  TensorRT engines: build all four runtime plans
 
 Phases:
   1. validate JetPack/Ubuntu/aarch64 and absence of motion processes
@@ -140,6 +145,11 @@ if [[ "$apply" != true ]]; then
   exit 0
 fi
 
+observed_python_version="$("$python_bin" -c 'import platform; print(platform.python_version())')"
+[[ "$observed_python_version" == "$python_version" ]] || {
+  echo "Expected Python $python_version; found $observed_python_version." >&2
+  exit 1
+}
 [[ "$(uname -m)" == aarch64 ]] || {
   echo "Robot 0 clean-room install requires aarch64; found $(uname -m)." >&2
   exit 1
@@ -149,8 +159,8 @@ grep -q 'Ubuntu 22.04' /etc/os-release || {
   exit 1
 }
 l4t_version="$(dpkg-query -W -f='${Version}' nvidia-l4t-core 2>/dev/null || true)"
-[[ "$l4t_version" == 36.4.7-* || "$l4t_version" == 36.4.7 ]] || {
-  echo "Expected nvidia-l4t-core 36.4.7; found '${l4t_version:-missing}'." >&2
+[[ "$l4t_version" == "$l4t_version_expected" ]] || {
+  echo "Expected nvidia-l4t-core $l4t_version_expected; found '${l4t_version:-missing}'." >&2
   exit 1
 }
 if pgrep -af \
@@ -164,15 +174,10 @@ if [[ "$skip_system_packages" != true ]]; then
   sudo -v
   sudo apt-get update
   sudo apt-get install -y --no-install-recommends \
-    ca-certificates curl gnupg software-properties-common \
-    build-essential cmake ninja-build pkg-config git git-lfs \
-    python3.10 python3.10-dev python3.10-venv python3-pip \
-    python3-colcon-common-extensions python3-rosdep \
-    libboost-all-dev libeigen3-dev libtbb-dev libmetis-dev \
-    libsuitesparse-dev libceres-dev libudev-dev libusb-1.0-0-dev \
-    libglfw3-dev libssl-dev libgl1-mesa-dev libglu1-mesa-dev \
-    libgtk-3-dev tmux jq rsync
+    ca-certificates curl gnupg locales software-properties-common
   sudo add-apt-repository -y universe
+  sudo locale-gen en_US en_US.UTF-8
+  sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
   ros_key="$(mktemp)"
   trap 'rm -f "$ros_key"' EXIT
   curl -fsSL \
@@ -186,8 +191,17 @@ if [[ "$skip_system_packages" != true ]]; then
     "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu jammy main" \
     | sudo tee /etc/apt/sources.list.d/ros2.list >/dev/null
   sudo apt-get update
-  sudo apt-get install -y \
-    ros-humble-ros-base ros-humble-rmw-cyclonedds-cpp \
+  sudo apt-get install -y --no-install-recommends \
+    build-essential cmake ninja-build pkg-config git git-lfs \
+    python3.10 python3.10-dev python3.10-venv python3-pip \
+    python3-colcon-common-extensions python3-rosdep \
+    python3-numpy python3-pybind11 python3-pyparsing pybind11-dev \
+    libboost-all-dev libeigen3-dev libtbb-dev libmetis-dev \
+    libsuitesparse-dev libceres-dev libudev-dev libusb-1.0-0-dev \
+    libglfw3-dev libssl-dev libgl1-mesa-dev libglu1-mesa-dev \
+    libgtk-3-dev tmux jq rsync iproute2 \
+    "ros-humble-ros-base=$ros_base_version" \
+    "ros-humble-rmw-cyclonedds-cpp=$rmw_cyclonedds_version" \
     ros-humble-cv-bridge ros-humble-image-transport \
     ros-humble-image-transport-plugins \
     ros-humble-compressed-image-transport \
@@ -197,7 +211,7 @@ if [[ "$skip_system_packages" != true ]]; then
     ros-humble-vision-msgs ros-humble-foxglove-bridge
   sudo rosdep init 2>/dev/null || true
   rosdep update
-  git lfs install
+  git lfs install --skip-repo
   trap - EXIT
   rm -f "$ros_key"
 fi
@@ -237,14 +251,19 @@ ensure_checkout "$gtsam_url" "$gtsam_commit" "$gtsam_root"
 cmake -S "$gtsam_root" -B "$build_root/gtsam" \
   -DCMAKE_BUILD_TYPE=Release \
   -DGTSAM_BUILD_PYTHON=ON \
+  -DGTSAM_PYTHON_VERSION=3.10 \
+  -DGTSAM_BUILD_TESTS=OFF \
+  -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF \
+  -DGTSAM_BUILD_UNSTABLE=OFF \
   -DGTSAM_THROW_CHEIRALITY_EXCEPTION=OFF
 cmake --build "$build_root/gtsam" --parallel "$jobs"
 
 ensure_checkout \
   "$librealsense_url" "$librealsense_commit" "$librealsense_root"
 cmake -S "$librealsense_root" -B "$build_root/librealsense" \
-  -DCMAKE_BUILD_TYPE=Release -DFORCE_LIBUVC=true \
+  -DCMAKE_BUILD_TYPE=Release -DFORCE_RSUSB_BACKEND=true \
   -DBUILD_EXAMPLES=false -DBUILD_GRAPHICAL_EXAMPLES=false \
+  -DBUILD_TOOLS=true \
   -DCHECK_FOR_UPDATES=OFF \
   -DCMAKE_INSTALL_PREFIX="$install_root/librealsense"
 cmake --build "$build_root/librealsense" --parallel "$jobs"
@@ -258,8 +277,10 @@ ensure_checkout \
   cd "$realsense_ws"
   rosdep install -i --from-path src --rosdistro humble \
     --skip-keys=librealsense2 -y
-  colcon build --merge-install --cmake-args \
-    "-DCMAKE_PREFIX_PATH=$install_root/librealsense"
+  CMAKE_PREFIX_PATH="$install_root/librealsense${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}" \
+  LD_LIBRARY_PATH="$install_root/librealsense/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    colcon build --merge-install --cmake-args \
+      "-DCMAKE_PREFIX_PATH=$install_root/librealsense"
 )
 
 mkdir -p "$message_filters_ws/src"
@@ -276,6 +297,12 @@ TINYNAV_PATCHED_ROOT="$tinynav_root" \
   bash "$SCRIPT_DIR/bootstrap_go2.sh" --destination "$tinynav_root"
 [[ "$(git -C "$tinynav_root" rev-parse HEAD)" == "$tinynav_commit" ]]
 [[ "$(git -C "$tinynav_root" rev-parse HEAD^{tree})" == "$tinynav_tree" ]]
+printf '%s  %s\n' \
+  "$(lock_value sources.tinynav.pyproject_sha256)" \
+  "$tinynav_root/pyproject.toml" | sha256sum -c -
+printf '%s  %s\n' \
+  "$(lock_value sources.tinynav.uv_lock_sha256)" \
+  "$tinynav_root/uv.lock" | sha256sum -c -
 git -C "$tinynav_root" lfs pull --include='tinynav/models/*.onnx'
 
 "$python_bin" - "$LOCK_FILE" "$tinynav_root" <<'PY'
@@ -292,7 +319,11 @@ for record in manifest["tinynav_onnx_artifacts"]:
         raise SystemExit(f"missing ONNX artifact: {path}")
     if path.stat().st_size != record["bytes"]:
         raise SystemExit(f"ONNX size mismatch: {path}")
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest_builder = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            digest_builder.update(block)
+    digest = digest_builder.hexdigest()
     if digest != record["sha256"]:
         raise SystemExit(f"ONNX SHA-256 mismatch: {path}")
 print("TINYNAV_ONNX_VERIFIED=5")
@@ -304,23 +335,29 @@ if [[ ! -x "$uv_venv/bin/uv" ]]; then
   "$uv_venv/bin/python" -m pip install "uv==$uv_version"
 fi
 uv_bin="$uv_venv/bin/uv"
+[[ "$("$uv_bin" --version)" == "uv $uv_version"* ]] || {
+  echo "uv version does not match the source lock." >&2
+  exit 1
+}
 tinynav_python="$tinynav_root/.venv/bin/python"
 if [[ ! -x "$tinynav_python" ]]; then
   "$uv_bin" venv --python "$python_bin" \
     --system-site-packages "$tinynav_root/.venv"
 fi
+export CYCLONEDDS_HOME="$install_root/cyclonedds"
+export CMAKE_PREFIX_PATH="$install_root/cyclonedds${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+export LD_LIBRARY_PATH="$install_root/cyclonedds/lib:$install_root/librealsense/lib:$build_root/gtsam/gtsam${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PYTHONPATH="$build_root/gtsam/python:$tinynav_root${PYTHONPATH:+:$PYTHONPATH}"
 UV_PROJECT_ENVIRONMENT="$tinynav_root/.venv" \
-  "$uv_bin" sync --project "$tinynav_root" --frozen --extra unitree
+  "$uv_bin" sync --project "$tinynav_root" --frozen --no-dev --extra unitree
 
-if [[ "$skip_engines" != true ]]; then
-  trtexec_bin="$(command -v trtexec || true)"
-  [[ -n "$trtexec_bin" ]] || {
-    echo "TensorRT trtexec is missing from the JetPack installation." >&2
-    exit 1
-  }
-  make -C "$tinynav_root/tinynav/models" \
-    TRTEXEC="$trtexec_bin" -j1 all
-fi
+trtexec_bin="$(command -v trtexec || true)"
+[[ -n "$trtexec_bin" ]] || {
+  echo "TensorRT trtexec is missing from the JetPack installation." >&2
+  exit 1
+}
+make -C "$tinynav_root/tinynav/models" \
+  TRTEXEC="$trtexec_bin" -j1 all
 
 compatibility_link=/tinynav
 if [[ -e "$compatibility_link" || -L "$compatibility_link" ]]; then
@@ -339,13 +376,17 @@ tmp_setup="${setup_file}.tmp.$$"
   printf 'source %q\n' "$realsense_ws/install/setup.bash"
   printf 'source %q\n' "$message_filters_ws/install/setup.bash"
   printf 'export CYCLONEDDS_HOME=%q\n' "$install_root/cyclonedds"
-  printf 'export CMAKE_PREFIX_PATH=%q:\"${CMAKE_PREFIX_PATH:-}\"\n' \
+  printf 'export CMAKE_PREFIX_PATH=%q${CMAKE_PREFIX_PATH:+:${CMAKE_PREFIX_PATH}}\n' \
     "$install_root/cyclonedds"
-  printf 'export LD_LIBRARY_PATH=%q:%q:\"${LD_LIBRARY_PATH:-}\"\n' \
-    "$install_root/cyclonedds/lib" "$install_root/librealsense/lib"
-  printf 'export PYTHONPATH=%q:%q:\"${PYTHONPATH:-}\"\n' \
+  printf 'export LD_LIBRARY_PATH=%q:%q:%q${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}\n' \
+    "$install_root/cyclonedds/lib" "$install_root/librealsense/lib" \
+    "$build_root/gtsam/gtsam"
+  printf 'export PYTHONPATH=%q:%q${PYTHONPATH:+:${PYTHONPATH}}\n' \
     "$build_root/gtsam/python" "$tinynav_root"
-  printf 'export PATH=%q:\"${PATH}\"\n' "$tinynav_root/.venv/bin"
+  printf 'export PATH=%q:%q:%q${PATH:+:${PATH}}\n' \
+    "$tinynav_root/.venv/bin" "$install_root/librealsense/bin" \
+    "$(dirname "$trtexec_bin")"
+  printf '%s\n' 'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp'
 } >"$tmp_setup"
 chmod 0644 "$tmp_setup"
 mv "$tmp_setup" "$setup_file"
@@ -355,12 +396,18 @@ tmp_env="${env_file}.tmp.$$"
   printf 'TINYNAV_WORKSPACE=%q\n' "$workspace_root"
   printf 'TINYNAV_ROOT=%q\n' "$tinynav_root"
   printf 'TINYNAV_PATCHED_ROOT=%q\n' "$tinynav_root"
+  printf 'TINYNAV_PERCEPTION_PATCHED_ROOT=%q\n' "$tinynav_root"
+  printf 'TINYNAV_PERCEPTION_PATCHED_COMMIT=%q\n' "$tinynav_commit"
+  printf '%s\n' \
+    'TINYNAV_PERCEPTION_PATCHED_SHA256=3a695d5210d60ea1f721549ca7458ba89e7bf32db5178cd1c312c633aef1c3b3'
   printf 'TINYNAV_SETUP=%q\n' "$setup_file"
   printf 'TINYNAV_PYTHON=%q\n' "$tinynav_python"
   printf 'FOCUS_ROBOT_STATE_DIR=%q\n' "$state_root"
   printf '%s\n' 'FOCUS_ROBOT_ID=robot-0'
-  printf '%s\n' 'FOCUS_HUB_BASE_URL=http://127.0.0.1:18089'
-  printf '%s\n' 'UNITREE_NET_IF=eth0'
+  printf 'FOCUS_HUB_BASE_URL=%q\n' "$hub_endpoint"
+  printf 'UNITREE_NET_IF=%q\n' "$unitree_interface"
+  printf 'UNITREE_HOST_CIDR=%q\n' "$unitree_host_cidr"
+  printf 'UNITREE_ROBOT_ADDRESS=%q\n' "$unitree_robot_address"
 } >"$tmp_env"
 chmod 0600 "$tmp_env"
 mv "$tmp_env" "$env_file"
@@ -372,9 +419,13 @@ sudo bash "$SCRIPT_DIR/install_go2_host_config.sh" --apply
   --install-root "$install_root" \
   --config-root "$config_root" \
   --state-root "$state_root" \
+  --level host \
   --write-provenance "$provenance_file"
 
 echo "ROBOT0_CLEANROOM_INSTALL_COMPLETE=true"
 echo "Configuration: $env_file"
 echo "Provenance:    $provenance_file"
+echo "Next read-only hardware gate:"
+echo "  source '$setup_file'"
+echo "  '$python_bin' '$SCRIPT_DIR/verify_robot0_cleanroom.py' --level hardware"
 echo "No ROS process or physical command was started."

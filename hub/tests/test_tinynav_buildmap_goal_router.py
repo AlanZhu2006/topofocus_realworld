@@ -85,6 +85,73 @@ def test_goal_parser_accepts_only_fresh_single_hub_goal():
         router.parse_goal_payload(json.dumps(foreign), now_ns=1_000_000_000)
 
 
+def test_target_refresh_request_is_versioned_and_decision_bound():
+    router = load_router()
+    payload = json.dumps(
+        {
+            "schema_version": (
+                "focus-tinynav-target-refresh-request-v1"
+            ),
+            "decision_id": "decision-1",
+            "requested_at_ns": 1_000_000_000,
+            "path_age_s": 1.2,
+        }
+    )
+
+    assert router.parse_target_refresh_request(payload) == (
+        "decision-1",
+        1_000_000_000,
+    )
+    invalid = json.loads(payload)
+    invalid["schema_version"] = "unknown"
+    with pytest.raises(ValueError, match="schema"):
+        router.parse_target_refresh_request(json.dumps(invalid))
+
+
+def test_new_leg_rotates_once_and_bounded_repair_republishes_target():
+    source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
+        encoding="utf-8"
+    )
+    new_leg = source.split(
+        'self.clear_target("GOAL_REPLACED", discard_goal=True)', 1
+    )[1].split(
+        'self.publish_status("ACCEPTED", "FRESH_VERSIONED_GOAL")', 1
+    )[0]
+    assert new_leg.index("self.recreate_target_publisher()") < (
+        new_leg.index("self.goal = goal")
+    )
+    repair = source.split(
+        "def on_target_refresh_request(self, message: String)", 1
+    )[1].split("def on_occupancy(", 1)[0]
+    assert "self.goal.decision_id != decision_id" in repair
+    assert "not self.target_active" in repair
+    assert "odom_age_s > args.input_timeout_s" in repair
+    assert "self.recreate_target_publisher()" not in repair
+    assert "self.destroy_publisher(" not in repair
+    assert "self.create_publisher(" not in repair
+    assert "self.publish_target(waypoint[0], waypoint[1], odom)" in repair
+    assert "stable_generation=" in repair
+
+
+def test_target_publisher_rotation_preserves_router_on_lifecycle_error():
+    source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
+        encoding="utf-8"
+    )
+    rotation = source.split(
+        "def recreate_target_publisher(self) -> bool:", 1
+    )[1].split(
+        "def on_target_refresh_request(self, message: String)", 1
+    )[0]
+
+    assert rotation.index(
+        "replacement_publisher = self.create_publisher("
+    ) < rotation.index("self.destroy_publisher(previous_publisher)")
+    assert "except Exception as exc:" in rotation
+    assert "keeping generation" in rotation
+    assert "return False" in rotation
+    assert "return True" in rotation
+
+
 def test_semantic_planner_targets_inside_unchanged_arrival_radius():
     router = load_router()
 
@@ -492,7 +559,10 @@ def test_wsj_launcher_uses_continuous_geometry_plus_one_grid_cell():
     assert '"848x480",' in online_mapping
     assert '"640x480",' in online_mapping
     assert '"/slam/keyframe_depth"' not in online_mapping
-    assert '"keyframe.pose_jump_rotation_deg": 35.0' in online_mapping
+    assert '"keyframe.pose_jump_translation_m": 1.0' in online_mapping
+    assert '"keyframe.pose_jump_rotation_deg": 90.0' in online_mapping
+    assert '"keyframe.pause_frames_after_jump": 0' in online_mapping
+    assert '"navigation_occupancy_mapper.py"' in online_mapping
 
 
 def test_wsj_launcher_uses_short_segment_velocity_floor_wrapper():
@@ -751,7 +821,7 @@ def test_start_snap_is_anchored_to_goal_when_goal_is_behind_robot():
     assert second_x < first_x
 
 
-def test_wsj_launcher_uses_forward_only_planner_and_rejects_reverse():
+def test_wsj_launcher_uses_forward_only_planner_and_bounded_rotate_first():
     initial = (
         OVERLAY / "start_tinynav_buildmap_online_nav.sh"
     ).read_text(encoding="utf-8")
@@ -768,8 +838,9 @@ def test_wsj_launcher_uses_forward_only_planner_and_rejects_reverse():
             '--base-camera-calibration-file \\"$BASE_CAMERA_CALIBRATION_FILE\\"'
             in source
         )
-        assert "--rotate-first-on-reverse" not in source
+        assert "--rotate-first-on-reverse" in source
         assert "--stabilize-large-turn" in source
+        assert "--verified-forward-only-planner" in source
         assert "--rotate-first-max-angular-radps 0.35" in source
         assert "--rotate-first-timeout-s 12.0" in source
     assert "--reject-reverse-trajectory" in reload

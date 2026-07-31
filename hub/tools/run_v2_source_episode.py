@@ -84,7 +84,11 @@ from focus_hub.v2_goal_continuity import (  # noqa: E402
 )
 from focus_hub.v2_route_conflict import apply_route_conflict_guard  # noqa: E402
 from focus_hub.v2_scene_batch import build_batch_from_shadow_manifest  # noqa: E402
+from focus_hub.v2_semantic_execution import (  # noqa: E402
+    evaluate_semantic_execution_guard,
+)
 from focus_hub.v2_source_replan import (  # noqa: E402
+    DEFAULT_BACKTRACK_DIRECTION_UPDATE_M,
     SOURCE_STAGNANT_REPLAN_M,
     NavigationFailureMemory,
     evaluate_source_replan,
@@ -147,9 +151,11 @@ def progress_memory_after_round(
 ) -> tuple[set[str], dict[str, int]]:
     """Carry no-progress evidence only across comparable full intervals.
 
-    A semantic path rejection immediately HOLDs the pair, so neither interval
-    is comparable.  A frontier rejection isolates only that robot; its peer
-    may complete a normal interval and retains its own progress evidence.
+    A semantic path rejection resets the comparison only when no other
+    semantic executor can continue and the pair is HOLDed for a fresh source
+    round.  Isolated local failures are listed in ``interrupted_robot_ids``;
+    a healthy peer may complete a normal interval and retains its own progress
+    evidence.
     """
 
     if (
@@ -167,6 +173,46 @@ def progress_memory_after_round(
             for robot_id, count in stagnant_intervals.items()
             if robot_id in comparable
         },
+    )
+
+
+def partition_recoverable_failures(
+    decisions: dict[str, HighLevelDecisionV2],
+    active_robot_ids: set[str],
+    recoverable_failures: dict[str, dict[str, object]],
+) -> tuple[set[str], set[str], set[str]]:
+    """Identify failed robots and semantic peers able to keep executing.
+
+    A robot-local recoverable rejection must not revoke a healthy peer's
+    already accepted high-level leg.  Continuing is valid only when at least
+    one remaining active robot still owns a semantic-region decision;
+    otherwise the source loop must HOLD and produce a fresh round.
+    """
+
+    failed_robot_ids = set(recoverable_failures)
+    failed_semantic_robot_ids = {
+        robot_id
+        for robot_id in failed_robot_ids
+        if (
+            decisions[robot_id].target is not None
+            and decisions[robot_id].target.kind == "SEMANTIC_REGION"
+        )
+    }
+    remaining_active_robot_ids = set(active_robot_ids).difference(
+        failed_robot_ids
+    )
+    remaining_semantic_robot_ids = {
+        robot_id
+        for robot_id in remaining_active_robot_ids
+        if (
+            decisions[robot_id].target is not None
+            and decisions[robot_id].target.kind == "SEMANTIC_REGION"
+        )
+    }
+    return (
+        failed_semantic_robot_ids,
+        remaining_active_robot_ids,
+        remaining_semantic_robot_ids,
     )
 
 
@@ -1804,11 +1850,26 @@ def main() -> int:
                 ),
                 "source_rule": "25 cells * 0.05 m/cell = 1.25 m",
                 "policy": (
-                    "apply identically to both robots: retain a safe prior "
-                    "frontier while the current base remains at least 25 "
-                    "source cells from that goal; this is remaining distance, "
-                    "not inter-boundary motion; semantic targets, explicit "
-                    "rejection, and current-map clearance retain authority"
+                    "apply identically to both robots: preserve the source "
+                    "25-cell switch rule and keep the exact unfinished "
+                    "physical leg through that handoff band until its "
+                    "10-cell arrival disk, local ARRIVED, or explicit "
+                    "rejection; semantic targets and current-map clearance "
+                    "retain authority"
+                ),
+            },
+            "semantic_execution_confirmation": {
+                "minimum_component_cells": 3,
+                "minimum_current_frame_detector_confidence": 0.5,
+                "semantic_map_reinforcement": False,
+                "policy": (
+                    "preserve the source Find_Goal result, but grant physical "
+                    "semantic authority only when a non-speckle source "
+                    "component is corroborated by the existing independent "
+                    "detector on the same frozen camera frame; persistent "
+                    "component area alone is diagnostic only; otherwise "
+                    "execute the exact frozen pre-override exploration "
+                    "selection or HOLD"
                 ),
             },
             "cross_round_progress_guard": {
@@ -1855,6 +1916,10 @@ def main() -> int:
                 classification="source_derived_realworld_execution_guard",
             ),
             artifact_record(
+                HUB_DIR / "src/focus_hub/v2_semantic_execution.py",
+                classification="source_derived_realworld_execution_guard",
+            ),
+            artifact_record(
                 WORKSPACE / "source/Focus_realworld/main.py",
                 classification="immutable_authoritative_source",
             ),
@@ -1884,6 +1949,7 @@ def main() -> int:
     previous_execution_batch: DecisionBatchV2 | None = None
     previous_clearance_guard: dict[str, object] | None = None
     stagnant_intervals: dict[str, int] = {}
+    last_progress_vectors: dict[str, tuple[float, float]] = {}
 
     def emit(event: str, **fields: object) -> None:
         append_jsonl(
@@ -2101,19 +2167,26 @@ def main() -> int:
                             recoverable_failures_all
                         ),
                     )
-                failed_semantic = {
-                    robot_id: event
-                    for robot_id, event in recoverable.items()
-                    if (
-                        decisions[robot_id].target is not None
-                        and decisions[robot_id].target.kind
-                        == "SEMANTIC_REGION"
-                    )
-                }
-                if failed_semantic:
+                (
+                    failed_semantic_robot_ids,
+                    remaining_active_robot_ids,
+                    remaining_semantic_robot_ids,
+                ) = partition_recoverable_failures(
+                    decisions,
+                    active,
+                    recoverable,
+                )
+                if (
+                    failed_semantic_robot_ids
+                    and remaining_semantic_robot_ids
+                ):
+                    active = remaining_active_robot_ids
                     emit(
-                        "semantic_path_failures_replan",
-                        failed_robot_ids=sorted(failed_semantic),
+                        "semantic_path_failures_isolated",
+                        failed_robot_ids=sorted(recoverable),
+                        failed_semantic_robot_ids=sorted(
+                            failed_semantic_robot_ids
+                        ),
                         failures={
                             robot_id: {
                                 "status": event.get("status"),
@@ -2122,8 +2195,31 @@ def main() -> int:
                                 "leg_id": event.get("leg_id"),
                             }
                             for robot_id, event in sorted(
-                                failed_semantic.items()
+                                recoverable.items()
                             )
+                        },
+                        remaining_active_robot_ids=sorted(active),
+                        remaining_semantic_robot_ids=sorted(
+                            remaining_semantic_robot_ids
+                        ),
+                    )
+                    transition(active, "semantic_failure_isolation")
+                    continue
+                if failed_semantic_robot_ids:
+                    emit(
+                        "semantic_path_failures_replan",
+                        failed_robot_ids=sorted(recoverable),
+                        failed_semantic_robot_ids=sorted(
+                            failed_semantic_robot_ids
+                        ),
+                        failures={
+                            robot_id: {
+                                "status": event.get("status"),
+                                "reason_code": event.get("reason_code"),
+                                "decision_id": event.get("decision_id"),
+                                "leg_id": event.get("leg_id"),
+                            }
+                            for robot_id, event in sorted(recoverable.items())
                         },
                     )
                     final_states = hold_and_confirm(
@@ -2142,7 +2238,7 @@ def main() -> int:
                         ),
                     )
                 failed_frontiers = set(recoverable)
-                active.difference_update(failed_frontiers)
+                active = remaining_active_robot_ids
                 emit(
                     "frontier_failures_isolated",
                     failed_robot_ids=sorted(failed_frontiers),
@@ -2346,13 +2442,13 @@ def main() -> int:
                 max_sync_skew_s=args.max_sync_skew_s,
             )
             shadow_path = shadow_dir / "shadow_manifest.json"
-            target_found = (
+            source_target_found = (
                 shadow_manifest.get("source_episode_round_status")
                 == "target_found_awaiting_robot_local_planner_stop"
             )
             step_quota = source_round_step_quota(shadow_manifest)
             next_epoch = epoch + 1
-            built = build_batch_from_shadow_manifest(
+            source_built = build_batch_from_shadow_manifest(
                 shadow_path,
                 registry_state,
                 scene_id=args.scene_id,
@@ -2361,13 +2457,55 @@ def main() -> int:
                 now_ns=time.time_ns(),
                 robot_config_path=robot_config,
                 lease_duration_ns=int(args.lease_s * 1e9),
-                forced_hold_robot_ids=forced_hold_robot_ids,
+            )
+            (
+                semantic_selection_overrides,
+                semantic_execution_guard,
+            ) = evaluate_semantic_execution_guard(shadow_manifest)
+            semantic_execution_guard_path = (
+                round_dir / "semantic_execution_guard.json"
+            )
+            atomic_write_json(
+                semantic_execution_guard_path,
+                semantic_execution_guard,
+            )
+            built = (
+                source_built
+                if (
+                    not semantic_selection_overrides
+                    and not forced_hold_robot_ids
+                )
+                else build_batch_from_shadow_manifest(
+                    shadow_path,
+                    registry_state,
+                    scene_id=args.scene_id,
+                    episode_id=args.episode_id,
+                    execution_epoch=next_epoch,
+                    now_ns=time.time_ns(),
+                    robot_config_path=robot_config,
+                    lease_duration_ns=int(args.lease_s * 1e9),
+                    forced_hold_robot_ids=forced_hold_robot_ids,
+                    execution_selection_overrides=(
+                        semantic_selection_overrides
+                    ),
+                )
+            )
+            target_found = any(
+                decision.robot_id
+                in decision.coordination.active_robot_ids
+                and decision.target is not None
+                and decision.target.kind == "SEMANTIC_REGION"
+                for decision in built.batch.decisions
             )
             atomic_write_json(
                 round_dir / "controller_preflight.json", built.report
             )
             atomic_write_json(
                 round_dir / "vlm_candidate_batch.json",
+                source_built.batch.model_dump(mode="json"),
+            )
+            atomic_write_json(
+                round_dir / "execution_candidate_batch.json",
                 built.batch.model_dump(mode="json"),
             )
             fused_snapshot = load_map_snapshot(
@@ -2407,6 +2545,51 @@ def main() -> int:
                     args.max_consecutive_stagnant_intervals
                 ),
             )
+            progress_direction_updates: dict[str, dict[str, object]] = {}
+            for robot_id in sorted(raw_active):
+                previous_xy = previous_shared_positions.get(robot_id)
+                current_xy = shared_positions.get(robot_id)
+                if (
+                    robot_id not in previous_active_robot_ids
+                    or previous_xy is None
+                    or current_xy is None
+                ):
+                    continue
+                vector = (
+                    current_xy[0] - previous_xy[0],
+                    current_xy[1] - previous_xy[1],
+                )
+                displacement_m = math.hypot(*vector)
+                if (
+                    displacement_m
+                    >= DEFAULT_BACKTRACK_DIRECTION_UPDATE_M - 1e-12
+                ):
+                    last_progress_vectors[robot_id] = vector
+                    progress_direction_updates[robot_id] = {
+                        "vector_xy_m": list(vector),
+                        "displacement_m": displacement_m,
+                        "classification": (
+                            "source_derived_from_adjacent_observed_frozen_"
+                            "shared_frame_boundary_poses"
+                        ),
+                    }
+            progress_guard["backtrack_direction_memory"] = {
+                "minimum_update_displacement_m": (
+                    DEFAULT_BACKTRACK_DIRECTION_UPDATE_M
+                ),
+                "updates": progress_direction_updates,
+                "active_vectors_xy_m": {
+                    robot_id: list(vector)
+                    for robot_id, vector in sorted(
+                        last_progress_vectors.items()
+                    )
+                },
+                "policy": (
+                    "retain the last material observed exploration direction "
+                    "across HOLD-only boundaries; update it only after at "
+                    "least the configured shared-frame displacement"
+                ),
+            }
             progress_guard_path = (
                 round_dir / "cross_round_progress_guard.json"
             )
@@ -2511,6 +2694,7 @@ def main() -> int:
                 memory=navigation_failure_memory,
                 robot_xy_by_robot=shared_positions,
                 source_stationary_robot_ids=source_stall_robot_ids,
+                progress_vector_by_robot=last_progress_vectors,
             )
             source_replan_guard["source_stall_memory_updates"] = (
                 source_stall_memory_updates
@@ -2806,7 +2990,12 @@ def main() -> int:
                 outcome = "failed_no_runtime_ready_robot_holding"
                 break
             previous_shared_positions = dict(shared_positions)
-            previous_active_robot_ids = set(active)
+            # Preserve source-level activity across round boundaries.  A
+            # robot held by an execution guard is still an active source
+            # allocation; dropping it here reset its stationary evidence to
+            # ``baseline_only`` every round and allowed a relabelled frontier
+            # at the same XY coordinate to recur forever.
+            previous_active_robot_ids = set(raw_active)
             publish(
                 guarded_batch,
                 f"round_{requested_round}_goal",
@@ -2933,6 +3122,8 @@ def main() -> int:
                 "source_step": state_before.source_step,
                 "source_step_quota": step_quota,
                 "target_found": target_found,
+                "source_target_found": source_target_found,
+                "execution_target_found": target_found,
                 "input_sequences": {
                     robot_id: sequence
                     for robot_id, sequence in round_input_sequences.items()
@@ -2953,6 +3144,18 @@ def main() -> int:
                     round_dir / "vlm_candidate_batch.json",
                     classification=(
                         "source_derived_unmodified_vlm_candidate_batch"
+                    ),
+                ),
+                "semantic_execution_guard": artifact_record(
+                    semantic_execution_guard_path,
+                    classification=(
+                        "source_derived_realworld_execution_guard"
+                    ),
+                ),
+                "execution_candidate_batch": artifact_record(
+                    round_dir / "execution_candidate_batch.json",
+                    classification=(
+                        "source_derived_semantic_guarded_execution_candidate"
                     ),
                 ),
                 "goal_continuity_guard": artifact_record(

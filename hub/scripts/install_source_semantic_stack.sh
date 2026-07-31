@@ -6,6 +6,7 @@ set -euo pipefail
 
 workspace="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 python_bin="${FOCUS_HUB_PYTHON:-$workspace/hub/.venv/bin/python}"
+uv_bin="${FOCUS_UV_BIN:-}"
 checkpoint_dir="$workspace/artifacts/checkpoints"
 toolchain_dir="$workspace/artifacts/toolchains"
 download_dir="$toolchain_dir/cuda-12.8.1-downloads"
@@ -127,7 +128,24 @@ for header in \
   }
 done
 
-"$python_bin" -m pip install 'ninja>=1.11,<2'
+"$python_bin" - <<'PY'
+import importlib.metadata
+
+version = importlib.metadata.version("ninja")
+if version != "1.13.0":
+    raise SystemExit(f"locked ninja 1.13.0 required; found {version}")
+print(f"ninja={version}")
+PY
+install_command=("$python_bin" -m pip install --no-build-isolation)
+if [[ -n "$uv_bin" ]]; then
+  [[ -x "$uv_bin" ]] || {
+    echo "FOCUS_UV_BIN is not executable: $uv_bin" >&2
+    exit 1
+  }
+  install_command=(
+    "$uv_bin" pip install --python "$python_bin" --no-build-isolation
+  )
+fi
 PATH="$(dirname "$python_bin"):$PATH" \
 CUDA_HOME="$cuda_home" \
 FORCE_CUDA=1 \
@@ -135,7 +153,7 @@ TORCH_CUDA_ARCH_LIST=8.9 \
 MAX_JOBS="${MAX_JOBS:-6}" \
 CPATH="$nvidia_root/cusparse/include:$nvidia_root/cublas/include:$nvidia_root/cusolver/include" \
 LIBRARY_PATH="$cuda_home/lib:$nvidia_root/cusparse/lib:$nvidia_root/cublas/lib:$nvidia_root/cusolver/lib" \
-  "$python_bin" -m pip install --no-build-isolation "$detectron_source"
+  "${install_command[@]}" "$detectron_source"
 
 "$python_bin" - <<'PY'
 import detectron2

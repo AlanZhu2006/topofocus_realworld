@@ -183,12 +183,17 @@ class KeyframeSelector:
         self._last_integrated_pose: np.ndarray | None = None
         self._last_integrated_timestamp_ns: int | None = None
 
-    def evaluate(self, pose: np.ndarray, timestamp_ns: int) -> KeyframeDecision:
-        current = _pose_matrix(pose).copy()
-        stamp = int(timestamp_ns)
-        if stamp < 0:
-            raise ValueError("timestamp_ns must be non-negative")
+    def observe(self, pose: np.ndarray) -> KeyframeDecision | None:
+        """Advance adjacent-observation continuity without integrating a keyframe.
 
+        Mapping may reject a frame before semantic integration (for example,
+        because the floor is not visible during a turn).  Such a frame still
+        carries valid odometry continuity evidence and must advance this
+        adjacent-observation state.  Otherwise several ordinary turns can
+        accumulate against the last floor-valid frame and look like one pose
+        discontinuity.
+        """
+        current = _pose_matrix(pose).copy()
         if self._last_observed_pose is not None:
             observed_translation, observed_rotation = pose_delta(
                 self._last_observed_pose, current
@@ -207,6 +212,16 @@ class KeyframeSelector:
                     pose_jump=True,
                 )
         self._last_observed_pose = current
+        return None
+
+    def select_keyframe(
+        self, pose: np.ndarray, timestamp_ns: int
+    ) -> KeyframeDecision:
+        """Evaluate integration thresholds after continuity was observed."""
+        current = _pose_matrix(pose).copy()
+        stamp = int(timestamp_ns)
+        if stamp < 0:
+            raise ValueError("timestamp_ns must be non-negative")
 
         if self._last_integrated_pose is None:
             self._accept(current, stamp)
@@ -232,6 +247,16 @@ class KeyframeSelector:
 
         self._accept(current, stamp)
         return KeyframeDecision(True, reason, translation, rotation, elapsed)
+
+    def evaluate(self, pose: np.ndarray, timestamp_ns: int) -> KeyframeDecision:
+        """Observe continuity and evaluate this pose as an integration candidate."""
+        stamp = int(timestamp_ns)
+        if stamp < 0:
+            raise ValueError("timestamp_ns must be non-negative")
+        discontinuity = self.observe(pose)
+        if discontinuity is not None:
+            return discontinuity
+        return self.select_keyframe(pose, stamp)
 
     def _accept(self, pose: np.ndarray, timestamp_ns: int) -> None:
         self._last_integrated_pose = pose.copy()

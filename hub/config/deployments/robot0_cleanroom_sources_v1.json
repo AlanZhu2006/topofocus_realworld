@@ -4,14 +4,57 @@
   "base_platform": {
     "operating_system": "Ubuntu 22.04",
     "architecture": "aarch64",
-    "jetpack": "6.2.1",
-    "l4t": "36.4.7",
+    "kernel": "5.15.148-tegra",
+    "jetpack": "6.2.1+b38",
+    "l4t_package": "36.4.7-20250918154033",
     "classification": "observed reference platform"
   },
   "tools": {
-    "python": "3.10",
+    "python": "3.10.12",
     "uv": "0.11.2",
     "ros_distribution": "humble"
+  },
+  "hub_runtime": {
+    "python": "3.10.20",
+    "torch": "2.8.0+cu128",
+    "torchvision": "0.23.0+cu128",
+    "cuda_runtime": "12.8",
+    "detectron2": "0.6",
+    "lock_files": [
+      {
+        "path": "hub/gpu_runtime/pyproject.toml",
+        "bytes": 1214,
+        "sha256": "64c1dfaf4a0cdc571c99924f4171314f2255633a503b232e0ee02307e9fac3e0"
+      },
+      {
+        "path": "hub/gpu_runtime/uv.lock",
+        "bytes": 219837,
+        "sha256": "6629b9e02cc3e50a54340ababb26cc0e194792eafcbf3361659ef2bc4b823eb2"
+      },
+      {
+        "path": "manifests/artifacts.json",
+        "bytes": 2345,
+        "sha256": "3d7d14c3c79e326ef3ddbbc1188bb045ba4b3667021e104d2ae0ea627d1d5489"
+      }
+    ],
+    "classification": "source-derived locked clean-room runtime"
+  },
+  "host_packages": {
+    "exact_reference_versions": {
+      "nvidia-l4t-core": "36.4.7-20250918154033",
+      "ros-humble-ros-base": "0.10.0-1jammy.20260310.230016",
+      "ros-humble-rmw-cyclonedds-cpp": "1.3.4-1jammy.20260605.112510"
+    },
+    "classification": "observed on Robot 0; clean-room verification fails closed on version drift"
+  },
+  "hardware": {
+    "camera": "Intel RealSense D435i",
+    "camera_usb_id": "8086:0b3a",
+    "camera_firmware": "5.17.0.10",
+    "usb3_hub_id": "05e3:0625",
+    "usbfs_memory_mb_minimum": 1000,
+    "platform": "Unitree Go2",
+    "classification": "observed reference devices"
   },
   "sources": {
     "tinynav": {
@@ -83,6 +126,33 @@
       "sha256": "dca1b6620d731a97f42b6c7f68e693de24e693cc9d126ccb5b0d19d52ff9891a"
     }
   ],
+  "tensorrt_plans": [
+    {
+      "path": "tinynav/models/dinov2_base_224x224_fp16_aarch64.plan",
+      "source_onnx": "tinynav/models/dinov2_base_224x224_fp16.onnx"
+    },
+    {
+      "path": "tinynav/models/lightglue_fp16_aarch64.plan",
+      "source_onnx": "tinynav/models/lightglue_fp16.onnx"
+    },
+    {
+      "path": "tinynav/models/superpoint_fp16_dynamic_aarch64.plan",
+      "source_onnx": "tinynav/models/superpoint_fp16_dynamic.onnx"
+    },
+    {
+      "path": "tinynav/models/retinify_0_1_5_dynamic_aarch64.plan",
+      "source_onnx": "tinynav/models/retinify_0_1_5_dynamic.onnx"
+    }
+  ],
+  "generated_layout": {
+    "install_root_default": "${XDG_DATA_HOME:-$HOME/.local/share}/topofocus/robot-0",
+    "config_root_default": "${XDG_CONFIG_HOME:-$HOME/.config}/topofocus",
+    "state_root_default": "${XDG_STATE_HOME:-$HOME/.local/state}/topofocus",
+    "environment_file": "robot-0.env",
+    "setup_file": "robot-0-setup.bash",
+    "token_file": "robot-0.token",
+    "tokens_in_tracked_files": false
+  },
   "network_defaults": {
     "unitree_interface": "eth0",
     "host_address": "192.168.123.100/24",
@@ -94,5 +164,10 @@
     "bootstrap_starts_planning": false,
     "bootstrap_starts_actuation": false,
     "physical_motion_requires_per_run_authorization": true
+  },
+  "verification_levels": {
+    "software": "locked source, model, TensorRT, configuration and runtime-import checks; no robot connection",
+    "host": "software plus exact JetPack, L4T, ROS and middleware package checks",
+    "hardware": "host plus D435i firmware/USB power and Unitree host-interface checks; no motion command"
   }
 }

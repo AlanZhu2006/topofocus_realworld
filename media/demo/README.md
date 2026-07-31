@@ -69,3 +69,35 @@ Scene 02 uses the same browser-ready convention: H.264 MP4 display clips and
 
 Master-video provenance, physical confirmations and SR/SPL are in
 [`../../manifests/scene02_plant_formal_experiments_20260728.json`](../../manifests/scene02_plant_formal_experiments_20260728.json).
+
+## Scene 03 · Long-range Cooperative Plant
+
+Scene 03 follows the same browser-ready convention: H.264 `yuv420p` MP4
+display clips and 64-frame, 8 fps full-clip GIF previews.
+
+| File | Bytes | Duration | SHA-256 |
+| --- | ---: | ---: | --- |
+| `scene03_formal_01_preview.gif` | 6,417,004 | 8.010 s | `87e138498cb8cae0467d46e5279b377e592f5f2ea03cd39a48d1cd1dddebbacd` |
+| `scene03_formal_01_dashboard.gif` | 3,252,425 | 8.010 s | `e3c961fc97c22a7ed58500c5d9df10977a85fe8c90834ffde12f696b658e65ab` |
+| `scene03_formal_01_third_view.mp4` | 7,712,497 | 167.534 s | `8d64d7b2152d58f40d6a3088ec0417bfe3e733561fd5b5a071b9729b2bfde` |
+| `scene03_formal_01_dashboard.mp4` | 4,195,809 | 455.300 s | `7d07adcac31ed3361583ba40eaf29a152dbbf2f26af0407acc3192c9c45821de` |
+| `scene03_formal_02_preview.gif` | 8,854,274 | 8.010 s | `dfdf1786bd489b1d8bd68cf071eb4a143c470585c34eed4335f7cc2f21e5edcc` |
+| `scene03_formal_02_dashboard.gif` | 3,783,863 | 8.010 s | `e1b45b63ef5a73bba61a895fde8b6d02a785df4fa3b3fdad5300056bab3878d7` |
+| `scene03_formal_02_third_view.mp4` | 10,858,818 | 108.600 s | `cbd6ad046e369893687ad6b4261b468acf18a9ae80548901d70b9fd5b8927cb1` |
+| `scene03_formal_02_dashboard.mp4` | 5,764,131 | 612.767 s | `e9c86f64080e5f0e725b50f5a95e6ec86752fcc666c97db2a64fbad1533b2b5f` |
+| `scene03_formal_03_preview.gif` | 8,294,031 | 8.010 s | `d1f4cc50c0a4bc0f2a848443b1fa9f44caeec2e54519eee940a7acf9c397ab40` |
+| `scene03_formal_03_dashboard.gif` | 2,261,920 | 8.010 s | `a7b8768619cbe9ac9593090c394e18e0676333d9aa6f9b8e056a99bf20f78e0b` |
+| `scene03_formal_03_third_view.mp4` | 5,152,149 | 56.567 s | `6c16d299f8dc85f8ddc8d3c4181689d395ee9095df4d0da80c57f4e4dd7a2ca2` |
+| `scene03_formal_03_dashboard.mp4` | 1,899,313 | 184.100 s | `35be4eb4d2bd7d074f2d1dc036af588644cb5576fdc1a92a7e5fb8cb5c7bd399` |
+| `scene03_formal_04_preview.gif` | 4,957,066 | 8.010 s | `6cda12bb1e94453d80351ecaaa238c8d92683d4b31086709bc2ecc86cfaac3f6` |
+| `scene03_formal_04_dashboard.gif` | 2,190,762 | 8.010 s | `da7ef98a42bf2397f862c7dacd967a7f8bf1500c54d1cf5f8347b0e258002b2b` |
+| `scene03_formal_04_third_view.mp4` | 9,572,570 | 162.367 s | `18ca4f4a42d0aa5f590e85446d3038dea167738b9f3382bed3edef7c45f20ee1` |
+| `scene03_formal_04_dashboard.mp4` | 2,139,789 | 195.967 s | `a7a382dd73adca100fc54f3bafdc221209616866db5e230c3ae02e6f3feb2199` |
+| `scene03_formal_05_preview.gif` | 8,636,782 | 8.010 s | `71ef9670433a0a07ef0bf1f7d746d05568942f3b65f1f9236f67c20fcc155319` |
+| `scene03_formal_05_dashboard.gif` | 2,439,428 | 8.010 s | `7f3b71164d660e3b84a7af7b1808e215e8c1edea16996fa900a4a45ff5435428` |
+| `scene03_formal_05_third_view.mp4` | 8,120,712 | 65.900 s | `563f5e0bb130b7ab80e91a28c245cebc8093ea211a4c64368e21f69b5fc055bd` |
+| `scene03_formal_05_dashboard.mp4` | 3,022,519 | 402.467 s | `c61de6a922bff77093418b7f54dca03ebe3bc49de0d9912f69fbd3a48119050f` |
+
+Master-video provenance, dual-robot paths, physical confirmations and SR/SPL
+are in
+[`../../manifests/scene03_plant_formal_experiments_20260731.json`](../../manifests/scene03_plant_formal_experiments_20260731.json).

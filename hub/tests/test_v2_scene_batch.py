@@ -398,6 +398,173 @@ def test_builds_semantic_and_frontier_concurrent_batch(tmp_path, observation_fac
     )
 
 
+def test_history_choice_is_consumed_before_semantic_override(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    origin_x, origin_y = manifest["fused_origin_xy_m"]
+    resolution = manifest["resolution_m"]
+    history = [
+        {
+            "frontier_id": f"history-{index}",
+            "history_index": index,
+            "row": 3 + index,
+            "col": 4 + index,
+            "x_m": origin_x + (4 + index + 0.5) * resolution,
+            "y_m": origin_y + (3 + index + 0.5) * resolution,
+            "history_score": float(10 + index),
+        }
+        for index in range(5)
+    ]
+    selected_history = {
+        "kind": "history",
+        "target_id": "history-3",
+        **{
+            key: value
+            for key, value in history[3].items()
+            if key != "frontier_id"
+        },
+    }
+    semantic = manifest["robots"][0]["semantic_goal_override"]
+    first, second = manifest["robots"]
+    first["candidate_history_nodes"] = history
+    second.update({
+        "candidate_history_nodes": history,
+        "allocated_frontier": None,
+        "choice_probabilities": {},
+        "selected_history_index": 3,
+        "exploration_selection_before_target_override": selected_history,
+        "semantic_goal_override": semantic,
+        "final_shadow_selection": semantic,
+    })
+    manifest["remaining_frontiers"] = [
+        manifest["frontiers"][1],
+    ]
+    manifest["remaining_history_nodes"] = [
+        item for item in history if item["history_index"] != 3
+    ]
+    manifest["final_shadow_selections"]["robot-1"] = semantic
+    write_json(manifest_path, manifest)
+
+    built = build_batch_from_shadow_manifest(
+        manifest_path,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-history-before-semantic",
+        execution_epoch=4,
+        now_ns=now,
+        robot_config_path=config,
+    )
+
+    assert built.report["preflight_ready"] is True
+    assert [decision.target.kind for decision in built.batch.decisions] == [
+        "SEMANTIC_REGION",
+        "SEMANTIC_REGION",
+    ]
+
+
+def test_single_shared_frontier_builds_one_goal_and_one_explicit_hold(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    first = manifest["robots"][0]
+    second = manifest["robots"][1]
+    frontier = first["candidate_frontiers"][0]
+    frontier_selection = {
+        "kind": "frontier",
+        "target_id": frontier["frontier_id"],
+        **frontier,
+        "source_behavior": "sequential frontier removed before next robot",
+    }
+    manifest["frontiers"] = [frontier]
+    manifest["remaining_frontiers"] = []
+    manifest["vlm_frontier_contract"].update({
+        "per_robot_view": (
+            "locally supported subset of remaining shared candidates "
+            "in canonical A-D order"
+        ),
+        "frontier_ownership_filter": True,
+        "disconnected_component_balance": True,
+    })
+    manifest["frontier_ownership"] = {
+        frontier["frontier_id"]: {
+            "frontier_id": frontier["frontier_id"],
+            "eligible_robot_ids": ["robot-0"],
+            "source_local_frontiers": [{
+                "robot_id": "robot-0",
+                "classification": (
+                    "source-derived from observed frozen robot-local map"
+                ),
+            }],
+            "fabricated": False,
+        },
+    }
+    manifest["source_undercomplete_frontier_adapter"] = {
+        "observed_frontier_count": 1,
+        "robot_count": 2,
+        "source_behavior": (
+            "a sole frontier may be reused by a later simulator agent"
+        ),
+        "real_robot_adapter": (
+            "allocate each observed shared frontier at most once; "
+            "robots without a remaining frontier explicitly HOLD"
+        ),
+        "fabricated_frontiers": False,
+    }
+    first.update({
+        "candidate_frontiers": [frontier],
+        "allocated_frontier": frontier,
+        "choice_probabilities": {frontier["frontier_id"]: 1.0},
+        "exploration_selection_before_target_override": frontier_selection,
+        "semantic_goal_override": None,
+        "final_shadow_selection": frontier_selection,
+    })
+    second.update({
+        "candidate_frontiers": [],
+        "allocated_frontier": None,
+        "choice_probabilities": {},
+        "exploration_selection_before_target_override": None,
+        "semantic_goal_override": None,
+        "final_shadow_selection": None,
+        "vlm_execution_status": "not_called_no_remaining_candidate",
+        "adapter_hold_reason": (
+            "initial shared frontier set exhausted by earlier allocation; "
+            "duplicate physical target suppressed; explicit HOLD"
+        ),
+    })
+    manifest["final_shadow_selections"] = {
+        "robot-0": frontier_selection,
+    }
+    write_json(manifest_path, manifest)
+
+    built = build_batch_from_shadow_manifest(
+        manifest_path,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-single-frontier",
+        execution_epoch=4,
+        now_ns=now,
+        robot_config_path=config,
+    )
+
+    by_robot = {
+        decision.robot_id: decision for decision in built.batch.decisions
+    }
+    assert built.report["preflight_ready"] is True
+    assert built.report["active_robot_ids"] == ["robot-0"]
+    assert by_robot["robot-0"].mode == "GOAL"
+    assert by_robot["robot-1"].mode == "HOLD"
+    assert by_robot["robot-1"].target is None
+
+
 def test_forced_hold_preserves_vlm_selection_but_scopes_physical_authority(
     tmp_path,
     observation_factory,
@@ -431,6 +598,78 @@ def test_forced_hold_preserves_vlm_selection_but_scopes_physical_authority(
     assert by_robot["robot-0"].target is None
     assert by_robot["robot-1"].mode == "GOAL"
     assert by_robot["robot-1"].target.kind == "FRONTIER_POINT"
+
+
+def test_semantic_execution_override_uses_only_frozen_exploration_selection(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    frozen_exploration = manifest["robots"][0][
+        "exploration_selection_before_target_override"
+    ]
+
+    built = build_batch_from_shadow_manifest(
+        manifest_path,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-semantic-confirmation-fallback",
+        execution_epoch=4,
+        now_ns=now,
+        robot_config_path=config,
+        execution_selection_overrides={
+            "robot-0": frozen_exploration,
+        },
+    )
+
+    by_robot = {
+        decision.robot_id: decision for decision in built.batch.decisions
+    }
+    assert built.report["source_active_robot_ids"] == [
+        "robot-0",
+        "robot-1",
+    ]
+    assert built.report[
+        "execution_selection_override_robot_ids"
+    ] == ["robot-0"]
+    assert by_robot["robot-0"].target is not None
+    assert by_robot["robot-0"].target.kind == "FRONTIER_POINT"
+    assert by_robot["robot-0"].target.frontier_id == "A"
+    assert by_robot["robot-1"].target.kind == "FRONTIER_POINT"
+
+
+def test_semantic_execution_override_rejects_invented_fallback(
+    tmp_path,
+    observation_factory,
+):
+    now, manifest_path, registry, config = prepare_round(
+        tmp_path, observation_factory
+    )
+    invented = {
+        "kind": "frontier",
+        "target_id": "D",
+        "frontier_id": "D",
+        "row": 1,
+        "col": 1,
+        "x_m": 9.0,
+        "y_m": 9.0,
+        "size_cells": 10,
+    }
+
+    with pytest.raises(ValueError, match="exact frozen"):
+        build_batch_from_shadow_manifest(
+            manifest_path,
+            registry,
+            scene_id="scene-1",
+            episode_id="scene-1-semantic-confirmation-fallback",
+            execution_epoch=4,
+            now_ns=now,
+            robot_config_path=config,
+            execution_selection_overrides={"robot-0": invented},
+        )
 
 
 def test_mapping_only_inputs_build_but_fail_preflight(tmp_path, observation_factory):

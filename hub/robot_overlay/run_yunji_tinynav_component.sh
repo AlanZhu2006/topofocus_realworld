@@ -35,7 +35,7 @@ case "$component" in
     ;;
   occupancy)
     exec "$PYTHON_BIN" -u \
-      "$SEMANTIC_ROOT/semantic_mapping/occupancy_mapper_node.py" "$@"
+      "$SCRIPT_DIR/navigation_occupancy_mapper.py" "$@"
     ;;
   planner)
     exec "$PYTHON_BIN" -u "$SCRIPT_DIR/run_yunji_tinynav_planner.py" \

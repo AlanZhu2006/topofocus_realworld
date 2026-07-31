@@ -114,6 +114,7 @@ def test_stationary_reanchor_recovers_new_planar_epoch(tmp_path: Path):
     pre_pose = planar(2.0, 3.0, 0.4)
     correction = planar(-0.7, 0.2, -0.3)
     post_reported = np.linalg.inv(correction) @ pre_pose
+    post_raw = np.linalg.inv(old_transform) @ post_reported
     for index in range(3):
         write_observation(
             spool,
@@ -126,8 +127,8 @@ def test_stationary_reanchor_recovers_new_planar_epoch(tmp_path: Path):
             spool,
             sequence=20 + index,
             capture_time_ns=200 + index,
-            pose=post_reported @ planar(index * 0.0001, 0.0, 0.0),
-            transform_version="other-old-v1",
+            pose=post_raw @ planar(index * 0.0001, 0.0, 0.0),
+            transform_version="other-raw-restart-v2",
         )
 
     result = subprocess.run(
@@ -148,6 +149,9 @@ def test_stationary_reanchor_recovers_new_planar_epoch(tmp_path: Path):
             "20",
             "--post-last",
             "22",
+            "--post-transform-version",
+            "other-raw-restart-v2",
+            "--post-observations-are-raw-tracking",
             "--new-calibration-id",
             "board-restart-v2",
             "--new-transform-version",
@@ -172,6 +176,10 @@ def test_stationary_reanchor_recovers_new_planar_epoch(tmp_path: Path):
     ).reshape(4, 4)
     np.testing.assert_allclose(actual, expected, atol=3e-4)
     assert artifact["other_reanchor_validation"]["passed"] is True
+    assert (
+        artifact["other_reanchor_validation"]["post_observation_pose_model"]
+        == "raw_tracking_normalized_with_old_shared_transform"
+    )
     assert artifact["safety"]["robot_commands_issued"] is False
     assert "holdout_validation" not in artifact
 

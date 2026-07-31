@@ -375,6 +375,71 @@ def test_parked_sender_receipt_proves_synchronized_tuple_activity(
     assert node.observation_contract is None
 
 
+def test_active_sender_receipt_distinguishes_hub_rejection_from_dds_stall(
+    monkeypatch, tmp_path,
+):
+    sender = _load_sender_module(monkeypatch)
+    node = sender.FocusRosSender.__new__(sender.FocusRosSender)
+    node.args = SimpleNamespace(
+        robot_id="robot-0",
+        deployment_commit="a" * 40,
+        rate_hz=2.0,
+        max_frames=0,
+    )
+    node.runtime_contract_file = tmp_path / "contract.json"
+    node.runtime_receipt_file = tmp_path / "receipt.json"
+    node.runtime_contract_sha256 = "b" * 64
+    node.runtime_receipt_state = (
+        "active",
+        node.runtime_contract_sha256,
+        "validated_contract_applied_without_dds_restart",
+    )
+    node.observation_contract = sender.ObservationContract(
+        transform_version="wsj-transform-v2",
+        goal_category="plant",
+        base_camera_calibration=object(),
+        shared_tracking_calibration=SimpleNamespace(source_sha256="c" * 64),
+    )
+    node.frames_seen = 0
+    node.frames_sent = 0
+    node.parked_geometry_tuples = 0
+    node.last_frame_error = None
+    node.last_frame_error_at_ns = None
+    node.done = False
+    node.last_upload_monotonic = 0.0
+    node.min_period_s = 0.0
+    node._refresh_runtime_contract = lambda: None
+    node.get_logger = lambda: SimpleNamespace(error=lambda *_args: None)
+
+    def reject(*_args, **_kwargs):
+        raise RuntimeError(
+            "hub rejected seq 9: 422 transform_version mismatch"
+        )
+
+    node.process = reject
+    node._handle_synced(None, None, None, None, None)
+
+    receipt = json.loads(node.runtime_receipt_file.read_text())
+    assert receipt["status"] == "active"
+    assert receipt["detail"] == "frame_processing_failed"
+    assert receipt["frames_seen"] == 1
+    assert receipt["frames_sent"] == 0
+    assert "422 transform_version mismatch" in receipt["last_frame_error"]
+    assert isinstance(receipt["last_frame_error_at_ns"], int)
+
+    def accept(*_args, **_kwargs):
+        node.frames_sent += 1
+
+    node.process = accept
+    node._handle_synced(None, None, None, None, None)
+    recovered = json.loads(node.runtime_receipt_file.read_text())
+    assert recovered["detail"] == "frame_upload_recovered"
+    assert recovered["frames_seen"] == 2
+    assert recovered["frames_sent"] == 1
+    assert recovered["last_frame_error"] is None
+    assert recovered["last_frame_error_at_ns"] is None
+
+
 class _DepthBridge:
     def __init__(self, array):
         self.array = array

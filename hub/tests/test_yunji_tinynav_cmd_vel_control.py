@@ -227,6 +227,132 @@ def test_reverse_classifier_rejects_invalid_values():
 
 
 @pytest.mark.parametrize(
+    ("segment_action", "requested_linear_mps", "expected_action"),
+    [
+        ("reject_reverse", 0.0, "allow"),
+        ("reject_reverse", 0.18, "allow"),
+        ("zero_tiny_reverse", 0.0, "zero_tiny_reverse"),
+        ("allow", 0.18, "allow"),
+    ],
+)
+def test_verified_forward_only_planner_treats_path_geometry_as_a_turn(
+    segment_action,
+    requested_linear_mps,
+    expected_action,
+):
+    effective_action, violation = (
+        MODULE.resolve_forward_only_control_contract(
+            segment_action,
+            requested_linear_mps,
+            verified_forward_only_planner=True,
+        )
+    )
+
+    assert effective_action == expected_action
+    assert violation is False
+
+
+def test_actual_negative_twist_remains_a_detectable_source_reverse_request():
+    effective_action, violation = (
+        MODULE.resolve_forward_only_control_contract(
+            "allow",
+            -0.01,
+            verified_forward_only_planner=True,
+        )
+    )
+
+    assert effective_action == "reject_reverse"
+    assert violation is True
+
+
+@pytest.mark.parametrize(
+    (
+        "reverse_requested",
+        "heading_deg",
+        "recovery_active",
+        "rotate_first",
+        "stabilize",
+        "paused",
+        "expected",
+    ),
+    [
+        (False, 90.0, False, True, True, False, "none"),
+        (True, 90.0, False, True, True, False, "align"),
+        (True, 10.0, True, True, True, False, "align"),
+        (True, 10.0, False, True, True, False, "hold"),
+        (True, 5.0, True, True, True, False, "hold"),
+        (True, None, False, True, True, False, "reject"),
+        (True, 90.0, False, False, True, False, "reject"),
+        (True, 90.0, False, True, False, False, "reject"),
+        (True, 90.0, False, True, True, True, "hold"),
+    ],
+)
+def test_verified_source_reverse_is_aligned_held_or_rejected_without_reverse(
+    reverse_requested,
+    heading_deg,
+    recovery_active,
+    rotate_first,
+    stabilize,
+    paused,
+    expected,
+):
+    heading = None if heading_deg is None else math.radians(heading_deg)
+    assert MODULE.classify_verified_reverse_command_recovery(
+        reverse_requested,
+        heading,
+        recovery_active=recovery_active,
+        rotate_first_enabled=rotate_first,
+        stabilize_large_turn=stabilize,
+        paused=paused,
+    ) == expected
+
+
+def test_verified_source_reverse_recovery_rejects_invalid_heading():
+    with pytest.raises(ValueError):
+        MODULE.classify_verified_reverse_command_recovery(
+            True,
+            float("nan"),
+            recovery_active=False,
+            rotate_first_enabled=True,
+            stabilize_large_turn=True,
+            paused=False,
+        )
+
+
+def test_unverified_planner_retains_legacy_geometry_rejection():
+    assert MODULE.resolve_forward_only_control_contract(
+        "reject_reverse",
+        0.0,
+        verified_forward_only_planner=False,
+    ) == ("reject_reverse", False)
+
+
+def test_every_continuous_turn_has_a_local_bounded_timeout():
+    assert MODULE.controller_recovery_timeout_is_terminal(
+        expired=True,
+        verified_forward_only_planner=True,
+    )
+    assert MODULE.controller_recovery_timeout_is_terminal(
+        expired=True,
+        verified_forward_only_planner=False,
+    )
+    assert not MODULE.controller_recovery_timeout_is_terminal(
+        expired=False,
+        verified_forward_only_planner=False,
+    )
+    assert MODULE.controller_recovery_timeout_is_terminal(
+        expired=True,
+        verified_forward_only_planner=True,
+        source_reverse_command=True,
+    )
+    with pytest.raises(ValueError):
+        MODULE.controller_recovery_timeout_is_terminal(
+            expired=1,
+            verified_forward_only_planner=True,
+        )
+
+
+@pytest.mark.parametrize(
     ("requested", "latched_direction", "expected"),
     [
         (0.70, 0, 0.35),
@@ -314,7 +440,7 @@ def test_collision_scored_path_heading_overrides_conflicting_router_seed():
         robot_heading_rad=0.5597,
         path_xy=[
             (2.8755, -6.0557),
-            (2.8755 - 0.2 * math.cos(0.5597), -6.0557 - 0.2 * math.sin(0.5597)),
+            (2.8755 - 0.4 * math.cos(0.5597), -6.0557 - 0.4 * math.sin(0.5597)),
         ],
     )
 
@@ -330,6 +456,46 @@ def test_collision_scored_path_heading_overrides_conflicting_router_seed():
         path_heading_error_rad=None,
         router_heading_error_rad=target_error,
     ) == target_error
+
+
+def test_short_wall_front_paths_defer_to_stable_router_heading():
+    robot_xy = (0.523, -4.1567)
+    robot_heading_rad = math.radians(179.0)
+    router_error = MODULE.world_target_heading_error(
+        robot_xy,
+        (-0.775, 0.775),
+        robot_heading_rad=robot_heading_rad,
+    )
+    left_jitter = MODULE.stable_path_heading_error(
+        robot_xy,
+        robot_heading_rad=robot_heading_rad,
+        path_xy=[
+            robot_xy,
+            (0.48, -4.13),
+            (0.43, -4.10),
+        ],
+    )
+    right_jitter = MODULE.stable_path_heading_error(
+        robot_xy,
+        robot_heading_rad=robot_heading_rad,
+        path_xy=[
+            robot_xy,
+            (0.49, -4.19),
+            (0.42, -4.24),
+        ],
+    )
+
+    assert left_jitter is None
+    assert right_jitter is None
+    assert router_error is not None
+    assert MODULE.select_authoritative_heading_error(
+        path_heading_error_rad=left_jitter,
+        router_heading_error_rad=router_error,
+    ) == router_error
+    assert MODULE.select_authoritative_heading_error(
+        path_heading_error_rad=right_jitter,
+        router_heading_error_rad=router_error,
+    ) == router_error
 
 
 def test_measured_rear_left_goal_has_one_stable_positive_turn():
@@ -416,6 +582,40 @@ def test_reverse_segment_cannot_enter_generic_large_turn_recovery():
         recovery_active=False,
         requested_linear_mps=0.0,
         requested_angular_radps=0.7,
+    )
+
+
+def test_traversable_moderate_turn_latches_direction_until_yaw_deadband():
+    # Scene 03 Formal 07 showed alternating source yaw signs at ordinary
+    # 15--30 degree path alignment angles.  Once a real pure-yaw command
+    # enters recovery, local trajectory jitter must not flip that direction.
+    assert MODULE.path_turn_recovery_required(
+        "allow",
+        math.radians(20.0),
+        recovery_active=False,
+        requested_linear_mps=0.0,
+        requested_angular_radps=0.3,
+    )
+    assert MODULE.path_turn_recovery_required(
+        "allow",
+        math.radians(10.0),
+        recovery_active=True,
+        requested_linear_mps=0.0,
+        requested_angular_radps=-0.3,
+    )
+    assert not MODULE.path_turn_recovery_required(
+        "allow",
+        math.radians(7.9),
+        recovery_active=True,
+        requested_linear_mps=0.0,
+        requested_angular_radps=-0.3,
+    )
+    assert not MODULE.path_turn_recovery_required(
+        "allow",
+        math.radians(20.0),
+        recovery_active=False,
+        requested_linear_mps=0.1,
+        requested_angular_radps=0.3,
     )
 
 
@@ -529,6 +729,31 @@ def test_active_rotate_first_crosses_tiny_reverse_deadband():
     ) == pytest.approx(-0.10)
 
 
+def test_reverse_path_uses_stable_heading_when_source_yaw_is_zero():
+    # The pinned controller suppresses yaw when its lookahead is behind the
+    # base.  Rotate-first must therefore derive yaw from the validated
+    # collision-scored path/router heading, not from that zero Twist.
+    request = MODULE.controller_recovery_angular_request(
+        0.0,
+        math.radians(105.0),
+        use_stable_heading=True,
+        continuation_required=False,
+        latched_direction=1,
+    )
+
+    assert request == pytest.approx(0.35)
+
+
+def test_missing_stable_heading_cannot_invent_recovery_yaw():
+    assert MODULE.controller_recovery_angular_request(
+        0.0,
+        None,
+        use_stable_heading=True,
+        continuation_required=False,
+        latched_direction=0,
+    ) == 0.0
+
+
 @pytest.mark.parametrize(
     ("recovery_active", "enabled", "paused", "heading_deg"),
     [
@@ -571,6 +796,7 @@ def test_rotate_first_is_explicitly_opt_in():
         + [
             "--rotate-first-on-reverse",
             "--stabilize-large-turn",
+            "--verified-forward-only-planner",
             "--rotate-first-max-angular-radps",
             "0.30",
             "--rotate-first-timeout-s",
@@ -582,6 +808,7 @@ def test_rotate_first_is_explicitly_opt_in():
     assert defaults.stabilize_large_turn is False
     assert enabled.rotate_first_on_reverse is True
     assert enabled.stabilize_large_turn is True
+    assert enabled.verified_forward_only_planner is True
     assert enabled.rotate_first_max_angular_radps == pytest.approx(0.30)
     assert enabled.rotate_first_timeout_s == pytest.approx(8.0)
 
@@ -598,6 +825,10 @@ def test_controller_profile_is_required_and_common_guards_are_enabled():
     assert (
         parsed.pause_service
         == MODULE.DEFAULT_CONTROLLER_PAUSE_SERVICE
+    )
+    assert (
+        parsed.turn_stalled_topic
+        == MODULE.DEFAULT_CONTROLLER_TURN_STALLED_TOPIC
     )
     assert parsed.robot_id == "robot-0"
     assert parsed.base_camera_frame == "camera"
