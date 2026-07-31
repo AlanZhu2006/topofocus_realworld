@@ -1479,6 +1479,10 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     hold_priority = source.index(
         'decision.mode.value in {"HOLD", "STOP"}'
     )
+    episode_path_binding = source.index(
+        "path, path_episode_id = bind_path_to_episode("
+    )
+    assert episode_path_binding < hold_priority
     recovery_renewal = source.index(
         "active_combined_sensor_recovery = bool(",
         hold_priority,

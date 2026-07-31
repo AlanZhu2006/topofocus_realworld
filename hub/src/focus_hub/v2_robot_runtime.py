@@ -393,6 +393,31 @@ class PathAccumulator:
         return self.length_m
 
 
+def bind_path_to_episode(
+    path: PathAccumulator,
+    path_episode_id: str | None,
+    decision_episode_id: str,
+    current_x: float,
+    current_y: float,
+) -> tuple[PathAccumulator, str]:
+    """Bind path accounting before dispatching any decision mode.
+
+    A receiver can spend time alive before the first episode decision. That
+    pre-episode drift must not be reported by an initial HOLD and then be
+    cleared by a later GOAL from the same episode: doing so makes the reported
+    episode path move backward. Every decision mode, including a high-priority
+    HOLD/STOP fast path, must pass through this binding first.
+    """
+
+    if not decision_episode_id:
+        raise ValueError("decision episode ID must be non-empty")
+    if path_episode_id == decision_episode_id:
+        return path, decision_episode_id
+    episode_path = PathAccumulator(max_step_m=path.max_step_m)
+    episode_path.update(current_x, current_y)
+    return episode_path, decision_episode_id
+
+
 @dataclass(frozen=True)
 class OccupancyGrid2D:
     """Minimal ROS OccupancyGrid view used for robot-local reachability.

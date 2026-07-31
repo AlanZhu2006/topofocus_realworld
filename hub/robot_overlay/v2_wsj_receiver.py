@@ -57,6 +57,7 @@ from focus_hub.v2_robot_runtime import (  # noqa: E402
     HubV2RobotClient,
     OccupancyGrid2D,
     PathAccumulator,
+    bind_path_to_episode,
     cached_map_valid_for_pose,
     navigation_event,
 )
@@ -3900,6 +3901,17 @@ def main() -> int:
                 time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
                 continue
 
+            # Bind the path origin before every mode-specific fast path. An
+            # episode that starts with coordination HOLD must not report
+            # pre-episode drift and then reset on its first GOAL.
+            path, path_episode_id = bind_path_to_episode(
+                path,
+                path_episode_id,
+                decision.episode_id,
+                pose[0],
+                pose[1],
+            )
+
             # HOLD and STOP are high-priority safety commands. They bypass all
             # sensor-recovery and goal-adaptation work, and a failed event POST
             # deliberately leaves the decision unseen so the next cycle retries
@@ -4203,10 +4215,6 @@ def main() -> int:
             goal_published_this_cycle = False
             if decision.decision_id != last_decision_id:
                 last_decision_id = decision.decision_id
-                if path_episode_id != decision.episode_id:
-                    path = PathAccumulator()
-                    path.update(pose[0], pose[1])
-                    path_episode_id = decision.episode_id
                 if not post(
                     decision,
                     NavigationStatusV2.RECEIVED,

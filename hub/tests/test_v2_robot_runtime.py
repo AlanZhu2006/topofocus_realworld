@@ -11,6 +11,7 @@ from focus_hub.v2_robot_runtime import (
     HubV2RobotClient,
     OccupancyGrid2D,
     PathAccumulator,
+    bind_path_to_episode,
     navigation_event,
     parse_water_current_pose,
     require_water_ok,
@@ -157,6 +158,28 @@ def test_path_accumulator_ignores_localization_jump():
     assert path.update(10, 10) == pytest.approx(0.5)
     assert path.first_xy == (0.0, 0.0)
     assert path.rejected_jumps == 1
+
+
+def test_episode_path_binding_precedes_initial_hold_then_goal():
+    path = PathAccumulator(max_step_m=1.0)
+    path.update(0.0, 0.0)
+    path.update(0.3, 0.0)
+
+    # The receiver existed before the episode. Its pre-episode drift is not
+    # part of the episode path, even when the first command is HOLD.
+    path, episode_id = bind_path_to_episode(
+        path, None, "formal01", 0.3, 0.0
+    )
+    assert episode_id == "formal01"
+    assert path.length_m == 0.0
+
+    path.update(0.32, 0.0)
+    same_path, same_episode_id = bind_path_to_episode(
+        path, episode_id, "formal01", 0.32, 0.0
+    )
+    assert same_path is path
+    assert same_episode_id == "formal01"
+    assert same_path.length_m == pytest.approx(0.02)
 
 
 def test_occupancy_reachability_keeps_unknown_and_obstacle_blocked():

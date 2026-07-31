@@ -46,6 +46,7 @@ from focus_hub.v2_robot_runtime import (  # noqa: E402
     HubV2RobotClient,
     PathAccumulator,
     WaterTcpClient,
+    bind_path_to_episode,
     navigation_event,
     parse_water_current_pose,
     require_water_ok,
@@ -772,12 +773,16 @@ def main() -> int:
                 time.sleep(max(0.0, args.poll_s - (time.monotonic() - cycle_started)))
                 continue
 
+            path, path_episode_id = bind_path_to_episode(
+                path,
+                path_episode_id,
+                decision.episode_id,
+                current_pose[0],
+                current_pose[1],
+            )
+
             if decision.decision_id != last_decision_id:
                 last_decision_id = decision.decision_id
-                if path_episode_id != decision.episode_id:
-                    path = PathAccumulator()
-                    path.update(current_pose[0], current_pose[1])
-                    path_episode_id = decision.episode_id
                 if not post(
                     decision,
                     NavigationStatusV2.RECEIVED,
