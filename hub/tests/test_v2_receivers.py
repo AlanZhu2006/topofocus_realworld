@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import json
 import math
 from pathlib import Path
 import subprocess
@@ -691,6 +692,7 @@ def test_planner_target_refresh_requires_same_active_ready_leg_at_zero_velocity(
     for field, value in (
         ("trajectory_fresh", True),
         ("trajectory_failed", True),
+        ("all_candidates_in_collision", True),
         ("router_recovery_gate_closed", True),
         ("router_state", "HOLD"),
         ("router_decision_id", "another-decision"),
@@ -698,6 +700,74 @@ def test_planner_target_refresh_requires_same_active_ready_leg_at_zero_velocity(
     ):
         candidate = {**ready, field: value}
         assert wsj.planner_target_refresh_eligible(**candidate) is False
+
+
+def test_planner_candidate_status_is_strictly_validated():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    payload = {
+        "schema_version": wsj.PLANNER_CANDIDATE_STATUS_SCHEMA_VERSION,
+        "all_candidates_in_collision": True,
+        "candidate_count": 416,
+        "finite_candidate_count": 0,
+        "finite_in_place_candidate_count": 0,
+        "evaluated_at_ns": 2_000_000_000,
+        "robot_profile": "source-default",
+    }
+
+    assert wsj.parse_planner_candidate_status(json.dumps(payload)) == {
+        "all_candidates_in_collision": True,
+        "candidate_count": 416,
+        "finite_candidate_count": 0,
+        "finite_in_place_candidate_count": 0,
+        "evaluated_at_ns": 2_000_000_000,
+        "robot_profile": "source-default",
+    }
+    for update in (
+        {"schema_version": "unsupported"},
+        {"all_candidates_in_collision": False},
+        {"finite_candidate_count": 417},
+        {"finite_in_place_candidate_count": 1},
+        {"evaluated_at_ns": 0},
+    ):
+        with pytest.raises(ValueError):
+            wsj.parse_planner_candidate_status(
+                json.dumps({**payload, **update})
+            )
+
+
+def test_all_collision_gate_is_authority_scoped_fresh_and_bounded():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    common = {
+        "authority_started_ns": 1_000_000_000,
+        "collision_since_ns": 1_100_000_000,
+        "all_candidates_in_collision": True,
+        "status_timeout_s": 1.0,
+        "rejection_timeout_s": 1.5,
+    }
+
+    # A report from before this authority epoch cannot reject a new leg.
+    assert wsj.planner_collision_gate_state(
+        now_ns=1_200_000_000,
+        status_received_ns=900_000_000,
+        **common,
+    ) == (False, False, 0.0, False)
+    assert wsj.planner_collision_gate_state(
+        now_ns=1_600_000_000,
+        status_received_ns=1_550_000_000,
+        **common,
+    ) == (True, False, pytest.approx(0.5), True)
+    assert wsj.planner_collision_gate_state(
+        now_ns=2_700_000_000,
+        status_received_ns=2_650_000_000,
+        **common,
+    ) == (True, True, pytest.approx(1.6), True)
+    # Stale collision evidence reopens this specific gate; independent path
+    # freshness still remains fail-closed in the receiver.
+    assert wsj.planner_collision_gate_state(
+        now_ns=3_700_000_000,
+        status_received_ns=2_650_000_000,
+        **common,
+    ) == (False, False, pytest.approx(2.6), True)
 
 
 def test_final_velocity_gate_rechecks_all_health_at_control_rate():
@@ -723,6 +793,7 @@ def test_final_velocity_gate_rechecks_all_health_at_control_rate():
         "platform_timeout_s": 2.0,
         "platform_pass": True,
         "router_recovery_gate_closed": False,
+        "all_candidates_in_collision": False,
     }
 
     assert wsj.physical_velocity_gate_reason(**base) is None
@@ -755,6 +826,10 @@ def test_final_velocity_gate_rechecks_all_health_at_control_rate():
         ),
         "platform_pass": (False, "platform_health_not_ready"),
         "reverse_required": (True, "reverse_trajectory_rejected"),
+        "all_candidates_in_collision": (
+            True,
+            "all_trajectories_in_collision",
+        ),
         "turn_stalled": (True, "turn_recovery_stalled"),
         "trajectory_fresh": (False, "trajectory_missing_or_stale"),
         "router_recovery_gate_closed": (
@@ -1403,6 +1478,11 @@ def test_wsj_command_path_has_a_distinct_guarded_topic():
     assert '"reverse_trajectory_rejected"' in source
     assert '"trajectory_missing_or_stale"' in source
     assert '"LOCAL_PLANNER_PATH_STALE"' in source
+    assert 'default="/planning/candidate_status"' in source
+    assert '"planner_candidate_status_publisher"' in source
+    assert '"all_trajectories_in_collision"' in source
+    assert '"local_planner_all_candidates_in_collision"' in source
+    assert '"LOCAL_GOAL_UNREACHABLE"' in source
     path_stale_branch = source.split(
         'NavigationStatusV2.REJECTED,\n                        "LOCAL_PLANNER_PATH_STALE"',
         1,

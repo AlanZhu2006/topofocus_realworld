@@ -60,6 +60,9 @@ SOURCE_DEFAULT_TRAJECTORY_DT_S = 0.1
 STOPPED_PREFIX_HORIZONS_S = (0.5, 1.0, 2.0)
 SCORE_OBSERVABILITY_INTERVAL_S = 30.0
 DEFAULT_SENSOR_SYNC_SLOP_S = 0.05
+PLANNER_CANDIDATE_STATUS_SCHEMA_VERSION = (
+    "focus-tinynav-candidate-status-v1"
+)
 
 
 def install_bounded_approximate_sensor_sync(
@@ -543,6 +546,14 @@ def build_parser() -> argparse.ArgumentParser:
             "headerless messages remain rejected"
         ),
     )
+    parser.add_argument(
+        "--candidate-status-topic",
+        default="/planning/candidate_status",
+        help=(
+            "robot-local collision-scored lattice status consumed by the "
+            "final guarded receiver"
+        ),
+    )
     return parser
 
 
@@ -570,6 +581,7 @@ def main() -> int:
 
     import rclpy
     from rclpy.executors import ExternalShutdownException
+    from std_msgs.msg import String
     from tinynav.core import planning_node
 
     sensor_sync_provenance = install_bounded_approximate_sensor_sync(
@@ -599,6 +611,7 @@ def main() -> int:
     latest_parameters: list[object | None] = [None]
     latest_planner_transform: list[object | None] = [None]
     latest_footprint_clearing: list[dict[str, object]] = [{}]
+    candidate_status_publisher: list[object | None] = [None]
     last_score_state: tuple[bool, bool] | None = None
     last_score_log_monotonic = 0.0
 
@@ -687,6 +700,19 @@ def main() -> int:
             summary["measured_body_radius_m"] = args.body_radius_m
             summary["safety_margin_m"] = args.safety_margin_m
             summary.update(latest_footprint_clearing[0])
+        summary["schema_version"] = (
+            PLANNER_CANDIDATE_STATUS_SCHEMA_VERSION
+        )
+        summary["evaluated_at_ns"] = time.time_ns()
+        publisher = candidate_status_publisher[0]
+        if publisher is not None:
+            message = String()
+            message.data = json.dumps(
+                summary,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            publisher.publish(message)
         state = (
             bool(summary["all_candidates_in_collision"]),
             int(summary["finite_in_place_candidate_count"]) > 0,
@@ -726,7 +752,7 @@ def main() -> int:
     )
     provenance.update(
         {
-            "schema_version": "focus-progress-capable-tinynav-planner-v7",
+            "schema_version": "focus-progress-capable-tinynav-planner-v8",
             "adaptation": (
                 "source_reverse_and_exact_stationary_vocabularies_removed_"
                 "with_collision_scored_stopped_prefixes_and_measured_"
@@ -747,6 +773,10 @@ def main() -> int:
             ),
             "external_obstacle_cells_preserved": True,
             "source_rectangle_scorer_unchanged_for_wsj": True,
+            "candidate_status_topic": args.candidate_status_topic,
+            "candidate_status_schema_version": (
+                PLANNER_CANDIDATE_STATUS_SCHEMA_VERSION
+            ),
             **sensor_sync_provenance,
             "synchronized_frame_exception_policy": (
                 "skip_invalid_pair_keep_process_alive_and_allow_receiver_"
@@ -766,6 +796,11 @@ def main() -> int:
     # this wrapper's already-consumed geometry flags from sys.argv.
     rclpy.init(args=ros_args)
     node = planning_node.PlanningNode()
+    candidate_status_publisher[0] = node.create_publisher(
+        String,
+        args.candidate_status_topic,
+        10,
+    )
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

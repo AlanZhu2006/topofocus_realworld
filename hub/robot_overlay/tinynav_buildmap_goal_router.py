@@ -755,7 +755,13 @@ def run_ros(
             self.target_publisher = self.create_publisher(
                 Odometry, args.target_pose_topic, 10
             )
-            self.target_publisher_generation = 0
+            # Fast DDS discovery on both deployed robots has repeatedly lost
+            # data after a writer is destroyed and recreated while the
+            # long-lived TinyNav subscriber remains in place.  Keep one
+            # process-lifetime writer and republish versioned goals through it.
+            # The high-level lease and the receiver's independent trajectory
+            # freshness gate still decide whether any velocity is authorized.
+            self.target_publisher_generation = 1
             self.last_target_refresh_monotonic = 0.0
             self.poi_change_publisher = self.create_publisher(
                 Odometry, args.poi_change_topic, 10
@@ -824,6 +830,7 @@ def run_ros(
                     "target_publisher_generation": (
                         self.target_publisher_generation
                     ),
+                    "target_publisher_lifecycle": "process_stable",
                     **self.last_status_fields,
                 },
                 separators=(",", ":"),
@@ -904,46 +911,14 @@ def run_ros(
                 self.publish_status("ACCEPTED", "LEASE_RENEWED")
                 return
             self.clear_target("GOAL_REPLACED", discard_goal=True)
-            # Give each new leg one bounded DDS handoff generation.  Same-leg
-            # recovery never rotates this entity: it republishes the verified
-            # active waypoint on the current publisher instead.  This keeps
-            # repeated stale-path recovery from churning rclpy/Fast DDS
-            # entities while physical output remains independently gated.
-            self.recreate_target_publisher()
+            # Never rotate this DDS writer at a source/lease boundary.  A
+            # stable entity lets the already-discovered TinyNav subscriber
+            # receive every new waypoint and every bounded repair publication.
             self.goal = goal
             self.initial_route_length_m = None
             self.last_plan_monotonic = 0.0
             self.nav_done_publisher.publish(Bool(data=False))
             self.publish_status("ACCEPTED", "FRESH_VERSIONED_GOAL")
-
-        def recreate_target_publisher(self) -> bool:
-            previous_publisher = self.target_publisher
-            try:
-                replacement_publisher = self.create_publisher(
-                    Odometry, args.target_pose_topic, 10
-                )
-            except Exception as exc:
-                # Preserve the current publisher and keep the router alive.
-                # A receiver-side target republish can still repair the
-                # planner handoff without touching DDS entity lifecycle.
-                self.get_logger().error(
-                    "target publisher rotation create failed; "
-                    f"keeping generation {self.target_publisher_generation}: "
-                    f"{exc}"
-                )
-                return False
-            self.target_publisher = replacement_publisher
-            self.target_publisher_generation += 1
-            try:
-                self.destroy_publisher(previous_publisher)
-            except Exception as exc:
-                # The replacement is already authoritative.  Do not let a
-                # cleanup failure terminate the safety-critical router.
-                self.get_logger().warning(
-                    "previous target publisher cleanup failed after "
-                    f"generation {self.target_publisher_generation}: {exc}"
-                )
-            return True
 
         def on_target_refresh_request(self, message: String) -> None:
             try:
@@ -979,10 +954,8 @@ def run_ros(
                 return
             waypoint = self.last_waypoint
             self.last_target_refresh_monotonic = now
-            # Re-publish the exact active, decision-bound waypoint.  Never
-            # destroy/create ROS entities on this potentially high-rate
-            # recovery path: the receiver may request many repairs while the
-            # local planner is rebuilding a trajectory.
+            # Re-publish the exact active, decision-bound waypoint through the
+            # same process-lifetime DDS writer used for every new leg.
             self.publish_target(waypoint[0], waypoint[1], odom)
             self.get_logger().info(
                 "active target republished for "

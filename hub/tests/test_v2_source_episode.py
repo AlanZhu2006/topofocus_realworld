@@ -181,25 +181,33 @@ def test_current_goal_evidence_maps_detector_name_to_goal_category():
     assert evidence == {"robot-0": 0.56, "robot-1": 0.88}
 
 
-def test_only_spatial_failures_revoke_cross_round_goal_continuity():
+def test_every_explicit_recoverable_failure_revokes_goal_continuity_once():
     module = load_module()
 
-    rejected = module.spatially_rejected_robot_ids(
+    rejected = module.continuity_rejected_robot_ids(
         {
             "robot-0": {
                 "event": {
+                    "status": "REJECTED",
                     "reason_code": "LOCAL_PLANNER_TURN_STALLED",
                 }
             },
             "robot-1": {
                 "event": {
+                    "status": "REJECTED",
                     "reason_code": "LOCAL_GOAL_UNREACHABLE",
+                }
+            },
+            "robot-ignored": {
+                "event": {
+                    "status": "ACCEPTED",
+                    "reason_code": "LOCAL_PLANNER_PATH_STALE",
                 }
             },
         }
     )
 
-    assert rejected == frozenset({"robot-1"})
+    assert rejected == frozenset({"robot-0", "robot-1"})
 
 
 @pytest.mark.parametrize(

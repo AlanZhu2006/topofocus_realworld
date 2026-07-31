@@ -108,7 +108,7 @@ def test_target_refresh_request_is_versioned_and_decision_bound():
         router.parse_target_refresh_request(json.dumps(invalid))
 
 
-def test_new_leg_rotates_once_and_bounded_repair_republishes_target():
+def test_new_leg_and_bounded_repair_reuse_process_stable_target_publisher():
     source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
         encoding="utf-8"
     )
@@ -117,9 +117,10 @@ def test_new_leg_rotates_once_and_bounded_repair_republishes_target():
     )[1].split(
         'self.publish_status("ACCEPTED", "FRESH_VERSIONED_GOAL")', 1
     )[0]
-    assert new_leg.index("self.recreate_target_publisher()") < (
-        new_leg.index("self.goal = goal")
-    )
+    assert "self.recreate_target_publisher()" not in new_leg
+    assert "self.destroy_publisher(" not in new_leg
+    assert "self.create_publisher(" not in new_leg
+    assert "self.goal = goal" in new_leg
     repair = source.split(
         "def on_target_refresh_request(self, message: String)", 1
     )[1].split("def on_occupancy(", 1)[0]
@@ -133,23 +134,15 @@ def test_new_leg_rotates_once_and_bounded_repair_republishes_target():
     assert "stable_generation=" in repair
 
 
-def test_target_publisher_rotation_preserves_router_on_lifecycle_error():
+def test_target_publisher_is_created_once_for_process_lifetime():
     source = (OVERLAY / "tinynav_buildmap_goal_router.py").read_text(
         encoding="utf-8"
     )
-    rotation = source.split(
-        "def recreate_target_publisher(self) -> bool:", 1
-    )[1].split(
-        "def on_target_refresh_request(self, message: String)", 1
-    )[0]
-
-    assert rotation.index(
-        "replacement_publisher = self.create_publisher("
-    ) < rotation.index("self.destroy_publisher(previous_publisher)")
-    assert "except Exception as exc:" in rotation
-    assert "keeping generation" in rotation
-    assert "return False" in rotation
-    assert "return True" in rotation
+    assert source.count("self.target_publisher = self.create_publisher(") == 1
+    assert "def recreate_target_publisher(" not in source
+    assert "self.destroy_publisher(previous_publisher)" not in source
+    assert "self.target_publisher_generation = 1" in source
+    assert '"target_publisher_lifecycle": "process_stable"' in source
 
 
 def test_semantic_planner_targets_inside_unchanged_arrival_radius():

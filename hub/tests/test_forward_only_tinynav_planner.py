@@ -527,8 +527,22 @@ def test_planner_profiles_are_explicit():
 
     assert yunji.robot_profile == "yunji-water"
     assert source.robot_profile == "source-default"
+    assert yunji.candidate_status_topic == "/planning/candidate_status"
+    assert (
+        MODULE.PLANNER_CANDIDATE_STATUS_SCHEMA_VERSION
+        == "focus-tinynav-candidate-status-v1"
+    )
     with pytest.raises(SystemExit):
         MODULE.build_parser().parse_args([])
+
+
+def test_planner_publishes_collision_scored_candidate_status():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+
+    assert "candidate_status_publisher[0] = node.create_publisher(" in source
+    assert 'summary["evaluated_at_ns"] = time.time_ns()' in source
+    assert 'summary["schema_version"]' in source
+    assert 'summary["all_candidates_in_collision"]' in source
 
 
 def test_planner_source_provenance_is_observed(tmp_path):

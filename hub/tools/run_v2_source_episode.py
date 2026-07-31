@@ -70,6 +70,7 @@ from focus_hub.transport_v2 import (  # noqa: E402
     HighLevelDecisionV2,
 )
 from focus_hub.v2_episode_control import (  # noqa: E402
+    RECOVERABLE_LOCAL_PATH_REJECTIONS,
     next_coordination_batch,
     recoverable_local_path_failure,
     scope_initial_coordination_batch,
@@ -93,7 +94,6 @@ from focus_hub.v2_source_replan import (  # noqa: E402
     SOURCE_STAGNANT_REPLAN_M,
     NavigationFailureMemory,
     evaluate_source_replan,
-    spatial_frontier_failure_reason,
     source_target_from_clearance_lineage,
 )
 from freeze_realworld_inputs import freeze, stable_copy_map  # noqa: E402
@@ -208,17 +208,28 @@ def partition_recoverable_failures(
     )
 
 
-def spatially_rejected_robot_ids(
+def continuity_rejected_robot_ids(
     recoverable_failures: dict[str, dict[str, object]],
 ) -> frozenset[str]:
-    """Return failures that may revoke cross-round frontier continuity."""
+    """Return every explicitly rejected leg that must break continuity.
+
+    Spatial memory remains deliberately limited to failures that prove a map
+    location or approach is blocked.  Goal continuity is different: once the
+    robot-local authority has terminally rejected a leg, retaining that exact
+    leg on the next source boundary defeats the fresh VLM/replan decision and
+    can repeat a transient hand-off failure for the rest of the episode.
+    """
 
     rejected: set[str] = set()
     for robot_id, failure in recoverable_failures.items():
         event = failure.get("event")
         if not isinstance(event, dict):
             continue
-        if spatial_frontier_failure_reason(str(event.get("reason_code", ""))):
+        if (
+            str(event.get("status", "")) == "REJECTED"
+            and str(event.get("reason_code", ""))
+            in RECOVERABLE_LOCAL_PATH_REJECTIONS
+        ):
             rejected.add(robot_id)
     return frozenset(rejected)
 
@@ -3043,16 +3054,16 @@ def main() -> int:
                     "cross_round_progress_baseline_reset",
                     reason="peer semantic path rejection shortened the round",
                 )
-            # Keep the source target identity across every non-terminal source
-            # boundary.  Only a genuinely spatial local rejection may revoke
-            # that robot's prior frontier.  Controller yaw timeout, planner
-            # stream staleness, router input recovery and an admission-distance
-            # mismatch are runtime hand-off failures; treating them as blocked
-            # geography caused A-D target jumps and backtracking after retries.
+            # Keep the source target identity only while the previous leg was
+            # not terminally rejected.  Every explicit robot-local rejection
+            # breaks continuity for the adjacent source round so the fresh
+            # source/VLM result can take effect.  Only genuinely spatial
+            # failures enter NavigationFailureMemory; transient hand-off
+            # failures therefore do not poison map geography.
             previous_continuity_batch = (
                 continuity_memory_batch if round_result.status == "replan" else None
             )
-            previous_continuity_rejected_robot_ids = spatially_rejected_robot_ids(
+            previous_continuity_rejected_robot_ids = continuity_rejected_robot_ids(
                 round_result.recoverable_failures
             )
             previous_execution_batch = guarded_batch

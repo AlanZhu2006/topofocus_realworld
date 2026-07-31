@@ -179,6 +179,8 @@
       "reverse_candidate_enabled": false,
       "in_place_yaw_enabled": true,
       "all_candidates_in_collision": "STOP",
+      "candidate_status_topic": "/planning/candidate_status",
+      "persistent_all_collision_replan_s": 1.5,
       "sensor_sync": {
         "mode": "bounded approximate header timestamp",
         "maximum_skew_s": 0.05,
@@ -233,8 +235,8 @@
       "physical_completion_distance_m": 0.5,
       "maximum_execution_leg_distance_m": 7.5,
       "long_frontier_policy": "project to the closest start-connected footprint-clear point within the robot-local admission distance and retain the original source frontier",
-      "runtime_handoff_failure_policy": "retain source target; only spatial reachability or measured no-progress evidence may poison an approach sector",
-      "policy": "retain the exact accepted frontier until its arrival disk, local ARRIVED, or spatial rejection"
+      "runtime_handoff_failure_policy": "break adjacent-round continuity after every explicit robot-local rejection; only spatial reachability or measured no-progress evidence may poison an approach sector",
+      "policy": "retain the exact accepted frontier until its arrival disk, local ARRIVED, or explicit robot-local rejection"
     }
   },
   "control_contract": {
@@ -254,6 +256,7 @@
       "odometry freshness",
       "occupancy freshness",
       "trajectory freshness",
+      "collision-scored local trajectory availability",
       "bounded turn-stall latch",
       "reachability",
       "acknowledged controller pause"
@@ -374,14 +377,14 @@
     },
     {
       "path": "hub/robot_overlay/tinynav_buildmap_goal_router.py",
-      "size_bytes": 55467,
-      "sha256": "096a5c12b8f310eddf32231dd4e3c6deffcd210be356576752698495d908f13e",
+      "size_bytes": 54285,
+      "sha256": "f251f8645f83c3be1ff89f16395321bf71a2221a2ad191f99a2e5575cdcf5b65",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/run_yunji_tinynav_planner.py",
-      "size_bytes": 29573,
-      "sha256": "07e5a6762eaef32d14c71e9ff8b2a05bdd86f704ece17175609a743fdc853aa9",
+      "size_bytes": 30779,
+      "sha256": "6866546c5e16c44da91dbcfa00b687fa9c6dea953c5482e026d990095733cfac",
       "classification": "source-derived"
     },
     {
@@ -392,8 +395,8 @@
     },
     {
       "path": "hub/robot_overlay/v2_wsj_receiver.py",
-      "size_bytes": 194178,
-      "sha256": "21e30e06df2df651c03895684c18d2fdb21cbdd88bb7e8f8f24865738840a761",
+      "size_bytes": 205342,
+      "sha256": "e10c10990a04eca6ad0bafcb28355e123a4a8ee54a68a7a5825baa1163811cc0",
       "classification": "source-derived"
     },
     {
@@ -434,8 +437,8 @@
     },
     {
       "path": "hub/tools/run_v2_source_episode.py",
-      "size_bytes": 132751,
-      "sha256": "edd629a4681f0ec4362e3ef3ddb49c99d14855d95f019332b9f153051e40c0a3",
+      "size_bytes": 133210,
+      "sha256": "6ce333215bf09de109895c8a60b90fe4f63e1bd6b2d020af159611a914c1dd3a",
       "classification": "source-derived"
     },
     {

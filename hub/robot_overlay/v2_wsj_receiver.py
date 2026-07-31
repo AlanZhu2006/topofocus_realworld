@@ -69,6 +69,9 @@ LIVE_CONFIRMATIONS = {
 TARGET_REFRESH_REQUEST_SCHEMA_VERSION = (
     "focus-tinynav-target-refresh-request-v1"
 )
+PLANNER_CANDIDATE_STATUS_SCHEMA_VERSION = (
+    "focus-tinynav-candidate-status-v1"
+)
 # Mirror the independently enforced sender thresholds exactly.  The receiver
 # still recomputes every interval check instead of trusting the producer's
 # ``imu_intervals_valid`` boolean, but must not reject telemetry that the
@@ -856,12 +859,14 @@ def planner_target_refresh_eligible(
     router_decision_id: str | None,
     active_decision_id: str,
     router_waypoint: tuple[float, float] | None,
+    all_candidates_in_collision: bool = False,
 ) -> bool:
     """Allow only a same-leg, zero-velocity planner handoff repair."""
 
     if (
         not authorized
         or router_recovery_gate_closed
+        or all_candidates_in_collision
         or trajectory_fresh
         or trajectory_failed
         or trajectory_age_s < trajectory_stale_timeout_s
@@ -875,6 +880,81 @@ def planner_target_refresh_eligible(
     return router_reason.startswith(
         ("ONLINE_PATH_READY", "ONLINE_PARTIAL_PATH_READY")
     )
+
+
+def parse_planner_candidate_status(raw_json: str) -> dict[str, object]:
+    """Validate the local planner's collision-scored lattice status."""
+
+    try:
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError("planner candidate status is not JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("planner candidate status is not an object")
+    if payload.get("schema_version") != PLANNER_CANDIDATE_STATUS_SCHEMA_VERSION:
+        raise ValueError("planner candidate status schema is unsupported")
+    all_collision = payload.get("all_candidates_in_collision")
+    candidate_count = payload.get("candidate_count")
+    finite_count = payload.get("finite_candidate_count")
+    in_place_count = payload.get("finite_in_place_candidate_count")
+    evaluated_at_ns = payload.get("evaluated_at_ns")
+    if not isinstance(all_collision, bool):
+        raise ValueError("planner candidate collision flag is malformed")
+    for value, name in (
+        (candidate_count, "candidate count"),
+        (finite_count, "finite candidate count"),
+        (in_place_count, "finite in-place candidate count"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"planner {name} is malformed")
+    if candidate_count <= 0 or finite_count > candidate_count:
+        raise ValueError("planner candidate counts are inconsistent")
+    if in_place_count > finite_count:
+        raise ValueError("planner in-place candidate count is inconsistent")
+    if (
+        isinstance(evaluated_at_ns, bool)
+        or not isinstance(evaluated_at_ns, int)
+        or evaluated_at_ns <= 0
+    ):
+        raise ValueError("planner candidate evaluation time is malformed")
+    if all_collision != (finite_count == 0):
+        raise ValueError("planner collision flag differs from finite candidates")
+    return {
+        "all_candidates_in_collision": all_collision,
+        "candidate_count": candidate_count,
+        "finite_candidate_count": finite_count,
+        "finite_in_place_candidate_count": in_place_count,
+        "evaluated_at_ns": evaluated_at_ns,
+        "robot_profile": payload.get("robot_profile"),
+    }
+
+
+def planner_collision_gate_state(
+    *,
+    now_ns: int,
+    authority_started_ns: int,
+    status_received_ns: int,
+    collision_since_ns: int,
+    all_candidates_in_collision: bool,
+    status_timeout_s: float,
+    rejection_timeout_s: float,
+) -> tuple[bool, bool, float, bool]:
+    """Close velocity immediately and reject only persistent fresh collision."""
+
+    if status_timeout_s <= 0.0 or rejection_timeout_s <= 0.0:
+        raise ValueError("planner collision timeouts must be positive")
+    observed_for_authority = bool(
+        authority_started_ns > 0
+        and status_received_ns >= authority_started_ns
+        and collision_since_ns >= authority_started_ns
+    )
+    if not observed_for_authority or not all_candidates_in_collision:
+        return False, False, 0.0, observed_for_authority
+    status_age_s = max(0.0, (now_ns - status_received_ns) / 1e9)
+    collision_age_s = max(0.0, (now_ns - collision_since_ns) / 1e9)
+    gate_closed = status_age_s <= status_timeout_s
+    terminal = gate_closed and collision_age_s >= rejection_timeout_s
+    return gate_closed, terminal, collision_age_s, True
 
 
 def physical_velocity_gate_reason(
@@ -900,6 +980,7 @@ def physical_velocity_gate_reason(
     platform_timeout_s: float,
     platform_pass: bool,
     router_recovery_gate_closed: bool = False,
+    all_candidates_in_collision: bool = False,
     turn_stalled: bool = False,
 ) -> str | None:
     """Evaluate every final velocity-authority input at control rate."""
@@ -958,6 +1039,8 @@ def physical_velocity_gate_reason(
             return "platform_health_not_ready"
     if reverse_required:
         return "reverse_trajectory_rejected"
+    if all_candidates_in_collision:
+        return "all_trajectories_in_collision"
     if turn_stalled:
         return "turn_recovery_stalled"
     if not trajectory_fresh:
@@ -1201,6 +1284,32 @@ def main() -> int:
         help=(
             "minimum interval between bounded same-leg planner handoff "
             "repair requests"
+        ),
+    )
+    parser.add_argument(
+        "--planner-candidate-status-topic",
+        default="/planning/candidate_status",
+        help=(
+            "collision-scored TinyNav lattice status used to distinguish a "
+            "blocked local goal from a missing DDS trajectory stream"
+        ),
+    )
+    parser.add_argument(
+        "--planner-collision-status-timeout-s",
+        type=float,
+        default=1.0,
+        help=(
+            "freshness bound for immediately closing velocity on an "
+            "all-candidates-in-collision planner report"
+        ),
+    )
+    parser.add_argument(
+        "--planner-collision-rejection-s",
+        type=float,
+        default=1.5,
+        help=(
+            "continuous fresh all-collision duration before rejecting the "
+            "leg as LOCAL_GOAL_UNREACHABLE"
         ),
     )
     parser.add_argument("--pause-topic", default="/nav/paused")
@@ -1468,6 +1577,8 @@ def main() -> int:
         args.trajectory_stale_timeout_s,
         args.trajectory_recovery_timeout_s,
         args.target_refresh_request_interval_s,
+        args.planner_collision_status_timeout_s,
+        args.planner_collision_rejection_s,
         args.slam_transient_grace_s,
         args.slam_recovery_grace_s,
         args.odometry_recovery_grace_s,
@@ -1623,6 +1734,12 @@ def main() -> int:
             self.trajectory_pose_count = 0
             self.trajectory_first_xy: tuple[float, float] | None = None
             self.trajectory_lookahead_xy: tuple[float, float] | None = None
+            self.planner_candidate_status_received_ns = 0
+            self.planner_collision_since_ns = 0
+            self.planner_all_candidates_in_collision = False
+            self.planner_candidate_count = 0
+            self.planner_finite_candidate_count = 0
+            self.planner_finite_in_place_candidate_count = 0
             self.reverse_required = False
             self.reverse_required_received_ns = 0
             self.reverse_required_for_authority = False
@@ -1695,6 +1812,12 @@ def main() -> int:
             self.create_subscription(Twist, args.raw_cmd_topic, self.on_raw_cmd, 20)
             self.create_subscription(
                 RosPath, "/planning/trajectory_path", self.on_trajectory, 10
+            )
+            self.create_subscription(
+                String,
+                args.planner_candidate_status_topic,
+                self.on_planner_candidate_status,
+                10,
             )
             if args.reject_reverse_trajectory:
                 self.create_subscription(
@@ -1811,6 +1934,69 @@ def main() -> int:
             self.trajectory_pose_count = pose_count
             self.trajectory_first_xy = first_xy
             self.trajectory_lookahead_xy = lookahead_xy
+
+        def on_planner_candidate_status(self, message: String) -> None:
+            received_ns = time.time_ns()
+            try:
+                status = parse_planner_candidate_status(message.data)
+            except ValueError as exc:
+                emit("planner_candidate_status_rejected", error=str(exc))
+                return
+            previous_received_ns = self.planner_candidate_status_received_ns
+            all_collision = bool(status["all_candidates_in_collision"])
+            self.planner_candidate_status_received_ns = received_ns
+            self.planner_all_candidates_in_collision = all_collision
+            self.planner_candidate_count = int(status["candidate_count"])
+            self.planner_finite_candidate_count = int(
+                status["finite_candidate_count"]
+            )
+            self.planner_finite_in_place_candidate_count = int(
+                status["finite_in_place_candidate_count"]
+            )
+            observed_for_authority = bool(
+                self.authorized
+                and self.authority_started_ns > 0
+                and received_ns >= self.authority_started_ns
+            )
+            status_gap_s = (
+                math.inf
+                if previous_received_ns <= 0
+                else (received_ns - previous_received_ns) / 1e9
+            )
+            if all_collision and observed_for_authority:
+                if (
+                    self.planner_collision_since_ns
+                    < self.authority_started_ns
+                    or status_gap_s
+                    > args.planner_collision_status_timeout_s
+                ):
+                    self.planner_collision_since_ns = received_ns
+                if live:
+                    self.guarded_publisher.publish(Twist())
+                    self.latest_guard_reason = (
+                        "all_trajectories_in_collision"
+                    )
+            else:
+                self.planner_collision_since_ns = 0
+
+        def planner_collision_state(
+            self, now_ns: int
+        ) -> tuple[bool, bool, float, bool]:
+            return planner_collision_gate_state(
+                now_ns=now_ns,
+                authority_started_ns=self.authority_started_ns,
+                status_received_ns=(
+                    self.planner_candidate_status_received_ns
+                ),
+                collision_since_ns=self.planner_collision_since_ns,
+                all_candidates_in_collision=(
+                    self.planner_all_candidates_in_collision
+                ),
+                status_timeout_s=(
+                    args.planner_collision_status_timeout_s
+                ),
+                rejection_timeout_s=args.planner_collision_rejection_s,
+            )
 
         def on_reverse_required(self, message: Bool) -> None:
             received_ns = time.time_ns()
@@ -1951,6 +2137,9 @@ def main() -> int:
                 start_grace_s=args.trajectory_start_grace_s,
                 recovery_timeout_s=args.trajectory_recovery_timeout_s,
             )
+            collision_gate_closed, _, _, _ = (
+                self.planner_collision_state(now_ns)
+            )
             return physical_velocity_gate_reason(
                 now_ns=now_ns,
                 authorized=self.authorized,
@@ -1978,6 +2167,7 @@ def main() -> int:
                 router_recovery_gate_closed=(
                     self.router_recovery_gate_closed
                 ),
+                all_candidates_in_collision=collision_gate_closed,
             )
 
         def update_motion_health(
@@ -2016,6 +2206,7 @@ def main() -> int:
                     self.turn_stalled_for_authority = False
                     self.last_target_refresh_request_ns = 0
                     self.target_refresh_request_count = 0
+                    self.planner_collision_since_ns = 0
                 self.authority_deadline_ns = expires_at_ns
                 self.authorized = True
 
@@ -2026,6 +2217,7 @@ def main() -> int:
             self.router_recovery_gate_closed = False
             self.last_target_refresh_request_ns = 0
             self.target_refresh_request_count = 0
+            self.planner_collision_since_ns = 0
             self.latest_guard_reason = "revoked"
             if live:
                 self.guarded_publisher.publish(Twist())
@@ -2253,6 +2445,9 @@ def main() -> int:
             router_status_publishers = self.get_publishers_info_by_topic(
                 args.router_status_topic
             )
+            candidate_status_publishers = self.get_publishers_info_by_topic(
+                args.planner_candidate_status_topic
+            )
             occupancy_publishers = self.get_publishers_info_by_topic(
                 args.occupancy_topic
             )
@@ -2280,6 +2475,9 @@ def main() -> int:
                 "raw_cmd_has_no_direct_bridge": not unexpected_raw,
                 "guarded_bridge_subscriber": bool(guarded_subscribers) if live else True,
                 "occupancy_publisher": bool(occupancy_publishers),
+                "planner_candidate_status_publisher": bool(
+                    candidate_status_publishers
+                ),
                 "online_router_status_publisher": (
                     bool(router_status_publishers)
                     if args.online_buildmap_world
@@ -4179,6 +4377,12 @@ def main() -> int:
                     recovery_timeout_s=args.trajectory_recovery_timeout_s,
                 )
                 (
+                    collision_gate_closed,
+                    collision_terminal,
+                    collision_age_s,
+                    collision_observed_for_authority,
+                ) = node.planner_collision_state(now_ns)
+                (
                     _refresh_router_received_ns,
                     refresh_router_state,
                     refresh_router_reason,
@@ -4205,6 +4409,9 @@ def main() -> int:
                         router_decision_id=refresh_router_decision_id,
                         active_decision_id=active_decision.decision_id,
                         router_waypoint=refresh_router_waypoint,
+                        all_candidates_in_collision=(
+                            collision_gate_closed
+                        ),
                     )
                 ):
                     assert refresh_router_waypoint is not None
@@ -4245,6 +4452,56 @@ def main() -> int:
                     )
                     active_decision = None
                     active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
+                elif (
+                    node.authorized
+                    and collision_terminal
+                    # A router-owned recovery has its own bounded terminal
+                    # verdict and already keeps physical velocity at zero.
+                    and router_recovery_leg_id
+                    != active_decision.leg_id
+                ):
+                    failed_decision = active_decision
+                    node.revoke()
+                    post(
+                        failed_decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_GOAL_UNREACHABLE",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=(
+                            "TinyNav continuously scored every local "
+                            "trajectory candidate as collision; "
+                            f"collision_age_s={collision_age_s:.3f}; "
+                            "finite_candidates="
+                            f"{node.planner_finite_candidate_count}/"
+                            f"{node.planner_candidate_count}"
+                        ),
+                        terminal=True,
+                    )
+                    emit(
+                        "local_planner_all_candidates_in_collision",
+                        decision_id=failed_decision.decision_id,
+                        leg_id=failed_decision.leg_id,
+                        collision_age_s=round(collision_age_s, 3),
+                        collision_observed_for_authority=(
+                            collision_observed_for_authority
+                        ),
+                        candidate_count=node.planner_candidate_count,
+                        finite_candidate_count=(
+                            node.planner_finite_candidate_count
+                        ),
+                        finite_in_place_candidate_count=(
+                            node.planner_finite_in_place_candidate_count
+                        ),
+                        physical_velocity_gate_closed=True,
+                    )
+                    active_decision = None
+                    active_goal = None
+                    progress_watchdog.reset()
                     router_recovery_leg_id = None
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
