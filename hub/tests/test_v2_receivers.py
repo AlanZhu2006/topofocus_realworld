@@ -206,6 +206,71 @@ def test_data_plane_cached_occupancy_requires_stationary_no_goal_hold():
         assert valid is False
 
 
+def test_data_plane_rejects_nonempty_map_when_base_has_no_free_component():
+    verifier = load_overlay("verify_tinynav_data_plane.py")
+    width = 5
+    height = 5
+    values = [-1] * (width * height)
+    for row in range(height):
+        values[row * width + 3] = 0
+    occupancy = SimpleNamespace(
+        header=SimpleNamespace(frame_id="world"),
+        info=SimpleNamespace(
+            width=width,
+            height=height,
+            resolution=0.1,
+            origin=SimpleNamespace(
+                position=SimpleNamespace(x=0.0, y=0.0)
+            ),
+        ),
+        data=values,
+    )
+    odometry = SimpleNamespace(
+        pose=SimpleNamespace(pose=pose(x=0.7, y=0.25))
+    )
+    identity = (
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    )
+
+    with pytest.raises(ValueError, match="no start-connected"):
+        verifier.validate_start_reachability(
+            occupancy,
+            odometry,
+            frame_id="world",
+            base_T_camera=identity,
+            clearance_m=0.0,
+            start_snap_radius_m=0.5,
+            start_footprint_override_m=0.19,
+        )
+
+    report = verifier.validate_start_reachability(
+        occupancy,
+        odometry,
+        frame_id="world",
+        base_T_camera=identity,
+        clearance_m=0.0,
+        start_snap_radius_m=0.5,
+        start_footprint_override_m=0.21,
+    )
+    assert report["base_inside_grid"] is False
+    assert report["reachable_component_cells"] == height
+
+
 def test_data_plane_collects_messages_before_expensive_graph_queries():
     source = (OVERLAY / "verify_tinynav_data_plane.py").read_text(
         encoding="utf-8"
@@ -1459,8 +1524,12 @@ def test_wsj_live_bridge_uses_observed_effective_command_floors() -> None:
     assert "GO2_MIN_CMD_W=0.30" in launcher
     assert "GO2_SEND_ZERO_WHEN_IDLE=false" in launcher
     assert "Move(0)+StopMove" in launcher
-    assert "--start-snap-radius-m 0.75" in launcher
-    assert "--start-footprint-override-m 0.35" in launcher
+    assert '--start-snap-radius-m "$START_SNAP_RADIUS_M"' in launcher
+    assert (
+        '--start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"'
+        in launcher
+    )
+    assert 'FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35' in launcher
 
 
 def test_wsj_stale_occupancy_recovery_is_publisher_last_and_no_bridge() -> None:
@@ -1578,6 +1647,9 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert "--rotate-first-timeout-s" in launcher
     assert "-p keyframe.pose_jump_translation_m:=1.0" in launcher
     assert "-p keyframe.pose_jump_rotation_deg:=90.0" in launcher
+    assert "-p keyframe.pause_frames_after_jump:=0" in launcher
+    assert "-p integration.max_rays_per_frame:=3000" in launcher
+    assert "navigation_occupancy_mapper.py" in component
     assert "FOCUS_YUNJI_REVERSE_ROTATE_MAX_ANGULAR_RADPS:-0.35" in launcher
     assert "FOCUS_YUNJI_REVERSE_ROTATE_TIMEOUT_S:-12.0" in launcher
     assert "/focus_guarded_cmd_vel" in launcher
@@ -1591,7 +1663,7 @@ def test_yunji_active_launcher_uses_tinynav_and_guarded_joy_not_native_maps():
     assert '--input-timeout-s "$ODOMETRY_INPUT_TIMEOUT_S"' in launcher
     assert launcher.count(
         '--start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"'
-    ) == 2
+    ) == 3
     assert "--reuse-verified-debug-core" in launcher
     assert "without process restarts" in launcher
     assert 'systemctl is-active --quiet "$unit"' in launcher
@@ -1638,6 +1710,12 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "--camera-info-topic /slam/camera_info" in wsj
     assert "--geometry-width 848" in wsj
     assert "--geometry-height 480" in wsj
+    assert "--require-reachable-start" in wsj
+    assert "--require-reachable-start" in yunji
+    assert "--minimum-occupancy-updates 2" in wsj
+    assert "--minimum-occupancy-updates 2" in yunji
+    assert "--maximum-occupancy-update-interval-s 4.0" in wsj
+    assert "--maximum-occupancy-update-interval-s 4.0" in yunji
     assert "--odom-topic /slam/odometry_visual" in wsj
     assert "--max-occupancy-age-s 12" in wsj
     assert (

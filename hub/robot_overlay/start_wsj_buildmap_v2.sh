@@ -82,6 +82,9 @@ MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # input.  Its observed interval can also exceed 2 s under live perception load.
 SLAM_DATA_TIMEOUT_S="${FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0}"
 START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
+# The navigation map explicitly clears the source rectangular Go2 footprint.
+# Retain the original bounded radial graph bridge; unknown cells outside the
+# measured current-base region remain blocked.
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 # The source semantic mask keeps its radius-10-cell approach region unchanged.
 # The selected semantic approach point is already on the source radius-10-cell
@@ -380,6 +383,9 @@ online_map_contract="$(
     "continuous-depth-online-map-v1" \
     "$(sha256sum \
       "$SCRIPT_DIR/run_tinynav_buildmap_online_mapping.py" \
+      "$SCRIPT_DIR/navigation_occupancy_mapper.py" \
+      "$SCRIPT_DIR/../src/focus_hub/navigation_occupancy.py" \
+      "$SCRIPT_DIR/../src/focus_hub/rate_aware_keyframes.py" \
       | awk '{print $1}')" \
     "$(sha256sum \
       "$SCRIPT_DIR/ros_continuous_depth_geometry_rgb.py" \
@@ -437,6 +443,13 @@ sensor_map_verifier=(
   --geometry-height 480
   --max-occupancy-age-s 12
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
+  --minimum-occupancy-updates 2
+  --maximum-occupancy-update-interval-s 4.0
+  --require-reachable-start
+  --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION_FILE"
+  --reachability-clearance-m 0.05
+  --start-snap-radius-m "$START_SNAP_RADIUS_M"
+  --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"
 )
 
 recover_online_map_publisher() {
@@ -847,8 +860,8 @@ receiver=(
   --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"
   --reject-reverse-trajectory
   --reject-stalled-turn
-  --start-snap-radius-m 0.75
-  --start-footprint-override-m 0.35
+  --start-snap-radius-m "$START_SNAP_RADIUS_M"
+  --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"
   --alignment-output "$alignment"
   --log "$log"
 )

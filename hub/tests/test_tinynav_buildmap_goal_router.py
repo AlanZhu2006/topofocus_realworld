@@ -561,6 +561,8 @@ def test_wsj_launcher_uses_continuous_geometry_plus_one_grid_cell():
     assert '"/slam/keyframe_depth"' not in online_mapping
     assert '"keyframe.pose_jump_translation_m": 1.0' in online_mapping
     assert '"keyframe.pose_jump_rotation_deg": 90.0' in online_mapping
+    assert '"keyframe.pause_frames_after_jump": 0' in online_mapping
+    assert '"navigation_occupancy_mapper.py"' in online_mapping
 
 
 def test_wsj_launcher_uses_short_segment_velocity_floor_wrapper():

@@ -37,6 +37,11 @@ def main() -> int:
         ),
     )
     parser.add_argument("--output-directory", type=Path, required=True)
+    parser.add_argument("--robot-id", default="robot-0")
+    parser.add_argument("--camera-frame", default="camera")
+    parser.add_argument(
+        "--base-camera-calibration-file", type=Path, required=True
+    )
     parser.add_argument("--max-rate-hz", type=float, default=3.0)
     parser.add_argument("--depth-stride", type=int, default=3)
     args = parser.parse_args()
@@ -68,6 +73,14 @@ def main() -> int:
         parser.error(
             f"continuous geometry RGB adapter is missing: "
             f"{geometry_rgb_script}"
+        )
+    navigation_occupancy_script = Path(__file__).resolve().with_name(
+        "navigation_occupancy_mapper.py"
+    )
+    if not navigation_occupancy_script.is_file():
+        parser.error(
+            "navigation occupancy adapter is missing: "
+            f"{navigation_occupancy_script}"
         )
     geometry_rgb_topic = "/focus/slam/continuous_depth_geometry_rgb"
     relocalized_map = tracking_frame != args.target_frame
@@ -113,8 +126,39 @@ def main() -> int:
         # the separately observed 3.930 m discontinuity.
         "keyframe.pose_jump_translation_m": 1.0,
         "keyframe.pose_jump_rotation_deg": 90.0,
+        # One discontinuous sample is rejected and becomes the new continuity
+        # anchor. The deployment selector then accepts the next stable sample;
+        # two additional low-rate pauses can otherwise starve the authoritative
+        # grid beyond the receiver's bounded recovery window.
+        "keyframe.pause_frames_after_jump": 0,
+        "navigation.robot_id": args.robot_id,
+        "navigation.camera_frame": args.camera_frame,
+        "navigation.base_camera_calibration_file": str(
+            args.base_camera_calibration_file.expanduser().resolve()
+        ),
+        "navigation.footprint_shape": "rectangle",
+        "navigation.footprint_front_m": 0.35,
+        "navigation.footprint_rear_m": 0.35,
+        "navigation.footprint_half_width_m": 0.35,
         "use_sim_time": False,
     }
+    occupancy_command = [
+        sys.executable,
+        "-u",
+        str(navigation_occupancy_script),
+        "--ros-args",
+        "--params-file",
+        str(default_config),
+    ]
+    for name, raw_value in occupancy_overrides.items():
+        value = (
+            "true"
+            if raw_value is True
+            else "false"
+            if raw_value is False
+            else str(raw_value)
+        )
+        occupancy_command.extend(("-p", f"{name}:={value}"))
     description = LaunchDescription(
         [
             ExecuteProcess(
@@ -145,12 +189,10 @@ def main() -> int:
                 output="screen",
                 parameters=[str(default_config), geometry_overrides],
             ),
-            Node(
-                package="semantic_mapping",
-                executable="occupancy_mapper_node",
-                name="occupancy_mapper_node",
+            ExecuteProcess(
+                cmd=occupancy_command,
+                name="focus_navigation_occupancy_mapper",
                 output="screen",
-                parameters=[str(default_config), occupancy_overrides],
             ),
         ]
     )

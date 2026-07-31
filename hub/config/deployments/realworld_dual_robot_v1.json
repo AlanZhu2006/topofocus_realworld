@@ -103,6 +103,42 @@
       "classification": "source-derived"
     }
   },
+  "navigation_mapping": {
+    "implementation": "hub/robot_overlay/navigation_occupancy_mapper.py",
+    "upstream_snapshot_modified": false,
+    "authoritative_topic": "/semantic_mapping/occupancy_bev",
+    "unknown_cells_traversable": false,
+    "current_footprint_clear": {
+      "provenance": "measured base-camera transform plus source planner footprint",
+      "robot-0": {
+        "shape": "rectangle",
+        "front_m": 0.35,
+        "rear_m": 0.35,
+        "half_width_m": 0.35
+      },
+      "robot-1": {
+        "shape": "circle",
+        "radius_m": 0.283
+      },
+      "scope": "current physical footprint only; saved sensor map remains unchanged"
+    },
+    "keyframe_continuity": {
+      "fixed_translation_floor_m": 1.0,
+      "maximum_translation_speed_mps": 0.25,
+      "translation_margin_m": 0.2,
+      "dynamic_translation_cap_m": 1.5,
+      "fixed_rotation_floor_deg": 90.0,
+      "dynamic_rotation_cap_deg": 150.0,
+      "post_jump_pause_frames": 0
+    },
+    "robot1_max_rays_per_frame": 3000,
+    "startup_gate": {
+      "minimum_unique_occupancy_updates": 2,
+      "maximum_source_or_receive_interval_s": 4.0,
+      "reachable_component_cells_minimum": 1
+    },
+    "classification": "source-derived"
+  },
   "planning": {
     "execution_location": "robot-local",
     "route_planner": {
@@ -272,14 +308,50 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-      "size_bytes": 38686,
-      "sha256": "c49fef7ed6ddb8a815805ee2b71021c777547d7d21f52985d96fe11e9b140081",
+      "size_bytes": 39420,
+      "sha256": "e8d2c650f7fb48de085fb3e50b8bf1283b4e0a861e460d7194473f3d52223d5a",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/start_yunji_v2.sh",
-      "size_bytes": 25009,
-      "sha256": "e6252a999f56fef393663c2b5bfa54f4839bfebba22e80f56885a16acb2cb2bc",
+      "size_bytes": 25902,
+      "sha256": "8e5f4bded655c21669e3a7cf03ab5281766df8f682b1fffece05776a57b79d24",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/navigation_occupancy_mapper.py",
+      "size_bytes": 13109,
+      "sha256": "0c4be18f1c4e6cf2365ead61ba79b8c1261cc4e8e54f4f54f87d4a895c5480d7",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/run_tinynav_buildmap_online_mapping.py",
+      "size_bytes": 8476,
+      "sha256": "8ddce95eae3876c89912634c370ce63b199e1eb3dd15f70425cfe4027ecbdffd",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/run_yunji_tinynav_component.sh",
+      "size_bytes": 1959,
+      "sha256": "70b6e38ebad026617f04298bd07e8593f1af1f53f668753b80d8a29b6d05b16d",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/verify_tinynav_data_plane.py",
+      "size_bytes": 49165,
+      "sha256": "e3edfdfef1704b1f4ab274e8f5a2fee2386bd72fdd99b25ae597dadf18fb29ad",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/navigation_occupancy.py",
+      "size_bytes": 5822,
+      "sha256": "896c14956752a47b9f6427e617ea50159516e736da7fd3a3ac7b6802ed49a9e2",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/rate_aware_keyframes.py",
+      "size_bytes": 8270,
+      "sha256": "52e8b1d1f9be1c570b6616e77ebf5bc5acc79d89693eca00e7512feb6db425f0",
       "classification": "source-derived"
     },
     {
@@ -428,8 +500,8 @@
     },
     {
       "path": "hub/robot_overlay/start_tinynav_buildmap_online_nav.sh",
-      "size_bytes": 9086,
-      "sha256": "d649aa5445822470a252bc97d4243a44710e6b7ff7b3b7870d736245691c8d43",
+      "size_bytes": 9322,
+      "sha256": "8ec7e0ba65e9c40ea013ccf60a58ace5e681e7777f7c3d2f288652e131cc5a23",
       "classification": "source-derived"
     },
     {

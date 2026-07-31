@@ -218,6 +218,9 @@ CORE_CONTRACT_SHA256="$(
       "$FACTORY_CALIBRATION" \
       "$BASE_CAMERA_CALIBRATION" \
       "$SCRIPT_DIR/odin1_tinynav_adapter.py" \
+      "$SCRIPT_DIR/navigation_occupancy_mapper.py" \
+      "$SCRIPT_DIR/../src/focus_hub/navigation_occupancy.py" \
+      "$SCRIPT_DIR/../src/focus_hub/rate_aware_keyframes.py" \
       "$SCRIPT_DIR/run_yunji_tinynav_component.sh" \
       "$SCRIPT_DIR/run_yunji_tinynav_planner.py" \
       "$SCRIPT_DIR/tinynav_buildmap_goal_router.py" \
@@ -507,8 +510,15 @@ else
       -p output.directory:="$map_output" \
       -p output.save_on_shutdown:=true \
       -p bev.publish_rate_hz:=2.0 \
+      -p integration.max_rays_per_frame:=3000 \
       -p keyframe.pose_jump_translation_m:=1.0 \
-      -p keyframe.pose_jump_rotation_deg:=90.0
+      -p keyframe.pose_jump_rotation_deg:=90.0 \
+      -p keyframe.pause_frames_after_jump:=0 \
+      -p navigation.robot_id:=robot-1 \
+      -p navigation.camera_frame:=odin1_camera_optical_frame \
+      -p navigation.base_camera_calibration_file:="$BASE_CAMERA_CALIBRATION" \
+      -p navigation.footprint_shape:=circle \
+      -p navigation.footprint_radius_m:=0.283
 
   start_unit focus-yunji-tinynav-planner-v1.service \
     /bin/bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" planner \
@@ -618,6 +628,13 @@ bash "$SCRIPT_DIR/run_yunji_tinynav_component.sh" verify \
   --camera-info-topic /slam/camera_info \
   --max-occupancy-age-s 12 \
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M" \
+  --minimum-occupancy-updates 2 \
+  --maximum-occupancy-update-interval-s 4.0 \
+  --require-reachable-start \
+  --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION" \
+  --reachability-clearance-m "$REACHABILITY_CLEARANCE_M" \
+  --start-snap-radius-m "$START_SNAP_RADIUS_M" \
+  --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M" \
   --platform-status-topic /focus/water/cmd_bridge_status \
   --timeout-s 35
 

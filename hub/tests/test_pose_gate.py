@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from types import SimpleNamespace
 
 from focus_hub.pose_gate import (
     KeyframeConfig,
@@ -8,6 +9,7 @@ from focus_hub.pose_gate import (
     StartupPoseConfig,
     StartupPoseGate,
 )
+from focus_hub.rate_aware_keyframes import RateAwareKeyframeSelector
 
 
 def pose(x: float = 0.0, yaw_deg: float = 0.0) -> np.ndarray:
@@ -56,3 +58,47 @@ def test_keyframe_selector_suppresses_duplicates_and_reports_jump():
     assert jump.pose_jump
     assert not jump.accept
     assert jump.translation_m > 2.0
+
+
+def test_rate_aware_selector_accepts_bounded_motion_after_slow_mapping_pair():
+    config = SimpleNamespace(
+        translation_threshold_m=0.20,
+        rotation_threshold_deg=10.0,
+        max_interval_sec=1.0,
+        pose_jump_translation_m=1.0,
+        pose_jump_rotation_deg=90.0,
+        pause_frames_after_jump=0,
+    )
+    selector = RateAwareKeyframeSelector(config)
+
+    assert selector.evaluate(pose(), 0).accept
+    delayed_motion = selector.evaluate(pose(1.089), 7_000_000_000)
+
+    assert delayed_motion.accept
+    assert delayed_motion.reason == "translation"
+    assert not delayed_motion.pose_jump
+
+
+def test_rate_aware_selector_still_rejects_fast_or_large_discontinuity():
+    config = SimpleNamespace(
+        translation_threshold_m=0.20,
+        rotation_threshold_deg=10.0,
+        max_interval_sec=1.0,
+        pose_jump_translation_m=1.0,
+        pose_jump_rotation_deg=90.0,
+        pause_frames_after_jump=0,
+    )
+    fast = RateAwareKeyframeSelector(config)
+    fast.evaluate(pose(), 0)
+    assert fast.evaluate(pose(1.089), 500_000_000).pose_jump
+
+    large = RateAwareKeyframeSelector(config)
+    large.evaluate(pose(), 0)
+    jump = large.evaluate(pose(3.93), 7_000_000_000)
+    assert jump.pose_jump
+    assert jump.reason == "pose_jump"
+    # A true discontinuity is re-anchored, and pause=0 lets the next stable
+    # observation republish geometry instead of starving two slow frames.
+    recovered = large.evaluate(pose(4.14), 8_000_000_000)
+    assert recovered.accept
+    assert recovered.reason == "translation"

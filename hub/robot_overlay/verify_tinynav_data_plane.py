@@ -10,9 +10,19 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from pathlib import Path
 import sys
 import time
 from typing import Any
+
+
+OVERLAY = Path(__file__).resolve().parent
+HUB_SRC = OVERLAY.parent / "src"
+if HUB_SRC.is_dir():
+    sys.path.insert(0, str(HUB_SRC))
+
+from focus_hub.geometry import compose_rigid, invert_rigid  # noqa: E402
+from focus_hub.v2_robot_runtime import OccupancyGrid2D  # noqa: E402
 
 
 def endpoint_names(endpoints: list[Any]) -> list[str]:
@@ -177,6 +187,116 @@ def validate_occupancy(message: Any, *, frame_id: str) -> dict[str, object]:
         "free_cells": free,
         "occupied_cells": occupied,
     }
+
+
+def _quaternion_pose_matrix(pose: Any) -> tuple[float, ...]:
+    position = pose.position
+    orientation = pose.orientation
+    x = float(position.x)
+    y = float(position.y)
+    z = float(position.z)
+    qx = float(orientation.x)
+    qy = float(orientation.y)
+    qz = float(orientation.z)
+    qw = float(orientation.w)
+    values = (x, y, z, qx, qy, qz, qw)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("odometry pose contains a non-finite value")
+    norm = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
+    if norm <= 1e-9:
+        raise ValueError("odometry orientation quaternion has zero norm")
+    qx /= norm
+    qy /= norm
+    qz /= norm
+    qw /= norm
+    return (
+        1 - 2 * (qy * qy + qz * qz),
+        2 * (qx * qy - qz * qw),
+        2 * (qx * qz + qy * qw),
+        x,
+        2 * (qx * qy + qz * qw),
+        1 - 2 * (qx * qx + qz * qz),
+        2 * (qy * qz - qx * qw),
+        y,
+        2 * (qx * qz - qy * qw),
+        2 * (qy * qz + qx * qw),
+        1 - 2 * (qx * qx + qy * qy),
+        z,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    )
+
+
+def occupancy_grid_view(message: Any, *, frame_id: str) -> OccupancyGrid2D:
+    """Build the exact receiver-side occupancy view from a ROS message."""
+
+    validate_occupancy(message, frame_id=frame_id)
+    return OccupancyGrid2D(
+        width=int(message.info.width),
+        height=int(message.info.height),
+        resolution_m=float(message.info.resolution),
+        origin_x_m=float(message.info.origin.position.x),
+        origin_y_m=float(message.info.origin.position.y),
+        data=tuple(int(value) for value in message.data),
+    )
+
+
+def validate_start_reachability(
+    occupancy_message: Any,
+    odometry_message: Any,
+    *,
+    frame_id: str,
+    base_T_camera: tuple[float, ...],
+    clearance_m: float,
+    start_snap_radius_m: float,
+    start_footprint_override_m: float,
+) -> dict[str, object]:
+    """Require a non-empty receiver-identical component before arming motion."""
+
+    grid = occupancy_grid_view(occupancy_message, frame_id=frame_id)
+    tracking_T_camera = _quaternion_pose_matrix(
+        odometry_message.pose.pose
+    )
+    tracking_T_base = compose_rigid(
+        tracking_T_camera, invert_rigid(base_T_camera)
+    )
+    base_x = float(tracking_T_base[3])
+    base_y = float(tracking_T_base[7])
+    clearance_cells = math.ceil(clearance_m / grid.resolution_m)
+    component = grid.reachable_component(
+        base_x,
+        base_y,
+        clearance_cells=clearance_cells,
+        start_snap_radius_m=start_snap_radius_m,
+        start_footprint_override_m=start_footprint_override_m,
+    )
+    base_cell = grid.cell(base_x, base_y)
+    report = {
+        "base_xy_m": [base_x, base_y],
+        "base_inside_grid": base_cell is not None,
+        "base_cell": None if base_cell is None else list(base_cell),
+        "reachable_component_cells": len(component),
+        "clearance_cells": clearance_cells,
+        "clearance_m": clearance_m,
+        "start_snap_radius_m": start_snap_radius_m,
+        "start_footprint_override_m": start_footprint_override_m,
+        "grid_x_range_m": [
+            grid.origin_x_m,
+            grid.origin_x_m + grid.width * grid.resolution_m,
+        ],
+        "grid_y_range_m": [
+            grid.origin_y_m,
+            grid.origin_y_m + grid.height * grid.resolution_m,
+        ],
+    }
+    if not component:
+        raise ValueError(
+            "robot base has no start-connected known-free occupancy "
+            f"component: {json.dumps(report, separators=(',', ':'))}"
+        )
+    return report
 
 
 def validate_router_status(message: Any) -> dict[str, object]:
@@ -367,6 +487,9 @@ def validate_water_status(
 
 
 def run(args: argparse.Namespace) -> dict[str, object]:
+    from focus_hub.base_camera_calibration import (
+        load_base_camera_calibration,
+    )
     import rclpy
     from nav_msgs.msg import OccupancyGrid, Odometry
     from rclpy.node import Node
@@ -378,6 +501,14 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     )
     from sensor_msgs.msg import CameraInfo, Image
     from std_msgs.msg import String
+
+    base_camera_calibration = None
+    if args.require_reachable_start:
+        base_camera_calibration = load_base_camera_calibration(
+            args.base_camera_calibration_file,
+            expected_robot_id=args.robot_id,
+            expected_camera_frame=args.camera_frame,
+        )
 
     rclpy.init()
     node = Node(f"focus_{args.robot_id.replace('-', '_')}_startup_verifier")
@@ -395,6 +526,17 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         durability=DurabilityPolicy.TRANSIENT_LOCAL,
     )
     subscriptions = []
+    occupancy_updates: list[tuple[int, float]] = []
+
+    def receive_occupancy(message: Any) -> None:
+        latest["occupancy"] = message
+        stamp_ns = message_stamp_ns(message)
+        if not occupancy_updates or (
+            occupancy_updates[-1][0] != stamp_ns
+        ):
+            occupancy_updates.append((stamp_ns, time.monotonic()))
+            del occupancy_updates[:-8]
+
     message_checks_enabled = not (
         args.command_graph_only or args.post_bridge_command_check
     )
@@ -410,7 +552,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 node.create_subscription(
                     OccupancyGrid,
                     args.occupancy_topic,
-                    lambda message: latest.__setitem__("occupancy", message),
+                    receive_occupancy,
                     map_qos,
                 ),
                 node.create_subscription(
@@ -525,6 +667,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     occupancy_anchor_xy: tuple[float, float] | None = None
     cached_occupancy_motion_m: float | None = None
     using_cached_occupancy = False
+    sensor_ready = False
+    occupancy_update_report: dict[str, object] | None = None
+    reachability_report: dict[str, object] | None = None
+    last_start_reachability_error: ValueError | None = None
+    occupancy_update_error: str | None = None
     try:
         if args.command_graph_only:
             last_graph_error: ValueError | None = None
@@ -685,6 +832,91 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     )
                     if not using_cached_occupancy:
                         continue
+            occupancy_update_error = None
+            occupancy_update_report = None
+            if args.minimum_occupancy_updates > 1:
+                if (
+                    len(occupancy_updates)
+                    < args.minimum_occupancy_updates
+                ):
+                    occupancy_update_error = (
+                        "received only "
+                        f"{len(occupancy_updates)} unique occupancy "
+                        f"updates; need {args.minimum_occupancy_updates}"
+                    )
+                    continue
+                selected_updates = occupancy_updates[
+                    -args.minimum_occupancy_updates :
+                ]
+                source_intervals_s = [
+                    (right[0] - left[0]) * 1e-9
+                    for left, right in zip(
+                        selected_updates, selected_updates[1:]
+                    )
+                ]
+                receive_intervals_s = [
+                    right[1] - left[1]
+                    for left, right in zip(
+                        selected_updates, selected_updates[1:]
+                    )
+                ]
+                if any(
+                    interval <= 0.0
+                    for interval in (
+                        *source_intervals_s,
+                        *receive_intervals_s,
+                    )
+                ):
+                    occupancy_update_error = (
+                        "occupancy source or receive time did not advance"
+                    )
+                    continue
+                maximum_interval_s = max(
+                    *source_intervals_s,
+                    *receive_intervals_s,
+                    0.0,
+                )
+                occupancy_update_report = {
+                    "unique_updates": len(selected_updates),
+                    "source_intervals_s": source_intervals_s,
+                    "receive_intervals_s": receive_intervals_s,
+                    "maximum_interval_s": maximum_interval_s,
+                    "maximum_allowed_interval_s": (
+                        args.maximum_occupancy_update_interval_s
+                    ),
+                }
+                if (
+                    args.maximum_occupancy_update_interval_s > 0.0
+                    and maximum_interval_s
+                    > args.maximum_occupancy_update_interval_s
+                ):
+                    occupancy_update_error = (
+                        "occupancy update interval remained too slow: "
+                        f"{maximum_interval_s:.3f}s > "
+                        f"{args.maximum_occupancy_update_interval_s:.3f}s"
+                    )
+                    continue
+            if args.require_reachable_start:
+                if base_camera_calibration is None:
+                    raise RuntimeError(
+                        "reachable-start verification lacks calibration"
+                    )
+                try:
+                    reachability_report = validate_start_reachability(
+                        latest["occupancy"],
+                        latest["odom"],
+                        frame_id=args.frame_id,
+                        base_T_camera=base_camera_calibration.matrix,
+                        clearance_m=args.reachability_clearance_m,
+                        start_snap_radius_m=args.start_snap_radius_m,
+                        start_footprint_override_m=(
+                            args.start_footprint_override_m
+                        ),
+                    )
+                except ValueError as error:
+                    last_start_reachability_error = error
+                    continue
+                last_start_reachability_error = None
             if not args.sensor_map_only:
                 try:
                     validate_command_graph(
@@ -694,6 +926,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                     )
                 except ValueError:
                     continue
+            sensor_ready = True
             break
         missing = sorted(required_messages - latest.keys())
         if missing:
@@ -715,6 +948,17 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             raise TimeoutError(
                 "occupancy/source clock did not converge: "
                 f"{occupancy_clock_error}"
+            )
+        if not sensor_ready:
+            if last_start_reachability_error is not None:
+                raise TimeoutError(
+                    "start occupancy never became reachable: "
+                    f"{last_start_reachability_error}"
+                )
+            if occupancy_update_error is not None:
+                raise TimeoutError(occupancy_update_error)
+            raise TimeoutError(
+                "sensor/map contract did not converge before the deadline"
             )
 
         odom = latest["odom"]
@@ -760,6 +1004,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 occupancy["maximum_cached_motion_m"] = (
                     args.max_cached_occupancy_motion_m
                 )
+        if occupancy_update_report is not None:
+            occupancy["update_contract"] = occupancy_update_report
         report: dict[str, object] = {
             "schema_version": "focus-tinynav-data-plane-verification-v1",
             "robot_id": args.robot_id,
@@ -780,6 +1026,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 args.fresh_camera_info_topic
             ),
         }
+        if reachability_report is not None:
+            report["start_reachability"] = reachability_report
         if not args.sensor_map_only:
             report["command_graph"] = observed_graph
         if args.platform_status_topic:
@@ -904,6 +1152,44 @@ def main() -> int:
             "HOLD/NO_GOAL and odometry moves no farther than this distance"
         ),
     )
+    parser.add_argument(
+        "--minimum-occupancy-updates",
+        type=int,
+        default=1,
+        help=(
+            "unique source-stamped grids required before readiness; values "
+            "above one reject a retained single sample"
+        ),
+    )
+    parser.add_argument(
+        "--maximum-occupancy-update-interval-s",
+        type=float,
+        default=0.0,
+        help=(
+            "maximum interval across the required recent grids; zero "
+            "disables the interval check"
+        ),
+    )
+    parser.add_argument(
+        "--require-reachable-start",
+        action="store_true",
+        help=(
+            "require the measured robot base to have a non-empty known-free "
+            "component under the receiver's exact start policy"
+        ),
+    )
+    parser.add_argument(
+        "--base-camera-calibration-file",
+        type=Path,
+        default=Path(),
+    )
+    parser.add_argument(
+        "--reachability-clearance-m", type=float, default=0.05
+    )
+    parser.add_argument("--start-snap-radius-m", type=float, default=0.0)
+    parser.add_argument(
+        "--start-footprint-override-m", type=float, default=0.0
+    )
     parser.add_argument("--raw-cmd-topic", default="/cmd_vel")
     parser.add_argument("--guarded-cmd-topic", default="/focus_guarded_cmd_vel")
     parser.add_argument("--target-topic", default="/control/target_pose")
@@ -974,6 +1260,20 @@ def main() -> int:
         )
     if args.max_occupancy_age_s < 0:
         parser.error("--max-occupancy-age-s must not be negative")
+    if args.minimum_occupancy_updates <= 0:
+        parser.error("--minimum-occupancy-updates must be positive")
+    if args.maximum_occupancy_update_interval_s < 0.0:
+        parser.error(
+            "--maximum-occupancy-update-interval-s must not be negative"
+        )
+    if (
+        args.maximum_occupancy_update_interval_s > 0.0
+        and args.minimum_occupancy_updates < 2
+    ):
+        parser.error(
+            "--maximum-occupancy-update-interval-s requires at least two "
+            "occupancy updates"
+        )
     if args.max_occupancy_age_s > 0 and not (
         args.fresh_image_topic or args.fresh_camera_info_topic
     ):
@@ -991,6 +1291,22 @@ def main() -> int:
         parser.error(
             "--max-cached-occupancy-motion-m requires "
             "--max-occupancy-age-s"
+        )
+    if any(
+        value < 0.0
+        for value in (
+            args.reachability_clearance_m,
+            args.start_snap_radius_m,
+            args.start_footprint_override_m,
+        )
+    ):
+        parser.error("reachable-start distances must not be negative")
+    if args.require_reachable_start and not (
+        args.base_camera_calibration_file.is_file()
+    ):
+        parser.error(
+            "--require-reachable-start needs a readable "
+            "--base-camera-calibration-file"
         )
     try:
         report = run(args)
