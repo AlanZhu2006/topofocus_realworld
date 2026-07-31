@@ -380,8 +380,8 @@
     },
     {
       "path": "hub/robot_overlay/run_yunji_tinynav_planner.py",
-      "size_bytes": 28805,
-      "sha256": "102f534c52d6419adce779256107be1ef58d55b91039ef12f87128c80282ac26",
+      "size_bytes": 29573,
+      "sha256": "07e5a6762eaef32d14c71e9ff8b2a05bdd86f704ece17175609a743fdc853aa9",
       "classification": "source-derived"
     },
     {

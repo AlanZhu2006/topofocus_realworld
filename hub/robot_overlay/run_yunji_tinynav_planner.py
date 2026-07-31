@@ -80,17 +80,30 @@ def install_bounded_approximate_sensor_sync(
         raise ValueError("sensor synchronization slop must be in (0, 0.20] s")
     filters = getattr(planning_node_module, "message_filters", None)
     approximate = getattr(filters, "ApproximateTimeSynchronizer", None)
-    if filters is None or approximate is None:
+    exact = getattr(filters, "TimeSynchronizer", None)
+    if filters is None or approximate is None or exact is None:
         raise RuntimeError("pinned planner lacks ApproximateTimeSynchronizer support")
 
     class BoundedApproximateTimeSynchronizer(approximate):
         def __init__(self, subscribers, queue_size):
-            super().__init__(
-                subscribers,
-                queue_size,
-                slop_s,
-                allow_headerless=False,
-            )
+            # ROS 2 message_filters.ApproximateTimeSynchronizer.__init__ calls
+            # the module-global TimeSynchronizer.__init__ instead of super().
+            # The source planner, however, constructs that exact global name.
+            # Restore the captured base only while the approximate instance is
+            # initialized; otherwise replacing the global makes its constructor
+            # recurse back into this adapter indefinitely.
+            replacement = filters.TimeSynchronizer
+            filters.TimeSynchronizer = exact
+            try:
+                approximate.__init__(
+                    self,
+                    subscribers,
+                    queue_size,
+                    slop_s,
+                    allow_headerless=False,
+                )
+            finally:
+                filters.TimeSynchronizer = replacement
 
     filters.TimeSynchronizer = BoundedApproximateTimeSynchronizer
     return {

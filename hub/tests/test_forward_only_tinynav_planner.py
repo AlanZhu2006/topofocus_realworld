@@ -60,6 +60,44 @@ def test_planner_uses_bounded_headered_approximate_sensor_sync():
     }
 
 
+def test_approximate_sync_initialization_preserves_ros_global_base_lookup():
+    calls = []
+    filters = SimpleNamespace()
+
+    class Exact:
+        def __init__(self, subscribers, queue_size):
+            calls.append(("exact", subscribers, queue_size))
+
+    class Approximate(Exact):
+        def __init__(
+            self,
+            subscribers,
+            queue_size,
+            slop_s,
+            *,
+            allow_headerless,
+        ):
+            # Match ROS 2 message_filters: this is a module-global lookup,
+            # not super().__init__().
+            filters.TimeSynchronizer.__init__(self, subscribers, queue_size)
+            calls.append(("approximate", slop_s, allow_headerless))
+
+    filters.TimeSynchronizer = Exact
+    filters.ApproximateTimeSynchronizer = Approximate
+    MODULE.install_bounded_approximate_sensor_sync(
+        SimpleNamespace(message_filters=filters),
+        slop_s=0.05,
+    )
+
+    synchronizer = filters.TimeSynchronizer(["depth", "odom"], 10)
+
+    assert isinstance(synchronizer, Approximate)
+    assert calls == [
+        ("exact", ["depth", "odom"], 10),
+        ("approximate", 0.05, False),
+    ]
+
+
 def test_invalid_synchronized_frame_does_not_terminate_planner():
     errors = []
 
