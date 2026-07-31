@@ -116,24 +116,36 @@ def find_board_pose(
     # clustering pass to isolate the board.  The 2x fallbacks cover both cases
     # without cropping or operator-selected points.
     detector_attempts = (
-        (4.0, cv2.CALIB_CB_SYMMETRIC_GRID, "default"),
-        (2.0, cv2.CALIB_CB_SYMMETRIC_GRID, "default"),
+        (4.0, cv2.CALIB_CB_SYMMETRIC_GRID, "default", False),
+        (2.0, cv2.CALIB_CB_SYMMETRIC_GRID, "default", False),
         (
             4.0,
             cv2.CALIB_CB_SYMMETRIC_GRID | cv2.CALIB_CB_CLUSTERING,
             "clustering",
+            False,
         ),
         (
             2.0,
             cv2.CALIB_CB_SYMMETRIC_GRID | cv2.CALIB_CB_CLUSTERING,
             "clustering",
+            False,
         ),
+        # RealSense infra1 calibration frames can contain high-contrast dark
+        # circles whose size/threshold range falls outside OpenCV's default
+        # SimpleBlobDetector profile.  Keep this geometry-checked fallback
+        # last so historical color-camera evidence retains identical solves.
+        (1.0, cv2.CALIB_CB_SYMMETRIC_GRID, "dark-infrared", True),
+        (2.0, cv2.CALIB_CB_SYMMETRIC_GRID, "dark-infrared", True),
     )
     if min_adjacent_spacing_px < 0.0:
         raise ValueError("min_adjacent_spacing_px must be non-negative")
     scaled_images: dict[float, np.ndarray] = {}
     best_rejected_spacing_px: float | None = None
-    for upscale, flags, detector_name in detector_attempts:
+    for upscale, flags, detector_name, use_dark_blob_detector in detector_attempts:
+        # A different blob profile cannot increase the physical pixel spacing
+        # of a grid that was already detected and rejected as too small.
+        if use_dark_blob_detector and best_rejected_spacing_px is not None:
+            continue
         upscaled = scaled_images.setdefault(
             upscale,
             cv2.resize(
@@ -144,8 +156,34 @@ def find_board_pose(
                 interpolation=cv2.INTER_CUBIC,
             ),
         )
+        blob_detector = None
+        if use_dark_blob_detector:
+            params = cv2.SimpleBlobDetector_Params()
+            params.minThreshold = 5
+            params.maxThreshold = 55
+            params.thresholdStep = 2
+            params.filterByArea = True
+            params.minArea = 10 * upscale * upscale
+            params.maxArea = 400 * upscale * upscale
+            params.filterByColor = True
+            params.blobColor = 0
+            params.filterByCircularity = False
+            params.filterByConvexity = False
+            params.filterByInertia = False
+            params.minDistBetweenBlobs = 3 * upscale
+            blob_detector = cv2.SimpleBlobDetector_create(params)
         for pattern_size in ((cols, rows), (rows, cols)):
-            found, centers = cv2.findCirclesGrid(upscaled, pattern_size, flags=flags)
+            if blob_detector is None:
+                found, centers = cv2.findCirclesGrid(
+                    upscaled, pattern_size, flags=flags
+                )
+            else:
+                found, centers = cv2.findCirclesGrid(
+                    upscaled,
+                    pattern_size,
+                    flags=flags,
+                    blobDetector=blob_detector,
+                )
             if not found:
                 continue
             centers = centers / upscale
