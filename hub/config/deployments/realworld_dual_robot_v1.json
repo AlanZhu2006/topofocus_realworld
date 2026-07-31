@@ -175,8 +175,8 @@
     "semantic_execution_confirmation": {
       "source_semantic_map_preserved": true,
       "minimum_component_cells": 3,
-      "strong_component_cells": 25,
-      "independent_current_frame_detector_required_for_compact_components": true,
+      "component_area_alone_grants_execution_authority": false,
+      "independent_current_frame_detector_required_for_all_components": true,
       "minimum_detector_confidence": 0.5,
       "semantic_map_reinforcement": false,
       "unconfirmed_policy": "execute the exact frozen exploration selection before the semantic override; HOLD if absent"
@@ -320,8 +320,8 @@
     },
     {
       "path": "hub/src/focus_hub/v2_semantic_execution.py",
-      "size_bytes": 12264,
-      "sha256": "55fadc6a946bc4e7da413da1b7c8c0de327c2f67937dd02d316350be1c7370b6",
+      "size_bytes": 11672,
+      "sha256": "e005fed94e806d6dcb4f5157129388753df2f24d7c04387c5ff5344e0b596b5d",
       "classification": "source-derived"
     },
     {
@@ -344,8 +344,8 @@
     },
     {
       "path": "hub/tools/run_v2_source_episode.py",
-      "size_bytes": 134700,
-      "sha256": "cf3b439dd7ca4738dcaa47c1e5fbcb76b384510efee95aa5c36f57b70a65a406",
+      "size_bytes": 134706,
+      "sha256": "0e95cdd5d8193d45606fe25851e226df7d88db34b781dab0db413b325f618c80",
       "classification": "source-derived"
     },
     {
@@ -488,8 +488,8 @@
     },
     {
       "path": "hub/src/focus_hub/public_baseline.py",
-      "size_bytes": 14081,
-      "sha256": "088036366d1db295334b553c502f64d5dec67317c735133afc8755fd192e9310",
+      "size_bytes": 14111,
+      "sha256": "4e37b06436413c9941baf91707b72e121999acb0c31f7358f77cb9d90b3b5b0e",
       "classification": "source-derived"
     },
     {

@@ -9,8 +9,10 @@ from the current camera frame.
 This module is an execution adapter only:
 
 * it never changes the source semantic map or frozen VLM result;
-* it accepts either a spatially strong source-map component or a compact
-  component corroborated by the independent current-frame detector;
+* it requires both a non-speckle source-map component and corroboration from
+  the independent current-frame detector; persistent component area alone is
+  never execution authority because source-compatible max fusion can retain
+  and spatially accumulate a stale false positive;
 * an unconfirmed semantic override falls back to the source's already frozen
   exploration selection, or HOLD when no such selection exists; and
 * all decisions and evidence remain explicit in a versioned report.
@@ -24,10 +26,9 @@ from typing import Mapping, Sequence
 
 
 SEMANTIC_EXECUTION_GUARD_SCHEMA_VERSION = (
-    "focus-v2-semantic-execution-guard-v1"
+    "focus-v2-semantic-execution-guard-v2"
 )
 DEFAULT_MINIMUM_COMPONENT_CELLS = 3
-DEFAULT_STRONG_COMPONENT_CELLS = 25
 DEFAULT_MINIMUM_DETECTOR_CONFIDENCE = 0.50
 
 # The detector vocabulary is COCO/YOLO while the source ObjectNav vocabulary
@@ -100,7 +101,6 @@ def evaluate_semantic_execution_guard(
     manifest: Mapping[str, object],
     *,
     minimum_component_cells: int = DEFAULT_MINIMUM_COMPONENT_CELLS,
-    strong_component_cells: int = DEFAULT_STRONG_COMPONENT_CELLS,
     minimum_detector_confidence: float = (
         DEFAULT_MINIMUM_DETECTOR_CONFIDENCE
     ),
@@ -123,14 +123,6 @@ def evaluate_semantic_execution_guard(
         or minimum_component_cells < 1
     ):
         raise ValueError("minimum semantic component cells must be positive")
-    if (
-        isinstance(strong_component_cells, bool)
-        or not isinstance(strong_component_cells, int)
-        or strong_component_cells <= minimum_component_cells
-    ):
-        raise ValueError(
-            "strong semantic component cells must exceed the compact minimum"
-        )
     if (
         not math.isfinite(minimum_detector_confidence)
         or not 0.0 < minimum_detector_confidence <= 1.0
@@ -193,24 +185,17 @@ def evaluate_semantic_execution_guard(
             )
         )
         component_pass = raw_size >= minimum_component_cells
-        strong_component_pass = raw_size >= strong_component_cells
         detector_pass = bool(
             detector_confidence is not None
             and detector_confidence
             >= minimum_detector_confidence - 1e-12
         )
-        compact_consensus_pass = component_pass and detector_pass
-        confirmed_for_execution = bool(
-            strong_component_pass or compact_consensus_pass
-        )
+        current_frame_consensus_pass = component_pass and detector_pass
+        confirmed_for_execution = bool(current_frame_consensus_pass)
         confirmation_mode = (
-            "strong_source_component"
-            if strong_component_pass
-            else (
-                "compact_component_with_current_frame_detector"
-                if compact_consensus_pass
-                else None
-            )
+            "source_component_with_current_frame_detector"
+            if current_frame_consensus_pass
+            else None
         )
         check: dict[str, object] = {
             "status": (
@@ -223,8 +208,7 @@ def evaluate_semantic_execution_guard(
             "component_size_cells": raw_size,
             "minimum_component_cells": minimum_component_cells,
             "component_size_pass": component_pass,
-            "strong_component_cells": strong_component_cells,
-            "strong_component_pass": strong_component_pass,
+            "component_size_is_diagnostic_only": True,
             "detector_classes": list(
                 GOAL_DETECTOR_CLASSES[goal_category]
             ),
@@ -236,8 +220,8 @@ def evaluate_semantic_execution_guard(
                 minimum_detector_confidence
             ),
             "current_frame_detector_pass": detector_pass,
-            "compact_component_detector_consensus_pass": (
-                compact_consensus_pass
+            "current_frame_detector_consensus_pass": (
+                current_frame_consensus_pass
             ),
             "confirmation_mode": confirmation_mode,
             "source_semantic_evidence_status": selection.get(
@@ -311,14 +295,13 @@ def evaluate_semantic_execution_guard(
         "held_robot_ids": sorted(held),
         "policy": {
             "minimum_component_cells": minimum_component_cells,
-            "strong_component_cells": strong_component_cells,
             "minimum_current_frame_detector_confidence": (
                 minimum_detector_confidence
             ),
             "confirmation_rule": (
-                "source component size >= strong_component_cells OR "
-                "(source component size >= minimum_component_cells AND "
-                "same-frame detector confidence >= threshold)"
+                "source component size >= minimum_component_cells AND "
+                "same-frame detector confidence >= threshold; persistent "
+                "component area alone is never execution authority"
             ),
             "unconfirmed_semantic_action": (
                 "use the exact frozen exploration selection before the "

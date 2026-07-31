@@ -201,19 +201,18 @@ def _validate_control_contract(manifest: dict[str, Any]) -> None:
         "minimum_component_cells",
     )
     _expect(
-        semantic.get("strong_component_cells"),
-        25,
+        semantic.get("component_area_alone_grants_execution_authority"),
+        False,
         "planning.semantic_execution_confirmation."
-        "strong_component_cells",
+        "component_area_alone_grants_execution_authority",
     )
     _expect(
         semantic.get(
-            "independent_current_frame_detector_required_for_"
-            "compact_components"
+            "independent_current_frame_detector_required_for_all_components"
         ),
         True,
         "planning.semantic_execution_confirmation."
-        "independent_current_frame_detector_required_for_compact_components",
+        "independent_current_frame_detector_required_for_all_components",
     )
     _expect(
         semantic.get("semantic_map_reinforcement"),

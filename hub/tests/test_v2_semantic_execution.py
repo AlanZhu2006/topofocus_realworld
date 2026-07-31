@@ -96,24 +96,37 @@ def test_archived_successful_plant_consensus_keeps_source_semantic_goal():
     assert check["component_size_pass"] is True
     assert check["current_frame_detector_pass"] is True
     assert check["confirmation_mode"] == (
-        "compact_component_with_current_frame_detector"
+        "source_component_with_current_frame_detector"
     )
 
 
-def test_archived_large_source_component_does_not_require_yolo_override():
-    # Scene 03 Formal 03 reached the real plant from a 176-cell source
-    # component even though the exact frozen YOLO frame did not detect it.
-    # Keep the source semantic result authoritative when its spatial support
-    # is already strong; YOLO is only the compact-component corroborator.
+def test_large_persistent_component_without_current_detector_is_rejected():
+    # Source-compatible max fusion can accumulate one stale false positive
+    # into a large region.  Area is therefore not independent evidence and
+    # must never bypass current-frame confirmation for physical authority.
     payload = manifest(size_cells=176, detections={"chair": 0.3145})
 
     overrides, report = evaluate_semantic_execution_guard(payload)
 
-    assert overrides == {}
+    assert overrides["robot-0"] == frontier_selection()
     check = report["checks"]["robot-0"]
-    assert check["strong_component_pass"] is True
+    assert check["component_size_pass"] is True
+    assert check["component_size_is_diagnostic_only"] is True
     assert check["current_frame_detector_pass"] is False
-    assert check["confirmation_mode"] == "strong_source_component"
+    assert check["status"] == "source_semantic_unconfirmed"
+    assert check["confirmation_mode"] is None
+
+
+def test_scene04_accumulated_false_component_cannot_bypass_guard():
+    # Scene 04 Formal 01 observed a no-detector false region grow from 22 to
+    # 100+ cells under max fusion.  Lock the exact failure mode closed.
+    for size_cells in (22, 100, 103, 104, 106):
+        payload = manifest(size_cells=size_cells, detections={})
+        overrides, report = evaluate_semantic_execution_guard(payload)
+
+        assert overrides["robot-0"] == frontier_selection()
+        assert report["confirmed_robot_ids"] == []
+        assert report["rejected_robot_ids"] == ["robot-0"]
 
 
 def test_semantic_speckle_is_rejected_even_with_detector_agreement():

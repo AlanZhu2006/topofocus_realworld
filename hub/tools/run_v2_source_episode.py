@@ -1860,16 +1860,16 @@ def main() -> int:
             },
             "semantic_execution_confirmation": {
                 "minimum_component_cells": 3,
-                "strong_component_cells": 25,
                 "minimum_current_frame_detector_confidence": 0.5,
                 "semantic_map_reinforcement": False,
                 "policy": (
                     "preserve the source Find_Goal result, but grant physical "
-                    "semantic authority only to a spatially strong source "
-                    "component or a compact component corroborated by the "
-                    "existing independent detector on the same frozen camera "
-                    "frame; otherwise execute the exact frozen pre-override "
-                    "exploration selection or HOLD"
+                    "semantic authority only when a non-speckle source "
+                    "component is corroborated by the existing independent "
+                    "detector on the same frozen camera frame; persistent "
+                    "component area alone is diagnostic only; otherwise "
+                    "execute the exact frozen pre-override exploration "
+                    "selection or HOLD"
                 ),
             },
             "cross_round_progress_guard": {

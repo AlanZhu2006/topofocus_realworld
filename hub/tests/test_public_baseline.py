@@ -78,8 +78,8 @@ def test_public_baseline_locks_cleanroom_safety(
         ("controller", "continuous_turn_timeout_s", 0.0),
         (
             "semantic_execution_confirmation",
-            "strong_component_cells",
-            2,
+            "component_area_alone_grants_execution_authority",
+            True,
         ),
         (
             "semantic_execution_confirmation",
