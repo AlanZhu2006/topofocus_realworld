@@ -576,6 +576,143 @@ def test_ground_guard_rebases_consistent_local_plane_after_observed_motion(
     assert pipeline.mapper.calls == 5
 
 
+def test_2d_ground_guard_rebases_bounded_tilt_after_large_world_z_drift(
+    monkeypatch,
+):
+    pipeline, segmenter = _pipeline(
+        "session-a",
+        ground_guard=True,
+        allow_ground_height_translation_for_2d=True,
+    )
+    stable = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=0.0,
+        plane_coefficients=(0.0, 0.0, 0.0),
+    )
+    post_motion = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.65,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=3.6,
+        plane_coefficients=(0.0, 0.063, 0.65),
+    )
+    candidates = iter(
+        [stable, stable, stable, post_motion, post_motion, post_motion]
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate",
+        lambda *_args: next(candidates),
+    )
+
+    baseline = _observation(10, "session-a")
+    moving = _observation(11, "session-a")
+    moving.T_shared_camera[0, 3] = 0.15
+    settled = _observation(12, "session-a")
+    settled.T_shared_camera[0, 3] = 0.15
+    stationary = [
+        _observation(sequence, "session-a") for sequence in (13, 15, 18)
+    ]
+    for observation in stationary:
+        observation.T_shared_camera[0, 3] = 0.15
+
+    assert pipeline.process(baseline).accept
+    assert pipeline.process(moving).accept
+    assert pipeline.process(settled).accept
+    assert pipeline.process(stationary[0]).reason == "ground_drift_pending"
+    assert pipeline.process(stationary[1]).reason == "ground_drift_pending"
+    rebased = pipeline.process(stationary[2])
+
+    assert rebased.accept
+    assert pipeline.mapping_blocked_reason is None
+    assert pipeline.ground_drift_reference_rebases == 1
+    assert pipeline.ground_drift_events == 0
+    assert pipeline.last_ground_rebase_sequence == 18
+    assert pipeline.last_ground_rebase_tilt_delta_deg == pytest.approx(3.6, abs=0.01)
+    assert pipeline.last_ground_rebase_height_delta_m == pytest.approx(0.65)
+    np.testing.assert_allclose(
+        pipeline.ground_reference_plane_coefficients,
+        post_motion.plane_coefficients,
+    )
+    assert segmenter.calls == 4
+    assert pipeline.mapper.calls == 4
+
+
+def test_2d_ground_guard_keeps_tilt_cap_during_large_world_z_rebase(
+    monkeypatch,
+):
+    pipeline, segmenter = _pipeline(
+        "session-a",
+        ground_guard=True,
+        allow_ground_height_translation_for_2d=True,
+    )
+    stable = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=0.0,
+        plane_coefficients=(0.0, 0.0, 0.0),
+    )
+    excessive_tilt = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.65,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=10.0,
+        plane_coefficients=(0.0, 0.1763, 0.65),
+    )
+    candidates = iter(
+        [stable, stable, stable, excessive_tilt, excessive_tilt, excessive_tilt]
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate",
+        lambda *_args: next(candidates),
+    )
+
+    baseline = _observation(10, "session-a")
+    moving = _observation(11, "session-a")
+    moving.T_shared_camera[0, 3] = 0.15
+    settled = _observation(12, "session-a")
+    settled.T_shared_camera[0, 3] = 0.15
+    stationary = [
+        _observation(sequence, "session-a") for sequence in (13, 15, 18)
+    ]
+    for observation in stationary:
+        observation.T_shared_camera[0, 3] = 0.15
+
+    assert pipeline.process(baseline).accept
+    assert pipeline.process(moving).accept
+    assert pipeline.process(settled).accept
+    assert pipeline.process(stationary[0]).reason == "ground_drift_pending"
+    assert pipeline.process(stationary[1]).reason == "ground_drift_pending"
+    blocked = pipeline.process(stationary[2])
+
+    assert blocked.reason == "ground_drift"
+    assert pipeline.mapping_blocked_kind == "ground_drift"
+    assert pipeline.ground_drift_reference_rebases == 0
+    assert pipeline.ground_drift_events == 1
+    assert segmenter.calls == 3
+    assert pipeline.mapper.calls == 3
+
+
 def test_2d_ground_guard_tolerates_pure_world_z_translation(monkeypatch):
     pipeline, segmenter = _pipeline(
         "session-a",

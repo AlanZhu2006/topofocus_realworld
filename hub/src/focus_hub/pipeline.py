@@ -324,18 +324,27 @@ class SpoolMappingPipeline:
             or self.ground_drift_motion_rotation_deg
             >= self.ground_drift_stationary_rotation_deg * 2.0
         )
-        bounded_local_plane = (
+        bounded_tilt = (
             tilt_delta_deg
             <= (
                 self.max_ground_tilt_delta_deg
                 * POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER
             )
-            and height_delta_m
+        )
+        # A shared-world Z translation cancels when this pipeline projects
+        # every frame relative to its accepted local floor plane into a 2-D
+        # map.  Keep the bounded-tilt, observed-motion, temporal-consistency,
+        # and pose-jump gates, but do not reintroduce a 3-D height bound in the
+        # post-motion rebase path when that 2-D policy is explicitly enabled.
+        bounded_height = (
+            self.allow_ground_height_translation_for_2d
+            or height_delta_m
             <= (
                 self.max_ground_height_delta_m
                 * POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER
             )
         )
+        bounded_local_plane = bounded_tilt and bounded_height
         return motion_recent and motion_material and bounded_local_plane
 
     def process(self, observation: SpooledObservation) -> KeyframeDecision:
