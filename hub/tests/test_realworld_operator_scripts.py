@@ -171,6 +171,14 @@ def test_wsj_calibration_uses_one_native_infrared_geometry_frame():
 def test_wsj_calibration_retries_publisher_discovery_without_replacing_sender():
     launcher = (OVERLAY / "start_wsj_calibration_observation.sh").read_text()
 
+    sender_pid_probe = launcher.index("calibration_sender_pid()")
+    python_executable_gate = launcher.index(
+        '[[ "${executable##*/}" == python* ]]',
+        sender_pid_probe,
+    )
+    prewarm = launcher.index(
+        'until [[ -n "$(calibration_sender_pid)" ]]'
+    )
     sender_pid = launcher.index(
         'expected_calibration_sender_pid="$(calibration_sender_pid)"'
     )
@@ -182,7 +190,16 @@ def test_wsj_calibration_retries_publisher_discovery_without_replacing_sender():
         "restart_calibration_publishers rediscovery_retry"
     )
 
-    assert sender_pid < first_baseline < first_recovery < retry
+    assert (
+        sender_pid_probe
+        < python_executable_gate
+        < prewarm
+        < sender_pid
+        < first_baseline
+        < first_recovery
+        < retry
+    )
+    assert "until pgrep -af" not in launcher
     assert (
         'current_calibration_sender_pid="$(calibration_sender_pid)"'
         in launcher

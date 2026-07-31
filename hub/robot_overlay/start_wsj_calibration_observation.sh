@@ -235,22 +235,6 @@ sender=(
 printf -v sender_text '%q ' "${sender[@]}"
 tmux new-window -d -t "$SESSION" -n calibration-sender \
   "bash -lc 'source \"$SETUP_FILE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; set -o pipefail; $sender_text 2>&1 | tee \"$sender_log\"'"
-deadline=$((SECONDS + 20))
-until pgrep -af \
-    'focus_ros_sender\.py.*--rgb-topic /camera/camera/infra1/image_rect_raw' \
-    >/dev/null 2>&1; do
-  if [[ "$(tmux display-message -p -t "$SESSION:calibration-sender" \
-      '#{pane_dead}' 2>/dev/null || true)" == 1 ]]; then
-    tmux capture-pane -pt "$SESSION:calibration-sender" -S -100 >&2 || true
-    exit 1
-  fi
-  (( SECONDS < deadline )) || {
-    echo "Timed out prewarming the WSJ calibration DDS participant." >&2
-    exit 1
-  }
-  sleep 1
-done
-echo "WSJ_DDS_SUBSCRIBERS_READY_BEFORE_PUBLISHERS"
 
 calibration_sender_pid() {
   local pid executable
@@ -266,6 +250,22 @@ calibration_sender_pid() {
       2>/dev/null || true
   )
 }
+
+deadline=$((SECONDS + 20))
+until [[ -n "$(calibration_sender_pid)" ]]; do
+  if [[ "$(tmux display-message -p -t "$SESSION:calibration-sender" \
+      '#{pane_dead}' 2>/dev/null || true)" == 1 ]]; then
+    tmux capture-pane -pt "$SESSION:calibration-sender" -S -100 >&2 || true
+    exit 1
+  fi
+  (( SECONDS < deadline )) || {
+    echo "Timed out prewarming the WSJ calibration DDS participant." >&2
+    exit 1
+  }
+  sleep 1
+done
+echo "WSJ_DDS_SUBSCRIBERS_READY_BEFORE_PUBLISHERS"
+
 expected_calibration_sender_pid="$(calibration_sender_pid)"
 [[ -n "$expected_calibration_sender_pid" ]] || {
   echo "WSJ calibration sender disappeared before publisher recovery." >&2
