@@ -23,7 +23,9 @@ authority.
 ## System architecture
 
 <p align="center">
-  <img src="media/image/system_architecture.png" width="1000" alt="TopoFocus architecture: RTX 4090 Hub coordinating Robot 0 and Robot 1 while planning, control and safety remain robot-local">
+  <a href="media/image/system_architecture.png">
+    <img src="media/image/system_architecture.png" width="100%" alt="TopoFocus system architecture: shared semantic perception and VLM coordination on the RTX 4090 Hub with robot-local planning, control and safety">
+  </a>
 </p>
 
 ## Real-world deployment
@@ -356,9 +358,9 @@ SPL uses the independently measured approximate shortest feasible path
       <img src="media/demo/scene03_formal_05_preview.gif" width="440" alt="Formal 05 rollout"><br>
       <small>Dashboard</small><br>
       <img src="media/demo/scene03_formal_05_dashboard.gif" width="440" alt="Formal 05 dashboard"><br>
-      Under coordinated role assignment, Robot 0 HOLDs while retaining shared
-      observations; Robot 1 completes long-range exploration, switches to the
-      plant semantic region and auto-ARRIVED, confirmed by the operator.<br>
+      Coordinated role assignment preserves Robot 0 observations while Robot 1
+      completes long-range exploration, switches to the plant semantic region
+      and auto-ARRIVED, confirmed by the operator.<br>
       <a href="media/demo/scene03_formal_05_third_view.mp4">Third view</a> ·
       <a href="media/demo/scene03_formal_05_dashboard.mp4">Dashboard</a>
     </td>
@@ -373,7 +375,7 @@ SPL uses the independently measured approximate shortest feasible path
 | Formal 02 | FAILURE | `5.754388 m` | `17.902160 m` | `0.0` | `0.0` |
 | Formal 03 | SUCCESS | `9.037490 m` | `11.606679 m` | `0.689524` | `1.000000` |
 | Formal 04 | SUCCESS | `9.391253 m` | `13.010775 m` | `0.693557` | `1.000000` |
-| Formal 05 | SUCCESS | `HOLD · 0.006053 m net` | `19.152683 m` | `0.446727` | `0.730968` |
+| Formal 05 | SUCCESS | `0.006053 m net` | `19.152683 m` | `0.446727` | `0.730968` |
 
 [Full five-experiment archive](audit/SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md)
 · [Formal 01 failure record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md)
