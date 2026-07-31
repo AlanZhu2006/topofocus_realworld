@@ -2041,7 +2041,7 @@ def test_robot_launchers_require_live_data_plane_verification():
     assert "fail_closed_on_error" in yunji
     assert "focus-yunji-water-bridge-live-v1.service" in yunji
     assert 'FOCUS_YUNJI_MAP_TIMEOUT_S:-12.0' in yunji
-    assert 'FOCUS_YUNJI_REACHABILITY_CLEARANCE_M:-0.30' in yunji
+    assert 'FOCUS_YUNJI_REACHABILITY_CLEARANCE_M:-0.25' in yunji
     assert '--map-timeout-s "$MAP_TIMEOUT_S"' in yunji
     assert 'tmux kill-window -t "$SESSION:go2-bridge"' in wsj
 

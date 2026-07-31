@@ -171,6 +171,69 @@ def test_continuity_memory_restores_source_target_before_projection(
         assert decision.target.pose.x == 1.0
 
 
+def test_projected_previous_leg_cannot_override_fresh_source_frontier(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    base = make_batch(observations, digests, now=now)
+    previous = with_round_and_targets(
+        base,
+        round_index=2,
+        source_step=49,
+        targets={
+            "robot-0": (1.0, 0.0),
+            "robot-1": (2.05, 3.45),
+        },
+    )
+    current = with_round_and_targets(
+        base,
+        round_index=3,
+        source_step=74,
+        targets={
+            "robot-0": (1.0, 0.0),
+            "robot-1": (4.10, 5.25),
+        },
+    )
+
+    guarded, report = apply_frontier_goal_continuity(
+        current,
+        previous_batch=previous,
+        current_shared_positions={
+            "robot-0": (0.0, 0.0),
+            "robot-1": (0.58, 3.77),
+        },
+        previous_execution_lineage={
+            "robot-1": {
+                "source_target_xy_m": [2.05, 3.45],
+                "execution_target_xy_m": [1.77, 2.55],
+                "execution_mode": "GOAL",
+            },
+        },
+    )
+
+    robot_1 = next(
+        decision
+        for decision in guarded.decisions
+        if decision.robot_id == "robot-1"
+    )
+    assert robot_1.target is not None
+    assert robot_1.target.pose.x == pytest.approx(4.10)
+    assert robot_1.target.pose.y == pytest.approx(5.25)
+    check = report["checks"]["robot-1"]
+    assert check["retained"] is False
+    assert check["reason"] == (
+        "previous_source_frontier_was_projected_fresh_source_target_accepted"
+    )
+    assert check["previous_projection_distance_m"] == pytest.approx(
+        ((2.05 - 1.77) ** 2 + (3.45 - 2.55) ** 2) ** 0.5
+    )
+    assert report["projected_previous_legs_released_robot_ids"] == [
+        "robot-1"
+    ]
+
+
 def test_unfinished_previous_goal_is_retained_through_source_switch_band(
     observation_factory,
 ):

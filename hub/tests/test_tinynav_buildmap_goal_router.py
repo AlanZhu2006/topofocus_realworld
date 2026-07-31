@@ -521,8 +521,8 @@ def test_wsj_launcher_uses_continuous_geometry_plus_one_grid_cell():
     assert '--map-timeout-s \\"$MAP_TIMEOUT_S\\"' in source
     assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0' in source
     assert '--input-timeout-s \\"$ODOMETRY_INPUT_TIMEOUT_S\\"' in source
-    assert 'FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.20' in source
-    assert 'FOCUS_WSJ_START_SNAP_RADIUS_M:-0.35' in source
+    assert 'FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.05' in source
+    assert 'FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75' in source
     assert 'FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35' in source
     assert (
         "FOCUS_WSJ_SEMANTIC_TERMINAL_PLANNING_MARGIN_M:-0.15"

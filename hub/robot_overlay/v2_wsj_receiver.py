@@ -1587,11 +1587,11 @@ def main() -> int:
         ),
     )
     parser.add_argument("--reachability-clearance-m", type=float, default=0.05)
-    parser.add_argument("--start-snap-radius-m", type=float, default=0.35)
+    parser.add_argument("--start-snap-radius-m", type=float, default=0.75)
     parser.add_argument(
         "--start-footprint-override-m",
         type=float,
-        default=0.18,
+        default=0.35,
         help=(
             "online BuildMap only: bounded measured-base footprint used to "
             "escape a self-occupied start into genuinely free map cells"

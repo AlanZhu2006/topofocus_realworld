@@ -29,7 +29,7 @@ from .transport_v2 import (
 )
 
 
-GOAL_CONTINUITY_SCHEMA_VERSION = "focus-v2-goal-continuity-guard-v3"
+GOAL_CONTINUITY_SCHEMA_VERSION = "focus-v2-goal-continuity-guard-v4"
 SOURCE_CONTINUITY_RETAIN_DISTANCE_CELLS = 25.0
 SOURCE_MAP_RESOLUTION_M = 0.05
 SOURCE_CONTINUITY_RETAIN_DISTANCE_M = (
@@ -203,6 +203,7 @@ def apply_frontier_goal_continuity(
         SOURCE_FRONTIER_COMPLETION_DISTANCE_M
     ),
     previous_rejected_robot_ids: frozenset[str] = frozenset(),
+    previous_execution_lineage: Mapping[str, object] | None = None,
 ) -> tuple[DecisionBatchV2, dict[str, object]]:
     """Retain an unfinished source frontier until its arrival disk.
 
@@ -210,7 +211,10 @@ def apply_frontier_goal_continuity(
     footprint/reachability guard before publication.  This function never
     retains a frontier over a semantic-region target.  The source's 25-cell
     switch condition remains explicit in the report; the narrower 10-cell
-    physical completion condition only stabilizes real execution.
+    physical completion condition only stabilizes real execution.  When the
+    previous source point was not itself published because the clearance
+    guard projected it, that memory-only point cannot override a different
+    fresh source/VLM selection at the next boundary.
     """
 
     if (
@@ -234,6 +238,10 @@ def apply_frontier_goal_continuity(
         {decision.robot_id for decision in batch.decisions}
     ):
         raise ValueError("previous rejected robot is outside the current batch")
+    if previous_execution_lineage is not None and not isinstance(
+        previous_execution_lineage, Mapping
+    ):
+        raise ValueError("previous execution lineage must be an object")
 
     current_by_robot = {
         decision.robot_id: decision for decision in batch.decisions
@@ -262,6 +270,7 @@ def apply_frontier_goal_continuity(
     replacements: dict[str, HighLevelDecisionV2] = {}
     source_rule_retained: list[str] = []
     physical_completion_retained: list[str] = []
+    projected_previous_legs_released: list[str] = []
     checks: dict[str, dict[str, object]] = {}
     for robot_id, current in current_by_robot.items():
         previous = previous_by_robot.get(robot_id)
@@ -298,6 +307,36 @@ def apply_frontier_goal_continuity(
             check["reason"] = "shared_pose_unavailable"
             continue
 
+        previous_execution_xy: Point2 | None = None
+        previous_projection_distance_m: float | None = None
+        if previous_execution_lineage is not None:
+            raw_lineage = previous_execution_lineage.get(robot_id)
+            if raw_lineage is not None:
+                if not isinstance(raw_lineage, Mapping):
+                    raise ValueError(
+                        f"previous execution lineage for {robot_id} is malformed"
+                    )
+                lineage_source_xy = _finite_point(
+                    raw_lineage.get("source_target_xy_m")
+                )
+                previous_execution_xy = _finite_point(
+                    raw_lineage.get("execution_target_xy_m")
+                )
+                if (
+                    lineage_source_xy is None
+                    or previous_execution_xy is None
+                    or math.dist(lineage_source_xy, previous_target_xy) > 1e-9
+                    or raw_lineage.get("execution_mode") != "GOAL"
+                ):
+                    raise ValueError(
+                        f"previous execution lineage for {robot_id} differs "
+                        "from its source continuity target"
+                    )
+                previous_projection_distance_m = math.dist(
+                    lineage_source_xy,
+                    previous_execution_xy,
+                )
+
         distance_to_previous_target_m = math.dist(
             current_xy, previous_target_xy
         )
@@ -321,6 +360,29 @@ def apply_frontier_goal_continuity(
         )
         if math.dist(current_target_xy, previous_target_xy) <= 1e-9:
             check["reason"] = "source_target_already_continuous"
+            continue
+        if (
+            previous_projection_distance_m is not None
+            and previous_projection_distance_m > 1e-9
+        ):
+            projected_previous_legs_released.append(robot_id)
+            check.update(
+                {
+                    "reason": (
+                        "previous_source_frontier_was_projected_fresh_"
+                        "source_target_accepted"
+                    ),
+                    "previous_execution_target_xy_m": list(
+                        previous_execution_xy
+                    ),
+                    "previous_projection_distance_m": (
+                        previous_projection_distance_m
+                    ),
+                    "retention_authority": (
+                        "released_projected_memory_only_source_target"
+                    ),
+                }
+            )
             continue
         if (
             distance_to_previous_target_m
@@ -403,6 +465,9 @@ def apply_frontier_goal_continuity(
         "physical_completion_retained_robot_ids": sorted(
             physical_completion_retained
         ),
+        "projected_previous_legs_released_robot_ids": sorted(
+            projected_previous_legs_released
+        ),
         "minimum_remaining_distance_m": minimum_remaining_distance_m,
         "minimum_completion_distance_m": (
             minimum_completion_distance_m
@@ -426,6 +491,9 @@ def apply_frontier_goal_continuity(
             "source/Focus_realworld/main.py:1833, not inter-round motion; "
             "physical execution continues the same accepted leg between "
             "that switch boundary and the source 0.50 m arrival disk; the "
+            "rule never lets a memory-only raw source point override a "
+            "different fresh source/VLM choice when the prior physical leg "
+            "was instead projected to another coordinate; the "
             "retained target must pass the current robot-local frozen-map "
             "clearance guard before publication"
         ),

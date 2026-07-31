@@ -29,10 +29,11 @@ MAP_TIMEOUT_S="${FOCUS_WSJ_MAP_TIMEOUT_S:-12.0}"
 # fail-closed while allowing that measured transient rather than rejecting the
 # first supervised goal at the old 1.0 s default.
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
-# Preserve observed obstacles, fill only cropped unknown cells inside the
-# measured footprint, and require a centreline margin consistent with Go2.
-REACHABILITY_CLEARANCE_M="${FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.20}"
-START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.35}"
+# The graph supplies a known-free centreline; the endpoint footprint and
+# TinyNav ESDF retain physical collision authority.  The bounded start search
+# returns its complete path and never overrides observed occupied cells.
+REACHABILITY_CLEARANCE_M="${FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.05}"
+START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 # Keep the semantic ARRIVED contract unchanged, but make online A* target its
 # interior rather than the first 5 cm cell on the terminal rim.

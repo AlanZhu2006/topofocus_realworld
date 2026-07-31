@@ -21,12 +21,12 @@ LINEAR_COMMAND_FLOOR_MPS="${FOCUS_YUNJI_LINEAR_COMMAND_FLOOR_MPS:-0.18}"
 # The router uses a square cell-clearance test, while TinyNav's unchanged local
 # planner remains the final footprint/depth authority.  On the 2026-07-25 live
 # Yunji grid, 0.34 m rounded up to seven 5 cm cells and no 15x15 known-free
-# start seed existed within the bounded one-metre escape search.  Six cells
-# (0.30 m; a 0.424 m corner radius) produced a genuinely known-free seed at
-# 0.962 m.  Use that observed router clearance only for graph admission; the
-# local planner still enforces the measured 0.283 m body radius plus its
-# original 0.05 m safety margin before any velocity reaches WATER.
-REACHABILITY_CLEARANCE_M="${FOCUS_YUNJI_REACHABILITY_CLEARANCE_M:-0.30}"
+# start seed existed within the bounded one-metre escape search.  Five cells
+# (0.25 m) form a square graph footprint with a 0.354 m corner radius, still
+# exceeding the measured 0.283 m circular body plus its 0.05 m margin without
+# falsely disconnecting a traversable corridor.  TinyNav's exact circular
+# ESDF and WATER stop authority remain final for every velocity.
+REACHABILITY_CLEARANCE_M="${FOCUS_YUNJI_REACHABILITY_CLEARANCE_M:-0.25}"
 START_SNAP_RADIUS_M="${FOCUS_YUNJI_START_SNAP_RADIUS_M:-1.0}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_YUNJI_START_FOOTPRINT_OVERRIDE_M:-0.34}"
 # Follow the recovered start-to-seed route closely.  A one-metre rolling

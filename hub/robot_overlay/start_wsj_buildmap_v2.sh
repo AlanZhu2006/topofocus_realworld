@@ -90,12 +90,14 @@ MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry
 # input.  Its observed interval can also exceed 2 s under live perception load.
 SLAM_DATA_TIMEOUT_S="${FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0}"
-# The Go2 half-width plus the existing local safety margin is approximately
-# 0.20 m. The graph must not reduce that to a one-cell point route.
-REACHABILITY_CLEARANCE_M="${FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.20}"
-# A seed outside the measured 0.35 m current footprint is a virtual pose jump,
-# not a verified escape path. Keep the Hub, startup verifier and router equal.
-START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.35}"
+# The global graph supplies only a known-free centreline.  The independent
+# 0.35 m endpoint guard and TinyNav ESDF lattice retain footprint authority.
+REACHABILITY_CLEARANCE_M="${FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.05}"
+# A forward camera leaves the base behind the first clearance-safe map cell.
+# Search this bounded radius, but require the router's complete cell-by-cell
+# escape path; observed occupied cells and unknown cells outside the measured
+# current footprint remain blocked.
+START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 # The source semantic mask keeps its radius-10-cell approach region unchanged.
 # The selected semantic approach point is already on the source radius-10-cell
