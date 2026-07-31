@@ -470,8 +470,8 @@
     },
     {
       "path": "hub/scripts/calibrate_realworld_session.sh",
-      "size_bytes": 33888,
-      "sha256": "62acffd024694dc600e44792277d15dcd4c1b6bf18ec2cf2a4667d88bd048f36",
+      "size_bytes": 33920,
+      "sha256": "037ca3fee0959d211716bd9e7e7a093d7f6cce810128f6c4de0bd8e82851d07b",
       "classification": "source-derived"
     },
     {

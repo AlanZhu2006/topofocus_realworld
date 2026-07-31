@@ -149,6 +149,7 @@ def test_calibration_wrapper_is_board_only_and_runs_strict_debug():
     assert "Capturing the initial fit from this fresh read-only sensor epoch." in source
     assert 'row.get("camera_ready") is not True' in source
     assert "--min-board-spacing-px" in source
+    assert "--stationary-camera-holdout" in source
     assert "BOARD_TOO_SMALL" in source
     assert "ensure_ssh_tmux_shell" in source
     assert "tmux respawn-pane -k" in source

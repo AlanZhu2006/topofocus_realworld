@@ -791,6 +791,7 @@ PY
   --other-sequence "$fit_yunji" \
   --holdout-reference-sequence "$holdout_wsj" \
   --holdout-other-sequence "$holdout_yunji" \
+  --stationary-camera-holdout \
   --other-pose-is-camera \
   --min-board-spacing-px "$MIN_BOARD_SPACING_PX" \
   --transform-version "$yunji_final_transform" \

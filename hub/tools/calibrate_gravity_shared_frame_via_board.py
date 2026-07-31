@@ -136,6 +136,26 @@ def rotation_delta_deg(first: np.ndarray, second: np.ndarray) -> float:
     return math.degrees(math.acos(cosine))
 
 
+def holdout_board_with_fit_camera(
+    fit_camera_pose: np.ndarray,
+    recorded_holdout_camera_pose: np.ndarray,
+    recorded_holdout_board_pose: np.ndarray,
+) -> np.ndarray:
+    """Express a holdout board through the operator-confirmed static camera.
+
+    Moving a large nearby calibration board can perturb visual odometry even
+    though the physical camera never moved.  The relative camera-to-board
+    measurement remains valid, so a stationary-camera holdout must compose
+    that relative measurement with the fit-frame camera pose instead of the
+    drifted holdout odometry pose.
+    """
+    camera_from_holdout_board = (
+        np.linalg.inv(recorded_holdout_camera_pose)
+        @ recorded_holdout_board_pose
+    )
+    return fit_camera_pose @ camera_from_holdout_board
+
+
 def other_local_board(
     recorded_camera_pose: np.ndarray,
     old_shared_transform: np.ndarray,
@@ -185,6 +205,16 @@ def main() -> int:
     parser.add_argument("--holdout-reference-sequence", type=int)
     parser.add_argument("--holdout-other-sequence", type=int)
     parser.add_argument("--holdout-other-recorded-shared-transform", type=Path)
+    parser.add_argument(
+        "--stationary-camera-holdout",
+        action="store_true",
+        help=(
+            "the operator confirmed both robots/cameras stayed physically "
+            "stationary while only the board moved; reuse each fit-frame "
+            "camera pose for holdout geometry and retain recorded odometry "
+            "motion as a diagnostic"
+        ),
+    )
     parser.add_argument("--rows", type=int, default=7)
     parser.add_argument("--cols", type=int, default=10)
     parser.add_argument("--spacing-m", type=float, default=0.04)
@@ -236,6 +266,8 @@ def main() -> int:
         parser.error(
             "--holdout-other-recorded-shared-transform requires holdout sequences"
         )
+    if args.stationary_camera_holdout and holdout_sequences[0] is None:
+        parser.error("--stationary-camera-holdout requires holdout sequences")
     extrinsic_paths = (args.old_other_extrinsic, args.corrected_other_extrinsic)
     if args.other_pose_is_camera:
         if any(path is not None for path in extrinsic_paths):
@@ -355,14 +387,30 @@ def main() -> int:
             args.spacing_m,
             args.min_board_spacing_px,
         )
-        href_board = href_camera @ href_camera_board
-        hother_board, _ = other_local_board(
+        href_board_recorded = href_camera @ href_camera_board
+        hother_board_recorded, corrected_holdout_camera = other_local_board(
             hother_camera,
             holdout_transform,
             old_extrinsic,
             corrected_extrinsic,
             hother_camera_board,
         )
+        if args.stationary_camera_holdout:
+            href_board = holdout_board_with_fit_camera(
+                ref_camera,
+                href_camera,
+                href_board_recorded,
+            )
+            hother_board = holdout_board_with_fit_camera(
+                corrected_camera_at_sync,
+                corrected_holdout_camera,
+                hother_board_recorded,
+            )
+            camera_pose_policy = "operator_confirmed_stationary_reuse_fit_poses"
+        else:
+            href_board = href_board_recorded
+            hother_board = hother_board_recorded
+            camera_pose_policy = "recorded_holdout_odometry_poses"
         mapped_holdout = transform @ hother_board
         center_residual = float(
             np.linalg.norm(href_board[:3, 3] - mapped_holdout[:3, 3])
@@ -393,6 +441,29 @@ def main() -> int:
             "board_normal_residual_deg": normal_residual,
             "fit_to_holdout_board_translation_m": board_translation_m,
             "fit_to_holdout_board_rotation_deg": board_rotation_deg,
+            "camera_pose_policy": camera_pose_policy,
+            "recorded_camera_motion_diagnostic": {
+                "reference_translation_m": float(
+                    np.linalg.norm(href_camera[:3, 3] - ref_camera[:3, 3])
+                ),
+                "reference_rotation_deg": rotation_delta_deg(
+                    ref_camera, href_camera
+                ),
+                "other_translation_m": float(
+                    np.linalg.norm(
+                        corrected_holdout_camera[:3, 3]
+                        - corrected_camera_at_sync[:3, 3]
+                    )
+                ),
+                "other_rotation_deg": rotation_delta_deg(
+                    corrected_camera_at_sync,
+                    corrected_holdout_camera,
+                ),
+                "applied_to_holdout_geometry": (
+                    not args.stationary_camera_holdout
+                ),
+                "classification": "observed_odometry_diagnostic",
+            },
             "checks": checks,
         }
 
@@ -477,6 +548,7 @@ def main() -> int:
             "robot_commands_issued": False,
             "robot_interfaces_used": False,
             "archived_observations_only": True,
+            "stationary_camera_holdout": args.stationary_camera_holdout,
         },
         "note": (
             "Apply this transform to the other robot's local camera pose. "
