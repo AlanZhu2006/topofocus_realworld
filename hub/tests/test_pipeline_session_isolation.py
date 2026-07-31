@@ -293,12 +293,18 @@ def test_ground_rejected_turns_still_advance_pose_continuity(monkeypatch):
 
     assert pipeline.process(observations[0]).accept
     assert pipeline.process(observations[1]).reason == "ground_no_valid_plane"
+    assert pipeline.ground_rejection_streak == 1
+    assert pipeline.last_ground_rejection_duration_s == 0.0
     assert pipeline.process(observations[2]).reason == "ground_no_valid_plane"
+    assert pipeline.ground_rejection_streak == 2
+    assert pipeline.last_ground_rejection_duration_s == pytest.approx(1.0)
     final = pipeline.process(observations[3])
 
     assert final.accept
     assert final.reason == "rotation"
     assert pipeline.mapping_blocked_reason is None
+    assert pipeline.ground_rejection_streak == 0
+    assert pipeline.last_ground_rejection_duration_s == 0.0
     assert pipeline.pose_jump_events == 0
     assert segmenter.calls == 2
     assert pipeline.mapper.calls == 2

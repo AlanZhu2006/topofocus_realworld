@@ -209,6 +209,78 @@ def test_frozen_input_records_current_perception_over_last_accepted_bev(
     )
 
 
+def test_frozen_input_rejects_sustained_ground_geometry_starvation(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now_ns = 100_000_000_000
+    observation = observation_factory(
+        sequence=10,
+        now_ns=now_ns,
+        mapping_only=False,
+        health_ready=True,
+    )
+    session, frozen, spool = build_inputs(tmp_path, observation)
+    status_path = frozen / "live_status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status.update(
+        {
+            "ground_rejection_streak": 51,
+            "ground_rejection_duration_s": 5.1,
+            "last_ground_reason": "insufficient_candidates",
+        }
+    )
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="map geometry stale"):
+        module.validate_frozen_robot(
+            session,
+            "robot-0",
+            frozen,
+            tmp_path / "accepted/wsj",
+            spool,
+            now_ns=now_ns,
+            max_input_age_s=1.0,
+            minimum_source_sequence=10,
+        )
+
+
+def test_frozen_input_allows_short_transient_ground_rejection(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now_ns = 100_000_000_000
+    observation = observation_factory(
+        sequence=10,
+        now_ns=now_ns,
+        mapping_only=False,
+        health_ready=True,
+    )
+    session, frozen, spool = build_inputs(tmp_path, observation)
+    status_path = frozen / "live_status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status.update(
+        {
+            "ground_rejection_streak": 2,
+            "ground_rejection_duration_s": 4.9,
+        }
+    )
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+
+    record, _, _ = module.validate_frozen_robot(
+        session,
+        "robot-0",
+        frozen,
+        tmp_path / "accepted/wsj",
+        spool,
+        now_ns=now_ns,
+        max_input_age_s=1.0,
+        minimum_source_sequence=10,
+    )
+
+    assert record["source_sequence"] == 10
+
+
 def test_frozen_input_accepts_exact_fail_closed_wsj_mapping_health(
     tmp_path, observation_factory
 ):

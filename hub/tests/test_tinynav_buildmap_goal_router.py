@@ -521,13 +521,15 @@ def test_wsj_launcher_uses_continuous_geometry_plus_one_grid_cell():
     assert '--map-timeout-s \\"$MAP_TIMEOUT_S\\"' in source
     assert 'FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0' in source
     assert '--input-timeout-s \\"$ODOMETRY_INPUT_TIMEOUT_S\\"' in source
-    assert 'FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75' in source
+    assert 'FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.20' in source
+    assert 'FOCUS_WSJ_START_SNAP_RADIUS_M:-0.35' in source
     assert 'FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35' in source
     assert (
         "FOCUS_WSJ_SEMANTIC_TERMINAL_PLANNING_MARGIN_M:-0.15"
         in source
     )
     assert '--start-snap-radius-m \\"$START_SNAP_RADIUS_M\\"' in source
+    assert '--clearance-m \\"$REACHABILITY_CLEARANCE_M\\"' in source
     assert (
         '--start-footprint-override-m '
         '\\"$START_FOOTPRINT_OVERRIDE_M\\"'
@@ -646,12 +648,12 @@ def test_a_star_can_use_bounded_known_free_start_seed():
     )
 
 
-def test_a_star_can_leave_a_self_occupied_measured_base_footprint():
+def test_a_star_can_leave_a_cropped_unknown_measured_base_footprint():
     router = load_router()
     data = [0] * 121
     for row in range(3, 6):
         for column in range(3, 6):
-            data[row * 11 + column] = 100
+            data[row * 11 + column] = -1
     occupancy = grid(data, width=11, height=11)
 
     assert router.plan_route(
@@ -690,6 +692,25 @@ def test_a_star_can_leave_a_self_occupied_measured_base_footprint():
         for first, second in zip(plan.cells, plan.cells[1:])
     )
     assert plan.start_snap_distance_m == pytest.approx(3.0)
+
+
+def test_a_star_never_overrides_observed_obstacle_in_current_footprint():
+    router = load_router()
+    data = [0] * 121
+    data[4 * 11 + 4] = 100
+    occupancy = grid(data, width=11, height=11)
+
+    assert router.plan_route(
+        occupancy,
+        start_x=4.5,
+        start_y=4.5,
+        goal_x=9.5,
+        goal_y=9.5,
+        arrival_radius_m=0.1,
+        clearance_cells=1,
+        start_snap_radius_m=4.0,
+        start_footprint_override_m=1.1,
+    ) is None
 
 
 def test_arrival_disk_can_end_before_an_unknown_target_cell():
@@ -733,7 +754,7 @@ def test_lookahead_is_bounded_to_the_route():
 def test_start_snap_route_does_not_teleport_to_remote_clearance_seed():
     router = load_router()
     data = [0] * (9 * 5)
-    data[2 * 9 + 1] = 100
+    data[2 * 9 + 1] = -1
     occupancy = grid(data, width=9, height=5)
 
     plan = router.plan_route(
@@ -759,7 +780,7 @@ def test_start_snap_route_does_not_teleport_to_remote_clearance_seed():
 def test_start_snap_prefers_forward_seed_for_forward_only_controller():
     router = load_router()
     data = [0] * (11 * 5)
-    data[2 * 11 + 4] = 100
+    data[2 * 11 + 4] = -1
     occupancy = grid(data, width=11, height=5)
 
     plan = router.plan_route(
@@ -786,7 +807,7 @@ def test_start_snap_prefers_forward_seed_for_forward_only_controller():
 def test_start_snap_is_anchored_to_goal_when_goal_is_behind_robot():
     router = load_router()
     data = [0] * (15 * 7)
-    data[3 * 15 + 7] = 100
+    data[3 * 15 + 7] = -1
     occupancy = grid(data, width=15, height=7)
 
     # The robot may currently face +X, but a fixed goal at -X must keep the

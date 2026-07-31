@@ -229,6 +229,9 @@ class SpoolMappingPipeline:
         self.skipped_non_keyframes = 0
         self.pose_jump_events = 0
         self.ground_rejected_frames = 0
+        self.ground_rejection_streak = 0
+        self.ground_rejection_streak_start_capture_time_ns: int | None = None
+        self.last_ground_rejection_duration_s = 0.0
         self.ground_drift_frames = 0
         self.ground_drift_events = 0
         self.ground_drift_streak = 0
@@ -301,6 +304,36 @@ class SpoolMappingPipeline:
         self.ground_drift_streak_start_capture_time_ns = None
         self.last_ground_drift_duration_s = 0.0
         self.ground_drift_candidate_planes = []
+
+    def _record_ground_rejection(self, capture_time_ns: int) -> None:
+        """Track consecutive failed floor fits on the source clock.
+
+        A cumulative rejection counter cannot distinguish one intermittent
+        bad frame from a mapper which has stopped accepting geometry.  The
+        input freezer uses this bounded consecutive interval to fail closed
+        instead of pairing current RGB/VLM evidence with an indefinitely old
+        BEV.
+        """
+
+        start_ns = self.ground_rejection_streak_start_capture_time_ns
+        if (
+            self.ground_rejection_streak == 0
+            or start_ns is None
+            or capture_time_ns < start_ns
+        ):
+            self.ground_rejection_streak = 1
+            self.ground_rejection_streak_start_capture_time_ns = capture_time_ns
+            self.last_ground_rejection_duration_s = 0.0
+            return
+        self.ground_rejection_streak += 1
+        self.last_ground_rejection_duration_s = (
+            capture_time_ns - start_ns
+        ) / 1e9
+
+    def _reset_ground_rejection(self) -> None:
+        self.ground_rejection_streak = 0
+        self.ground_rejection_streak_start_capture_time_ns = None
+        self.last_ground_rejection_duration_s = 0.0
 
     def _record_ground_drift_motion(
         self,
@@ -577,6 +610,7 @@ class SpoolMappingPipeline:
                 or ground_candidate.plane_coefficients is None
             ):
                 self.ground_rejected_frames += 1
+                self._record_ground_rejection(capture_time_ns)
                 # A missing/invalid plane breaks consecutiveness.  It gives
                 # no evidence that drift persists, and the frame is already
                 # excluded from both the pose gate and map integration.
@@ -589,6 +623,8 @@ class SpoolMappingPipeline:
                     0.0,
                     0.0,
                 )
+
+            self._reset_ground_rejection()
 
             reference_plane = self.ground_reference_plane_coefficients
             camera_xy = observation.T_shared_camera[:2, 3]
@@ -1036,6 +1072,10 @@ class SpoolMappingPipeline:
             "skipped_non_keyframes": self.skipped_non_keyframes,
             "pose_jump_events": self.pose_jump_events,
             "ground_rejected_frames": self.ground_rejected_frames,
+            "ground_rejection_streak": self.ground_rejection_streak,
+            "ground_rejection_duration_s": (
+                self.last_ground_rejection_duration_s
+            ),
             "ground_drift_frames": self.ground_drift_frames,
             "ground_drift_events": self.ground_drift_events,
             "ground_drift_streak": self.ground_drift_streak,
@@ -1124,6 +1164,10 @@ class SpoolMappingPipeline:
                 ),
                 "last_sequence": self.last_ground_sequence,
                 "last_reason": self.last_ground_reason,
+                "rejection_streak": self.ground_rejection_streak,
+                "rejection_duration_s": (
+                    self.last_ground_rejection_duration_s
+                ),
                 "last_tilt_delta_deg": self.last_ground_tilt_delta_deg,
                 "last_height_delta_m": self.last_ground_height_delta_m,
                 "last_drift_duration_s": self.last_ground_drift_duration_s,

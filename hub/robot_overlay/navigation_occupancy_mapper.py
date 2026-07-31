@@ -242,7 +242,7 @@ class NavigationOccupancyMapper(source_mapper.OccupancyMapperNode):
             "runtime_adapter": "focus-navigation-occupancy-v1",
             "occupied_voxel_visualization": "disabled_unbounded_work",
             "current_footprint_policy": (
-                "measured_base_camera_source_footprint_clear"
+                "fill_cropped_unknown_current_footprint_preserve_obstacles"
             ),
             "current_footprint_shape": self._footprint_shape,
             "current_footprint_cleared_cells": (

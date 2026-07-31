@@ -171,6 +171,10 @@ def write_camera_snapshot(
         "ground_drift_motion_rotation_deg": (
             pipeline.ground_drift_motion_rotation_deg
         ),
+        "ground_rejection_streak": pipeline.ground_rejection_streak,
+        "ground_rejection_duration_s": (
+            pipeline.last_ground_rejection_duration_s
+        ),
         "ground_drift_last_motion_capture_time_ns": (
             pipeline.ground_drift_last_motion_capture_time_ns
         ),

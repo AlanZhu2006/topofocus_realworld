@@ -101,10 +101,14 @@ def test_save_writes_a_loadable_npz_with_no_stray_tmp_files(tmp_path):
     summary = json.loads((tmp_path / "map_summary.json").read_text())
     assert summary["obstacle_band_m"] == [0.25, 1.5]
     assert summary["ground_drift_frames"] == 0
+    assert summary["ground_rejection_streak"] == 0
+    assert summary["ground_rejection_duration_s"] == 0.0
     assert summary["ground_drift_streak"] == 0
     assert summary["ground_drift_reference_rebases"] == 0
     assert summary["ground_guard"]["consecutive_frames_to_latch"] == 3
     assert summary["ground_guard"]["minimum_duration_s_to_latch"] == 5.0
+    assert summary["ground_guard"]["rejection_streak"] == 0
+    assert summary["ground_guard"]["rejection_duration_s"] == 0.0
     assert summary["semantic_mapping"]["pixel_segmenter"]["backend"] == (
         "rednet_mp3d40"
     )

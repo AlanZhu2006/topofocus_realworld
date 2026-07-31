@@ -97,6 +97,25 @@ def test_current_circle_clears_only_cells_inside_measured_radius():
     assert np.all(cleared.occupancy_grid[outside & newly_padded] == -1)
 
 
+def test_current_footprint_fill_never_erases_observed_obstacle():
+    source = make_bev()
+    source.occupancy_grid[1, 1] = np.int8(100)
+    source.occupancy_probability[1, 1] = np.float32(1.0)
+    source.free_probability[1, 1] = np.float32(0.0)
+    source.explored[1, 1] = np.uint8(1)
+
+    cleared, _ = clear_current_footprint(
+        source,
+        pose(0.15, 0.15),
+        shape="circle",
+        radius_m=0.11,
+    )
+
+    assert cleared.occupancy_grid[1, 1] == 100
+    assert cleared.occupancy_probability[1, 1] == 1.0
+    assert cleared.free_probability[1, 1] == 0.0
+
+
 def test_navigation_mapper_omits_unbounded_voxel_visualization_work():
     overlay = Path(__file__).resolve().parents[1] / "robot_overlay"
     source = (overlay / "navigation_occupancy_mapper.py").read_text(

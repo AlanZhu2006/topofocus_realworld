@@ -122,6 +122,8 @@ frame. The board is then moved by at least 10 cm or rotated by at least 5°
 and re-observed as an independent holdout — the calibration is accepted
 only if it also explains this second, independently moved observation.
 
+> **Note:** Glass, mirrors, low-texture surfaces and extreme lighting can degrade depth sensing and localization; adjust the viewing direction or use another scene, then revalidate tracking before a run.
+
 ## Evaluation settings
 
 | Scene | Target | Navigation setting |
@@ -448,18 +450,30 @@ SPL uses the independently measured approximate shortest feasible path
 
 ## Scene 04 · Cooperative Plant
 
-The currently archived run reached the 600-second test limit before finding
-and reaching a verified plant target.
+Two formal failures are currently archived. Formal 01 ended when no remaining
+frontier had a safe executable allocation; Formal 04 reached the 600-second
+test limit. Neither run reached a verified plant target.
 
 | Recorded trials | Success | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `1` | `0` | `0.0` | `0.0` | `0.0` |
+| `2` | `0` | `0.0` | `0.0` | `0.0` |
 
-### Real-robot rollout
+### Real-robot rollouts
 
 <table>
   <tr>
-    <td align="center">
+    <td width="50%" align="center">
+      <strong>Formal 01 · FAILURE</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene04_formal_01_preview.gif" width="440" alt="Scene 04 Formal 01 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene04_formal_01_dashboard.gif" width="440" alt="Scene 04 Formal 01 failure dashboard"><br>
+      Exploration ended after no remaining frontier had a safe executable
+      allocation; no verified plant target was reached.<br>
+      <a href="media/demo/scene04_formal_01_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene04_formal_01_dashboard.mp4">Dashboard</a>
+    </td>
+    <td width="50%" align="center">
       <strong>Formal 04 · FAILURE</strong><br>
       <small>Third view</small><br>
       <img src="media/demo/scene04_formal_04_preview.gif" width="440" alt="Scene 04 Formal 04 failure rollout"><br>
@@ -477,7 +491,9 @@ and reaching a verified plant target.
 
 | Run | Result | Exploration rounds | Robot 0 trajectory | Robot 1 trajectory | Source-compatible SPL | Standard SPL |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Formal 01 | FAILURE | `15` | `10.461142 m` | `14.271182 m` | `0.0` | `0.0` |
 | Formal 04 | FAILURE | `17` | `12.917490 m` | `19.608723 m` | `0.0` | `0.0` |
 
-[Formal 04 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md)
+[Formal 01 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260801.md)
+· [Formal 04 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md)
 · [Machine-readable results](manifests/scene04_plant_formal_experiments_20260731.json)

@@ -90,10 +90,12 @@ MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry
 # input.  Its observed interval can also exceed 2 s under live perception load.
 SLAM_DATA_TIMEOUT_S="${FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0}"
-START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
-# The navigation map explicitly clears the source rectangular Go2 footprint.
-# Retain the original bounded radial graph bridge; unknown cells outside the
-# measured current-base region remain blocked.
+# The Go2 half-width plus the existing local safety margin is approximately
+# 0.20 m. The graph must not reduce that to a one-cell point route.
+REACHABILITY_CLEARANCE_M="${FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.20}"
+# A seed outside the measured 0.35 m current footprint is a virtual pose jump,
+# not a verified escape path. Keep the Hub, startup verifier and router equal.
+START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.35}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 # The source semantic mask keeps its radius-10-cell approach region unchanged.
 # The selected semantic approach point is already on the source radius-10-cell
@@ -456,7 +458,7 @@ sensor_map_verifier=(
   --maximum-occupancy-update-interval-s 4.0
   --require-reachable-start
   --base-camera-calibration-file "$BASE_CAMERA_CALIBRATION_FILE"
-  --reachability-clearance-m 0.05
+  --reachability-clearance-m "$REACHABILITY_CLEARANCE_M"
   --start-snap-radius-m "$START_SNAP_RADIUS_M"
   --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"
 )
@@ -795,7 +797,7 @@ if [[ "$mode" == live ]] \
   exit 1
 fi
 
-goal_router_command="bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id world --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\" --max-plan-expansions \"$MAX_PLAN_EXPANSIONS\" --max-plan-duration-s \"$MAX_PLAN_DURATION_S\"'"
+goal_router_command="bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id world --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m \"$REACHABILITY_CLEARANCE_M\" --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\" --max-plan-expansions \"$MAX_PLAN_EXPANSIONS\" --max-plan-duration-s \"$MAX_PLAN_DURATION_S\"'"
 if [[ "$reuse_verified_debug_core" == true ]]; then
   component_contract_matches \
     goal-router "$goal_router_command" "tinynav_buildmap_goal_router.py" || {
@@ -871,6 +873,7 @@ receiver=(
   --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"
   --reject-reverse-trajectory
   --reject-stalled-turn
+  --reachability-clearance-m "$REACHABILITY_CLEARANCE_M"
   --start-snap-radius-m "$START_SNAP_RADIUS_M"
   --start-footprint-override-m "$START_FOOTPRINT_OVERRIDE_M"
   --alignment-output "$alignment"

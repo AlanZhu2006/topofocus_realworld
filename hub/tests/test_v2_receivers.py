@@ -689,10 +689,17 @@ def test_planner_target_refresh_requires_same_active_ready_leg_at_zero_velocity(
     }
 
     assert wsj.planner_target_refresh_eligible(**ready) is True
+    assert wsj.planner_target_refresh_eligible(
+        **{
+            **ready,
+            "trajectory_fresh": True,
+            "trajectory_age_s": 0.1,
+            "all_candidates_in_collision": True,
+        }
+    ) is True
     for field, value in (
         ("trajectory_fresh", True),
         ("trajectory_failed", True),
-        ("all_candidates_in_collision", True),
         ("router_recovery_gate_closed", True),
         ("router_state", "HOLD"),
         ("router_decision_id", "another-decision"),
@@ -700,6 +707,32 @@ def test_planner_target_refresh_requires_same_active_ready_leg_at_zero_velocity(
     ):
         candidate = {**ready, field: value}
         assert wsj.planner_target_refresh_eligible(**candidate) is False
+
+    assert wsj.planner_target_refresh_eligible(
+        **{
+            **ready,
+            "trajectory_fresh": True,
+            "trajectory_age_s": 0.1,
+            "all_candidates_in_collision": False,
+        }
+    ) is False
+
+
+def test_collision_target_refresh_is_single_attempt_and_post_verdict_scoped():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "robot_overlay/v2_wsj_receiver.py"
+    ).read_text(encoding="utf-8")
+
+    assert "self.planner_collision_refresh_count >= 1" in source
+    assert "self.planner_collision_refresh_pending = True" in source
+    assert "self.planner_candidate_status_received_ns = 0" in source
+    assert "and refresh_attempt is None" in source
+    assert (
+        "Only this new evidence may start\n"
+        "                # (or clear) the terminal all-collision interval."
+        in source
+    )
 
 
 def test_planner_candidate_status_is_strictly_validated():

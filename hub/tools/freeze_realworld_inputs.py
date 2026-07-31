@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -61,6 +62,45 @@ WSJ_RECOVERED_MAPPING_HEALTH = re.compile(
     r"^slam_optimizer_imu_valid_after_overwrite_recovery:"
     r"[1-9][0-9]*;covariance_unavailable$"
 )
+MAX_SUSTAINED_GROUND_REJECTION_S = 5.0
+MIN_SUSTAINED_GROUND_REJECTION_FRAMES = 3
+
+
+def reject_sustained_stale_geometry(
+    robot_id: str,
+    summary: dict[str, object],
+    status: dict[str, object],
+) -> None:
+    """Reject current perception paired with a persistently frozen BEV."""
+
+    # live_status is written on the fast camera/status cadence.  Fall back to
+    # the atomic map summary only for fixtures or a status writer from the
+    # same deployment which has not yet emitted the new fields.
+    source = (
+        status
+        if "ground_rejection_streak" in status
+        else summary
+    )
+    streak = source.get("ground_rejection_streak", 0)
+    duration_s = source.get("ground_rejection_duration_s", 0.0)
+    if (
+        isinstance(streak, bool)
+        or not isinstance(streak, int)
+        or isinstance(duration_s, bool)
+        or not isinstance(duration_s, (int, float))
+        or streak < 0
+        or not math.isfinite(float(duration_s))
+        or float(duration_s) < 0.0
+    ):
+        raise ValueError(f"{robot_id} ground rejection status is malformed")
+    if (
+        streak >= MIN_SUSTAINED_GROUND_REJECTION_FRAMES
+        and float(duration_s) > MAX_SUSTAINED_GROUND_REJECTION_S
+    ):
+        raise ValueError(
+            f"{robot_id} map geometry stale after sustained ground "
+            f"rejection: frames={streak}, duration_s={float(duration_s):.3f}"
+        )
 
 
 def mapping_health_classification(
@@ -206,6 +246,7 @@ def validate_frozen_robot(
                 f"{robot_id} frozen map blocked: "
                 f"{payload.get('mapping_blocked_reason')}"
             )
+    reject_sustained_stale_geometry(robot_id, summary, status)
     if snapshot.frame_id != "shared_world":
         raise ValueError(f"{robot_id} map snapshot frame mismatch")
     if snapshot.transform_version != robot.transform_version:

@@ -525,8 +525,9 @@ class OccupancyGrid2D:
         disk centered on the measured base. This mirrors the source agent's
         current-pose traversible override without changing the occupancy grid:
         the returned seed must still be genuinely known-free with the requested
-        clearance, and no occupied/unknown cell wholly outside the measured
-        footprint is crossed.
+        clearance. Observed occupied cells are never overridden; only cropped
+        unknown cells inside the measured footprint may be synthesized as the
+        current-base escape region.
 
         Returning the complete escape path is important: a caller must not
         silently start its route at a seed up to a metre away and command a
@@ -592,9 +593,9 @@ class OccupancyGrid2D:
                 > max_distance_m * max_distance_m + 1e-12
             ):
                 return None
-        if (
-            self.data[start[0] * self.width + start[1]] != 0
-            and start_footprint_override_m <= 0
+        start_value = self.data[start[0] * self.width + start[1]]
+        if start_value > 0 or (
+            start_value < 0 and start_footprint_override_m <= 0
         ):
             return None
 
@@ -682,7 +683,9 @@ class OccupancyGrid2D:
                     )
                     <= footprint_distance_sq + 1e-12
                 )
-                if check_value != 0 and not inside_measured_footprint:
+                if check_value > 0 or (
+                    check_value < 0 and not inside_measured_footprint
+                ):
                     continue
                 reached.add(candidate_cell)
                 parent[candidate_cell] = (row, column)

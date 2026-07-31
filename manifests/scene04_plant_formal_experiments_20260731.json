@@ -4,15 +4,31 @@
   "target_category": "plant",
   "campaign_status": "in_progress",
   "planned_formal_experiments": 5,
-  "recorded_formal_experiments": 1,
+  "recorded_formal_experiments": 2,
   "successes": 0,
-  "failures": 1,
+  "failures": 2,
   "sr": 0.0,
   "aggregate_metrics": {
     "mean_source_compatible_spl_with_failures_zero": 0.0,
     "mean_standard_spl_with_failures_zero": 0.0
   },
   "experiments": [
+    {
+      "formal_index": 1,
+      "result": "FAILURE",
+      "source_rounds_completed": 15,
+      "robot_0_actual_path_length_m": 10.461141874492421,
+      "robot_1_actual_path_length_m": 14.271182196881805,
+      "source_compatible_spl": 0.0,
+      "standard_spl": 0.0,
+      "public_summary": "Exploration ended after no remaining source-derived frontier had a safe executable allocation; no verified plant target was reached.",
+      "record": {
+        "path": "manifests/scene04_plant_formal_experiment_01_failure_20260801.json",
+        "size_bytes": 13374,
+        "sha256": "5532bf3e956be2487b2c7ad214a4b593f10b2d78179cb5645b6fa2abadb4f360",
+        "classification": "authoritative machine-readable Scene 04 Formal 01 failure archive"
+      }
+    },
     {
       "formal_index": 4,
       "result": "FAILURE",

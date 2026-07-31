@@ -1,0 +1,295 @@
+{
+  "schema_version": "focus-scene-formal-experiment-v1",
+  "scene_id": "scene04-plant",
+  "target_category": "plant",
+  "formal_index": 1,
+  "result": "FAILURE",
+  "session_id": "scene04-plant-20260801-formal01-recal3",
+  "episode_id": "scene04-formal01-recal3",
+  "session_git_commit": "9d3890cb62c3081b5ba87b4928bb343ea9c07252",
+  "calibration_id": "shared-board-odin1-scene04-plant-20260801-recal3-v1",
+  "operator_evidence": {
+    "motion_authorization": "当前操作者在场，两台机器人已站立且周围净空，允许 Scene 04 Formal 01 本轮真机运动。",
+    "post_run_result_designation": "归档为fail吧 完整归档",
+    "post_run_observations": [
+      "Robot 1 appeared to have a physically approachable route toward frontier A.",
+      "Robot 0 made operator-observed wall contact near the beginning of the run."
+    ],
+    "classification": "observed operator authorization, failure designation and onsite behavior report"
+  },
+  "failure_attribution": {
+    "category": "execution_engineering_failure/no_safe_goal_allocation",
+    "public_summary": "Exploration ended after no remaining source-derived frontier had a safe executable allocation; no verified plant target was reached.",
+    "automatic_outcome": "failed_no_safe_goal_allocation_holding",
+    "counts_in_scene04_metric_track": true
+  },
+  "automatic_result": {
+    "outcome": "failed_no_safe_goal_allocation_holding",
+    "automatic_terminal_candidate_complete": false,
+    "official_success_verified": false,
+    "target_found": false,
+    "terminal_evidence": null,
+    "source_rounds_completed": 15,
+    "terminal_source_step": 374,
+    "high_level_batches_published": 64,
+    "velocity_zero_confirmed": true
+  },
+  "metrics": {
+    "success": 0,
+    "sr": 0.0,
+    "source_compatible_spl": 0.0,
+    "standard_spl": 0.0,
+    "standard_spl_status": "zero contribution because S=0; no shortest-path value is required for this failure",
+    "robot_0_actual_path_length_m": 10.461141874492421,
+    "robot_0_start_to_stop_displacement_m": 1.3476429319869776,
+    "robot_1_actual_path_length_m": 14.271182196881805,
+    "robot_1_start_to_stop_displacement_m": 3.937275332913312
+  },
+  "execution": {
+    "started_at": "2026-08-01T05:06:48.107890+08:00",
+    "finished_at": "2026-08-01T05:15:01.563375+08:00",
+    "observed_event_span_s": 493.455485404,
+    "source_rounds_completed": 15,
+    "source_steps_completed": [
+      0,
+      24,
+      49,
+      74,
+      99,
+      124,
+      149,
+      174,
+      199,
+      224,
+      249,
+      274,
+      299,
+      324,
+      349
+    ],
+    "terminal_allocation_source_step": 374,
+    "high_level_batches_published": 64,
+    "robots": {
+      "robot-0": {
+        "actual_path_length_m": 10.461141874492421,
+        "start_pose": {
+          "frame_id": "robot-0/map",
+          "x": -0.038325315345102334,
+          "y": -0.3820510121737421,
+          "yaw_rad": 0.7203441192248766
+        },
+        "stop_pose": {
+          "frame_id": "robot-0/map",
+          "x": -0.9258511699128054,
+          "y": 0.6320689657422468,
+          "yaw_rad": 0.7203441192248766
+        },
+        "terminal_observation_sequence": 154950,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD",
+        "velocity_zero_confirmed": true
+      },
+      "robot-1": {
+        "actual_path_length_m": 14.271182196881805,
+        "start_pose": {
+          "frame_id": "robot-1/map",
+          "x": 1.164454932052939,
+          "y": -0.0798822414135465,
+          "yaw_rad": -0.969204425392419
+        },
+        "stop_pose": {
+          "frame_id": "robot-1/map",
+          "x": -1.8371059098570346,
+          "y": -2.6279735976016103,
+          "yaw_rad": -0.969204425392419
+        },
+        "terminal_observation_sequence": 387382,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD",
+        "velocity_zero_confirmed": true
+      }
+    }
+  },
+  "diagnostics": {
+    "robot_1_frontier_a": {
+      "classification": "observed robot-local rejection plus source-derived frozen-map geometry",
+      "round_index": 12,
+      "source_step": 299,
+      "selection_lineage": "source-ranked frontier A replaced the VLM-selected B after B matched prior robot-local failure memory",
+      "shared_start_xy_m": [
+        -2.567982958148779,
+        1.7702382954289047
+      ],
+      "shared_start_heading_deg": -124.86395364955871,
+      "execution_target_xy_m": [
+        4.817169498846093,
+        3.0578812383225706
+      ],
+      "target_distance_m": 7.496565957919749,
+      "target_bearing_deg": 9.890419230552538,
+      "initial_heading_change_deg": 134.75437288011125,
+      "frozen_global_map_assessment": {
+        "target_known_free": true,
+        "target_reachable_known_free": true,
+        "target_clearance_m": 0.41231056256176607,
+        "safe_approach_cell_count": 196,
+        "reachable_footprint_clear_cell_count": 7189,
+        "pass_mode": "distance_bounded_safe_partial_progress"
+      },
+      "robot_local_result": {
+        "status": "REJECTED",
+        "reason_code": "LOCAL_GOAL_UNREACHABLE",
+        "detail": "TinyNav continuously scored every local trajectory candidate as collision; collision_age_s=7.220; finite_candidates=0/416",
+        "resolved_local_goal": null,
+        "velocity_zero_confirmed": true
+      },
+      "conclusion": "Frontier A was not globally proven unreachable. Execution failed at the robot-local near-field layer before motion because no collision-finite initial trajectory, including the required large heading recovery, was available."
+    },
+    "robot_0_start_and_mapping": {
+      "classification": "operator-observed initial contact plus source-derived frozen-map and mapping-health evidence",
+      "operator_observed_initial_wall_contact": true,
+      "round_0_tracking": {
+        "pose_jump_events": 0,
+        "mapping_blocked_reason": null,
+        "last_ground_reason": "accepted",
+        "target_heading_delta_deg": 17.269808143143962
+      },
+      "round_0_start_projection": {
+        "actual_start_to_seed_distance_m": 0.37595855833517927,
+        "maximum_allowed_start_seed_distance_m": 0.75,
+        "required_robot_clearance_m": 0.35,
+        "projection_path_clearance_m": 0.05,
+        "pass_mode": "bounded_safe_approach_projection"
+      },
+      "mapping_update_starvation": {
+        "first_clear_evidence_round_index": 2,
+        "last_integrated_map_sequence": 154467,
+        "terminal_observation_sequence": 154981,
+        "terminal_perception_map_sequence_gap": 514,
+        "terminal_ground_rejected_frames": 509,
+        "terminal_ground_reason": "insufficient_candidates",
+        "pose_jump_events": 0,
+        "mapping_blocked_reason": null
+      },
+      "conclusion": "The logs do not show a discrete tracking-epoch or pose-jump loss before the operator-observed contact. They do show an unsafe start-seed/clearance mismatch at launch, followed by sustained geometry-map update starvation; the latter made the displayed shared pose evolve against geometry frozen at sequence 154467."
+    }
+  },
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-formal01-recal3_live_scene04_20260801_050647_761155680/episode_report.json",
+      "size_bytes": 10189,
+      "sha256": "93f59092a5fa169ab83e9a38a605948ebc75a3d263ff654fb7abdc709d914e8a",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-formal01-recal3_live_scene04_20260801_050647_761155680/controller_events.jsonl",
+      "size_bytes": 252139,
+      "sha256": "0088910f71a61e750326aefced12d9f9423a3e3c580fa429377c26206192d501",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-formal01-recal3_live_scene04_20260801_050647_761155680/scene_manifest.json",
+      "size_bytes": 237613,
+      "sha256": "be7c143bb60b4a57ef024426bfda723e80b11aecb13793a93a1af4de82179ea3",
+      "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-formal01-recal3_live_scene04_20260801_050647_761155680/navigation_failure_memory.json",
+      "size_bytes": 19100,
+      "sha256": "8873363dffea348c5104baec186ffcd19cd908ff123aca49bbec52966a416176",
+      "classification": "source-derived bounded navigation-failure memory; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-formal01-recal3_live_scene04_20260801_050647_761155680/round_00_step_000/frontier_clearance_guard.json",
+      "size_bytes": 11954,
+      "sha256": "e0b82848d5da3dd0a0033419449edd401b814bc8bd7e8e220c86a54f803a1762",
+      "classification": "source-derived Robot 0 launch clearance and start-seed evidence; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-formal01-recal3_live_scene04_20260801_050647_761155680/round_12_step_299/frontier_clearance_guard.json",
+      "size_bytes": 28583,
+      "sha256": "143cf799981a84abf41563ad0789b9e8249692c1ca5cfcf752935fde583b1cf7",
+      "classification": "source-derived Robot 1 frontier A global reachability evidence; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-formal01-recal3_live_scene04_20260801_050647_761155680/round_12_step_299/navigation_failure_memory_after_round.json",
+      "size_bytes": 15842,
+      "sha256": "50b65abb8e845b6503f82ea89279787cdf96705e1c3e1bd78470febc57baf6b1",
+      "classification": "observed Robot 1 local rejection mirrored into source-derived failure memory; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-formal01-recal3_live_scene04_20260801_050647_761155680/round_15_step_374/freeze_result.json",
+      "size_bytes": 8797,
+      "sha256": "ed93e0f7facbe678359b920c892dd562789634f5560bde265e9a04e7805626ad",
+      "classification": "observed strict terminal input freeze including Robot 0 map-sequence gap; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene04-plant-20260801-formal01-recal3/session.json",
+      "size_bytes": 4269,
+      "sha256": "fb3405e7991c7b2d7c1148dcf716344ea805a6a0c1ac21e4e43d632203c7fd2a",
+      "classification": "source-derived exact session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene04-plant-20260801-recal3/shared_frame.json",
+      "size_bytes": 6443,
+      "sha256": "d726fab35f5518fe970d87abf99fefded89db5b98ae14b0223020b9c661454b3",
+      "classification": "observed and source-derived shared-frame calibration; runtime file ignored by Git"
+    }
+  ],
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_4/experiment_4_failure_1.mp4",
+      "size_bytes": 13518119,
+      "duration_s": 181.933333,
+      "sha256": "1f17f99e7fcff7207b4f55093d98e408f8f14d85f08fffa5bd3169abde5fbae3",
+      "embedded_creation_time": "2026-08-01T05:17:37+08:00",
+      "classification": "observed user-provided external-view master created immediately after the run; preserved byte-for-byte through Git LFS"
+    },
+    {
+      "path": "media/video/dashboard/experiment_4/experiment_4_failure_1_dashboard.mov",
+      "size_bytes": 183782374,
+      "duration_s": 349.948,
+      "sha256": "45693378b070ad4be5de2bae510c36e054520dd8d06ccbc785fbbe5f8fc94d0c",
+      "embedded_creation_time": "2026-08-01T05:18:41+08:00",
+      "classification": "observed user-provided Dashboard master created immediately after the run; preserved byte-for-byte through Git LFS"
+    },
+    {
+      "path": "media/demo/scene04_formal_01_third_view.mp4",
+      "size_bytes": 9290988,
+      "duration_s": 181.934,
+      "sha256": "9ddc2d015557604a4204151b2498ac844cfa5fd22b18840ca348febbb78cce8a",
+      "classification": "source-derived H.264 yuv420p browser-ready third view"
+    },
+    {
+      "path": "media/demo/scene04_formal_01_dashboard.mp4",
+      "size_bytes": 4027535,
+      "duration_s": 349.948,
+      "sha256": "6d6a3ee924ba87a07c02f597e46f069d93a8e2d424379e581c886f5eece647e4",
+      "classification": "source-derived H.264 yuv420p browser-ready Dashboard scaled to 1280 pixels wide"
+    },
+    {
+      "path": "media/demo/scene04_formal_01_preview.gif",
+      "size_bytes": 4427085,
+      "duration_s": 8.01,
+      "frames": 64,
+      "sha256": "3516e06f0b71ba6214643c196f47d6ef5c67e9a2ab78dfccd60eff1609cf7e08",
+      "classification": "source-derived full-clip time-lapse third-view preview"
+    },
+    {
+      "path": "media/demo/scene04_formal_01_dashboard.gif",
+      "size_bytes": 612855,
+      "duration_s": 8.01,
+      "frames": 64,
+      "sha256": "723b5ff7d85d844a62f38e48606235fa5cf796f3874756c8d1f58dcfc0d83339",
+      "classification": "source-derived full-clip time-lapse Dashboard preview"
+    }
+  ],
+  "media_status": "user-provided masters and browser-ready derivatives are bound by size, duration and SHA-256",
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "terminal_hold_reason": "failed_no_safe_goal_allocation_holding",
+    "both_robot_zero_velocity_acknowledged": true,
+    "post_episode_motion_authority": false
+  }
+}

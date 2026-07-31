@@ -7,6 +7,10 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE04_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260801.md`](SCENE04_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260801.md):
+  Scene 04 Formal 01 no-safe-allocation failure, dual-robot paths, Robot 1
+  frontier-A global/local disagreement, Robot 0 launch and map-starvation
+  diagnosis, zero-valued SR/SPL and fail-closed terminal state.
 - [`SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md`](SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md):
   Scene 04 Formal 04 time-limit failure, 17 exploration rounds, exact
   dual-robot paths, zero-valued SR/SPL and fail-closed terminal state.

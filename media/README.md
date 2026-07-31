@@ -99,13 +99,22 @@ and its five linked per-run manifests.
 
 # Scene 04 media
 
-Scene 04 currently contains the archived Formal 04 time-limit failure.
+Scene 04 currently contains two archived failures: Formal 01 ended with no
+safe executable frontier allocation, and Formal 04 reached the time limit.
 User-provided masters are byte-preserved through Git LFS; browser-ready H.264
 files and 64-frame inline GIF previews are under `media/demo/`.
 
 | Run | Third-view master | Dashboard master | README previews |
 | --- | --- | --- | --- |
-| Formal 04 · FAILURE | [`experiment_4_failure_1.mp4`](video/third_view/experiment_4/experiment_4_failure_1.mp4) | [`experiment_4_failure_1.mov`](video/dashboard/experiment_4/experiment_4_failure_1.mov) | [Third view](demo/scene04_formal_04_preview.gif) · [Dashboard](demo/scene04_formal_04_dashboard.gif) |
+| Formal 01 · FAILURE | [`experiment_4_failure_1.mp4`](video/third_view/experiment_4/experiment_4_failure_1.mp4) | [`experiment_4_failure_1_dashboard.mov`](video/dashboard/experiment_4/experiment_4_failure_1_dashboard.mov) | [Third view](demo/scene04_formal_01_preview.gif) · [Dashboard](demo/scene04_formal_01_dashboard.gif) |
+| Formal 04 · FAILURE | Historical Git LFS object at `7eabe3d` | Historical Git LFS object at `7eabe3d` | [Third view](demo/scene04_formal_04_preview.gif) · [Dashboard](demo/scene04_formal_04_dashboard.gif) |
 
 Exact runtime binding, paths, durations and hashes are recorded in
-[`scene04_plant_formal_experiment_04_failure_20260731.json`](../manifests/scene04_plant_formal_experiment_04_failure_20260731.json).
+the linked
+[Formal 01](../manifests/scene04_plant_formal_experiment_01_failure_20260801.json)
+and
+[Formal 04](../manifests/scene04_plant_formal_experiment_04_failure_20260731.json)
+records. The current `failure_1` masters are the newly uploaded Formal 01
+files; the previously committed Formal 04 masters remain recoverable at
+commit `7eabe3d`, while its browser-ready derivatives remain at their stable
+public paths.

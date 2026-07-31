@@ -967,7 +967,11 @@ def freeze_next_round(
             # A latched map block is immutable for this map process/session.
             # Retrying it for the entire synchronization window cannot recover
             # and used to waste 45 seconds before the same controller HOLD.
-            if "map blocked:" in str(exc):
+            if (
+                "map blocked:" in str(exc)
+                or "map geometry stale after sustained ground rejection"
+                in str(exc)
+            ):
                 raise RuntimeError(f"non-recoverable round input: {exc}") from exc
             time.sleep(poll_s)
     raise TimeoutError(
@@ -1506,10 +1510,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--robot-0-frontier-path-clearance-m",
         type=float,
-        default=0.05,
+        default=0.20,
         help=(
-            "WSJ known-free graph clearance used only to reach a fully "
-            "footprint-clear projected endpoint; matches its local router"
+            "WSJ known-free graph clearance; at least the measured half-width "
+            "plus margin and matched by its local router"
         ),
     )
     parser.add_argument(
@@ -1524,10 +1528,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--robot-0-frontier-start-snap-radius-m",
         type=float,
-        default=0.75,
+        default=0.35,
         help=(
-            "WSJ bounded frozen-map start seed snap radius; independent of "
-            "footprint clearance and aligned with the robot-local router"
+            "WSJ frozen-map start seed snap radius, bounded to the measured "
+            "current footprint and aligned with the robot-local router"
         ),
     )
     parser.add_argument(
@@ -1692,6 +1696,10 @@ def main() -> int:
             "frontier path clearance must be positive and no greater than "
             "the matching endpoint footprint clearance"
         )
+    if args.robot_0_frontier_path_clearance_m < 0.20:
+        raise ValueError(
+            "robot-0 frontier path clearance must be at least 0.20 m"
+        )
     if not all(
         math.isfinite(snap_radius) and clearance <= snap_radius <= 2.0
         for clearance, snap_radius in (
@@ -1708,6 +1716,16 @@ def main() -> int:
         raise ValueError(
             "frontier start snap radii must be finite, at least the matching "
             "footprint clearance, and no greater than 2.0 m"
+        )
+    if not math.isclose(
+        args.robot_0_frontier_start_snap_radius_m,
+        args.robot_0_frontier_clearance_m,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ):
+        raise ValueError(
+            "robot-0 frontier start snap radius must equal its measured "
+            "footprint clearance"
         )
     if not all(
         math.isfinite(distance) and 1.0 <= distance < 8.0

@@ -106,11 +106,18 @@ are in
 
 | File | Bytes | Duration | SHA-256 |
 | --- | ---: | ---: | --- |
+| `scene04_formal_01_preview.gif` | 4,427,085 | 8.010 s | `3516e06f0b71ba6214643c196f47d6ef5c67e9a2ab78dfccd60eff1609cf7e08` |
+| `scene04_formal_01_dashboard.gif` | 612,855 | 8.010 s | `723b5ff7d85d844a62f38e48606235fa5cf796f3874756c8d1f58dcfc0d83339` |
+| `scene04_formal_01_third_view.mp4` | 9,290,988 | 181.934 s | `9ddc2d015557604a4204151b2498ac844cfa5fd22b18840ca348febbb78cce8a` |
+| `scene04_formal_01_dashboard.mp4` | 4,027,535 | 349.948 s | `6d6a3ee924ba87a07c02f597e46f069d93a8e2d424379e581c886f5eece647e4` |
 | `scene04_formal_04_preview.gif` | 5,792,348 | 8.010 s | `0ae072af9459116981e05a6fa3f8626397616a19003c3b8d90e48b5a85575f7e` |
 | `scene04_formal_04_dashboard.gif` | 1,227,049 | 8.010 s | `a143055f5860ca7dc2b9400160a7203466c1018c869aa296c516f44fb3b0c02a` |
 | `scene04_formal_04_third_view.mp4` | 26,293,785 | 327.734 s | `2687f46470b0974cbaf2b24342a7c17cc64bdd2943102b0e2e7db4068f288520` |
 | `scene04_formal_04_dashboard.mp4` | 5,001,383 | 441.200 s | `81e657eade443f37763e71e1962a40366b387eda2712cee0fb8548044d401089` |
 
-Both GIFs contain 64 frames at 8 fps and cover the complete corresponding
-display clip. Runtime and master-video provenance are in
-[`../../manifests/scene04_plant_formal_experiment_04_failure_20260731.json`](../../manifests/scene04_plant_formal_experiment_04_failure_20260731.json).
+All GIFs contain 64 frames at 8 fps and cover the complete corresponding
+display clip. Runtime and master-video provenance are in the linked
+[Formal 01](../../manifests/scene04_plant_formal_experiment_01_failure_20260801.json)
+and
+[Formal 04](../../manifests/scene04_plant_formal_experiment_04_failure_20260731.json)
+records.

@@ -29,11 +29,10 @@ MAP_TIMEOUT_S="${FOCUS_WSJ_MAP_TIMEOUT_S:-12.0}"
 # fail-closed while allowing that measured transient rather than rejecting the
 # first supervised goal at the old 1.0 s default.
 ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
-# The navigation occupancy adapter pads and clears the exact current 0.35 m
-# front/rear by 0.35 m half-width source footprint. Keep the graph's additional
-# radial bridge at the original 0.35 m; unknown space outside that bounded
-# current-base region is never admitted, and TinyNav remains final authority.
-START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
+# Preserve observed obstacles, fill only cropped unknown cells inside the
+# measured footprint, and require a centreline margin consistent with Go2.
+REACHABILITY_CLEARANCE_M="${FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.20}"
+START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.35}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 # Keep the semantic ARRIVED contract unchanged, but make online A* target its
 # interior rather than the first 5 cm cell on the terminal rim.
@@ -148,7 +147,7 @@ tmux new-window -d -t "$SESSION" -n planning \
 started_windows+=("planning")
 
 tmux new-window -d -t "$SESSION" -n goal-router \
-  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id \"$FRAME_ID\" --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m 0.05 --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\" --max-plan-expansions \"$MAX_PLAN_EXPANSIONS\" --max-plan-duration-s \"$MAX_PLAN_DURATION_S\"'"
+  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id \"$FRAME_ID\" --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m \"$REACHABILITY_CLEARANCE_M\" --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\" --max-plan-expansions \"$MAX_PLAN_EXPANSIONS\" --max-plan-duration-s \"$MAX_PLAN_DURATION_S\"'"
 started_windows+=("goal-router")
 
 tmux new-window -d -t "$SESSION" -n control \

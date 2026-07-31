@@ -323,8 +323,8 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-      "size_bytes": 40274,
-      "sha256": "1098ae0d703e277e10f0c4d365e5cc65aadfbb7a6c4eb0123a252cec3df1758a",
+      "size_bytes": 40551,
+      "sha256": "c71829e6cd77f3f81980f44915ae4b610cd9cb31e23ecd59e4952ce5d2c14910",
       "classification": "source-derived"
     },
     {
@@ -335,8 +335,8 @@
     },
     {
       "path": "hub/robot_overlay/navigation_occupancy_mapper.py",
-      "size_bytes": 13109,
-      "sha256": "0c4be18f1c4e6cf2365ead61ba79b8c1261cc4e8e54f4f54f87d4a895c5480d7",
+      "size_bytes": 13123,
+      "sha256": "487657e0c93a8bc982a832de112d68027c4e5de8445d5840edc5b5369a5d2b31",
       "classification": "source-derived"
     },
     {
@@ -359,8 +359,14 @@
     },
     {
       "path": "hub/src/focus_hub/navigation_occupancy.py",
-      "size_bytes": 5822,
-      "sha256": "896c14956752a47b9f6427e617ea50159516e736da7fd3a3ac7b6802ed49a9e2",
+      "size_bytes": 5965,
+      "sha256": "30e270138c67a09a302bb0d7b74cfa8cba18b4e8c9be2273dc377c39b1be0c23",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/pipeline.py",
+      "size_bytes": 57415,
+      "sha256": "a4d2d0a9530b1199c15710ed3d43bc6da351e7ac912132dac525f6b9d7a65381",
       "classification": "source-derived"
     },
     {
@@ -395,8 +401,8 @@
     },
     {
       "path": "hub/robot_overlay/v2_wsj_receiver.py",
-      "size_bytes": 219077,
-      "sha256": "85e5740412bdba61e268ee0ee6dcbe09f8c2aa5319b4d152ed47041eac3b8e3e",
+      "size_bytes": 221881,
+      "sha256": "cb075ec7b486ce59036e75bfb3b72e42ba43fc3aae39f76f918e684420a4edc1",
       "classification": "source-derived"
     },
     {
@@ -430,15 +436,33 @@
       "classification": "source-derived"
     },
     {
+      "path": "hub/src/focus_hub/v2_robot_runtime.py",
+      "size_bytes": 33173,
+      "sha256": "ff24d59b1feb47d81b266dc6b7d80288e35a1a14a73ea84e63281f7f252ac4eb",
+      "classification": "source-derived"
+    },
+    {
       "path": "hub/src/focus_hub/v2_source_replan.py",
       "size_bytes": 41024,
       "sha256": "81e273c8808ed86802d696f608fe09ee4ed64ce28f150af43d503f332d19ed2e",
       "classification": "source-derived"
     },
     {
+      "path": "hub/tools/freeze_realworld_inputs.py",
+      "size_bytes": 18971,
+      "sha256": "306be9f57ecbcd4e42be260da513a1e38f33b4d536269f32c7447cd29ed96af6",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/hub_pipeline_daemon.py",
+      "size_bytes": 56071,
+      "sha256": "c714488e2518ebb68a46a227487927138e2632e7cd413ef425efd3171d04bc54",
+      "classification": "source-derived"
+    },
+    {
       "path": "hub/tools/run_v2_source_episode.py",
-      "size_bytes": 135044,
-      "sha256": "a88518211c57f29dde9cb06edf4e7e6943a163c4942c5341aa01fd66d2e9833b",
+      "size_bytes": 135640,
+      "sha256": "9889f7fbf997e238603b980d89a7408c656e386d1e5db18adc95ee4248290ace",
       "classification": "source-derived"
     },
     {
@@ -521,8 +545,8 @@
     },
     {
       "path": "hub/robot_overlay/start_tinynav_buildmap_online_nav.sh",
-      "size_bytes": 9322,
-      "sha256": "8ec7e0ba65e9c40ea013ccf60a58ace5e681e7777f7c3d2f288652e131cc5a23",
+      "size_bytes": 9258,
+      "sha256": "892705cd9b354a116454a5d7f137625e3ed14af393e3d99aece4a3d10f13784d",
       "classification": "source-derived"
     },
     {

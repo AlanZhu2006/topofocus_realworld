@@ -32,9 +32,10 @@ def clear_current_footprint(
     """Pad a BEV to the measured base and clear only its current footprint.
 
     A forward camera can produce a tightly cropped grid which excludes the
-    base.  The robot's currently occupied physical footprint is known to be
-    collision-free for that robot, so a rolling costmap may clear exactly that
-    footprint.  Unknown cells outside it remain unknown.
+    base. A rolling costmap may synthesize free cells only where the forward
+    crop left the measured current footprint unknown. Already observed
+    occupied cells are retained: they may be a nearby wall rather than robot
+    self-hit. Unknown cells outside the measured footprint remain unknown.
 
     The returned object is a dataclass replacement; the source BEV and its
     arrays remain unchanged for provenance-preserving map serialization.
@@ -138,13 +139,14 @@ def clear_current_footprint(
     else:
         mask = local_x * local_x + local_y * local_y <= radius_m * radius_m
 
-    cleared_cells = int(np.count_nonzero(mask & (occupancy_grid != 0)))
-    occupancy_probability[mask] = np.float32(0.0)
-    free_probability[mask] = np.float32(1.0)
-    explored[mask] = np.uint8(1)
-    occupancy_grid[mask] = np.int8(0)
-    height_min[mask] = np.nan
-    height_max[mask] = np.nan
+    clearable = mask & (occupancy_grid < 0)
+    cleared_cells = int(np.count_nonzero(clearable))
+    occupancy_probability[clearable] = np.float32(0.0)
+    free_probability[clearable] = np.float32(1.0)
+    explored[clearable] = np.uint8(1)
+    occupancy_grid[clearable] = np.int8(0)
+    height_min[clearable] = np.nan
+    height_max[clearable] = np.nan
     return (
         replace(
             bev,

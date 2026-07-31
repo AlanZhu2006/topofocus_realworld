@@ -901,13 +901,15 @@ def planner_target_refresh_eligible(
 ) -> bool:
     """Allow only a same-leg, zero-velocity planner handoff repair."""
 
+    refresh_required = all_candidates_in_collision or (
+        not trajectory_fresh
+        and trajectory_age_s >= trajectory_stale_timeout_s
+    )
     if (
         not authorized
         or router_recovery_gate_closed
-        or all_candidates_in_collision
-        or trajectory_fresh
         or trajectory_failed
-        or trajectory_age_s < trajectory_stale_timeout_s
+        or not refresh_required
         or router_state != "NAVIGATING"
         or router_decision_id != active_decision_id
         or router_waypoint is None
@@ -1808,6 +1810,9 @@ def main() -> int:
             self.planner_candidate_count = 0
             self.planner_finite_candidate_count = 0
             self.planner_finite_in_place_candidate_count = 0
+            self.planner_collision_refresh_pending = False
+            self.planner_collision_refresh_requested_ns = 0
+            self.planner_collision_refresh_count = 0
             self.reverse_required = False
             self.reverse_required_received_ns = 0
             self.reverse_required_for_authority = False
@@ -2011,6 +2016,15 @@ def main() -> int:
                 emit("planner_candidate_status_rejected", error=str(exc))
                 return
             previous_received_ns = self.planner_candidate_status_received_ns
+            if (
+                self.planner_collision_refresh_pending
+                and received_ns
+                >= self.planner_collision_refresh_requested_ns
+            ):
+                # This is the first planner verdict produced after the
+                # bounded target republish.  Only this new evidence may start
+                # (or clear) the terminal all-collision interval.
+                self.planner_collision_refresh_pending = False
             all_collision = bool(status["all_candidates_in_collision"])
             self.planner_candidate_status_received_ns = received_ns
             self.planner_all_candidates_in_collision = all_collision
@@ -2050,6 +2064,19 @@ def main() -> int:
         def planner_collision_state(
             self, now_ns: int
         ) -> tuple[bool, bool, float, bool]:
+            if self.planner_collision_refresh_pending:
+                age_s = max(
+                    0.0,
+                    (
+                        now_ns
+                        - self.planner_collision_refresh_requested_ns
+                    )
+                    / 1e9,
+                )
+                # Keep velocity closed while waiting for a post-refresh
+                # lattice verdict, but never call the pre-refresh collision
+                # interval terminal.
+                return True, False, age_s, False
             return planner_collision_gate_state(
                 now_ns=now_ns,
                 authority_started_ns=self.authority_started_ns,
@@ -2274,6 +2301,9 @@ def main() -> int:
                     self.turn_stalled_for_authority = False
                     self.last_target_refresh_request_ns = 0
                     self.target_refresh_request_count = 0
+                    self.planner_collision_refresh_pending = False
+                    self.planner_collision_refresh_requested_ns = 0
+                    self.planner_collision_refresh_count = 0
                     self.planner_collision_since_ns = 0
                 self.authority_deadline_ns = expires_at_ns
                 self.authorized = True
@@ -2285,6 +2315,9 @@ def main() -> int:
             self.router_recovery_gate_closed = False
             self.last_target_refresh_request_ns = 0
             self.target_refresh_request_count = 0
+            self.planner_collision_refresh_pending = False
+            self.planner_collision_refresh_requested_ns = 0
+            self.planner_collision_refresh_count = 0
             self.planner_collision_since_ns = 0
             self.latest_guard_reason = "revoked"
             if live:
@@ -2414,10 +2447,16 @@ def main() -> int:
             decision_id: str,
             path_age_s: float,
             router_waypoint: tuple[float, float],
+            all_candidates_in_collision: bool = False,
         ) -> int | None:
             """Request bounded target re-publication without velocity output."""
 
             if not live or not self.authorized:
+                return None
+            if (
+                all_candidates_in_collision
+                and self.planner_collision_refresh_count >= 1
+            ):
                 return None
             now_ns = time.time_ns()
             if (
@@ -2444,10 +2483,22 @@ def main() -> int:
                         float(router_waypoint[0]),
                         float(router_waypoint[1]),
                     ],
+                    "trigger": (
+                        "all_candidates_in_collision"
+                        if all_candidates_in_collision
+                        else "trajectory_missing_or_stale"
+                    ),
                 },
                 separators=(",", ":"),
             )
             self.target_refresh_request_publisher.publish(message)
+            if all_candidates_in_collision:
+                self.planner_collision_refresh_count += 1
+                self.planner_collision_refresh_pending = True
+                self.planner_collision_refresh_requested_ns = now_ns
+                self.planner_candidate_status_received_ns = 0
+                self.planner_collision_since_ns = 0
+                self.planner_all_candidates_in_collision = False
             return self.target_refresh_request_count
 
         def resume_existing_goal(self, expires_at_ns: int) -> None:
@@ -4717,6 +4768,7 @@ def main() -> int:
                     refresh_router_waypoint,
                     _refresh_router_route_length_m,
                 ) = node.router_status_snapshot()
+                refresh_attempt: int | None = None
                 if (
                     now_ns < active_decision.expires_at_ns
                     and planner_target_refresh_eligible(
@@ -4745,6 +4797,9 @@ def main() -> int:
                         decision_id=active_decision.decision_id,
                         path_age_s=trajectory_age_s,
                         router_waypoint=refresh_router_waypoint,
+                        all_candidates_in_collision=(
+                            collision_gate_closed
+                        ),
                     )
                     if refresh_attempt is not None:
                         emit(
@@ -4762,7 +4817,9 @@ def main() -> int:
                                 refresh_router_waypoint
                             ),
                             velocity_gate=(
-                                "trajectory_missing_or_stale"
+                                "all_trajectories_in_collision"
+                                if collision_gate_closed
+                                else "trajectory_missing_or_stale"
                             ),
                         )
                 if time.time_ns() >= active_decision.expires_at_ns:
@@ -4784,6 +4841,7 @@ def main() -> int:
                 elif (
                     node.authorized
                     and collision_terminal
+                    and refresh_attempt is None
                     # A router-owned recovery has its own bounded terminal
                     # verdict and already keeps physical velocity at zero.
                     and router_recovery_leg_id

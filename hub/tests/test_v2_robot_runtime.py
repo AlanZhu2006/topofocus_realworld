@@ -295,11 +295,11 @@ def test_occupancy_cropped_boundary_uses_cell_footprint_not_cell_center():
     assert grid.point_in_component(0.0, 0.025, component)
 
 
-def test_occupancy_can_escape_only_the_measured_blocked_start_footprint():
+def test_occupancy_can_escape_only_the_measured_unknown_start_footprint():
     data = [0] * 121
     for row in range(3, 6):
         for column in range(3, 6):
-            data[row * 11 + column] = 100
+            data[row * 11 + column] = -1
     grid = OccupancyGrid2D(11, 11, 1.0, 0.0, 0.0, tuple(data))
 
     assert not grid.reachable_component(
@@ -322,9 +322,23 @@ def test_occupancy_can_escape_only_the_measured_blocked_start_footprint():
     assert grid.point_in_component(4.5, 1.5, component)
 
 
+def test_occupancy_never_escapes_through_observed_start_obstacle():
+    data = [0] * 121
+    data[4 * 11 + 4] = 100
+    grid = OccupancyGrid2D(11, 11, 1.0, 0.0, 0.0, tuple(data))
+
+    assert not grid.reachable_component(
+        4.5,
+        4.5,
+        clearance_cells=1,
+        start_snap_radius_m=4.0,
+        start_footprint_override_m=1.1,
+    )
+
+
 def test_clearance_seed_prefers_forward_over_slightly_nearer_reverse():
     data = [0] * (11 * 5)
-    data[2 * 11 + 4] = 100
+    data[2 * 11 + 4] = -1
     grid = OccupancyGrid2D(11, 5, 1.0, 0.0, 0.0, tuple(data))
 
     nearest = grid.nearest_clearance_seed_path(
