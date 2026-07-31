@@ -115,7 +115,7 @@ def find_board_pose(
     # carpet/IR blob candidates at 4x, while Odin's wider image needs OpenCV's
     # clustering pass to isolate the board.  The 2x fallbacks cover both cases
     # without cropping or operator-selected points.
-    detector_attempts = (
+    default_detector_attempts = (
         (4.0, cv2.CALIB_CB_SYMMETRIC_GRID, "default", False),
         (2.0, cv2.CALIB_CB_SYMMETRIC_GRID, "default", False),
         (
@@ -130,12 +130,26 @@ def find_board_pose(
             "clustering",
             False,
         ),
-        # RealSense infra1 calibration frames can contain high-contrast dark
-        # circles whose size/threshold range falls outside OpenCV's default
-        # SimpleBlobDetector profile.  Keep this geometry-checked fallback
-        # last so historical color-camera evidence retains identical solves.
-        (1.0, cv2.CALIB_CB_SYMMETRIC_GRID, "dark-infrared", True),
+    )
+    # RealSense infra1 calibration frames can contain high-contrast dark
+    # circles whose size/threshold range falls outside OpenCV's default
+    # SimpleBlobDetector profile.
+    infrared_detector_attempts = (
         (2.0, cv2.CALIB_CB_SYMMETRIC_GRID, "dark-infrared", True),
+        (1.0, cv2.CALIB_CB_SYMMETRIC_GRID, "dark-infrared", True),
+    )
+    # WSJ's native infra1 JPEG decodes with three identical channels.  Try its
+    # purpose-built detector first: the generic 4x clustering pass is both
+    # less reliable under projector speckle and needlessly slow.  Preserve the
+    # historical ordering for true colour frames from Yunji.
+    is_native_monochrome = bool(
+        np.array_equal(image[:, :, 0], image[:, :, 1])
+        and np.array_equal(image[:, :, 0], image[:, :, 2])
+    )
+    detector_attempts = (
+        infrared_detector_attempts + default_detector_attempts
+        if is_native_monochrome
+        else default_detector_attempts + infrared_detector_attempts
     )
     if min_adjacent_spacing_px < 0.0:
         raise ValueError("min_adjacent_spacing_px must be non-negative")
@@ -160,17 +174,24 @@ def find_board_pose(
         if use_dark_blob_detector:
             params = cv2.SimpleBlobDetector_Params()
             params.minThreshold = 5
-            params.maxThreshold = 55
-            params.thresholdStep = 2
+            # The D435i dot projector can lift the apparent intensity of the
+            # printed black circles well above the old value of 55.  Keep the
+            # dark-blob colour gate and area gate, but sweep far enough to
+            # retain those illuminated circles in native infra1 frames.
+            params.maxThreshold = 180
+            params.thresholdStep = 5
             params.filterByArea = True
-            params.minArea = 10 * upscale * upscale
-            params.maxArea = 400 * upscale * upscale
+            # Reject the much smaller projected/carpet speckles before grid
+            # clustering; retained board dots remain comfortably above this
+            # scale-normalized area in the accepted >=7 px-spacing captures.
+            params.minArea = 20 * upscale * upscale
+            params.maxArea = 500 * upscale * upscale
             params.filterByColor = True
             params.blobColor = 0
             params.filterByCircularity = False
             params.filterByConvexity = False
             params.filterByInertia = False
-            params.minDistBetweenBlobs = 3 * upscale
+            params.minDistBetweenBlobs = 4 * upscale
             blob_detector = cv2.SimpleBlobDetector_create(params)
         for pattern_size in ((cols, rows), (rows, cols)):
             if blob_detector is None:

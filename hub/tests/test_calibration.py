@@ -156,8 +156,10 @@ def test_board_pose_rejects_complete_but_too_small_grid(monkeypatch):
     )
     monkeypatch.setattr(board.cv2, "imread", lambda _path: image)
 
-    def fake_find_circles_grid(upscaled, pattern_size, *, flags):
-        del flags
+    def fake_find_circles_grid(
+        upscaled, pattern_size, *, flags, blobDetector=None
+    ):
+        del flags, blobDetector
         if pattern_size != (10, 7):
             return False, None
         scale = upscaled.shape[1] / image.shape[1]
@@ -179,3 +181,63 @@ def test_board_pose_rejects_complete_but_too_small_grid(monkeypatch):
             np.zeros(5),
             min_adjacent_spacing_px=7.0,
         )
+
+
+def test_infrared_blob_fallback_sweeps_projector_lifted_dark_circles(monkeypatch):
+    board = load_board_calibration_module()
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    centers = np.asarray(
+        [
+            [[10.0 + column * 8.0, 10.0 + row * 8.0]]
+            for row in range(7)
+            for column in range(10)
+        ],
+        dtype=np.float32,
+    )
+    detector_thresholds: dict[int, float] = {}
+    monkeypatch.setattr(board.cv2, "imread", lambda _path: image)
+
+    def fake_blob_detector_create(params):
+        detector = object()
+        detector_thresholds[id(detector)] = params.maxThreshold
+        return detector
+
+    def fake_find_circles_grid(
+        upscaled, pattern_size, *, flags, blobDetector=None
+    ):
+        del flags
+        if pattern_size != (10, 7) or blobDetector is None:
+            return False, None
+        if detector_thresholds[id(blobDetector)] < 180:
+            return False, None
+        scale = upscaled.shape[1] / image.shape[1]
+        return True, centers * scale
+
+    monkeypatch.setattr(
+        board.cv2,
+        "SimpleBlobDetector_create",
+        fake_blob_detector_create,
+    )
+    monkeypatch.setattr(board.cv2, "findCirclesGrid", fake_find_circles_grid)
+    monkeypatch.setattr(
+        board.cv2,
+        "solvePnP",
+        lambda *_args: (
+            True,
+            np.zeros((3, 1), dtype=np.float64),
+            np.asarray([[0.0], [0.0], [1.0]], dtype=np.float64),
+        ),
+    )
+
+    pose = board.find_board_pose(
+        "synthetic-infrared.jpg",
+        7,
+        10,
+        0.04,
+        np.eye(3),
+        np.zeros(5),
+        min_adjacent_spacing_px=7.0,
+    )
+
+    assert pose[2, 3] == pytest.approx(1.0)
+    assert max(detector_thresholds.values()) == pytest.approx(180.0)
