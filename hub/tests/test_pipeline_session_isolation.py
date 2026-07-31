@@ -63,6 +63,7 @@ def _pipeline(
     ground_guard=False,
     ground_drift_consecutive_frames=3,
     ground_drift_min_duration_s=5.0,
+    ground_drift_post_motion_rebase_window_s=120.0,
     allow_ground_height_translation_for_2d=False,
     semantic_detector=None,
     semantic_yolo_reinforce_map=True,
@@ -82,6 +83,9 @@ def _pipeline(
         ground_plane_config=GroundPlaneConfig() if ground_guard else None,
         ground_drift_consecutive_frames=ground_drift_consecutive_frames,
         ground_drift_min_duration_s=ground_drift_min_duration_s,
+        ground_drift_post_motion_rebase_window_s=(
+            ground_drift_post_motion_rebase_window_s
+        ),
         allow_ground_height_translation_for_2d=(
             allow_ground_height_translation_for_2d
         ),
@@ -577,6 +581,131 @@ def test_ground_guard_rebases_consistent_local_plane_after_observed_motion(
     )
     assert segmenter.calls == 5
     assert pipeline.mapper.calls == 5
+
+
+def test_ground_guard_keeps_motion_authority_across_full_coordination_round(
+    monkeypatch,
+):
+    pipeline, segmenter = _pipeline("session-a", ground_guard=True)
+    stable = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=0.0,
+        plane_coefficients=(0.0, 0.0, 0.0),
+    )
+    locally_tilted = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=3.91,
+        plane_coefficients=(0.0, 0.0683, 0.0),
+    )
+    candidates = iter(
+        [stable, stable, stable, locally_tilted, locally_tilted, locally_tilted]
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate",
+        lambda *_args: next(candidates),
+    )
+
+    baseline = _observation(10, "session-a")
+    moving = _observation(11, "session-a")
+    moving.T_shared_camera[0, 3] = 0.15
+    settled = _observation(12, "session-a")
+    settled.T_shared_camera[0, 3] = 0.15
+    stationary = [
+        _observation(sequence, "session-a") for sequence in (40, 42, 47)
+    ]
+    for observation in stationary:
+        observation.T_shared_camera[0, 3] = 0.15
+
+    assert pipeline.process(baseline).accept
+    assert pipeline.process(moving).accept
+    assert pipeline.process(settled).accept
+    assert pipeline.process(stationary[0]).reason == "ground_drift_pending"
+    assert pipeline.process(stationary[1]).reason == "ground_drift_pending"
+    rebased = pipeline.process(stationary[2])
+
+    assert rebased.accept
+    assert pipeline.mapping_blocked_reason is None
+    assert pipeline.ground_drift_reference_rebases == 1
+    assert pipeline.ground_drift_events == 0
+    assert pipeline.last_ground_rebase_sequence == 47
+    assert segmenter.calls == 4
+    assert pipeline.mapper.calls == 4
+
+
+def test_ground_guard_does_not_rebase_from_expired_motion_authority(monkeypatch):
+    pipeline, segmenter = _pipeline(
+        "session-a",
+        ground_guard=True,
+        ground_drift_post_motion_rebase_window_s=30.0,
+    )
+    stable = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=0.0,
+        plane_coefficients=(0.0, 0.0, 0.0),
+    )
+    locally_tilted = GroundCandidate(
+        accepted=True,
+        ground_z_m=0.0,
+        reason="accepted",
+        candidate_points=1000,
+        inlier_points=900,
+        inlier_ratio=0.9,
+        tilt_deg=3.91,
+        plane_coefficients=(0.0, 0.0683, 0.0),
+    )
+    candidates = iter(
+        [stable, stable, stable, locally_tilted, locally_tilted, locally_tilted]
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.depth_points_world", lambda *_args: np.zeros((3, 3))
+    )
+    monkeypatch.setattr(
+        "focus_hub.pipeline.fit_ground_candidate",
+        lambda *_args: next(candidates),
+    )
+
+    baseline = _observation(10, "session-a")
+    moving = _observation(11, "session-a")
+    moving.T_shared_camera[0, 3] = 0.15
+    settled = _observation(12, "session-a")
+    settled.T_shared_camera[0, 3] = 0.15
+    stationary = [
+        _observation(sequence, "session-a") for sequence in (40, 42, 47)
+    ]
+    for observation in stationary:
+        observation.T_shared_camera[0, 3] = 0.15
+
+    assert pipeline.process(baseline).accept
+    assert pipeline.process(moving).accept
+    assert pipeline.process(settled).accept
+    assert pipeline.process(stationary[0]).reason == "ground_drift_pending"
+    assert pipeline.process(stationary[1]).reason == "ground_drift_pending"
+    blocked = pipeline.process(stationary[2])
+
+    assert blocked.reason == "ground_drift"
+    assert pipeline.mapping_blocked_kind == "ground_drift"
+    assert pipeline.ground_drift_reference_rebases == 0
+    assert pipeline.ground_drift_events == 1
+    assert segmenter.calls == 3
+    assert pipeline.mapper.calls == 3
 
 
 def test_2d_ground_guard_rebases_bounded_tilt_after_large_world_z_drift(

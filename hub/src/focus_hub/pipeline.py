@@ -38,6 +38,7 @@ from .semantic_yolo import SemanticYoloConfig, reinforce_rednet_prediction
 
 
 POST_MOTION_GROUND_REBASE_GATE_MULTIPLIER = 3.0
+DEFAULT_POST_MOTION_GROUND_REBASE_WINDOW_S = 120.0
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,9 @@ class SpoolMappingPipeline:
         max_ground_height_delta_m: float = 0.08,
         ground_drift_consecutive_frames: int = 3,
         ground_drift_min_duration_s: float = 5.0,
+        ground_drift_post_motion_rebase_window_s: float = (
+            DEFAULT_POST_MOTION_GROUND_REBASE_WINDOW_S
+        ),
         ground_drift_stationary_translation_m: float = 0.03,
         ground_drift_stationary_rotation_deg: float = 2.0,
         allow_ground_height_translation_for_2d: bool = False,
@@ -169,6 +173,15 @@ class SpoolMappingPipeline:
             or ground_drift_min_duration_s <= 0.0
         ):
             raise ValueError("ground_drift_min_duration_s must be finite and positive")
+        if (
+            not np.isfinite(ground_drift_post_motion_rebase_window_s)
+            or ground_drift_post_motion_rebase_window_s
+            < ground_drift_min_duration_s
+        ):
+            raise ValueError(
+                "ground_drift_post_motion_rebase_window_s must be finite and "
+                "at least ground_drift_min_duration_s"
+            )
         for value, name in (
             (
                 ground_drift_stationary_translation_m,
@@ -191,6 +204,9 @@ class SpoolMappingPipeline:
         self.max_ground_height_delta_m = float(max_ground_height_delta_m)
         self.ground_drift_consecutive_frames = ground_drift_consecutive_frames
         self.ground_drift_min_duration_s = float(ground_drift_min_duration_s)
+        self.ground_drift_post_motion_rebase_window_s = float(
+            ground_drift_post_motion_rebase_window_s
+        )
         self.ground_drift_stationary_translation_m = float(
             ground_drift_stationary_translation_m
         )
@@ -294,7 +310,9 @@ class SpoolMappingPipeline:
         rotation_deg: float,
     ) -> None:
         previous_ns = self.ground_drift_last_motion_capture_time_ns
-        motion_window_ns = int(self.ground_drift_min_duration_s * 6.0 * 1e9)
+        motion_window_ns = int(
+            self.ground_drift_post_motion_rebase_window_s * 1e9
+        )
         if (
             previous_ns is None
             or capture_time_ns < previous_ns
@@ -317,7 +335,9 @@ class SpoolMappingPipeline:
         if last_motion_ns is None or capture_time_ns < last_motion_ns:
             return False
         motion_age_s = (capture_time_ns - last_motion_ns) / 1e9
-        motion_recent = motion_age_s <= self.ground_drift_min_duration_s * 6.0
+        motion_recent = (
+            motion_age_s <= self.ground_drift_post_motion_rebase_window_s
+        )
         motion_material = (
             self.ground_drift_motion_translation_m
             >= self.ground_drift_stationary_translation_m * 2.0
@@ -1053,7 +1073,9 @@ class SpoolMappingPipeline:
                     self.ground_drift_stationary_rotation_deg
                 ),
                 "post_motion_rebase_policy": {
-                    "motion_window_s": self.ground_drift_min_duration_s * 6.0,
+                    "motion_window_s": (
+                        self.ground_drift_post_motion_rebase_window_s
+                    ),
                     "minimum_translation_m": (
                         self.ground_drift_stationary_translation_m * 2.0
                     ),

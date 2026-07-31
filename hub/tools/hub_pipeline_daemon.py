@@ -565,6 +565,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--ground-drift-post-motion-rebase-window-s",
+        type=float,
+        default=120.0,
+        help=(
+            "maximum source-time age of material robot motion that may "
+            "authorize a bounded, stable local-floor rebase; this is "
+            "intentionally longer than one route-coordination/VLM round"
+        ),
+    )
+    parser.add_argument(
         "--ground-drift-stationary-translation-m",
         type=float,
         default=0.03,
@@ -639,6 +649,15 @@ def main() -> int:
         parser.error("--ground-drift-consecutive-frames must be positive")
     if args.ground_drift_min_duration_s <= 0.0:
         parser.error("--ground-drift-min-duration-s must be positive")
+    if (
+        not math.isfinite(args.ground_drift_post_motion_rebase_window_s)
+        or args.ground_drift_post_motion_rebase_window_s
+        < args.ground_drift_min_duration_s
+    ):
+        parser.error(
+            "--ground-drift-post-motion-rebase-window-s must be finite and "
+            "at least --ground-drift-min-duration-s"
+        )
     if args.ground_drift_stationary_translation_m <= 0.0:
         parser.error("--ground-drift-stationary-translation-m must be positive")
     if args.ground_drift_stationary_rotation_deg <= 0.0:
@@ -902,6 +921,9 @@ def main() -> int:
                     ),
                     ground_drift_min_duration_s=(
                         args.ground_drift_min_duration_s
+                    ),
+                    ground_drift_post_motion_rebase_window_s=(
+                        args.ground_drift_post_motion_rebase_window_s
                     ),
                     ground_drift_stationary_translation_m=(
                         args.ground_drift_stationary_translation_m
