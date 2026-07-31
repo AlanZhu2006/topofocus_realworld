@@ -25,6 +25,32 @@ from pathlib import Path
 import sys
 
 
+def ros_parameter_override_arguments(
+    overrides: dict[str, object],
+) -> list[str]:
+    """Encode non-empty ROS parameter overrides for a process command.
+
+    ROS 2 rejects an override such as ``-p input.directory:=`` before the
+    node starts.  Online mapping intentionally has no input directory, so an
+    empty optional value must use the parameter file's default instead of
+    being serialized onto the command line.
+    """
+
+    arguments: list[str] = []
+    for name, raw_value in overrides.items():
+        if raw_value is None or raw_value == "":
+            continue
+        value = (
+            "true"
+            if raw_value is True
+            else "false"
+            if raw_value is False
+            else str(raw_value)
+        )
+        arguments.extend(("-p", f"{name}:={value}"))
+    return arguments
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target-frame", default="world")
@@ -150,15 +176,7 @@ def main() -> int:
         "--params-file",
         str(default_config),
     ]
-    for name, raw_value in occupancy_overrides.items():
-        value = (
-            "true"
-            if raw_value is True
-            else "false"
-            if raw_value is False
-            else str(raw_value)
-        )
-        occupancy_command.extend(("-p", f"{name}:={value}"))
+    occupancy_command.extend(ros_parameter_override_arguments(occupancy_overrides))
     description = LaunchDescription(
         [
             ExecuteProcess(
