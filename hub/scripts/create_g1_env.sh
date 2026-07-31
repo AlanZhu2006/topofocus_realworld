@@ -4,19 +4,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HUB_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_DIR="$HUB_DIR/.venv"
-BASE_PYTHON="${FOCUS_TORCH_PYTHON:-/home/asus/miniconda3/envs/memnav/bin/python}"
-UV_BIN="${FOCUS_UV_BIN:-/home/asus/miniconda3/bin/uv}"
+BASE_PYTHON="${FOCUS_TORCH_PYTHON:-}"
+UV_BIN="${FOCUS_UV_BIN:-$(command -v uv || true)}"
 
 if [[ -e "$ENV_DIR" ]]; then
   echo "Refusing to replace existing environment: $ENV_DIR" >&2
   exit 1
 fi
-if [[ ! -x "$BASE_PYTHON" ]]; then
-  echo "Kernel-tested base Python is missing: $BASE_PYTHON" >&2
+if [[ -z "$BASE_PYTHON" || ! -x "$BASE_PYTHON" ]]; then
+  echo "Set FOCUS_TORCH_PYTHON to an explicitly verified CUDA Python." >&2
+  echo "For a new host, use bootstrap_gpu_hub_cleanroom.sh instead." >&2
   exit 1
 fi
-if [[ ! -x "$UV_BIN" ]]; then
-  echo "uv is missing: $UV_BIN" >&2
+if [[ -z "$UV_BIN" || ! -x "$UV_BIN" ]]; then
+  echo "Set FOCUS_UV_BIN or install uv on PATH." >&2
   exit 1
 fi
 

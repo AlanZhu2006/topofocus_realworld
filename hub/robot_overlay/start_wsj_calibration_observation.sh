@@ -4,14 +4,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SESSION="${FOCUS_WSJ_NAV_SESSION:-tinynav_semantic_nav_auto}"
-ENV_FILE="${FOCUS_WSJ_ENV_FILE:-/home/nvidia/focus_sender/go2_20260723.env}"
-SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
-PYTHON_BIN="${TINYNAV_PYTHON:-/home/nvidia/twork/tinynav/.venv/bin/python}"
-TOKEN_FILE="${FOCUS_ROBOT_TOKEN_FILE:-/home/nvidia/focus_sender/.token}"
+ENV_FILE="${FOCUS_WSJ_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/topofocus/robot-0.env}"
+SETUP_FILE="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
+PYTHON_BIN="${TINYNAV_PYTHON:-$HOME/twork/tinynav/.venv/bin/python}"
+default_token_file="${XDG_CONFIG_HOME:-$HOME/.config}/topofocus/robot-0.token"
+[[ -r "$default_token_file" ]] || default_token_file="$HOME/focus_sender/.token"
+TOKEN_FILE="${FOCUS_ROBOT_TOKEN_FILE:-$default_token_file}"
 HUB_URL="${FOCUS_HUB_BASE_URL:-http://127.0.0.1:18089}"
 PREVIEW_URL="${FOCUS_FOXGLOVE_PREVIEW_URL:-http://127.0.0.1:18766}"
 DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
-STATE_DIR="${FOCUS_ROBOT_STATE_DIR:-/home/nvidia/.local/state/topofocus}"
+STATE_DIR="${FOCUS_ROBOT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/topofocus}"
 RUNTIME_RECEIPT_FILE="${FOCUS_WSJ_RUNTIME_RECEIPT_FILE:-$STATE_DIR/wsj-command-observation-receipt.json}"
 REANCHOR_REQUIRED_FILE="${FOCUS_WSJ_REANCHOR_REQUIRED_FILE:-$STATE_DIR/wsj-tracking-reanchor-required.json}"
 FASTDDS_BUILTIN_TRANSPORTS_VALUE="${FOCUS_WSJ_FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
@@ -53,6 +55,25 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+if [[ -r "$ENV_FILE" ]]; then
+  set -a
+  # bootstrap_robot0_cleanroom.sh emits shell-quoted assignments only.
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+SETUP_FILE="${TINYNAV_SETUP:-$SETUP_FILE}"
+PYTHON_BIN="${TINYNAV_PYTHON:-$PYTHON_BIN}"
+default_token_file="${XDG_CONFIG_HOME:-$HOME/.config}/topofocus/robot-0.token"
+[[ -r "$default_token_file" ]] || default_token_file="$HOME/focus_sender/.token"
+TOKEN_FILE="${FOCUS_ROBOT_TOKEN_FILE:-$default_token_file}"
+HUB_URL="${FOCUS_HUB_BASE_URL:-$HUB_URL}"
+PREVIEW_URL="${FOCUS_FOXGLOVE_PREVIEW_URL:-$PREVIEW_URL}"
+DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-$DEPLOYMENT_COMMIT}"
+STATE_DIR="${FOCUS_ROBOT_STATE_DIR:-$STATE_DIR}"
+RUNTIME_RECEIPT_FILE="${FOCUS_WSJ_RUNTIME_RECEIPT_FILE:-$STATE_DIR/wsj-command-observation-receipt.json}"
+REANCHOR_REQUIRED_FILE="${FOCUS_WSJ_REANCHOR_REQUIRED_FILE:-$STATE_DIR/wsj-tracking-reanchor-required.json}"
 
 [[ "$TRANSFORM_VERSION" =~ ^[A-Za-z0-9_.-]+$ ]] || {
   echo "A filesystem-safe raw --transform-version is required." >&2

@@ -99,127 +99,141 @@ upstream base plus two checksummed patches:
 The optional experimental semantic archive is not required by the formal
 native BuildMap path.
 
-## Reproduce the code baseline
+## Clean-room installation
 
-These steps work on a development machine and cannot move a robot:
+Use the same committed Git revision on the Hub and Robot 0. Both installers
+print a complete plan by default; only `--apply` changes the host. Neither
+installer starts ROS, the Hub, a planner, a receiver, or an actuator.
+
+### RTX 4090 Hub
+
+Start with Ubuntu 22.04, an RTX 4090, and a working NVIDIA driver:
 
 ```bash
 git clone https://github.com/AlanZhu2006/topofocus_realworld.git
 cd topofocus_realworld
 
-bash hub/scripts/bootstrap_dev.sh
-bash hub/scripts/verify_repository.sh --tests
-
-repro_root="$(mktemp -d)"
-bash hub/robot_overlay/bootstrap_go2.sh \
-  --destination "$repro_root/tinynav"
-git -C "$repro_root/tinynav" rev-parse HEAD HEAD^{tree}
+bash hub/scripts/bootstrap_gpu_hub_cleanroom.sh
+bash hub/scripts/bootstrap_gpu_hub_cleanroom.sh \
+  --apply \
+  --fetch-models \
+  --accept-model-licenses
 ```
 
-Expected objects:
+`--fetch-models` obtains only the pinned real-world checkpoints after explicit
+license acknowledgement. It never downloads HM3D scenes, ObjectNav data,
+overlays, SIF images, bags, or maps. If the models were provisioned separately,
+omit both model flags; the same full checksum gate still runs.
+
+The resulting runtime is Python 3.10.20, PyTorch 2.8.0+cu128, torchvision
+0.23.0+cu128, CUDA 12.8, and Detectron2 0.6. All Python wheels are resolved by
+[`hub/gpu_runtime/uv.lock`](../hub/gpu_runtime/uv.lock). Full model and host
+provenance is written under
+`${XDG_STATE_HOME:-$HOME/.local/state}/topofocus/`.
+
+### Jetson Orin NX on Unitree Go2
+
+Flash the recorded JetPack 6.2.1/L4T 36.4.7 image first, connect the D435i and
+dedicated Go2 Ethernet link, then clone the same repository revision:
+
+```bash
+git clone https://github.com/AlanZhu2006/topofocus_realworld.git
+cd topofocus_realworld
+
+bash hub/robot_overlay/bootstrap_robot0_cleanroom.sh
+bash hub/robot_overlay/bootstrap_robot0_cleanroom.sh --apply
+```
+
+The apply path installs ROS 2 Humble, builds the pinned CycloneDDS, GTSAM,
+librealsense, realsense-ros and message-filter sources, deterministically
+reconstructs TinyNav, verifies all five ONNX files, builds the four runtime
+TensorRT plans, installs the USB stability policy, and writes:
 
 ```text
-a6290559b13cedf19c05f7ec64ff91a29b685cbd
-5281e70451f2f9cc1d5f5464315d803f6f0972bd
+${XDG_DATA_HOME:-$HOME/.local/share}/topofocus/robot-0/
+${XDG_CONFIG_HOME:-$HOME/.config}/topofocus/robot-0.env
+${XDG_CONFIG_HOME:-$HOME/.config}/topofocus/robot-0-setup.bash
+${XDG_STATE_HOME:-$HOME/.local/state}/topofocus/
 ```
 
-The bootstrap validates all patch manifests, refuses a dirty destination, and
-prints `No ROS process or robot command was started.`
+No username or repository checkout path is compiled into those files.
+`/tinynav` is a compatibility symlink because the pinned upstream TinyNav
+runtime contains model paths rooted there.
 
-## Prepare a new Robot 0 Jetson
-
-Start from an Ubuntu 22.04/JetPack 6 Jetson with ROS 2 Humble. Install the
-vendor/upstream prerequisites described by TinyNav: GTSAM, the message-filter
-workspace, librealsense, realsense-ros, and a Python 3.10 TinyNav environment.
-Do not apply the snapshot to an existing production checkout.
-
-On the Jetson:
+Review and apply the transient host-side Go2 LAN configuration:
 
 ```bash
-bash hub/robot_overlay/bootstrap_go2.sh \
-  --destination /home/nvidia/twork/tinynav-topofocus
-
-cp hub/robot_overlay/tinynav_setup.bash.example \
-  /home/nvidia/twork/tinynav_setup.bash
-cp hub/robot_overlay/config/go2.env.example \
-  hub/robot_overlay/go2.env
+bash hub/robot_overlay/configure_go2_network.sh
+bash hub/robot_overlay/configure_go2_network.sh --apply
 ```
 
-Review the generated checkout's `DEPLOYMENT.md`, then edit path/interface
-values in the two copied files. Keep tokens in a separate mode-600 token file.
+The network tool validates the CIDR and route but does not ping Go2 or create a
+DDS participant. For a non-`eth0` installation, pass `--interface`,
+`--host-cidr`, and `--robot-address`, then place the same values in the
+generated untracked `robot-0.env`.
 
-Install the USB stability policy only after reviewing its dry-run:
+Store the matching robot API token separately:
 
 ```bash
-bash hub/robot_overlay/install_go2_host_config.sh
-sudo bash hub/robot_overlay/install_go2_host_config.sh --apply
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/topofocus"
+install -d -m 0700 "$config_root"
+install -m 0600 /dev/null "$config_root/robot-0.token"
+# Write the provisioned token interactively; never commit it.
 ```
 
-Run the read-only host gate with no planner or actuator process active:
+With all command/planning processes stopped, run the read-only hardware gate:
 
 ```bash
-bash hub/robot_overlay/verify_go2.sh \
-  --tinynav-root /home/nvidia/twork/tinynav-topofocus \
-  --hardware --tests
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/topofocus"
+set -a
+source "$config_root/robot-0.env"
+set +a
+source "$TINYNAV_SETUP"
+"$TINYNAV_PYTHON" hub/robot_overlay/verify_robot0_cleanroom.py \
+  --level hardware
 ```
 
-This checks the pinned source state, Python version, D435i/hub USB power,
-`usbfs_memory_mb`, IMU recovery tests, and absence of known command processes.
+This checks the exact source/tree identities, Python imports, TensorRT plans,
+JetPack/L4T/ROS versions, D435i USB identity and firmware, USB power policy,
+`usbfs_memory_mb`, and the host route to Go2. It initializes neither Unitree
+DDS nor any motion process.
 
 ## Observation and native mapping
 
-With the Go2 stable and an operator present, start the non-actuating camera and
-perception path:
+After the hardware gate passes, the following observation path still cannot
+move the robot:
 
 ```bash
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/topofocus"
 bash hub/robot_overlay/start_go2_observation.sh \
-  --env hub/robot_overlay/go2.env
-```
+  --env "$config_root/robot-0.env"
 
-The observation launcher starts D435i and TinyNav perception only. It excludes
-the local planner, controller, receiver, and Go2 bridge.
-
-Start and save a native map:
-
-```bash
+map_root="${XDG_DATA_HOME:-$HOME/.local/share}/topofocus/maps"
 bash hub/robot_overlay/start_go2_buildmap.sh \
-  --output /home/nvidia/.local/share/topofocus/maps/robot0-baseline
-bash hub/robot_overlay/save_go2_buildmap.sh
+  --env "$config_root/robot-0.env" \
+  --output "$map_root/robot0-baseline"
+bash hub/robot_overlay/save_go2_buildmap.sh \
+  --env "$config_root/robot-0.env"
 ```
 
-Accept the map only after `/benchmark/data_saved=true` and a clean mapper
-exit. Then stop observation with
-`hub/robot_overlay/stop_go2_observation.sh`.
+The observation launcher starts only D435i and TinyNav perception. Native
+BuildMap is accepted only after `/benchmark/data_saved=true` and a clean mapper
+exit.
 
-## Hub, calibration, and command-graph reproduction
+## Calibration and supervised execution
 
-On the RTX 4090 Hub, place legally obtained model assets at the paths declared
-by `manifests/artifacts.json`, then run the repository G0/G1 preflights. Start
-the Hub in its default mapping-only state:
+Give the Hub two existing SSH/tmux shells, the absolute remote release roots,
+the camera-to-base calibration files, and loopback-only SSH tunnel endpoints.
+Runtime tokens, maps, calibration artifacts, and the resulting session remain
+outside Git. The session binds their paths, byte sizes, SHA-256 values, the
+exact code commit, transforms, maps, ports, and robot policies.
 
-```bash
-cp hub/config/robots.example.json hub/config/robots.json
-bash hub/scripts/focus_hub_up.sh
-```
-
-Create a fresh two-camera board calibration for the actual robot poses and
-camera mounts. The canonical session workflow is
+Create a fresh board calibration and strict no-motion debug using
 [`hub/docs/ONECLICK_SESSION_WORKFLOW.md`](../hub/docs/ONECLICK_SESSION_WORKFLOW.md).
-Its debug mode starts the complete perception, mapping, planning, controller,
-lease, and visualization graph while both actuator bridges remain unable to
-move the platforms:
-
-```bash
-bash hub/scripts/realworld_oneclick.sh \
-  --session-file current \
-  --mode debug \
-  --scene-id reproduce-debug \
-  --goal-category plant
-```
-
-Physical mode is a separate gate. It requires a fresh accepted calibration,
-healthy debug graph, powered and standing robots, clear surroundings, an
-on-site operator, native stop controls, and the exact per-run confirmation:
+That guide provides the exact SSH reverse tunnels and required
+`FOCUS_ROBOT0_*` / `FOCUS_ROBOT1_*` runtime variables.
+After that same session and commit pass debug, supervised physical execution
+is a separate command:
 
 ```bash
 bash hub/scripts/realworld_oneclick.sh \
@@ -231,8 +245,10 @@ bash hub/scripts/realworld_oneclick.sh \
   --operator-confirmation OPERATOR_PRESENT_AND_ROBOTS_CLEAR
 ```
 
-The confirmation is deliberately not stored in a config file. Every target
-still expires, and both robots retain final stop/reject authority.
+The per-run confirmation is deliberately absent from every config file. The
+Hub emits only versioned, expiring high-level targets; Robot 0 retains the
+final right to reject, HOLD, or stop, and its bridge independently stops after
+0.35 seconds without a guarded command.
 
 ## Reproduction levels
 

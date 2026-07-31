@@ -429,15 +429,29 @@ def add_create_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--wsj-start-after", type=int, required=True)
     parser.add_argument("--yunji-start-after", type=int, required=True)
     parser.add_argument(
+        "--robot0-remote-root",
         "--wsj-remote-root",
-        default="/home/nvidia/topofocus_realworld/current",
+        dest="wsj_remote_root",
+        required=True,
     )
     parser.add_argument(
+        "--robot1-remote-root",
         "--yunji-remote-root",
-        default="/home/nyu/topofocus_realworld/current",
+        dest="yunji_remote_root",
+        required=True,
     )
-    parser.add_argument("--wsj-remote-calibration", required=True)
-    parser.add_argument("--yunji-remote-calibration", required=True)
+    parser.add_argument(
+        "--robot0-remote-calibration",
+        "--wsj-remote-calibration",
+        dest="wsj_remote_calibration",
+        required=True,
+    )
+    parser.add_argument(
+        "--robot1-remote-calibration",
+        "--yunji-remote-calibration",
+        dest="yunji_remote_calibration",
+        required=True,
+    )
     parser.add_argument(
         "--wsj-remote-hub-url", default="http://127.0.0.1:18089"
     )
@@ -448,24 +462,28 @@ def add_create_arguments(parser: argparse.ArgumentParser) -> None:
         "--wsj-remote-preview-url", default="http://127.0.0.1:18766"
     )
     parser.add_argument(
+        "--robot0-base-camera-calibration",
         "--wsj-base-camera-calibration",
-        default=(
-            "/home/nvidia/.local/state/topofocus/calibration/"
-            "wsj_tinynav_camera_base_20260723_operator.json"
-        ),
+        dest="wsj_base_camera_calibration",
+        required=True,
     )
     parser.add_argument(
+        "--robot1-base-camera-calibration",
         "--yunji-base-camera-calibration",
-        default=(
-            "/home/nyu/.local/state/topofocus/calibration/"
-            "yunji_odin1_base_camera_20260723_operator.json"
-        ),
+        dest="yunji_base_camera_calibration",
+        required=True,
     )
     parser.add_argument(
-        "--wsj-ssh-tmux", default="focus_wsj_tunnel_20260722:sensor-audit"
+        "--robot0-ssh-tmux",
+        "--wsj-ssh-tmux",
+        dest="wsj_ssh_tmux",
+        required=True,
     )
     parser.add_argument(
-        "--yunji-ssh-tmux", default="focus_yunji_tunnel_20260722:sensor-audit"
+        "--robot1-ssh-tmux",
+        "--yunji-ssh-tmux",
+        dest="yunji_ssh_tmux",
+        required=True,
     )
     parser.add_argument("--hub-port", type=int, default=8188)
     parser.add_argument("--hub-session", default="focus_hub_realworld")

@@ -50,6 +50,29 @@ def test_public_baseline_locks_guarded_velocity_topic(
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("default_mode", "apply"),
+        ("starts_robot_processes", True),
+        ("downloads_simulator_data", True),
+    ),
+)
+def test_public_baseline_locks_cleanroom_safety(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    manifest = json.loads(
+        (WORKSPACE / DEFAULT_MANIFEST).read_text(encoding="utf-8")
+    )
+    manifest["software"]["cleanroom_install"][field] = value
+    candidate = tmp_path / "baseline.json"
+    candidate.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(BaselineValidationError, match=field):
+        validate_public_baseline(WORKSPACE, candidate)
+
+
+@pytest.mark.parametrize(
     ("section", "field", "value"),
     (
         ("controller", "continuous_turn_timeout_s", 0.0),

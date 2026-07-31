@@ -7,13 +7,13 @@ HUB_DIR="$WORKSPACE/hub"
 PYTHON_BIN="$HUB_DIR/.venv/bin/python"
 HUB_PORT="${FOCUS_HUB_PORT:-8188}"
 HUB_SESSION="${FOCUS_HUB_SESSION:-focus_hub_realworld}"
-WSJ_TMUX_TARGET="${FOCUS_WSJ_SSH_TMUX:-focus_wsj_tunnel_20260722:sensor-audit}"
-YUNJI_TMUX_TARGET="${FOCUS_YUNJI_SSH_TMUX:-focus_yunji_tunnel_20260722:sensor-audit}"
-WSJ_ROOT="${FOCUS_WSJ_RELEASE_ROOT:-/home/nvidia/topofocus_buildmap_v2_20260723}"
-YUNJI_ROOT="${FOCUS_YUNJI_RELEASE_ROOT:-/home/nyu/topofocus_buildmap_v2_20260723}"
-WSJ_ENV_FILE="${FOCUS_WSJ_ENV_FILE:-/home/nvidia/focus_sender/go2_20260723.env}"
-WSJ_BASE_CAMERA="${FOCUS_WSJ_BASE_CAMERA_CALIBRATION:-/home/nvidia/.local/state/topofocus/calibration/wsj_tinynav_camera_base_20260723_operator.json}"
-YUNJI_BASE_CAMERA="${FOCUS_YUNJI_BASE_CAMERA_CALIBRATION:-/home/nyu/.local/state/topofocus/calibration/yunji_odin1_base_camera_20260723_operator.json}"
+WSJ_TMUX_TARGET="${FOCUS_ROBOT0_SSH_TMUX:-${FOCUS_WSJ_SSH_TMUX:-focus_robot0_ssh:shell}}"
+YUNJI_TMUX_TARGET="${FOCUS_ROBOT1_SSH_TMUX:-${FOCUS_YUNJI_SSH_TMUX:-focus_robot1_ssh:shell}}"
+WSJ_ROOT="${FOCUS_ROBOT0_RELEASE_ROOT:-${FOCUS_WSJ_RELEASE_ROOT:-}}"
+YUNJI_ROOT="${FOCUS_ROBOT1_RELEASE_ROOT:-${FOCUS_YUNJI_RELEASE_ROOT:-}}"
+WSJ_ENV_FILE="${FOCUS_ROBOT0_ENV_FILE:-${FOCUS_WSJ_ENV_FILE:-}}"
+WSJ_BASE_CAMERA="${FOCUS_ROBOT0_BASE_CAMERA_CALIBRATION:-${FOCUS_WSJ_BASE_CAMERA_CALIBRATION:-}}"
+YUNJI_BASE_CAMERA="${FOCUS_ROBOT1_BASE_CAMERA_CALIBRATION:-${FOCUS_YUNJI_BASE_CAMERA_CALIBRATION:-}}"
 session_id=""
 confirmation=""
 goal_category="chair"
@@ -79,6 +79,15 @@ esac
   echo "FOCUS_SSH_PROBE_TIMEOUT_S must be a positive integer." >&2
   exit 2
 }
+for remote_path in \
+  "$WSJ_ROOT" "$YUNJI_ROOT" "$WSJ_ENV_FILE" \
+  "$WSJ_BASE_CAMERA" "$YUNJI_BASE_CAMERA"; do
+  [[ "$remote_path" == /* ]] || {
+    echo "Robot release, environment and camera-calibration paths must be explicit absolute paths." >&2
+    echo "See docs/ROBOT0_REPRODUCIBLE_BASELINE.md." >&2
+    exit 2
+  }
+done
 for required in \
   "$HUB_DIR/runtime/tokens.json" \
   "$HUB_DIR/runtime/admin_token" \
@@ -279,8 +288,8 @@ map_session="shared_maps_${session_id}"
 foxglove_session="foxglove_relay_${session_id}"
 wsj_map="$HUB_DIR/runtime/map_out_wsj_${session_id}"
 yunji_map="$HUB_DIR/runtime/map_out_yunji_${session_id}"
-wsj_remote_calibration="/home/nvidia/.local/state/topofocus/calibration/${session_id}_shared_frame.json"
-yunji_remote_calibration="/home/nyu/.local/state/topofocus/calibration/${session_id}_shared_frame.json"
+wsj_remote_calibration="$WSJ_ROOT/runtime/calibration/${session_id}_shared_frame.json"
+yunji_remote_calibration="$YUNJI_ROOT/runtime/calibration/${session_id}_shared_frame.json"
 
 "$PYTHON_BIN" - "$raw_config" "$final_debug_config" \
   "$wsj_raw_transform" "$yunji_raw_transform" \
@@ -683,7 +692,7 @@ cleanup_calibration_failure() {
     tmux kill-session -t "foxglove_calibration_${session_id}" \
       >/dev/null 2>&1 || true
     remote_run "$WSJ_TMUX_TARGET" \
-      "tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true" \
+      "FOCUS_WSJ_ENV_FILE='$WSJ_ENV_FILE' bash '$WSJ_ROOT/hub/robot_overlay/stop_wsj_live_command_path.sh'" \
       || true
     remote_run "$YUNJI_TMUX_TARGET" \
       "sudo -n systemctl stop focus-yunji-calibration-observation-v1.service >/dev/null 2>&1 || true" \
@@ -791,7 +800,7 @@ PY
 echo "CALIBRATION_HOLDOUT_PASSED: deploying the checked shared transform."
 deploy_calibration_pair
 remote_run "$WSJ_TMUX_TARGET" \
-  "marker=/home/nvidia/.local/state/topofocus/wsj-tracking-reanchor-required.json; if [[ -e \"\$marker\" ]]; then unlink \"\$marker\"; fi"
+  "state_root=\${XDG_STATE_HOME:-\$HOME/.local/state}/topofocus; marker=\"\$state_root/wsj-tracking-reanchor-required.json\"; if [[ -e \"\$marker\" ]]; then unlink \"\$marker\"; fi"
 
 echo "Switching both robots to calibrated read-only observation."
 start_hub_config "$final_debug_config"
@@ -861,14 +870,14 @@ bash "$HUB_DIR/scripts/start_fresh_dual_maps.sh" \
   --yunji-map "$yunji_map" \
   --wsj-start-after "$wsj_start_after" \
   --yunji-start-after "$yunji_start_after" \
-  --wsj-remote-root "$WSJ_ROOT" \
-  --yunji-remote-root "$YUNJI_ROOT" \
-  --wsj-remote-calibration "$wsj_remote_calibration" \
-  --yunji-remote-calibration "$yunji_remote_calibration" \
-  --wsj-base-camera-calibration "$WSJ_BASE_CAMERA" \
-  --yunji-base-camera-calibration "$YUNJI_BASE_CAMERA" \
-  --wsj-ssh-tmux "$WSJ_TMUX_TARGET" \
-  --yunji-ssh-tmux "$YUNJI_TMUX_TARGET" \
+  --robot0-remote-root "$WSJ_ROOT" \
+  --robot1-remote-root "$YUNJI_ROOT" \
+  --robot0-remote-calibration "$wsj_remote_calibration" \
+  --robot1-remote-calibration "$yunji_remote_calibration" \
+  --robot0-base-camera-calibration "$WSJ_BASE_CAMERA" \
+  --robot1-base-camera-calibration "$YUNJI_BASE_CAMERA" \
+  --robot0-ssh-tmux "$WSJ_TMUX_TARGET" \
+  --robot1-ssh-tmux "$YUNJI_TMUX_TARGET" \
   --hub-port "$HUB_PORT" \
   --hub-session "$HUB_SESSION" \
   --glm-session "glm_${session_id}" \

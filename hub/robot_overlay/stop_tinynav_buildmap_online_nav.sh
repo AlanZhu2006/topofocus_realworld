@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SESSION="${FOCUS_BUILDMAP_NAV_SESSION:-tinynav_semantic_nav_auto}"
-SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
+SETUP_FILE="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
 keep_buildmap="false"
 
 usage() {

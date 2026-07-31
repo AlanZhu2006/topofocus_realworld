@@ -87,8 +87,13 @@ def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():
 
 def test_oneclick_stop_publishes_are_bounded_and_glm_can_be_adopted():
     source = (SCRIPTS / "realworld_oneclick.sh").read_text()
+    stopper = (
+        OVERLAY / "stop_wsj_live_command_path.sh"
+    ).read_text()
 
-    assert source.count("timeout 5 ros2 topic pub --once") == 8
+    assert source.count("bash $WSJ_STOPPER") == 4
+    assert stopper.count("timeout 5 ros2 topic pub --once") == 2
+    assert "/focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}'" in stopper
     assert "tmux rename-session" in source
     assert "run_glm_offline.sh" in source
     assert "GLM endpoint is live but not owned by a verified GLM tmux." in source
@@ -674,7 +679,10 @@ def test_robot_sender_liveness_is_bounded_without_duplicate_wsj_probes():
         oneclick.index("ensure_local_services_parallel()")
     ]
     assert "tinynav_semantic_nav_auto:hub-sender" not in read_only_start
-    assert "tinynav_semantic_nav_auto:calibration-sender" in read_only_start
+    assert "bash $WSJ_STOPPER" in read_only_start
+    assert "calibration-sender" in (
+        OVERLAY / "stop_wsj_live_command_path.sh"
+    ).read_text()
     assert "fresh_topic_once" not in wsj
     assert "timeout -k 2 15 ros2 topic echo" not in wsj
     assert "--fresh-camera-info-topic /camera/camera/color/camera_info" in wsj

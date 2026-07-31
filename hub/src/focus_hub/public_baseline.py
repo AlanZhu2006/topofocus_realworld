@@ -16,6 +16,17 @@ PROVENANCE_CLASSES = {"observed", "source-derived", "unverified"}
 REQUIRED_HARDWARE_ROLES = {"hub", "robot-0", "robot-1"}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_OBJECT_RE = re.compile(r"^[0-9a-f]{40}$")
+REQUIRED_CLEANROOM_FILES = {
+    "hub/config/deployments/robot0_cleanroom_sources_v1.json",
+    "hub/gpu_runtime/pyproject.toml",
+    "hub/gpu_runtime/uv.lock",
+    "hub/robot_overlay/bootstrap_robot0_cleanroom.sh",
+    "hub/robot_overlay/configure_go2_network.sh",
+    "hub/robot_overlay/verify_robot0_cleanroom.py",
+    "hub/scripts/bootstrap_gpu_hub_cleanroom.sh",
+    "hub/tools/fetch_cleanroom_models.py",
+    "hub/tools/verify_gpu_cleanroom.py",
+}
 
 
 class BaselineValidationError(ValueError):
@@ -264,6 +275,25 @@ def _validate_software(manifest: dict[str, Any]) -> None:
             "software.unitree_sdk2.revision must be a 40-character Git object"
         )
 
+    cleanroom = _mapping(
+        software.get("cleanroom_install"), "software.cleanroom_install"
+    )
+    _expect(
+        cleanroom.get("default_mode"),
+        "read-only plan",
+        "software.cleanroom_install.default_mode",
+    )
+    _expect(
+        cleanroom.get("starts_robot_processes"),
+        False,
+        "software.cleanroom_install.starts_robot_processes",
+    )
+    _expect(
+        cleanroom.get("downloads_simulator_data"),
+        False,
+        "software.cleanroom_install.downloads_simulator_data",
+    )
+
 
 def validate_public_baseline(
     workspace: str | Path,
@@ -307,6 +337,22 @@ def validate_public_baseline(
     _validate_hardware(manifest)
     _validate_control_contract(manifest)
     _validate_software(manifest)
+    network = _mapping(manifest.get("network_contract"), "network_contract")
+    _expect(
+        network.get("robot_to_hub_endpoint"),
+        "http://127.0.0.1:18089",
+        "network_contract.robot_to_hub_endpoint",
+    )
+    _expect(
+        network.get("transport_exposure"),
+        "loopback-only SSH tunnel",
+        "network_contract.transport_exposure",
+    )
+    _expect(
+        network.get("tokens_in_repository"),
+        False,
+        "network_contract.tokens_in_repository",
+    )
 
     contracts = manifest.get("file_contracts")
     if not isinstance(contracts, list) or not contracts:
@@ -356,6 +402,13 @@ def validate_public_baseline(
                 f"{relative} SHA-256 mismatch: {actual_sha} != {expected_sha}"
             )
         total_bytes += actual_size
+
+    missing_cleanroom_contracts = REQUIRED_CLEANROOM_FILES - seen
+    if missing_cleanroom_contracts:
+        raise BaselineValidationError(
+            "file_contracts omit clean-room deployment files: "
+            + ", ".join(sorted(missing_cleanroom_contracts))
+        )
 
     return BaselineSummary(
         baseline_id=baseline_id,

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Source this file from an interactive shell. Override TINYNAV_WORKSPACE and
-# TINYNAV_ROOT before sourcing when the checkout is not under /home/nvidia.
+# Source this file from an interactive shell for a manual/legacy install.
+# bootstrap_robot0_cleanroom.sh generates the preferred setup automatically.
 
 _focus_had_nounset=0
 case $- in
   *u*) _focus_had_nounset=1; set +u ;;
 esac
 
-TINYNAV_WORKSPACE="${TINYNAV_WORKSPACE:-/home/nvidia/twork}"
+TINYNAV_WORKSPACE="${TINYNAV_WORKSPACE:-$HOME/twork}"
 TINYNAV_ROOT="${TINYNAV_ROOT:-$TINYNAV_WORKSPACE/tinynav-topofocus}"
 
 source /opt/ros/humble/setup.bash

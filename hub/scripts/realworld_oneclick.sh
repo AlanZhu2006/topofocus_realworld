@@ -489,6 +489,8 @@ printf -v YUNJI_ENV \
   "$FOCUS_SESSION_CODE_COMMIT"
 printf -v WSJ_LAUNCHER '%q' \
   "$WSJ_ROOT/hub/robot_overlay/start_wsj_buildmap_v2.sh"
+printf -v WSJ_STOPPER '%q' \
+  "$WSJ_ROOT/hub/robot_overlay/stop_wsj_live_command_path.sh"
 printf -v YUNJI_LAUNCHER '%q' \
   "$YUNJI_ROOT/hub/robot_overlay/start_yunji_v2.sh"
 
@@ -896,7 +898,7 @@ ensure_foxglove() {
 
 start_read_only_robots() {
   remote_pair \
-    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:calibration-sender >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER --mode debug" \
+    "bash $WSJ_STOPPER; $WSJ_ENV bash $WSJ_LAUNCHER --mode debug" \
     "/bin/bash '$YUNJI_ROOT/hub/robot_overlay/stop_yunji_live_command_path.sh'; for unit in focus-yunji-calibration-observation-v1.service focus-yunji-command-observation-v2.service; do sudo -n systemctl stop \"\$unit\" >/dev/null 2>&1 || true; sudo -n systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true; done; $YUNJI_ENV bash $YUNJI_LAUNCHER --mode debug"
 }
 
@@ -962,20 +964,20 @@ recover_full_readonly_runtime_parallel() {
 }
 
 verify_tracking_epoch_continuity() {
-  local stamp wsj_probe yunji_probe
+  local stamp wsj_probe_name yunji_probe_name
   [[ "$FOCUS_DEBUG_PASSED_AT_NS" =~ ^[1-9][0-9]*$ ]] || {
     echo "The session has no strict debug timestamp to anchor fast reuse." >&2
     return 1
   }
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-  wsj_probe="/home/nvidia/.local/state/topofocus/tracking-epoch-${FOCUS_SESSION_ID}-${stamp}.json"
-  yunji_probe="/home/nyu/.local/state/topofocus/tracking-epoch-${FOCUS_SESSION_ID}-${stamp}.json"
+  wsj_probe_name="tracking-epoch-${FOCUS_SESSION_ID}-${stamp}.json"
+  yunji_probe_name="tracking-epoch-${FOCUS_SESSION_ID}-${stamp}.json"
   remote_pair \
-    "python3 '$WSJ_ROOT/hub/robot_overlay/probe_tracking_epoch.py' --robot-id robot-0 --debug-passed-at-ns '$FOCUS_DEBUG_PASSED_AT_NS' --output '$wsj_probe'" \
-    "python3 '$YUNJI_ROOT/hub/robot_overlay/probe_tracking_epoch.py' --robot-id robot-1 --debug-passed-at-ns '$FOCUS_DEBUG_PASSED_AT_NS' --output '$yunji_probe'"
+    "state_root=\${FOCUS_ROBOT_STATE_DIR:-\${XDG_STATE_HOME:-\$HOME/.local/state}/topofocus}; mkdir -p \"\$state_root\"; python3 '$WSJ_ROOT/hub/robot_overlay/probe_tracking_epoch.py' --robot-id robot-0 --debug-passed-at-ns '$FOCUS_DEBUG_PASSED_AT_NS' --output \"\$state_root/$wsj_probe_name\"" \
+    "state_root=\${FOCUS_ROBOT_STATE_DIR:-\${XDG_STATE_HOME:-\$HOME/.local/state}/topofocus}; mkdir -p \"\$state_root\"; python3 '$YUNJI_ROOT/hub/robot_overlay/probe_tracking_epoch.py' --robot-id robot-1 --debug-passed-at-ns '$FOCUS_DEBUG_PASSED_AT_NS' --output \"\$state_root/$yunji_probe_name\""
   echo "TRACKING_EPOCH_CONTINUITY_PASSED: both odometry owners predate strict debug."
-  echo "  WSJ evidence:   $wsj_probe"
-  echo "  Yunji evidence: $yunji_probe"
+  echo "  Robot 0 evidence: <robot-state-dir>/$wsj_probe_name"
+  echo "  Robot 1 evidence: <robot-state-dir>/$yunji_probe_name"
 }
 
 prepare_warm_live_reuse() {
@@ -983,7 +985,7 @@ prepare_warm_live_reuse() {
   # perception/planning cores needed for a fast mode switch remain alive.
   # This operation cannot move either robot.
   remote_pair \
-    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; for window in maploc online-map planning goal-router control; do tmux list-windows -t tinynav_semantic_nav_auto -F '#{window_name}' | grep -qx \"\$window\" || exit 1; done; for window in planning goal-router control; do [[ \"\$(tmux display-message -p -t tinynav_semantic_nav_auto:\$window '#{pane_dead}')\" == 0 ]] || exit 1; [[ \"\$(tmux show-options -w -v -t tinynav_semantic_nav_auto:\$window @focus_deployment_commit 2>/dev/null)\" == '$FOCUS_SESSION_CODE_COMMIT' ]] || exit 1; [[ \"\$(tmux show-options -w -v -t tinynav_semantic_nav_auto:\$window @focus_component_contract_sha256 2>/dev/null)\" =~ ^[0-9a-f]{64}\$ ]] || exit 1; done" \
+    "bash $WSJ_STOPPER; for window in maploc online-map planning goal-router control; do tmux list-windows -t tinynav_semantic_nav_auto -F '#{window_name}' | grep -qx \"\$window\" || exit 1; done; for window in planning goal-router control; do [[ \"\$(tmux display-message -p -t tinynav_semantic_nav_auto:\$window '#{pane_dead}')\" == 0 ]] || exit 1; [[ \"\$(tmux show-options -w -v -t tinynav_semantic_nav_auto:\$window @focus_deployment_commit 2>/dev/null)\" == '$FOCUS_SESSION_CODE_COMMIT' ]] || exit 1; [[ \"\$(tmux show-options -w -v -t tinynav_semantic_nav_auto:\$window @focus_component_contract_sha256 2>/dev/null)\" =~ ^[0-9a-f]{64}\$ ]] || exit 1; done" \
     "/bin/bash '$YUNJI_ROOT/hub/robot_overlay/stop_yunji_live_command_path.sh'; systemctl is-active --quiet focus-yunji-odin1-driver.service || exit 1; core_contract=''; for unit in focus-yunji-tinynav-adapter-v1.service focus-yunji-tinynav-occupancy-v1.service focus-yunji-tinynav-planner-v1.service focus-yunji-tinynav-router-v1.service focus-yunji-tinynav-controller-v1.service; do systemctl is-active --quiet \"\$unit\" || exit 1; environment=\$(systemctl show --property Environment --value \"\$unit\"); [[ \" \$environment \" == *\" FOCUS_DEPLOYMENT_COMMIT=$FOCUS_SESSION_CODE_COMMIT \"* ]] || exit 1; candidate=\$(tr ' ' '\\n' <<<\"\$environment\" | sed -n 's/^FOCUS_YUNJI_CORE_CONTRACT_SHA256=//p'); [[ \"\$candidate\" =~ ^[0-9a-f]{64}\$ ]] || exit 1; [[ -z \"\$core_contract\" || \"\$core_contract\" == \"\$candidate\" ]] || exit 1; core_contract=\"\$candidate\"; done"
 }
 
@@ -1001,7 +1003,7 @@ arm_live_robots() {
     yunji_args="--mode debug"
   fi
   remote_pair \
-    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true; $WSJ_ENV bash $WSJ_LAUNCHER $wsj_args" \
+    "bash $WSJ_STOPPER; $WSJ_ENV bash $WSJ_LAUNCHER $wsj_args" \
     "/bin/bash '$YUNJI_ROOT/hub/robot_overlay/stop_yunji_live_command_path.sh'; $YUNJI_ENV bash $YUNJI_LAUNCHER $yunji_args"
 }
 
@@ -1092,7 +1094,7 @@ disarm_live_stack() {
   restart_hub "$FOCUS_DEBUG_ROBOT_CONFIG" false \
     || echo "WARNING: Hub debug restart failed." >&2
   remote_pair \
-    "source /home/nvidia/twork/tinynav_setup.bash; timeout 5 ros2 topic pub --once /nav/paused std_msgs/msg/Bool '{data: true}' >/dev/null 2>&1 || true; timeout 5 ros2 topic pub --once /focus_guarded_cmd_vel geometry_msgs/msg/Twist '{}' >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:go2-bridge >/dev/null 2>&1 || true; tmux kill-window -t tinynav_semantic_nav_auto:v2-receiver >/dev/null 2>&1 || true" \
+    "bash $WSJ_STOPPER" \
     "/bin/bash '$YUNJI_ROOT/hub/robot_overlay/stop_yunji_live_command_path.sh'" \
     || echo "WARNING: one robot command path did not confirm its guarded stop." >&2
   echo "WARM_READONLY_CORE_PRESERVED: observation, maps and Foxglove keep running."

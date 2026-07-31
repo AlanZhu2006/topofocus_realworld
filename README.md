@@ -46,7 +46,8 @@ stops locally.
 python3 hub/tools/verify_public_baseline.py --workspace .
 ```
 
-[Robot 0 reproducibility guide](docs/ROBOT0_REPRODUCIBLE_BASELINE.md) ·
+[Clean-room RTX 4090 + Unitree Go2 deployment](docs/ROBOT0_REPRODUCIBLE_BASELINE.md) ·
+[Reproduction levels](docs/REPRODUCE.md) ·
 [Machine-readable deployment contract](hub/config/deployments/realworld_dual_robot_v1.json)
 
 ## Cross-robot calibration

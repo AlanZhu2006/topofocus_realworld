@@ -52,7 +52,7 @@
     "hub_semantic_runtime": {
       "python": "3.10.20",
       "pytorch": "2.8.0+cu128",
-      "torchvision": "0.23.0",
+      "torchvision": "0.23.0+cu128",
       "cuda_runtime": "12.8",
       "detectron2": "0.6",
       "classification": "observed",
@@ -75,7 +75,7 @@
       "classification": "source-derived",
       "source": "reconstructed TinyNav pyproject.toml and uv.lock"
     },
-    "wsj_middleware": {
+    "robot0_middleware": {
       "ros": "ROS 2 Humble",
       "rmw_package": "CycloneDDS 1.3.4",
       "python_cyclonedds_lock": "0.10.2",
@@ -84,6 +84,15 @@
       "camera_firmware": "5.17.0.10",
       "classification": "observed",
       "source": "docs/ROBOT0_BASELINE_20260721.md"
+    },
+    "cleanroom_install": {
+      "source_lock": "hub/config/deployments/robot0_cleanroom_sources_v1.json",
+      "hub_installer": "hub/scripts/bootstrap_gpu_hub_cleanroom.sh",
+      "robot0_installer": "hub/robot_overlay/bootstrap_robot0_cleanroom.sh",
+      "default_mode": "read-only plan",
+      "starts_robot_processes": false,
+      "downloads_simulator_data": false,
+      "classification": "source-derived"
     },
     "robot0_perception_runtime": {
       "entry_point": "hub/robot_overlay/wsj_perception_entry.py",
@@ -222,7 +231,13 @@
   "network_contract": {
     "robot_to_hub_endpoint": "http://127.0.0.1:18089",
     "transport_exposure": "loopback-only SSH tunnel",
-    "tokens_in_repository": false
+    "tokens_in_repository": false,
+    "robot0_unitree_lan": {
+      "default_interface": "eth0",
+      "host_address": "192.168.123.100/24",
+      "robot_address": "192.168.123.161",
+      "configuration_contacts_robot": false
+    }
   },
   "file_contracts": [
     {
@@ -233,14 +248,14 @@
     },
     {
       "path": "hub/robot_overlay/bootstrap_go2.sh",
-      "size_bytes": 6463,
-      "sha256": "7a21bb78e5cfe86b6d2b5ed1b1a107851a52dbdb25f84319bdb82d709518d980",
+      "size_bytes": 6456,
+      "sha256": "7db0f23bbb139504e6388d452f921f4139673a5806280fb7ed5a2d784458a432",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/verify_go2.sh",
-      "size_bytes": 5191,
-      "sha256": "df2629f39ea7a5108829824b266274cf158fc0285f99fb63d0df6546743a4297",
+      "size_bytes": 5177,
+      "sha256": "b417be3ba52e6146b8b707dd8f256f13cd6764c9fa8e5738caf21a888b0c730a",
       "classification": "source-derived"
     },
     {
@@ -257,8 +272,8 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-      "size_bytes": 38249,
-      "sha256": "55f25324734bfdb2ffadb3c783ac3dd55d0c6b83951d842a3dbf1a719259d175",
+      "size_bytes": 38686,
+      "sha256": "c49fef7ed6ddb8a815805ee2b71021c777547d7d21f52985d96fe11e9b140081",
       "classification": "source-derived"
     },
     {
@@ -343,6 +358,156 @@
       "path": "hub/tools/build_v2_decision_batch.py",
       "size_bytes": 4346,
       "sha256": "3ef970ac817c416e18a77848e447b96564a2685e6cd9f1d148009b2f1b758adf",
+      "classification": "source-derived"
+    },
+    {
+      "path": "manifests/artifacts.json",
+      "size_bytes": 2345,
+      "sha256": "3d7d14c3c79e326ef3ddbbc1188bb045ba4b3667021e104d2ae0ea627d1d5489",
+      "classification": "observed"
+    },
+    {
+      "path": "hub/config/deployments/robot0_cleanroom_sources_v1.json",
+      "size_bytes": 6509,
+      "sha256": "b17c592ca304795f40edf9d8f966858ec2267d9ccca2bd00d56dca4de1601c5c",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/gpu_runtime/pyproject.toml",
+      "size_bytes": 1214,
+      "sha256": "64c1dfaf4a0cdc571c99924f4171314f2255633a503b232e0ee02307e9fac3e0",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/gpu_runtime/uv.lock",
+      "size_bytes": 219837,
+      "sha256": "6629b9e02cc3e50a54340ababb26cc0e194792eafcbf3361659ef2bc4b823eb2",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/bootstrap_robot0_cleanroom.sh",
+      "size_bytes": 16865,
+      "sha256": "a8ab7d6d215a3f33953655ed01e0e1795d6ddb10f9ab89f017858f9197ea2dd8",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/config/go2.env.example",
+      "size_bytes": 1386,
+      "sha256": "d0bef0901d7e2b45a43a76fe92b01a938409acd77f97ebe82355fde73ed06a5e",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/configure_go2_network.sh",
+      "size_bytes": 3975,
+      "sha256": "aff853864ca1a887bd6080603410a7efb5c1741147332bd6cc76079b385e22ab",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/recover_wsj_publishers_after_sender.sh",
+      "size_bytes": 21022,
+      "sha256": "f8aab7faf1b6b65a101064fabda8aecd24ae161964044384afe32e94063654a7",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/save_go2_buildmap.sh",
+      "size_bytes": 2141,
+      "sha256": "bf979d44490042fa425ed4cc6c9f985cc544c7e44c5f68e1e998bb093613f09b",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_go2_buildmap.sh",
+      "size_bytes": 4320,
+      "sha256": "24e83e3698e013ca8f86287a4e413185cd68e7304acc5428add38c18ecea5d86",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_go2_observation.sh",
+      "size_bytes": 5984,
+      "sha256": "f30dd35647002ed58dd3d3e06af70830ded8e9cd0472c2637087f149d39c149d",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_tinynav_buildmap_online_nav.sh",
+      "size_bytes": 9086,
+      "sha256": "d649aa5445822470a252bc97d4243a44710e6b7ff7b3b7870d736245691c8d43",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_wsj_calibration_observation.sh",
+      "size_bytes": 18330,
+      "sha256": "5f4f8bb816fc86f8eebac03452ff377085a52607492028daa7a61c08664d4ec2",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/start_wsj_command_observation.sh",
+      "size_bytes": 29624,
+      "sha256": "f947a9de686239e8bbe98d547e40d55d52f9a06148012daee348fac13f53b3c0",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/stop_tinynav_buildmap_online_nav.sh",
+      "size_bytes": 2011,
+      "sha256": "35458b0e5d07f912fe64b4596ba123924b8b653dc54931e7231c2b9aa0e654ff",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/stop_wsj_live_command_path.sh",
+      "size_bytes": 1571,
+      "sha256": "178b10679af277d76c5d6e7a3cab97a05ba287e463dbe67196118ddb31873e45",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/verify_robot0_cleanroom.py",
+      "size_bytes": 22119,
+      "sha256": "3630ee8ff4763f3c003be91198b60993946edfd761a3441d693c0ace8f58cf1c",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/scripts/bootstrap_gpu_hub_cleanroom.sh",
+      "size_bytes": 6774,
+      "sha256": "483f4cc61e27baed1c1e00db0aa1060be814ca614df8489b7bf5168b55760d64",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/scripts/calibrate_realworld_session.sh",
+      "size_bytes": 33888,
+      "sha256": "62acffd024694dc600e44792277d15dcd4c1b6bf18ec2cf2a4667d88bd048f36",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/scripts/install_source_semantic_stack.sh",
+      "size_bytes": 6211,
+      "sha256": "4919dc75955668ac8c8b4365971078da4dc62d8629946830f41f3fcf9b390779",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/scripts/realworld_oneclick.sh",
+      "size_bytes": 48854,
+      "sha256": "5fb1b57abdb7bacbe03786a1c852c1b9f2b475825a88f9299c44b7a63dfb645e",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/src/focus_hub/public_baseline.py",
+      "size_bytes": 14081,
+      "sha256": "088036366d1db295334b553c502f64d5dec67317c735133afc8755fd192e9310",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/fetch_cleanroom_models.py",
+      "size_bytes": 20295,
+      "sha256": "04609992d072f9adfd4cec58ca8c97062cce2062555bf7953e82d99cf18e8ed7",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/manage_realworld_session.py",
+      "size_bytes": 20638,
+      "sha256": "018bd593abaf4bf9246520d8d061dc840f22dfa90e5d64c8cc461030af9c6480",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/tools/verify_gpu_cleanroom.py",
+      "size_bytes": 13161,
+      "sha256": "678cb2d0d64b3eeb16695de61a8784cb6a916def07cd3d422381fd5b5486d077",
       "classification": "source-derived"
     }
   ]
