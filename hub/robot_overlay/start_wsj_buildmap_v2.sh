@@ -66,6 +66,11 @@ RECEIVER_ODOMETRY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_ODOMETRY_RECOVERY_GRACE
 # recovery window applies only after that spatial bound closes the gate.
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
+# A collision report still zeros guarded velocity immediately.  The shared
+# local occupancy/planner contract recovered from a live collision state after
+# roughly six seconds on Robot 1; use the same bounded seven-second verdict on
+# both platforms before the Hub permanently rejects the immutable leg.
+PLANNER_COLLISION_REJECTION_S="${FOCUS_WSJ_PLANNER_COLLISION_REJECTION_S:-7.0}"
 # The guarded velocity output is zeroed after one second without a fresh path.
 # Physical legs observed a 1.900-1.921 s first-path delay and later 1.016 s and
 # 3.365 s planner publication gaps while the router was still producing an
@@ -850,6 +855,7 @@ receiver=(
   --odometry-recovery-grace-s "$RECEIVER_ODOMETRY_RECOVERY_GRACE_S"
   --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
+  --planner-collision-rejection-s "$PLANNER_COLLISION_REJECTION_S"
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
   --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"
   --trajectory-start-grace-s "$TRAJECTORY_START_GRACE_S"

@@ -742,7 +742,7 @@ def test_all_collision_gate_is_authority_scoped_fresh_and_bounded():
         "collision_since_ns": 1_100_000_000,
         "all_candidates_in_collision": True,
         "status_timeout_s": 1.0,
-        "rejection_timeout_s": 1.5,
+        "rejection_timeout_s": 7.0,
     }
 
     # A report from before this authority epoch cannot reject a new leg.
@@ -757,17 +757,49 @@ def test_all_collision_gate_is_authority_scoped_fresh_and_bounded():
         **common,
     ) == (True, False, pytest.approx(0.5), True)
     assert wsj.planner_collision_gate_state(
-        now_ns=2_700_000_000,
-        status_received_ns=2_650_000_000,
+        now_ns=8_200_000_000,
+        status_received_ns=8_150_000_000,
         **common,
-    ) == (True, True, pytest.approx(1.6), True)
+    ) == (True, True, pytest.approx(7.1), True)
     # Stale collision evidence reopens this specific gate; independent path
     # freshness still remains fail-closed in the receiver.
     assert wsj.planner_collision_gate_state(
-        now_ns=3_700_000_000,
-        status_received_ns=2_650_000_000,
+        now_ns=9_200_000_000,
+        status_received_ns=8_150_000_000,
         **common,
-    ) == (False, False, pytest.approx(2.6), True)
+    ) == (False, False, pytest.approx(8.1), True)
+
+
+def test_observed_six_second_collision_recovery_is_not_terminal():
+    wsj = load_overlay("v2_wsj_receiver.py")
+
+    # The physical gate remains closed throughout the observed transient, but
+    # the leg is not permanently rejected before a new finite candidate set
+    # arrives.  This covers the 5.85 s and 5.94 s live recoveries.
+    gate_closed, terminal, age_s, observed = (
+        wsj.planner_collision_gate_state(
+            now_ns=6_940_000_000,
+            authority_started_ns=500_000_000,
+            status_received_ns=6_900_000_000,
+            collision_since_ns=1_000_000_000,
+            all_candidates_in_collision=True,
+            status_timeout_s=1.0,
+            rejection_timeout_s=7.0,
+        )
+    )
+    assert gate_closed is True
+    assert terminal is False
+    assert age_s == pytest.approx(5.94)
+    assert observed is True
+    assert wsj.planner_collision_gate_state(
+        now_ns=6_950_000_000,
+        authority_started_ns=500_000_000,
+        status_received_ns=6_950_000_000,
+        collision_since_ns=0,
+        all_candidates_in_collision=False,
+        status_timeout_s=1.0,
+        rejection_timeout_s=7.0,
+    ) == (False, False, 0.0, False)
 
 
 def test_final_velocity_gate_rechecks_all_health_at_control_rate():

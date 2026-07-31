@@ -51,6 +51,11 @@ MAX_PLAN_DURATION_S="${FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50}"
 # physical gate zeros and the seven-second recovery window begins.
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
+# Robot 1 normally refreshes occupancy every 2.7--3.1 s and an observed local
+# collision state recovered after about 5.9 s.  Keep immediate zero velocity,
+# but wait seven continuous seconds of fresh all-collision evidence before a
+# terminal LOCAL_GOAL_UNREACHABLE verdict.
+PLANNER_COLLISION_REJECTION_S="${FOCUS_YUNJI_PLANNER_COLLISION_REJECTION_S:-7.0}"
 # Match Robot 0's common TinyNav receiver contract: immediately zero after one
 # second without a fresh collision-free path, while allowing twelve seconds
 # for a terminal first-path or transient-republish verdict. The router's
@@ -568,6 +573,7 @@ receiver_args=(
   --occupancy-topic /semantic_mapping/occupancy_bev
   --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
+  --planner-collision-rejection-s "$PLANNER_COLLISION_REJECTION_S"
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
   --trajectory-start-grace-s "$TRAJECTORY_START_GRACE_S"
   --trajectory-stale-timeout-s "$TRAJECTORY_STALE_TIMEOUT_S"
