@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from types import SimpleNamespace
 
 from focus_hub.pose_gate import (
@@ -77,6 +78,29 @@ def test_rate_aware_selector_accepts_bounded_motion_after_slow_mapping_pair():
     assert delayed_motion.accept
     assert delayed_motion.reason == "translation"
     assert not delayed_motion.pose_jump
+
+
+def test_rate_aware_selector_accepts_bounded_turn_after_slow_mapping_pair():
+    config = SimpleNamespace(
+        translation_threshold_m=0.20,
+        rotation_threshold_deg=10.0,
+        max_interval_sec=1.0,
+        pose_jump_translation_m=1.0,
+        pose_jump_rotation_deg=90.0,
+        pause_frames_after_jump=0,
+    )
+    selector = RateAwareKeyframeSelector(config)
+
+    assert selector.evaluate(pose(), 0).accept
+    delayed_turn = selector.evaluate(
+        pose(0.341, yaw_deg=102.711),
+        3_400_000_000,
+    )
+
+    assert delayed_turn.accept
+    assert delayed_turn.reason == "translation"
+    assert not delayed_turn.pose_jump
+    assert delayed_turn.elapsed_sec == pytest.approx(3.4)
 
 
 def test_rate_aware_selector_still_rejects_fast_or_large_discontinuity():

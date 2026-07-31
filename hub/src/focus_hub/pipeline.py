@@ -31,9 +31,9 @@ from .models import ObservationMetadata
 from .pose_gate import (
     KeyframeConfig,
     KeyframeDecision,
-    KeyframeSelector,
     pose_delta,
 )
+from .rate_aware_keyframes import RateAwareKeyframeSelector
 from .semantic_yolo import SemanticYoloConfig, reinforce_rednet_prediction
 
 
@@ -263,7 +263,26 @@ class SpoolMappingPipeline:
         self.robot_id = robot_id
         self.shared_frame_calibration_id = shared_frame_calibration_id
         self.floor_source = floor_source
-        self.keyframes = KeyframeSelector(keyframe_config) if keyframe_config else None
+        # Match the robot-side TinyNav mapper's source-time-aware continuity
+        # adapter. Robot 0 occupancy may arrive only every 3--5 s under load;
+        # a fixed 90-degree adjacent-frame threshold can otherwise classify a
+        # bounded in-place turn as relocalization. Dynamic limits remain
+        # capped, so an outage cannot legalize an arbitrary pose reset.
+        self.keyframes = (
+            RateAwareKeyframeSelector(
+                keyframe_config,
+                maximum_dynamic_translation_m=max(
+                    1.50,
+                    keyframe_config.pose_jump_translation_m,
+                ),
+                maximum_dynamic_rotation_deg=max(
+                    150.0,
+                    keyframe_config.pose_jump_rotation_deg,
+                ),
+            )
+            if keyframe_config
+            else None
+        )
         self.halt_on_pose_jump = halt_on_pose_jump
         self.semantic_detector = semantic_detector
         self.semantic_yolo_config = semantic_yolo_config or SemanticYoloConfig()
@@ -532,12 +551,14 @@ class SpoolMappingPipeline:
             )
         if self.keyframes is not None:
             discontinuity = self.keyframes.observe(
-                observation.T_shared_camera
+                observation.T_shared_camera,
+                observation.metadata.capture_time_ns,
             )
             if discontinuity is not None:
-                self.pose_jump_events += 1
                 self.skipped_non_keyframes += 1
-                if self.halt_on_pose_jump:
+                if discontinuity.pose_jump:
+                    self.pose_jump_events += 1
+                if discontinuity.pose_jump and self.halt_on_pose_jump:
                     self.mapping_blocked_kind = "pose_jump"
                     self.mapping_blocked_reason = (
                         "pose discontinuity requires a fresh map session: "

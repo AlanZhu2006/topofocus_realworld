@@ -1520,11 +1520,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--robot-1-frontier-path-clearance-m",
         type=float,
-        default=0.25,
+        default=0.20,
         help=(
-            "Yunji five-cell square graph clearance; its 0.354 m corner "
-            "radius covers the measured 0.283 m circular body plus 0.05 m "
-            "margin and matches its local router"
+            "Yunji four-cell square graph clearance; its 0.283 m corner "
+            "radius matches the measured circular body while its exact "
+            "TinyNav ESDF independently applies the 0.05 m safety margin"
         ),
     )
     parser.add_argument(

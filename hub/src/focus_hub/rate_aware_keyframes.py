@@ -115,9 +115,16 @@ class RateAwareKeyframeSelector:
         )
         return translation, rotation
 
-    def evaluate(
+    def observe(
         self, pose: np.ndarray, timestamp_ns: int
-    ) -> RateAwareKeyframeDecision:
+    ) -> RateAwareKeyframeDecision | None:
+        """Advance adjacent-pose continuity using the source timestamp.
+
+        A mapper can call this before an independently rejectable perception
+        stage, then call :meth:`select_keyframe` only when that frame may be
+        integrated.  Normal motion therefore cannot accumulate across skipped
+        frames and masquerade as one relocalization jump.
+        """
         current = _pose_matrix(pose).copy()
         stamp = int(timestamp_ns)
         if stamp < 0:
@@ -160,6 +167,16 @@ class RateAwareKeyframeSelector:
                 )
         self._last_observed_pose = current
         self._last_observed_timestamp_ns = stamp
+        return None
+
+    def select_keyframe(
+        self, pose: np.ndarray, timestamp_ns: int
+    ) -> RateAwareKeyframeDecision:
+        """Evaluate integration thresholds after continuity was observed."""
+        current = _pose_matrix(pose).copy()
+        stamp = int(timestamp_ns)
+        if stamp < 0:
+            raise ValueError("timestamp_ns must be non-negative")
 
         if self._pause_remaining > 0:
             self._pause_remaining -= 1
@@ -195,6 +212,15 @@ class RateAwareKeyframeSelector:
         return RateAwareKeyframeDecision(
             True, reason, translation, rotation, elapsed
         )
+
+    def evaluate(
+        self, pose: np.ndarray, timestamp_ns: int
+    ) -> RateAwareKeyframeDecision:
+        """Observe continuity and evaluate one integration candidate."""
+        continuity = self.observe(pose, timestamp_ns)
+        if continuity is not None:
+            return continuity
+        return self.select_keyframe(pose, timestamp_ns)
 
     def _accept(self, pose: np.ndarray, timestamp_ns: int) -> None:
         self._last_integrated_pose = pose.copy()

@@ -243,6 +243,34 @@ def test_live_keyframe_gate_latches_pose_jump():
     assert pipeline.robot_trajectory_xy_m == [(0.0, 0.0), (0.2, 0.0)]
 
 
+def test_live_keyframe_gate_uses_source_time_for_bounded_turn():
+    pipeline, segmenter = _pipeline(
+        "session-a",
+        keyframe_config=KeyframeConfig(
+            max_interval_sec=5.0,
+            pose_jump_translation_m=1.0,
+            pose_jump_rotation_deg=90.0,
+        ),
+    )
+    pipeline.process(_observation(10, "session-a"))
+    turned = _observation(14, "session-a")
+    yaw = np.deg2rad(102.711)
+    turned.T_shared_camera[:2, :2] = [
+        [np.cos(yaw), -np.sin(yaw)],
+        [np.sin(yaw), np.cos(yaw)],
+    ]
+    turned.T_shared_camera[0, 3] = 0.341
+
+    decision = pipeline.process(turned)
+
+    assert decision.accept
+    assert not decision.pose_jump
+    assert pipeline.mapping_blocked_reason is None
+    assert pipeline.pose_jump_events == 0
+    assert segmenter.calls == 2
+    assert pipeline.mapper.calls == 2
+
+
 def test_ground_rejected_turns_still_advance_pose_continuity(monkeypatch):
     pipeline, segmenter = _pipeline(
         "session-a",

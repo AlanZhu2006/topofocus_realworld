@@ -160,7 +160,7 @@
         },
         "robot-1": {
           "lookahead_m": 0.35,
-          "clearance_m": 0.25,
+          "clearance_m": 0.2,
           "start_snap_radius_m": 1.0,
           "start_footprint_override_m": 0.34
         }
@@ -329,8 +329,8 @@
     },
     {
       "path": "hub/robot_overlay/start_yunji_v2.sh",
-      "size_bytes": 26661,
-      "sha256": "178a2cd2aac209a8b5be4b2689402d19983a7ede04cd63ed0e47c872be195cb0",
+      "size_bytes": 26813,
+      "sha256": "357d93c9daa8195c18ac7aa146b46510bee77ab19e2bac500eb449954b7e4ca0",
       "classification": "source-derived"
     },
     {
@@ -365,14 +365,14 @@
     },
     {
       "path": "hub/src/focus_hub/pipeline.py",
-      "size_bytes": 57415,
-      "sha256": "a4d2d0a9530b1199c15710ed3d43bc6da351e7ac912132dac525f6b9d7a65381",
+      "size_bytes": 58363,
+      "sha256": "7b3e28ceee21dce2af1a16674d74ceb0cda80149a433f2320826fb203bf04935",
       "classification": "source-derived"
     },
     {
       "path": "hub/src/focus_hub/rate_aware_keyframes.py",
-      "size_bytes": 8270,
-      "sha256": "52e8b1d1f9be1c570b6616e77ebf5bc5acc79d89693eca00e7512feb6db425f0",
+      "size_bytes": 9379,
+      "sha256": "bf2730483f8072f5bbeb3808b37a47e97adb6be9e73a83ca332aca5849c90f21",
       "classification": "source-derived"
     },
     {
@@ -461,8 +461,8 @@
     },
     {
       "path": "hub/tools/run_v2_source_episode.py",
-      "size_bytes": 135622,
-      "sha256": "423013bfa4bc39daac80d836829b3d4ca06b86fe4f9b7602241c9630cc64eaf9",
+      "size_bytes": 135643,
+      "sha256": "15a151c25ef7939ede229bbf7fdafe474fef2a9f2b442cd02fc8c7e15166b6e3",
       "classification": "source-derived"
     },
     {

@@ -26,11 +26,11 @@ reached WATER under supervision but has no official completed scene.
 The 2026-07-25 `trial-04-yunji-floor` run added one local-router correction.
 Yunji started close to a wall, and its 5 cm occupancy grid had no known-free
 seed within 1 m when the router rounded 0.34 m up to a seven-cell square
-clearance. The router now uses five cells (0.25 m) only for global graph
-admission: the resulting square has a 0.354 m corner radius, which still covers
-the measured 0.283 m circular body plus its unchanged 0.05 m safety margin
-without falsely disconnecting the observed corridor. TinyNav's exact circular
-ESDF and WATER retain final collision/stop authority.
+clearance. The router uses four cells (0.20 m) only for global graph admission:
+the square-corner radius matches the measured 0.283 m circular body without
+falsely disconnecting known-free corridors. TinyNav's exact circular ESDF
+independently applies the unchanged 0.05 m safety margin, and WATER retains
+final collision/stop authority.
 
 ### Historical observed July 22 cutover
 
