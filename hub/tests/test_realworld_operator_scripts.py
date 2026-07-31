@@ -293,6 +293,17 @@ def test_yunji_calibration_recovers_only_the_readonly_odin_driver():
     assert "/api/joy_control" not in network
 
 
+def test_odin_verifier_retries_transient_ros_graph_discovery():
+    verifier = (OVERLAY / "verify_odin1.sh").read_text()
+
+    assert "ODIN_TOPIC_READY_TIMEOUT_S:-12" in verifier
+    assert "wait_for_live_topic()" in verifier
+    assert "timeout 4 ros2 topic list -t" in verifier
+    assert 'timeout 5 ros2 topic echo --once "${topic}"' in verifier
+    assert "while (( SECONDS < deadline ))" in verifier
+    assert "ros2 daemon stop" not in verifier
+
+
 def test_every_yunji_observation_entry_verifies_the_water_link():
     for name in (
         "run_yunji_mapping_observation.sh",

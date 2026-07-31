@@ -8,6 +8,7 @@ DRIVER_ROOT="${ODIN_DRIVER_ROOT:-${ODIN_WS}/src/odin_ros_driver}"
 EXPECTED_COMMIT="13aa528b1da581e2168ac858f8b144f0b4438a7a"
 PATCH_FILE="${SCRIPT_DIR}/odin1_snapshot/odin_ros_driver_0.13.0_firmware_0.13.1_mode1.patch"
 CALIBRATION_FILE="${ODIN_CALIBRATION_FILE:-${ODIN_WS}/calibration/O1-P070100205.calib.yaml}"
+TOPIC_READY_TIMEOUT_S="${ODIN_TOPIC_READY_TIMEOUT_S:-12}"
 HARDWARE=0
 
 if [[ "${1:-}" == "--hardware" ]]; then
@@ -35,6 +36,32 @@ require_hash() {
     echo "actual   ${actual}" >&2
     exit 1
   fi
+}
+
+wait_for_live_topic() {
+  local topic="$1"
+  local expected_type="$2"
+  local deadline graph
+  deadline=$((SECONDS + TOPIC_READY_TIMEOUT_S))
+  while (( SECONDS < deadline )); do
+    # A newly created ROS 2 CLI participant can briefly see the publisher
+    # without having discovered its type. Refresh the graph before sampling
+    # and retry within one bounded deadline instead of reporting a false
+    # sensor failure.
+    graph="$(timeout 4 ros2 topic list -t 2>/dev/null || true)"
+    if grep -Fqx "${topic} [${expected_type}]" <<<"${graph}" \
+        && timeout 5 ros2 topic echo --once "${topic}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "no live message on ${topic} after ${TOPIC_READY_TIMEOUT_S}s" >&2
+  return 1
+}
+
+[[ "${TOPIC_READY_TIMEOUT_S}" =~ ^[1-9][0-9]*$ ]] || {
+  echo "ODIN_TOPIC_READY_TIMEOUT_S must be a positive integer" >&2
+  exit 2
 }
 
 require_file "${PATCH_FILE}"
@@ -71,12 +98,9 @@ if [[ ${HARDWARE} -eq 1 ]]; then
   # shellcheck disable=SC1090
   source "${ODIN_WS}/install/setup.bash"
   set -u
-  for topic in /odin1/image /odin1/cloud_slam /odin1/odometry; do
-    if ! timeout 8 ros2 topic echo --once "${topic}" >/dev/null; then
-      echo "no live message on ${topic}" >&2
-      exit 1
-    fi
-  done
+  wait_for_live_topic /odin1/image sensor_msgs/msg/Image
+  wait_for_live_topic /odin1/cloud_slam sensor_msgs/msg/PointCloud2
+  wait_for_live_topic /odin1/odometry nav_msgs/msg/Odometry
 fi
 
 echo "Odin1 verification passed (hardware=${HARDWARE}, commit=${EXPECTED_COMMIT})."
