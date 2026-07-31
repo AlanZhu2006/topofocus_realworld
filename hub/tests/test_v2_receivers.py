@@ -905,6 +905,70 @@ def test_occupancy_episode_recovery_is_bounded_after_motion_gate_closes():
     )
 
 
+def test_heartbeat_delivery_gap_stops_motion_but_preserves_one_bounded_leg():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    common = {
+        "recovery_grace_s": 3.0,
+        "sensor_ready": True,
+        "heartbeat_delivery_ready": False,
+    }
+
+    assert wsj.heartbeat_delivery_recovery_eligible(
+        recovery_elapsed_s=0.0, **common
+    )
+    assert wsj.heartbeat_delivery_recovery_eligible(
+        recovery_elapsed_s=3.0, **common
+    )
+    assert not wsj.heartbeat_delivery_recovery_eligible(
+        recovery_elapsed_s=3.001, **common
+    )
+    assert not wsj.heartbeat_delivery_recovery_eligible(
+        recovery_elapsed_s=0.5,
+        **{**common, "sensor_ready": False},
+    )
+    assert not wsj.heartbeat_delivery_recovery_eligible(
+        recovery_elapsed_s=0.5,
+        **{**common, "heartbeat_delivery_ready": True},
+    )
+    assert not wsj.heartbeat_delivery_recovery_eligible(
+        recovery_elapsed_s=float("inf"), **common
+    )
+    with pytest.raises(ValueError, match="must be positive"):
+        wsj.heartbeat_delivery_recovery_eligible(
+            recovery_elapsed_s=0.0,
+            recovery_grace_s=0.0,
+            sensor_ready=True,
+            heartbeat_delivery_ready=False,
+        )
+
+
+def test_heartbeat_recovery_renewal_overrides_only_delivery_safety_state():
+    wsj = load_overlay("v2_wsj_receiver.py")
+    health = wsj.RobotHealth(
+        safety_state=wsj.SafetyState.HOLD,
+        localization_state=wsj.LocalizationState.TRACKING,
+        estop_engaged=False,
+        collision_avoidance_ready=True,
+        motor_controller_ready=True,
+        detail="robot local health ready; heartbeat delivery is not fresh",
+    )
+
+    renewal = wsj.heartbeat_delivery_recovery_renewal_health(health)
+
+    assert renewal.ready_for_goal()
+    assert renewal.detail == health.detail
+    for update in (
+        {"estop_engaged": True},
+        {"localization_state": wsj.LocalizationState.LOST},
+        {"collision_avoidance_ready": False},
+        {"motor_controller_ready": False},
+    ):
+        unsafe = wsj.heartbeat_delivery_recovery_renewal_health(
+            health.model_copy(update=update)
+        )
+        assert not unsafe.ready_for_goal()
+
+
 def test_occupancy_recovery_renewal_health_only_overrides_map_gate():
     wsj = load_overlay("v2_wsj_receiver.py")
     health = wsj.RobotHealth(
@@ -1193,11 +1257,27 @@ def test_closed_gate_recovery_kind_includes_combined_sensor_state():
     assert '"closed_gate_recovery_handoff"' in source
     assert source.count(
         "physical velocity gate closed immediately"
-    ) == 4
+    ) == 5
     assert '"LOCAL_SENSOR_RECOVERY_WAIT"' in source
     assert '"combined_sensor_recovery_wait"' in source
     assert '"LOCAL_ODOMETRY_RECOVERY_WAIT"' in source
     assert '"odometry_stale_recovery_wait"' in source
+    assert '"LOCAL_HEARTBEAT_RECOVERY_WAIT"' in source
+    assert '"HEARTBEAT_DELIVERY_TIMEOUT"' in source
+    assert "ready = bool(sensor_ready and heartbeat_delivery_ready)" in source
+
+
+def test_both_robot_launchers_share_bounded_heartbeat_delivery_recovery():
+    wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text(
+        encoding="utf-8"
+    )
+    yunji = (OVERLAY / "start_yunji_v2.sh").read_text(encoding="utf-8")
+
+    assert "FOCUS_WSJ_HEARTBEAT_DELIVERY_RECOVERY_GRACE_S:-3.0" in wsj
+    assert "FOCUS_YUNJI_HEARTBEAT_DELIVERY_RECOVERY_GRACE_S:-3.0" in yunji
+    for launcher in (wsj, yunji):
+        assert "--heartbeat-delivery-recovery-grace-s" in launcher
+        assert '"$HEARTBEAT_DELIVERY_RECOVERY_GRACE_S"' in launcher
 
 
 def test_receiver_and_router_share_cached_occupancy_motion_gate():

@@ -66,6 +66,10 @@ RECEIVER_ODOMETRY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_ODOMETRY_RECOVERY_GRACE
 # recovery window applies only after that spatial bound closes the gate.
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
+# A delayed Hub heartbeat still closes physical output after the receiver's
+# unchanged 1.5 s delivery gate.  Keep an existing immutable leg stopped for a
+# further bounded interval so one HTTP timing gap is not an episode verdict.
+HEARTBEAT_DELIVERY_RECOVERY_GRACE_S="${FOCUS_WSJ_HEARTBEAT_DELIVERY_RECOVERY_GRACE_S:-3.0}"
 # A collision report still zeros guarded velocity immediately.  The shared
 # local occupancy/planner contract recovered from a live collision state after
 # roughly six seconds on Robot 1; use the same bounded seven-second verdict on
@@ -855,6 +859,7 @@ receiver=(
   --odometry-recovery-grace-s "$RECEIVER_ODOMETRY_RECOVERY_GRACE_S"
   --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
+  --heartbeat-delivery-recovery-grace-s "$HEARTBEAT_DELIVERY_RECOVERY_GRACE_S"
   --planner-collision-rejection-s "$PLANNER_COLLISION_REJECTION_S"
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
   --slam-data-timeout-s "$SLAM_DATA_TIMEOUT_S"

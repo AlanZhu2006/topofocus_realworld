@@ -116,18 +116,21 @@ RECOVERY_RENEWAL_REJECTED_EVENTS = {
     "slam": "slam_recovery_renewal_rejected",
     "odometry": "odometry_recovery_renewal_rejected",
     "combined": "combined_recovery_renewal_rejected",
+    "heartbeat": "heartbeat_delivery_recovery_renewal_rejected",
 }
 RECOVERY_RENEWAL_FEEDBACK_FAILED_EVENTS = {
     "occupancy": "occupancy_recovery_renewal_feedback_failed",
     "slam": "slam_recovery_renewal_feedback_failed",
     "odometry": "odometry_recovery_renewal_feedback_failed",
     "combined": "combined_recovery_renewal_feedback_failed",
+    "heartbeat": "heartbeat_delivery_recovery_renewal_feedback_failed",
 }
 RECOVERY_LEASE_RENEWED_EVENTS = {
     "occupancy": "occupancy_recovery_lease_renewed",
     "slam": "slam_recovery_lease_renewed",
     "odometry": "odometry_recovery_lease_renewed",
     "combined": "combined_recovery_lease_renewed",
+    "heartbeat": "heartbeat_delivery_recovery_lease_renewed",
 }
 DEFAULT_CONTROLLER_PAUSE_SERVICE = "/focus/set_navigation_paused"
 DEFAULT_CONTROLLER_PAUSE_ACK_TIMEOUT_S = 1.0
@@ -218,6 +221,39 @@ def occupancy_recovery_eligible(
         and math.isfinite(recovery_elapsed_s)
         and 0.0 <= recovery_elapsed_s <= recovery_grace_s
     )
+
+
+def heartbeat_delivery_recovery_eligible(
+    *,
+    recovery_elapsed_s: float,
+    recovery_grace_s: float,
+    sensor_ready: bool,
+    heartbeat_delivery_ready: bool,
+) -> bool:
+    """Bound a stopped wait for one transient Hub-heartbeat delivery gap.
+
+    The independent physical velocity gate is already closed whenever heartbeat
+    delivery is stale.  This helper controls only whether an already accepted
+    immutable leg may remain non-terminal while every robot-local sensor,
+    collision, platform and graph check stays READY.
+    """
+
+    if not math.isfinite(recovery_grace_s) or recovery_grace_s <= 0.0:
+        raise ValueError("heartbeat delivery recovery bound must be positive")
+    return bool(
+        sensor_ready
+        and not heartbeat_delivery_ready
+        and math.isfinite(recovery_elapsed_s)
+        and 0.0 <= recovery_elapsed_s <= recovery_grace_s
+    )
+
+
+def heartbeat_delivery_recovery_renewal_health(
+    health: RobotHealth,
+) -> RobotHealth:
+    """Validate a same-leg lease without reopening the heartbeat gate."""
+
+    return health.model_copy(update={"safety_state": SafetyState.READY})
 
 
 def occupancy_recovery_renewal_health(health: RobotHealth) -> RobotHealth:
@@ -1433,6 +1469,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--heartbeat-delivery-recovery-grace-s",
+        type=float,
+        default=3.0,
+        help=(
+            "maximum zero-velocity wait after heartbeat delivery closes the "
+            "physical gate; applies only to an existing leg while every "
+            "robot-local health input stays ready"
+        ),
+    )
+    parser.add_argument(
         "--router-recovery-grace-s",
         type=float,
         default=12.0,
@@ -1591,6 +1637,7 @@ def main() -> int:
         args.occupancy_data_timeout_s,
         args.occupancy_recovery_grace_s,
         args.health_gate_timeout_s,
+        args.heartbeat_delivery_recovery_grace_s,
         args.router_recovery_grace_s,
         args.no_progress_timeout_s,
         args.minimum_goal_progress_m,
@@ -2697,6 +2744,8 @@ def main() -> int:
     )
     heartbeat_result_sequence = 0
     heartbeat_delivery_ready_previous: bool | None = None
+    heartbeat_recovery_leg_id: str | None = None
+    heartbeat_recovery_started_ns = 0
 
     def current_pose() -> tuple[float, float, float]:
         if node.world_T_camera is None:
@@ -2792,6 +2841,8 @@ def main() -> int:
                         occupancy_anchor_pose[1],
                     )
             if active_decision is None:
+                heartbeat_recovery_leg_id = None
+                heartbeat_recovery_started_ns = 0
                 occupancy_recovery_leg_id = None
                 occupancy_recovery_started_ns = 0
                 slam_recovery_leg_id = None
@@ -3221,6 +3272,34 @@ def main() -> int:
                         }
                     )
             ready = bool(sensor_ready and heartbeat_delivery_ready)
+            heartbeat_recovery_candidate = bool(
+                active_decision is not None
+                and sensor_ready
+                and not heartbeat_delivery_ready
+            )
+            if heartbeat_recovery_candidate:
+                if (
+                    heartbeat_recovery_started_ns <= 0
+                    or heartbeat_recovery_leg_id
+                    != active_decision.leg_id
+                ):
+                    heartbeat_recovery_started_ns = now_ns
+                heartbeat_recovery_elapsed_s = max(
+                    0.0,
+                    (now_ns - heartbeat_recovery_started_ns) / 1e9,
+                )
+            else:
+                heartbeat_recovery_elapsed_s = math.inf
+            heartbeat_recovery_active = (
+                heartbeat_delivery_recovery_eligible(
+                    recovery_elapsed_s=heartbeat_recovery_elapsed_s,
+                    recovery_grace_s=(
+                        args.heartbeat_delivery_recovery_grace_s
+                    ),
+                    sensor_ready=sensor_ready,
+                    heartbeat_delivery_ready=heartbeat_delivery_ready,
+                )
+            )
             node.update_motion_health(
                 ready=ready,
                 evaluated_ns=now_ns,
@@ -3229,7 +3308,49 @@ def main() -> int:
                 ),
             )
             if (
-                ready
+                heartbeat_delivery_ready
+                and heartbeat_recovery_leg_id is not None
+            ):
+                emit(
+                    "heartbeat_delivery_recovery_complete",
+                    decision_id=(
+                        None
+                        if active_decision is None
+                        else active_decision.decision_id
+                    ),
+                    leg_id=heartbeat_recovery_leg_id,
+                    recovery_duration_s=round(
+                        max(
+                            0.0,
+                            (
+                                now_ns
+                                - heartbeat_recovery_started_ns
+                            )
+                            / 1e9,
+                        ),
+                        3,
+                    ),
+                    physical_velocity_gate_closed=not ready,
+                )
+                heartbeat_recovery_leg_id = None
+                heartbeat_recovery_started_ns = 0
+                progress_watchdog.reset()
+            elif not sensor_ready and heartbeat_recovery_leg_id is not None:
+                emit(
+                    "heartbeat_delivery_recovery_cancelled",
+                    decision_id=(
+                        None
+                        if active_decision is None
+                        else active_decision.decision_id
+                    ),
+                    leg_id=heartbeat_recovery_leg_id,
+                    reason="robot_local_health_not_ready",
+                    physical_velocity_gate_closed=True,
+                )
+                heartbeat_recovery_leg_id = None
+                heartbeat_recovery_started_ns = 0
+            if (
+                sensor_ready
                 and occupancy_recovery_leg_id is not None
                 and slam_recovery_leg_id is not None
             ):
@@ -3265,7 +3386,7 @@ def main() -> int:
                 slam_recovery_leg_id = None
                 slam_recovery_started_ns = 0
                 progress_watchdog.reset()
-            elif ready and occupancy_recovery_leg_id is not None:
+            elif sensor_ready and occupancy_recovery_leg_id is not None:
                 emit(
                     "occupancy_recovery_complete",
                     decision_id=(
@@ -3279,7 +3400,7 @@ def main() -> int:
                 occupancy_recovery_leg_id = None
                 occupancy_recovery_started_ns = 0
                 progress_watchdog.reset()
-            elif ready and slam_recovery_leg_id is not None:
+            elif sensor_ready and slam_recovery_leg_id is not None:
                 emit(
                     "slam_recovery_complete",
                     decision_id=(
@@ -3299,7 +3420,7 @@ def main() -> int:
                 slam_recovery_leg_id = None
                 slam_recovery_started_ns = 0
                 progress_watchdog.reset()
-            elif ready and odometry_recovery_leg_id is not None:
+            elif sensor_ready and odometry_recovery_leg_id is not None:
                 emit(
                     "odometry_recovery_complete",
                     decision_id=(
@@ -3325,7 +3446,50 @@ def main() -> int:
                 odometry_recovery_started_ns = 0
                 progress_watchdog.reset()
             if not ready and active_decision is not None:
-                if recovery_kind == "combined":
+                if heartbeat_recovery_active:
+                    if (
+                        heartbeat_recovery_leg_id
+                        != active_decision.leg_id
+                    ):
+                        heartbeat_recovery_leg_id = (
+                            active_decision.leg_id
+                        )
+                        emit(
+                            "heartbeat_delivery_recovery_wait",
+                            decision_id=active_decision.decision_id,
+                            leg_id=active_decision.leg_id,
+                            health_gate_timeout_s=(
+                                args.health_gate_timeout_s
+                            ),
+                            recovery_elapsed_s=round(
+                                heartbeat_recovery_elapsed_s, 3
+                            ),
+                            recovery_grace_s=(
+                                args.heartbeat_delivery_recovery_grace_s
+                            ),
+                            physical_velocity_gate_closed=True,
+                        )
+                        if not post(
+                            active_decision,
+                            NavigationStatusV2.ACCEPTED,
+                            "LOCAL_HEARTBEAT_RECOVERY_WAIT",
+                            pose,
+                            zero=True,
+                            goal=active_goal,
+                            detail=(
+                                "physical velocity gate closed immediately "
+                                "for bounded heartbeat-delivery recovery"
+                            ),
+                        ):
+                            node.revoke()
+                            active_decision = None
+                            active_goal = None
+                            heartbeat_recovery_leg_id = None
+                            heartbeat_recovery_started_ns = 0
+                            progress_watchdog.reset()
+                            continue
+                        last_feedback_monotonic = time.monotonic()
+                elif recovery_kind == "combined":
                     if (
                         occupancy_recovery_leg_id
                         != active_decision.leg_id
@@ -3534,29 +3698,33 @@ def main() -> int:
                     failed_decision = active_decision
                     node.revoke()
                     reason_code = (
-                        "SENSOR_RECOVERY_TIMEOUT"
-                        if combined_sensor_recovery_candidate
+                        "HEARTBEAT_DELIVERY_TIMEOUT"
+                        if heartbeat_recovery_candidate
                         else (
-                            "ODOMETRY_SLAM_RECOVERY_TIMEOUT"
-                            if odometry_slam_recovery_candidate
+                            "SENSOR_RECOVERY_TIMEOUT"
+                            if combined_sensor_recovery_candidate
                             else (
-                                "ODOMETRY_STALE_TIMEOUT"
-                                if odometry_recovery_candidate
+                                "ODOMETRY_SLAM_RECOVERY_TIMEOUT"
+                                if odometry_slam_recovery_candidate
                                 else (
-                                    "OCCUPANCY_STALE_TIMEOUT"
-                                    if (
-                                        all_other_health_ready
-                                        and not occupancy_fresh
-                                    )
+                                    "ODOMETRY_STALE_TIMEOUT"
+                                    if odometry_recovery_candidate
                                     else (
-                                        "SLAM_TRANSIENT_TIMEOUT"
+                                        "OCCUPANCY_STALE_TIMEOUT"
                                         if (
-                                            slam_recovery_leg_id
-                                            == failed_decision.leg_id
-                                            and node.slam_detail
-                                            in TRANSIENT_SLAM_FAILURES
+                                            all_other_health_ready
+                                            and not occupancy_fresh
                                         )
-                                        else "HEALTH_NOT_READY"
+                                        else (
+                                            "SLAM_TRANSIENT_TIMEOUT"
+                                            if (
+                                                slam_recovery_leg_id
+                                                == failed_decision.leg_id
+                                                and node.slam_detail
+                                                in TRANSIENT_SLAM_FAILURES
+                                            )
+                                            else "HEALTH_NOT_READY"
+                                        )
                                     )
                                 )
                             )
@@ -3568,6 +3736,19 @@ def main() -> int:
                         reason_code=reason_code,
                         detail=health.detail,
                         checks={
+                            "heartbeat_delivery_ready": (
+                                heartbeat_delivery_ready
+                            ),
+                            "heartbeat_recovery_elapsed_s": (
+                                heartbeat_recovery_elapsed_s
+                                if math.isfinite(
+                                    heartbeat_recovery_elapsed_s
+                                )
+                                else None
+                            ),
+                            "heartbeat_recovery_grace_s": (
+                                args.heartbeat_delivery_recovery_grace_s
+                            ),
                             "local_fresh": local_fresh,
                             "slam_pass": node.slam_pass,
                             "slam_recovery_elapsed_s": (
@@ -3641,6 +3822,8 @@ def main() -> int:
                     router_recovery_leg_id = None
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
+                    heartbeat_recovery_leg_id = None
+                    heartbeat_recovery_started_ns = 0
                     occupancy_recovery_leg_id = None
                     occupancy_recovery_started_ns = 0
                     slam_recovery_leg_id = None
@@ -3981,15 +4164,27 @@ def main() -> int:
                     active_combined_sensor_recovery
                 ),
             )
-            closed_gate_recovery_leg_id = (
-                occupancy_recovery_leg_id
-                if occupancy_recovery_leg_id is not None
-                else (
-                    slam_recovery_leg_id
-                    if slam_recovery_leg_id is not None
-                    else odometry_recovery_leg_id
-                )
+            active_heartbeat_recovery = bool(
+                heartbeat_recovery_leg_id is not None
             )
+            if active_heartbeat_recovery:
+                if active_recovery_kind is not None:
+                    raise RuntimeError(
+                        "heartbeat recovery cannot overlap robot-local "
+                        "sensor recovery"
+                    )
+                active_recovery_kind = "heartbeat"
+                closed_gate_recovery_leg_id = heartbeat_recovery_leg_id
+            else:
+                closed_gate_recovery_leg_id = (
+                    occupancy_recovery_leg_id
+                    if occupancy_recovery_leg_id is not None
+                    else (
+                        slam_recovery_leg_id
+                        if slam_recovery_leg_id is not None
+                        else odometry_recovery_leg_id
+                    )
+                )
             if (
                 closed_gate_recovery_leg_id is not None
                 and active_decision is not None
@@ -3997,7 +4192,13 @@ def main() -> int:
                 and decision.leg_id == closed_gate_recovery_leg_id
                 and decision.decision_id != last_decision_id
             ):
-                if active_recovery_kind == "occupancy":
+                if active_recovery_kind == "heartbeat":
+                    renewal_health = (
+                        heartbeat_delivery_recovery_renewal_health(
+                            health
+                        )
+                    )
+                elif active_recovery_kind == "occupancy":
                     renewal_health = (
                         occupancy_recovery_renewal_health(health)
                     )
@@ -4046,6 +4247,8 @@ def main() -> int:
                     )
                     active_decision = None
                     active_goal = None
+                    heartbeat_recovery_leg_id = None
+                    heartbeat_recovery_started_ns = 0
                     occupancy_recovery_leg_id = None
                     occupancy_recovery_started_ns = 0
                     slam_recovery_leg_id = None
@@ -4081,6 +4284,8 @@ def main() -> int:
                     node.revoke()
                     active_decision = None
                     active_goal = None
+                    heartbeat_recovery_leg_id = None
+                    heartbeat_recovery_started_ns = 0
                     occupancy_recovery_leg_id = None
                     occupancy_recovery_started_ns = 0
                     slam_recovery_leg_id = None
@@ -4127,6 +4332,8 @@ def main() -> int:
                     router_recovery_leg_id = None
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
+                    heartbeat_recovery_leg_id = None
+                    heartbeat_recovery_started_ns = 0
                     occupancy_recovery_leg_id = None
                     occupancy_recovery_started_ns = 0
                     slam_recovery_leg_id = None
@@ -4154,16 +4361,20 @@ def main() -> int:
                     decision,
                     NavigationStatusV2.ACCEPTED,
                     (
-                        "LOCAL_OCCUPANCY_RECOVERY_WAIT"
-                        if active_recovery_kind == "occupancy"
+                        "LOCAL_HEARTBEAT_RECOVERY_WAIT"
+                        if active_recovery_kind == "heartbeat"
                         else (
-                            "LOCAL_SLAM_RECOVERY_WAIT"
-                            if active_recovery_kind == "slam"
+                            "LOCAL_OCCUPANCY_RECOVERY_WAIT"
+                            if active_recovery_kind == "occupancy"
                             else (
-                                "LOCAL_ODOMETRY_RECOVERY_WAIT"
-                                if active_recovery_kind
-                                == "odometry"
-                                else "LOCAL_SENSOR_RECOVERY_WAIT"
+                                "LOCAL_SLAM_RECOVERY_WAIT"
+                                if active_recovery_kind == "slam"
+                                else (
+                                    "LOCAL_ODOMETRY_RECOVERY_WAIT"
+                                    if active_recovery_kind
+                                    == "odometry"
+                                    else "LOCAL_SENSOR_RECOVERY_WAIT"
+                                )
                             )
                         )
                     ),
@@ -4180,6 +4391,8 @@ def main() -> int:
                     node.revoke()
                     active_decision = None
                     active_goal = None
+                    heartbeat_recovery_leg_id = None
+                    heartbeat_recovery_started_ns = 0
                     occupancy_recovery_leg_id = None
                     occupancy_recovery_started_ns = 0
                     slam_recovery_leg_id = None

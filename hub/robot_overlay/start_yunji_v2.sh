@@ -51,6 +51,9 @@ MAX_PLAN_DURATION_S="${FOCUS_TINYNAV_MAX_PLAN_DURATION_S:-0.50}"
 # physical gate zeros and the seven-second recovery window begins.
 RECEIVER_OCCUPANCY_TIMEOUT_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_TIMEOUT_S:-5.0}"
 RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_RECOVERY_GRACE_S:-7.0}"
+# Match Robot 0: heartbeat delivery still closes physical output immediately,
+# while one already accepted leg gets a bounded stopped transport-recovery wait.
+HEARTBEAT_DELIVERY_RECOVERY_GRACE_S="${FOCUS_YUNJI_HEARTBEAT_DELIVERY_RECOVERY_GRACE_S:-3.0}"
 # Robot 1 normally refreshes occupancy every 2.7--3.1 s and an observed local
 # collision state recovered after about 5.9 s.  Keep immediate zero velocity,
 # but wait seven continuous seconds of fresh all-collision evidence before a
@@ -573,6 +576,7 @@ receiver_args=(
   --occupancy-topic /semantic_mapping/occupancy_bev
   --occupancy-data-timeout-s "$RECEIVER_OCCUPANCY_TIMEOUT_S"
   --occupancy-recovery-grace-s "$RECEIVER_OCCUPANCY_RECOVERY_GRACE_S"
+  --heartbeat-delivery-recovery-grace-s "$HEARTBEAT_DELIVERY_RECOVERY_GRACE_S"
   --planner-collision-rejection-s "$PLANNER_COLLISION_REJECTION_S"
   --max-cached-occupancy-motion-m "$MAX_CACHED_MAP_MOTION_M"
   --trajectory-start-grace-s "$TRAJECTORY_START_GRACE_S"
