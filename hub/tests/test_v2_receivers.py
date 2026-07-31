@@ -1758,7 +1758,8 @@ def test_wsj_calibration_recovers_the_sensor_epoch_before_board_capture():
     assert "--pose-topic /slam/odometry_visual" in launcher
     assert "--depth-topic /slam/keyframe_depth" not in launcher
     assert "--pose-topic /slam/keyframe_odom" not in launcher
-    assert "latest_sequence > initial_sequence" in launcher
+    assert "latest_sequence > baseline" in launcher
+    assert 'calibration_epoch_baseline="$(latest_hub_sequence)"' in launcher
     assert "continuous_tuple_gate=sender_sequence" in launcher
     assert launcher.count("verify_ros_geometry_profile.py") >= 2
     assert "--image-topic /slam/depth" in launcher

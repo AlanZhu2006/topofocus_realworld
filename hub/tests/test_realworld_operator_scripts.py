@@ -168,6 +168,39 @@ def test_wsj_calibration_uses_one_native_infrared_geometry_frame():
     assert "no RGB-to-depth mosaic can create a second board" in launcher
 
 
+def test_wsj_calibration_retries_publisher_discovery_without_replacing_sender():
+    launcher = (OVERLAY / "start_wsj_calibration_observation.sh").read_text()
+
+    sender_pid = launcher.index(
+        'expected_calibration_sender_pid="$(calibration_sender_pid)"'
+    )
+    first_baseline = launcher.index(
+        'calibration_epoch_baseline="$(latest_hub_sequence)"'
+    )
+    first_recovery = launcher.index("restart_calibration_publishers initial")
+    retry = launcher.index(
+        "restart_calibration_publishers rediscovery_retry"
+    )
+
+    assert sender_pid < first_baseline < first_recovery < retry
+    assert (
+        'current_calibration_sender_pid="$(calibration_sender_pid)"'
+        in launcher
+    )
+    assert "WSJ calibration sender PID changed during" in launcher
+    assert (
+        'wait_for_calibration_sequence_advance '
+        '"$calibration_epoch_baseline" 45'
+        in launcher
+    )
+    assert "sender_pid_preserved=true" in launcher
+    assert (
+        "No fresh WSJ calibration observation arrived after bounded "
+        "publisher rediscovery."
+        in launcher
+    )
+
+
 def test_wsj_formal_observation_replaces_non_color_calibration_preview():
     launcher = (
         OVERLAY / "start_wsj_command_observation.sh"

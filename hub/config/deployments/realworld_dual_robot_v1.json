@@ -434,8 +434,8 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_calibration_observation.sh",
-      "size_bytes": 18330,
-      "sha256": "5f4f8bb816fc86f8eebac03452ff377085a52607492028daa7a61c08664d4ec2",
+      "size_bytes": 20188,
+      "sha256": "63be7ff2a4e1358773de29a6924710c6936719f3de0bc0c6f7e0155b35237282",
       "classification": "source-derived"
     },
     {

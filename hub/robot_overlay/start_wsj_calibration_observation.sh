@@ -252,6 +252,26 @@ until pgrep -af \
 done
 echo "WSJ_DDS_SUBSCRIBERS_READY_BEFORE_PUBLISHERS"
 
+calibration_sender_pid() {
+  local pid executable
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    executable="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    [[ "${executable##*/}" == python* ]] || continue
+    printf '%s\n' "$pid"
+    return 0
+  done < <(
+    pgrep -f \
+      'focus_ros_sender\.py.*--rgb-topic /camera/camera/infra1/image_rect_raw' \
+      2>/dev/null || true
+  )
+}
+expected_calibration_sender_pid="$(calibration_sender_pid)"
+[[ -n "$expected_calibration_sender_pid" ]] || {
+  echo "WSJ calibration sender disappeared before publisher recovery." >&2
+  exit 1
+}
+
 fresh_topic_once() {
   local topic="$1"
   # Avoid false camera recovery when the ros2 CLI cannot drain full
@@ -311,6 +331,86 @@ wait_for_persistent_sender_tuple() {
     sleep 1
   done
   echo "Persistent WSJ sender received no post-restart synchronized tuple." >&2
+  return 1
+}
+
+restart_calibration_publishers() {
+  local reason="$1" parked_tuple_baseline current_calibration_sender_pid
+  current_calibration_sender_pid="$(calibration_sender_pid)"
+  [[ "$current_calibration_sender_pid" == "$expected_calibration_sender_pid" ]] || {
+    echo "WSJ calibration sender PID changed before $reason publisher recovery." >&2
+    return 1
+  }
+
+  tmux set-option -w -t "$SESSION:perception" remain-on-exit on
+  if [[ "$(tmux display-message -p -t "$SESSION:perception" \
+      '#{pane_dead}' 2>/dev/null || true)" == 0 ]]; then
+    tmux send-keys -t "$SESSION:perception" C-c
+    deadline=$((SECONDS + 20))
+    until [[ "$(tmux display-message -p -t "$SESSION:perception" \
+        '#{pane_dead}' 2>/dev/null || true)" == 1 ]]; do
+      (( SECONDS < deadline )) || {
+        echo "Old perception publisher did not stop; refusing camera restart." >&2
+        return 1
+      }
+      sleep 1
+    done
+  fi
+
+  sleep 1
+  parked_tuple_baseline="$(parked_tuple_count)"
+  tmux respawn-pane -k -t "$SESSION:camera"
+  wait_for_fresh_topic \
+    /camera/camera/infra1/image_rect_raw "WSJ infra1 after ordered camera restart"
+  tmux respawn-pane -k -t "$SESSION:perception"
+
+  wait_for_fresh_topic /slam/depth "TinyNav processed depth"
+  wait_for_fresh_topic /slam/odometry_visual "TinyNav continuous visual odometry"
+  wait_for_persistent_sender_tuple "$parked_tuple_baseline"
+  wait_for_fresh_topic /slam/camera_info "TinyNav camera intrinsics"
+  wait_for_fresh_topic \
+    /camera/camera/infra1/image_rect_raw "RealSense rectified infra1 image"
+  "$PYTHON_BIN" -u "$SCRIPT_DIR/verify_ros_geometry_profile.py" \
+    --image-topic /slam/depth \
+    --camera-info-topic /slam/camera_info \
+    --expected-frame camera \
+    --timeout-s 15
+
+  sleep 5
+  wait_for_fresh_topic /slam/depth "stable TinyNav processed depth"
+  wait_for_fresh_topic \
+    /slam/odometry_visual "stable TinyNav continuous visual odometry"
+
+  current_calibration_sender_pid="$(calibration_sender_pid)"
+  [[ "$current_calibration_sender_pid" == "$expected_calibration_sender_pid" ]] || {
+    echo "WSJ calibration sender PID changed during $reason publisher recovery." >&2
+    return 1
+  }
+  echo "WSJ_CALIBRATION_PUBLISHERS_RECOVERED: reason=$reason sender_pid_preserved=true"
+}
+
+latest_hub_sequence() {
+  local token latest_json
+  token="$(<"$TOKEN_FILE")"
+  latest_json="$(
+    curl -fsS --max-time 5 -H "X-Robot-Token: $token" \
+      "$HUB_URL/v1/robots/robot-0/observations/latest"
+  )"
+  FOCUS_SEQUENCE_JSON="$latest_json" python3 -c \
+    'import json,os; print(int(json.loads(os.environ["FOCUS_SEQUENCE_JSON"])["last_sequence"]))'
+}
+
+wait_for_calibration_sequence_advance() {
+  local baseline="$1" timeout_s="$2"
+  deadline=$((SECONDS + timeout_s))
+  latest_sequence="$baseline"
+  while (( SECONDS < deadline )); do
+    latest_sequence="$(latest_hub_sequence 2>/dev/null || true)"
+    if [[ "$latest_sequence" =~ ^[0-9]+$ ]]; then
+      (( latest_sequence > baseline )) && return 0
+    fi
+    sleep 1
+  done
   return 1
 }
 
@@ -378,48 +478,10 @@ os.chmod(temporary, 0o600)
 os.replace(temporary, destination)
 PY
 
-tmux set-option -w -t "$SESSION:perception" remain-on-exit on
-if [[ "$(tmux display-message -p -t "$SESSION:perception" \
-    '#{pane_dead}' 2>/dev/null || true)" == 0 ]]; then
-  tmux send-keys -t "$SESSION:perception" C-c
-  deadline=$((SECONDS + 20))
-  until [[ "$(tmux display-message -p -t "$SESSION:perception" \
-      '#{pane_dead}' 2>/dev/null || true)" == 1 ]]; do
-    (( SECONDS < deadline )) || {
-      echo "Old perception publisher did not stop; refusing camera restart." >&2
-      exit 1
-    }
-    sleep 1
-  done
-fi
-
-sleep 1
-parked_tuple_baseline="$(parked_tuple_count)"
-tmux respawn-pane -k -t "$SESSION:camera"
-wait_for_fresh_topic \
-  /camera/camera/infra1/image_rect_raw "WSJ infra1 after ordered camera restart"
-tmux respawn-pane -k -t "$SESSION:perception"
 camera_restarted=true
 perception_restarted=true
-
-wait_for_fresh_topic /slam/depth "TinyNav processed depth"
-wait_for_fresh_topic /slam/odometry_visual "TinyNav continuous visual odometry"
-wait_for_persistent_sender_tuple "$parked_tuple_baseline"
-wait_for_fresh_topic /slam/camera_info "TinyNav camera intrinsics"
-wait_for_fresh_topic \
-  /camera/camera/infra1/image_rect_raw "RealSense rectified infra1 image"
-"$PYTHON_BIN" -u "$SCRIPT_DIR/verify_ros_geometry_profile.py" \
-  --image-topic /slam/depth \
-  --camera-info-topic /slam/camera_info \
-  --expected-frame camera \
-  --timeout-s 15
-
-# Require a second processed frame after a short soak.  One retained/startup
-# frame is not proof that the IMU watermark continues to advance.
-sleep 5
-wait_for_fresh_topic /slam/depth "stable TinyNav processed depth"
-wait_for_fresh_topic \
-  /slam/odometry_visual "stable TinyNav continuous visual odometry"
+calibration_epoch_baseline="$(latest_hub_sequence)"
+restart_calibration_publishers initial
 echo "WSJ_MAPPING_ONLY_SENSOR_EPOCH_READY:" \
   "purpose=$OBSERVATION_PURPOSE" \
   "camera_restarted=$camera_restarted" \
@@ -446,28 +508,15 @@ preview_log="$state_dir/wsj-calibration-preview-$stamp.log"
 tmux new-window -d -t "$SESSION" -n foxglove-preview \
   "bash -lc 'source \"$SETUP_FILE\"; export FASTDDS_BUILTIN_TRANSPORTS=\"$FASTDDS_BUILTIN_TRANSPORTS_VALUE\"; export FOCUS_ROBOT_TOKEN=\"\$(<\"$TOKEN_FILE\")\"; exec \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/wsj_camera_preview.py\" --relay-url \"$PREVIEW_URL\" --name wsj --rgb-topic /camera/camera/infra1/image_rect_raw --max-rate-hz 5 2>&1 | tee \"$preview_log\"'"
 
-deadline=$((SECONDS + 60))
-latest_sequence="$initial_sequence"
-while (( SECONDS < deadline )); do
-  token="$(<"$TOKEN_FILE")"
-  latest_json="$(
-    curl -fsS --max-time 5 -H "X-Robot-Token: $token" \
-      "$HUB_URL/v1/robots/robot-0/observations/latest" 2>/dev/null || true
-  )"
-  unset token
-  if [[ -n "$latest_json" ]]; then
-    latest_sequence="$(
-      FOCUS_SEQUENCE_JSON="$latest_json" python3 -c \
-        'import json,os; print(int(json.loads(os.environ["FOCUS_SEQUENCE_JSON"])["last_sequence"]))'
-    )"
-    (( latest_sequence > initial_sequence )) && break
-  fi
-  sleep 1
-done
-(( latest_sequence > initial_sequence )) || {
-  echo "No fresh WSJ calibration observation arrived." >&2
-  exit 1
-}
+if ! wait_for_calibration_sequence_advance "$calibration_epoch_baseline" 45; then
+  echo "WSJ calibration sender did not advance; retrying publisher discovery with the same sender."
+  calibration_epoch_baseline="$(latest_hub_sequence)"
+  restart_calibration_publishers rediscovery_retry
+  wait_for_calibration_sequence_advance "$calibration_epoch_baseline" 45 || {
+    echo "No fresh WSJ calibration observation arrived after bounded publisher rediscovery." >&2
+    exit 1
+  }
+fi
 
 if [[ "$OBSERVATION_PURPOSE" == stationary_reanchor ]]; then
   echo "WSJ stationary re-anchor evidence ready: $initial_sequence -> $latest_sequence"
