@@ -8,13 +8,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SESSION="${FOCUS_BUILDMAP_NAV_SESSION:-tinynav_semantic_nav_auto}"
-TINYNAV_ROOT="${TINYNAV_ROOT:-/home/nvidia/twork/tinynav}"
-PATCHED_ROOT="${TINYNAV_PATCHED_ROOT:-/home/nvidia/twork/tinynav-topofocus}"
-SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
+TINYNAV_ROOT="${TINYNAV_ROOT:-$HOME/twork/tinynav}"
+PATCHED_ROOT="${TINYNAV_PATCHED_ROOT:-$HOME/twork/tinynav-topofocus}"
+SETUP_FILE="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
 PYTHON_BIN="${TINYNAV_PYTHON:-$TINYNAV_ROOT/.venv/bin/python}"
 OUTPUT_DIR="${FOCUS_BUILDMAP_OUTPUT:-$HOME/.local/share/topofocus/maps/buildmap_online_$(date -u +%Y%m%dT%H%M%SZ)}"
 FRAME_ID="world"
-BASE_CAMERA_CALIBRATION_FILE="${FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE:-/home/nvidia/.local/state/topofocus/calibration/wsj_tinynav_camera_base_20260723_operator.json}"
+BASE_CAMERA_CALIBRATION_FILE="${FOCUS_WSJ_BASE_CAMERA_CALIBRATION_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/topofocus/calibration/robot0_camera_base.json}"
 # The source occupancy mapper accepts a translational keyframe at 0.20 m and
 # uses 0.05 m cells.  Let the latched grid bridge exactly one source keyframe
 # interval plus one cell; a larger displacement still fails closed.

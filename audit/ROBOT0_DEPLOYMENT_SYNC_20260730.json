@@ -1,0 +1,47 @@
+{
+  "schema_version": "focus-robot-deployment-sync-v1",
+  "recorded_at": "2026-07-30T14:21:36+08:00",
+  "robot_id": "robot-0",
+  "remote_alias": "wsj",
+  "remote_identity": {
+    "hostname": "tegra-ubuntu",
+    "user": "nvidia",
+    "deployment_root": "/home/nvidia/topofocus_buildmap_v2_20260723",
+    "classification": "observed"
+  },
+  "transport": {
+    "tmux_target": "focus_wsj_tunnel_20260722:sensor-audit",
+    "temporary_files": "removed after verification",
+    "classification": "observed"
+  },
+  "source_release": {
+    "git_commit": "940c97c8b3983c7a3335681abb36a60bbd9ed2d6",
+    "paths": [
+      "hub/src/focus_hub",
+      "hub/robot_overlay"
+    ],
+    "tracked_file_count": 200,
+    "manifest_sha256": "d38980916e7624045e5e7f931b43c6360c2ede9c2174ed05295055beeea846ea",
+    "classification": "source-derived"
+  },
+  "transferred_delta": {
+    "source_range": "d5e6070..940c97c",
+    "file_count": 22,
+    "archive_size_bytes": 159243,
+    "archive_sha256": "0d6ee7634286ea3e9f12b8e378dae1f69d5e68b1d3b6c039d09669c634d06d4a",
+    "classification": "source-derived"
+  },
+  "remote_verification": {
+    "tracked_file_count": 200,
+    "checksum_mismatches": 0,
+    "receiver_sha256": "e8bf15a3e736375b24b7ff844ad0ffb39b1b27ec43bc6d780bbcc5884e49b49d",
+    "python_syntax_check": "passed for newly transferred runtime files",
+    "robot_commands_issued": false,
+    "classification": "observed"
+  },
+  "runtime_validation": {
+    "status": "not_run",
+    "classification": "unverified",
+    "note": "This record covers deployment synchronization only; no ROS, navigation, perception, or chassis process was started."
+  }
+}

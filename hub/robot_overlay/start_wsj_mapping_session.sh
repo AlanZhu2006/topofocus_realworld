@@ -61,8 +61,8 @@ set +a
 if [[ "$session_from_cli" != "true" ]]; then
   session="${FOCUS_REHEARSAL_SESSION:-$session}"
 fi
-setup_file="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
-python_bin="${TINYNAV_PYTHON:-/home/nvidia/twork/tinynav/.venv/bin/python}"
+setup_file="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
+python_bin="${TINYNAV_PYTHON:-$HOME/twork/tinynav/.venv/bin/python}"
 state_dir="${FOCUS_ROBOT_STATE_DIR:-$HOME/.local/state/topofocus}"
 [[ -x "$python_bin" ]] || {
   echo "Missing TinyNav Python: $python_bin" >&2

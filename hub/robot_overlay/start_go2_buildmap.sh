@@ -5,9 +5,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 session="${FOCUS_REHEARSAL_SESSION:-focus_live_rehearsal}"
-TINYNAV_ROOT="${TINYNAV_ROOT:-/home/nvidia/twork/tinynav}"
-PATCHED_ROOT="${TINYNAV_PATCHED_ROOT:-/home/nvidia/twork/tinynav-topofocus}"
-SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
+TINYNAV_ROOT="${TINYNAV_ROOT:-$HOME/twork/tinynav}"
+PATCHED_ROOT="${TINYNAV_PATCHED_ROOT:-$HOME/twork/tinynav-topofocus}"
+SETUP_FILE="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
 PYTHON_BIN="${TINYNAV_PYTHON:-$TINYNAV_ROOT/.venv/bin/python}"
 OUTPUT_DIR="${FOCUS_BUILDMAP_OUTPUT:-$HOME/.local/share/topofocus/maps/buildmap_$(date -u +%Y%m%dT%H%M%SZ)}"
 repair_online_stack="false"

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 session="${FOCUS_REHEARSAL_SESSION:-focus_live_rehearsal}"
-SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
+SETUP_FILE="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

@@ -5,7 +5,7 @@
 set -euo pipefail
 
 workspace="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-python_bin="$workspace/hub/.venv/bin/python"
+python_bin="${FOCUS_HUB_PYTHON:-$workspace/hub/.venv/bin/python}"
 checkpoint_dir="$workspace/artifacts/checkpoints"
 toolchain_dir="$workspace/artifacts/toolchains"
 download_dir="$toolchain_dir/cuda-12.8.1-downloads"
@@ -128,7 +128,7 @@ for header in \
 done
 
 "$python_bin" -m pip install 'ninja>=1.11,<2'
-PATH="$workspace/hub/.venv/bin:$PATH" \
+PATH="$(dirname "$python_bin"):$PATH" \
 CUDA_HOME="$cuda_home" \
 FORCE_CUDA=1 \
 TORCH_CUDA_ARCH_LIST=8.9 \

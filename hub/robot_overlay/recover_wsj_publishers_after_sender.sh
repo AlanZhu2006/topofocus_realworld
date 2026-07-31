@@ -7,8 +7,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SESSION="${FOCUS_WSJ_NAV_SESSION:-tinynav_semantic_nav_auto}"
-SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
-STATE_DIR="${FOCUS_ROBOT_STATE_DIR:-/home/nvidia/.local/state/topofocus}"
+SETUP_FILE="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
+STATE_DIR="${FOCUS_ROBOT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/topofocus}"
 DEPLOYMENT_COMMIT="${FOCUS_DEPLOYMENT_COMMIT:-}"
 MARKER_FILE="${FOCUS_WSJ_REANCHOR_REQUIRED_FILE:-$STATE_DIR/wsj-tracking-reanchor-required.json}"
 RECEIPT_FILE="${FOCUS_WSJ_RUNTIME_RECEIPT_FILE:-$STATE_DIR/wsj-command-observation-receipt.json}"

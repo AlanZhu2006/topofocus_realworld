@@ -19,8 +19,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TINYNAV_ROOT="${TINYNAV_ROOT:-/home/nvidia/twork/tinynav}"
-SETUP_FILE="${TINYNAV_SETUP:-/home/nvidia/twork/tinynav_setup.bash}"
+TINYNAV_ROOT="${TINYNAV_ROOT:-$HOME/twork/tinynav}"
+SETUP_FILE="${TINYNAV_SETUP:-$HOME/twork/tinynav_setup.bash}"
 SESSION_NAME="${FOCUS_REHEARSAL_SESSION:-focus_live_rehearsal}"
 
 from_bag="${HOME}/.local/share/tinynav/rosbags/semantic_map_record_20260717_102052"

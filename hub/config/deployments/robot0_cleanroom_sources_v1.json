@@ -1,0 +1,98 @@
+{
+  "schema_version": "focus-robot0-cleanroom-sources-v1",
+  "scope": "RTX 4090 Hub plus Robot 0 Jetson Orin NX and Unitree Go2",
+  "base_platform": {
+    "operating_system": "Ubuntu 22.04",
+    "architecture": "aarch64",
+    "jetpack": "6.2.1",
+    "l4t": "36.4.7",
+    "classification": "observed reference platform"
+  },
+  "tools": {
+    "python": "3.10",
+    "uv": "0.11.2",
+    "ros_distribution": "humble"
+  },
+  "sources": {
+    "tinynav": {
+      "url": "https://github.com/UniflexAI/tinynav.git",
+      "base_commit": "576c082e69580f618a5ff313a3e74f3672abb69f",
+      "reconstructed_commit": "a6290559b13cedf19c05f7ec64ff91a29b685cbd",
+      "reconstructed_tree": "5281e70451f2f9cc1d5f5464315d803f6f0972bd",
+      "pyproject_sha256": "17037c48b5bcf0eb8346ef1338c73e334cd4295af9825f6b561405663ca926",
+      "uv_lock_sha256": "b9b451020635612b3900d73d193ab439206089fd37d8a5b4e2b3be6a463daa79",
+      "classification": "source-derived deterministic reconstruction"
+    },
+    "unitree_sdk2_python": {
+      "url": "https://github.com/junlinp/unitree_sdk2_python.git",
+      "commit": "800103eab7e045336b1c40186cda5023dbd05821",
+      "classification": "source-derived from the locked TinyNav unitree extra"
+    },
+    "cyclonedds": {
+      "url": "https://github.com/eclipse-cyclonedds/cyclonedds.git",
+      "commit": "5041f3560c088c99e5088b2b8520b69169621196",
+      "classification": "source-derived pinned clean-room build input"
+    },
+    "gtsam": {
+      "url": "https://github.com/dvorak0/gtsam.git",
+      "commit": "1c5ea5addb92a3d44ef8d50a119637dc52bb9310",
+      "classification": "source-derived pinned clean-room build input"
+    },
+    "librealsense": {
+      "url": "https://github.com/IntelRealSense/librealsense.git",
+      "commit": "bf2778061d5dd29776e9aca8765f75852671760b",
+      "release": "2.58.1",
+      "classification": "observed reference revision"
+    },
+    "realsense_ros": {
+      "url": "https://github.com/IntelRealSense/realsense-ros.git",
+      "commit": "53aceeac29e2e848e5e1ede5430124f07b2fe924",
+      "release": "4.58.1",
+      "classification": "observed reference revision"
+    },
+    "message_filters": {
+      "url": "https://github.com/UniflexAI/message_filters.git",
+      "commit": "61a415176de3ab157ccef771a1151720eaa53f18",
+      "classification": "source-derived pinned clean-room build input"
+    }
+  },
+  "tinynav_onnx_artifacts": [
+    {
+      "path": "tinynav/models/dinov2_base_224x224_fp16.onnx",
+      "bytes": 175551811,
+      "sha256": "6409de19d46a799fca715e12abdd5ba680bd4c8a3594b9f83e6aa98fc09e6a96"
+    },
+    {
+      "path": "tinynav/models/foundation_stereo_11-33-40_256x320_4.onnx",
+      "bytes": 127155485,
+      "sha256": "16f159c2dc1b12e76c39d19ff0f204532118e212be18a7e93da7aa99c10da71b"
+    },
+    {
+      "path": "tinynav/models/lightglue_fp16.onnx",
+      "bytes": 25479430,
+      "sha256": "60da26e4ae7459f84746753b2d88ab578422eb6a962f5283b9e672136e34acc2"
+    },
+    {
+      "path": "tinynav/models/retinify_0_1_5_dynamic.onnx",
+      "bytes": 10447743,
+      "sha256": "1a16cd9b2fcec5511983c27eee3d335898d4844bb12fa8da1c7d9d70300a2f31"
+    },
+    {
+      "path": "tinynav/models/superpoint_fp16_dynamic.onnx",
+      "bytes": 5237775,
+      "sha256": "dca1b6620d731a97f42b6c7f68e693de24e693cc9d126ccb5b0d19d52ff9891a"
+    }
+  ],
+  "network_defaults": {
+    "unitree_interface": "eth0",
+    "host_address": "192.168.123.100/24",
+    "robot_address": "192.168.123.161",
+    "hub_endpoint": "http://127.0.0.1:18089"
+  },
+  "safety": {
+    "bootstrap_starts_ros": false,
+    "bootstrap_starts_planning": false,
+    "bootstrap_starts_actuation": false,
+    "physical_motion_requires_per_run_authorization": true
+  }
+}
