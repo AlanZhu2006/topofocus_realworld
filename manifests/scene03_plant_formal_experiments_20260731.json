@@ -28,6 +28,7 @@
     {
       "formal_index": 1,
       "result": "FAILURE",
+      "source_rounds_completed": 16,
       "arriving_robot_id": null,
       "robot_0_actual_path_length_m": 18.57710702408058,
       "robot_1_actual_path_length_m": 14.162235364087437,
@@ -44,6 +45,7 @@
     {
       "formal_index": 2,
       "result": "FAILURE",
+      "source_rounds_completed": 18,
       "arriving_robot_id": null,
       "robot_0_actual_path_length_m": 5.754388385130265,
       "robot_1_actual_path_length_m": 17.902159740277195,
@@ -60,6 +62,7 @@
     {
       "formal_index": 3,
       "result": "SUCCESS",
+      "source_rounds_completed": 5,
       "arriving_robot_id": "robot-1",
       "robot_0_actual_path_length_m": 9.037489961077558,
       "robot_1_actual_path_length_m": 11.60667889663771,
@@ -77,6 +80,7 @@
     {
       "formal_index": 4,
       "result": "SUCCESS",
+      "source_rounds_completed": 6,
       "arriving_robot_id": "robot-1",
       "robot_0_actual_path_length_m": 9.39125270693893,
       "robot_1_actual_path_length_m": 13.010774642813228,
@@ -94,6 +98,7 @@
     {
       "formal_index": 5,
       "result": "SUCCESS",
+      "source_rounds_completed": 11,
       "arriving_robot_id": "robot-1",
       "robot_0_policy_role": "HOLD",
       "robot_0_actual_path_length_m": 2.4777573431304116,

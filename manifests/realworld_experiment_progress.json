@@ -54,6 +54,14 @@
       "standard_multi_spl_mean": 0.54619361696575,
       "standard_multi_spl_status": "official; uses operator-provided approximate independently measured Scene 03 shortest feasible path L=14 m",
       "classification": "Scene 03 Formal 01-02 are zero-contribution time-limit failures; Formal 03-05 are operator-confirmed physical plant-arrival successes"
+    },
+    "scene04_physical_0p5m_protocol": {
+      "recorded_episodes": 1,
+      "successes": 0,
+      "sr": 0.0,
+      "source_compatible_multi_spl_mean": 0.0,
+      "standard_multi_spl_mean": 0.0,
+      "classification": "Scene 04 Formal 04 is a recorded zero-contribution time-limit failure after 17 exploration rounds"
     }
   },
   "formal_scene_results": {
@@ -85,6 +93,15 @@
       "mean_standard_spl": 0.54619361696575,
       "standard_spl_status": "official; uses operator-provided approximate independently measured Scene 03 shortest feasible path L=14 m",
       "classification": "authoritative unified Scene 03 formal archive covering experiments 01-05"
+    },
+    "scene04-plant": {
+      "path": "manifests/scene04_plant_formal_experiments_20260731.json",
+      "recorded_formal_experiments": 1,
+      "successes": 0,
+      "sr": 0.0,
+      "mean_source_compatible_spl": 0.0,
+      "mean_standard_spl": 0.0,
+      "classification": "Scene 04 campaign archive currently containing Formal 04"
     }
   },
   "planned_scene_campaigns": {
@@ -108,6 +125,14 @@
       "standard_shortest_feasible_path_status": "complete; L=approximately 14 m",
       "standard_shortest_feasible_path_evidence": "manifests/scene03_plant_shortest_feasible_path_20260731.json",
       "classification": "Formal 01 and Formal 02 are archived time-limit failures; Formal 03-05 are operator-confirmed plant-arrival successes; see the unified archive"
+    },
+    "scene04-plant": {
+      "target_category": "plant",
+      "planned_formal_experiments": 5,
+      "recorded_episodes": 1,
+      "successes": 0,
+      "metric_status": "one_recorded_time_limit_failure_campaign_in_progress",
+      "classification": "Formal 04 is archived as a 17-round time-limit failure; remaining Scene 04 formal records are not yet present"
     }
   },
   "attempts_not_in_metric_track": [

@@ -7,6 +7,9 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md`](SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md):
+  Scene 04 Formal 04 time-limit failure, 17 exploration rounds, exact
+  dual-robot paths, zero-valued SR/SPL and fail-closed terminal state.
 - [`SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md`](SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md):
   complete Scene 03 five-run archive, dual-robot trajectories, SR/SPL,
   operator-provided `L≈14 m`, map and media bindings.

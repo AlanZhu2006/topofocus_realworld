@@ -101,3 +101,16 @@ display clips and 64-frame, 8 fps full-clip GIF previews.
 Master-video provenance, dual-robot paths, physical confirmations and SR/SPL
 are in
 [`../../manifests/scene03_plant_formal_experiments_20260731.json`](../../manifests/scene03_plant_formal_experiments_20260731.json).
+
+## Scene 04 · Cooperative Plant
+
+| File | Bytes | Duration | SHA-256 |
+| --- | ---: | ---: | --- |
+| `scene04_formal_04_preview.gif` | 5,792,348 | 8.010 s | `0ae072af9459116981e05a6fa3f8626397616a19003c3b8d90e48b5a85575f7e` |
+| `scene04_formal_04_dashboard.gif` | 1,227,049 | 8.010 s | `a143055f5860ca7dc2b9400160a7203466c1018c869aa296c516f44fb3b0c02a` |
+| `scene04_formal_04_third_view.mp4` | 26,293,785 | 327.734 s | `2687f46470b0974cbaf2b24342a7c17cc64bdd2943102b0e2e7db4068f288520` |
+| `scene04_formal_04_dashboard.mp4` | 5,001,383 | 441.200 s | `81e657eade443f37763e71e1962a40366b387eda2712cee0fb8548044d401089` |
+
+Both GIFs contain 64 frames at 8 fps and cover the complete corresponding
+display clip. Runtime and master-video provenance are in
+[`../../manifests/scene04_plant_formal_experiment_04_failure_20260731.json`](../../manifests/scene04_plant_formal_experiment_04_failure_20260731.json).

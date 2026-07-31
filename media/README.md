@@ -96,3 +96,16 @@ README previews time-lapse each complete display clip into a 64-frame,
 classes, both robot trajectories and SR/SPL values are recorded in
 [`scene03_plant_formal_experiments_20260731.json`](../manifests/scene03_plant_formal_experiments_20260731.json)
 and its five linked per-run manifests.
+
+# Scene 04 media
+
+Scene 04 currently contains the archived Formal 04 time-limit failure.
+User-provided masters are byte-preserved through Git LFS; browser-ready H.264
+files and 64-frame inline GIF previews are under `media/demo/`.
+
+| Run | Third-view master | Dashboard master | README previews |
+| --- | --- | --- | --- |
+| Formal 04 · FAILURE | [`experiment_4_failure_1.mp4`](video/third_view/experiment_4/experiment_4_failure_1.mp4) | [`experiment_4_failure_1.mov`](video/dashboard/experiment_4/experiment_4_failure_1.mov) | [Third view](demo/scene04_formal_04_preview.gif) · [Dashboard](demo/scene04_formal_04_dashboard.gif) |
+
+Exact runtime binding, paths, durations and hashes are recorded in
+[`scene04_plant_formal_experiment_04_failure_20260731.json`](../manifests/scene04_plant_formal_experiment_04_failure_20260731.json).

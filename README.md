@@ -129,6 +129,7 @@ only if it also explains this second, independently moved observation.
 | Scene 01 | Chair | Short-range navigation |
 | Scene 02 | Plant | Medium-range navigation |
 | Scene 03 | Plant | Long-range cooperative exploration |
+| Scene 04 | Plant | Cooperative exploration |
 
 ## Scene 01 · Short-range Chair
 
@@ -221,13 +222,13 @@ displacement `D` as a source-compatible reference.
 
 ### Per-run metrics
 
-| Run | Arriving robot | Actual path `P` | Source-compatible SPL | Standard SPL |
-| --- | --- | ---: | ---: | ---: |
-| Formal 01 | Robot 0 | `3.850792 m` | `0.628399` | `0.843982` |
-| Formal 02 | Robot 0 | `2.760377 m` | `0.892911` | `1.000000` |
-| Formal 03 | Robot 1 | `4.048842 m` | `0.864048` | `0.802699` |
-| Formal 04 | Robot 1 | `3.210222 m` | `0.956361` | `1.000000` |
-| Formal 05 | Robot 0 | `12.582981 m` | `0.288722` | `0.258285` |
+| Run | Exploration rounds | Arriving robot | Actual path `P` | Source-compatible SPL | Standard SPL |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Formal 01 | `2` | Robot 0 | `3.850792 m` | `0.628399` | `0.843982` |
+| Formal 02 | `2` | Robot 0 | `2.760377 m` | `0.892911` | `1.000000` |
+| Formal 03 | `3` | Robot 1 | `4.048842 m` | `0.864048` | `0.802699` |
+| Formal 04 | `4` | Robot 1 | `3.210222 m` | `0.956361` | `1.000000` |
+| Formal 05 | `2` | Robot 0 | `12.582981 m` | `0.288722` | `0.258285` |
 
 [Full five-experiment archive](audit/SCENE01_CHAIR_FORMAL_EXPERIMENTS_01_05_20260725.md)
 · [Machine-readable results](manifests/scene01_chair_formal_experiments_20260725.json)
@@ -325,13 +326,13 @@ the operator-provided independently measured shortest feasible path
 
 ### Per-run metrics
 
-| Run | Result | Robot 0 path | Robot 1 path | Source-compatible SPL | Standard SPL |
-| --- | --- | ---: | ---: | ---: | ---: |
-| Formal 01 | FAILURE | `6.104564 m` | `1.905387 m` | `0.0` | `0.0` |
-| Formal 02 | FAILURE | `1.034858 m` | `7.425951 m` | `0.0` | `0.0` |
-| Formal 03 | SUCCESS | `0.728655 m` | `8.356524 m` | `0.865192` | `0.837669` |
-| Formal 04 | SUCCESS | `0.454227 m` | `7.579081 m` | `0.961379` | `0.923595` |
-| Formal 05 | SUCCESS | `2.032182 m` | `7.802197 m` | `0.960264` | `0.897183` |
+| Run | Result | Exploration rounds | Robot 0 path | Robot 1 path | Source-compatible SPL | Standard SPL |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Formal 01 | FAILURE | `4` | `6.104564 m` | `1.905387 m` | `0.0` | `0.0` |
+| Formal 02 | FAILURE | `13` | `1.034858 m` | `7.425951 m` | `0.0` | `0.0` |
+| Formal 03 | SUCCESS | `11` | `0.728655 m` | `8.356524 m` | `0.865192` | `0.837669` |
+| Formal 04 | SUCCESS | `4` | `0.454227 m` | `7.579081 m` | `0.961379` | `0.923595` |
+| Formal 05 | SUCCESS | `5` | `2.032182 m` | `7.802197 m` | `0.960264` | `0.897183` |
 
 [Formal 01 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260728.md)
 · [Formal 02 failure record](audit/SCENE02_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260728.md)
@@ -428,13 +429,13 @@ SPL uses the independently measured approximate shortest feasible path
 
 ### Per-run metrics
 
-| Run | Result | Robot 0 trajectory | Robot 1 trajectory | Source-compatible SPL | Standard SPL |
-| --- | --- | ---: | ---: | ---: | ---: |
-| Formal 01 | FAILURE | `18.577107 m` | `14.162235 m` | `0.0` | `0.0` |
-| Formal 02 | FAILURE | `5.754388 m` | `17.902160 m` | `0.0` | `0.0` |
-| Formal 03 | SUCCESS | `9.037490 m` | `11.606679 m` | `0.689524` | `1.000000` |
-| Formal 04 | SUCCESS | `9.391253 m` | `13.010775 m` | `0.693557` | `1.000000` |
-| Formal 05 | SUCCESS | `0.006053 m` | `19.152683 m` | `0.446727` | `0.730968` |
+| Run | Result | Exploration rounds | Robot 0 trajectory | Robot 1 trajectory | Source-compatible SPL | Standard SPL |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Formal 01 | FAILURE | `16` | `18.577107 m` | `14.162235 m` | `0.0` | `0.0` |
+| Formal 02 | FAILURE | `18` | `5.754388 m` | `17.902160 m` | `0.0` | `0.0` |
+| Formal 03 | SUCCESS | `5` | `9.037490 m` | `11.606679 m` | `0.689524` | `1.000000` |
+| Formal 04 | SUCCESS | `6` | `9.391253 m` | `13.010775 m` | `0.693557` | `1.000000` |
+| Formal 05 | SUCCESS | `11` | `0.006053 m` | `19.152683 m` | `0.446727` | `0.730968` |
 
 [Full five-experiment archive](audit/SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md)
 · [Formal 01 failure record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260730.md)
@@ -444,3 +445,39 @@ SPL uses the independently measured approximate shortest feasible path
 · [Formal 05 success record](audit/SCENE03_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260731.md)
 · [Machine-readable results](manifests/scene03_plant_formal_experiments_20260731.json)
 · [Media manifest](media/README.md)
+
+## Scene 04 · Cooperative Plant
+
+The currently archived run reached the 600-second test limit before finding
+and reaching a verified plant target.
+
+| Recorded trials | Success | SR | Mean source-compatible SPL | Mean Standard SPL |
+| ---: | ---: | ---: | ---: | ---: |
+| `1` | `0` | `0.0` | `0.0` | `0.0` |
+
+### Real-robot rollout
+
+<table>
+  <tr>
+    <td align="center">
+      <strong>Formal 04 · FAILURE</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene04_formal_04_preview.gif" width="440" alt="Scene 04 Formal 04 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene04_formal_04_dashboard.gif" width="440" alt="Scene 04 Formal 04 failure dashboard"><br>
+      Exploration reached the 600-second test limit before finding and
+      reaching a verified plant target.<br>
+      <a href="media/demo/scene04_formal_04_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene04_formal_04_dashboard.mp4">Dashboard</a>
+    </td>
+  </tr>
+</table>
+
+### Per-run metrics
+
+| Run | Result | Exploration rounds | Robot 0 trajectory | Robot 1 trajectory | Source-compatible SPL | Standard SPL |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Formal 04 | FAILURE | `17` | `12.917490 m` | `19.608723 m` | `0.0` | `0.0` |
+
+[Formal 04 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md)
+· [Machine-readable results](manifests/scene04_plant_formal_experiments_20260731.json)

@@ -1,0 +1,38 @@
+{
+  "schema_version": "focus-scene-formal-experiments-v1",
+  "scene_id": "scene04-plant",
+  "target_category": "plant",
+  "campaign_status": "in_progress",
+  "planned_formal_experiments": 5,
+  "recorded_formal_experiments": 1,
+  "successes": 0,
+  "failures": 1,
+  "sr": 0.0,
+  "aggregate_metrics": {
+    "mean_source_compatible_spl_with_failures_zero": 0.0,
+    "mean_standard_spl_with_failures_zero": 0.0
+  },
+  "experiments": [
+    {
+      "formal_index": 4,
+      "result": "FAILURE",
+      "source_rounds_completed": 17,
+      "robot_0_actual_path_length_m": 12.917490345072398,
+      "robot_1_actual_path_length_m": 19.608722880435185,
+      "source_compatible_spl": 0.0,
+      "standard_spl": 0.0,
+      "public_summary": "The 600-second test budget elapsed before exploration found and reached a verified plant target.",
+      "record": {
+        "path": "manifests/scene04_plant_formal_experiment_04_failure_20260731.json",
+        "size_bytes": 8030,
+        "sha256": "d9c0d093c11e483ff6e8e104b42cd66ccaa112841a937e51e99ef053ccafc2c9",
+        "classification": "authoritative machine-readable Scene 04 Formal 04 archive"
+      }
+    }
+  ],
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "post_episode_motion_authority": false
+  }
+}
