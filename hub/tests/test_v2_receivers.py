@@ -1569,6 +1569,49 @@ def test_command_execution_watchdog_requires_continuous_authorized_motion():
     ) == pytest.approx((False, 0.0, 0.06))
 
 
+def test_platform_forwarding_requires_matching_fresh_nonzero_ack():
+    receiver = load_overlay("v2_wsj_receiver.py")
+
+    assert receiver.platform_forwarded_command(
+        platform_required=True,
+        command_active=True,
+        output_linear_mps=0.30,
+        last_ack_age_s=0.12,
+        status_age_s=0.20,
+        maximum_age_s=2.0,
+        minimum_linear_mps=0.25,
+    ) is True
+    assert receiver.platform_forwarded_command(
+        platform_required=True,
+        command_active=False,
+        output_linear_mps=0.0,
+        last_ack_age_s=0.12,
+        status_age_s=0.20,
+        maximum_age_s=2.0,
+        minimum_linear_mps=0.25,
+    ) is False
+    assert receiver.platform_forwarded_command(
+        platform_required=True,
+        command_active=True,
+        output_linear_mps=0.30,
+        last_ack_age_s=2.01,
+        status_age_s=0.20,
+        maximum_age_s=2.0,
+        minimum_linear_mps=0.25,
+    ) is False
+    # Robot 0 has no WATER bridge status contract and retains its existing
+    # odometry-only execution semantics.
+    assert receiver.platform_forwarded_command(
+        platform_required=False,
+        command_active=False,
+        output_linear_mps=0.0,
+        last_ack_age_s=float("inf"),
+        status_age_s=float("inf"),
+        maximum_age_s=2.0,
+        minimum_linear_mps=0.25,
+    ) is True
+
+
 def test_external_odin_odometry_health_uses_covariance_fail_closed():
     receiver = load_overlay("v2_wsj_receiver.py")
     covariance = [0.0] * 36

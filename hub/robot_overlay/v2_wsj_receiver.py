@@ -627,6 +627,46 @@ class CommandExecutionWatchdog:
         return stalled_s >= self.timeout_s, stalled_s, displacement_m
 
 
+def platform_forwarded_command(
+    *,
+    platform_required: bool,
+    command_active: bool,
+    output_linear_mps: float,
+    last_ack_age_s: float,
+    status_age_s: float,
+    maximum_age_s: float,
+    minimum_linear_mps: float,
+) -> bool:
+    """Return whether the chassis bridge proved forwarding this translation.
+
+    A planner command and a WATER acknowledgement are different provenance
+    layers.  The execution watchdog still measures physical odometry, while
+    this helper records whether the most recent bridge status actually carried
+    a matching nonzero output.  This prevents a ROS callback starvation fault
+    from being mislabeled as a chassis that ignored a forwarded command.
+    """
+
+    values = (
+        output_linear_mps,
+        last_ack_age_s,
+        status_age_s,
+        maximum_age_s,
+        minimum_linear_mps,
+    )
+    if not all(math.isfinite(value) for value in values):
+        return not platform_required
+    if maximum_age_s <= 0.0 or minimum_linear_mps <= 0.0:
+        raise ValueError("platform forwarding limits must be positive")
+    if not platform_required:
+        return True
+    return bool(
+        command_active
+        and output_linear_mps >= minimum_linear_mps
+        and last_ack_age_s <= maximum_age_s
+        and status_age_s <= maximum_age_s
+    )
+
+
 def bounded_protocol_detail(
     value: str, *, max_length: int = ROBOT_HEALTH_DETAIL_MAX_LENGTH
 ) -> str:
@@ -1902,6 +1942,13 @@ def main() -> int:
             )
             self.platform_received_ns = 0
             self.platform_estop = False
+            self.platform_command_active = False
+            self.platform_last_output = (0.0, 0.0)
+            self.platform_last_ack_age_s = math.inf
+            self.platform_input_sequence = 0
+            self.platform_forwarded_input_sequence = 0
+            self.platform_send_ack_sequence = 0
+            self.platform_executor_contract = "unobserved"
             self.nav_done = False
             self.raw_cmd_received_ns = 0
             self.trajectory_received_ns = 0
@@ -2052,11 +2099,61 @@ def main() -> int:
                 water = payload.get("water")
                 if not isinstance(water, dict):
                     water = {}
+                last_output = payload.get("last_output")
+                if not isinstance(last_output, dict):
+                    last_output = {}
+                output_linear = float(last_output.get("linear_mps", 0.0))
+                output_angular = float(last_output.get("angular_radps", 0.0))
+                last_ack_age = payload.get("last_ack_age_s")
+                parsed_ack_age = (
+                    math.inf
+                    if last_ack_age is None
+                    else float(last_ack_age)
+                )
+                sequences = (
+                    int(payload.get("input_sequence", 0)),
+                    int(payload.get("forwarded_input_sequence", 0)),
+                    int(payload.get("send_ack_sequence", 0)),
+                )
+                if (
+                    not all(
+                        math.isfinite(value)
+                        for value in (
+                            output_linear,
+                            output_angular,
+                        )
+                    )
+                    or math.isnan(parsed_ack_age)
+                    or parsed_ack_age < 0.0
+                    or any(value < 0 for value in sequences)
+                ):
+                    raise ValueError("invalid command forwarding provenance")
+                provenance = payload.get("provenance")
+                if not isinstance(provenance, dict):
+                    provenance = {}
+                self.platform_command_active = (
+                    payload.get("command_active") is True
+                )
+                self.platform_last_output = (
+                    output_linear,
+                    output_angular,
+                )
+                self.platform_last_ack_age_s = parsed_ack_age
+                self.platform_input_sequence = sequences[0]
+                self.platform_forwarded_input_sequence = sequences[1]
+                self.platform_send_ack_sequence = sequences[2]
+                self.platform_executor_contract = str(
+                    provenance.get("executor_contract", "unobserved")
+                )
                 self.platform_estop = bool(water.get("estop_engaged"))
                 self.platform_detail = (
                     f"water_bridge_ready={self.platform_pass}; "
                     f"last_reason={payload.get('last_reason', '')}; "
-                    f"error_code={water.get('error_code', '')}"
+                    f"error_code={water.get('error_code', '')}; "
+                    "executor_contract="
+                    f"{self.platform_executor_contract}; "
+                    "forwarded_sequence="
+                    f"{self.platform_forwarded_input_sequence}"
                 )
                 self.platform_received_ns = time.time_ns()
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -4893,6 +4990,26 @@ def main() -> int:
                         (now_ns - node.raw_cmd_received_ns) / 1_000_000_000.0,
                     )
                 )
+                platform_status_age_s = (
+                    math.inf
+                    if node.platform_received_ns <= 0
+                    else max(
+                        0.0,
+                        (now_ns - node.platform_received_ns)
+                        / 1_000_000_000.0,
+                    )
+                )
+                bridge_forwarded_translation = platform_forwarded_command(
+                    platform_required=bool(args.platform_health_topic),
+                    command_active=node.platform_command_active,
+                    output_linear_mps=node.platform_last_output[0],
+                    last_ack_age_s=node.platform_last_ack_age_s,
+                    status_age_s=platform_status_age_s,
+                    maximum_age_s=args.local_data_timeout_s,
+                    minimum_linear_mps=(
+                        args.command_execution_min_linear_mps
+                    ),
+                )
                 if command_execution_watchdog is not None:
                     command_execution_stalled, command_execution_stalled_s, (
                         command_execution_displacement_m
@@ -5128,11 +5245,16 @@ def main() -> int:
                     router_recovery_reason = ""
                 elif command_execution_stalled:
                     failed_decision = active_decision
+                    rejection_reason = (
+                        "LOCAL_CHASSIS_COMMAND_NOT_EXECUTED"
+                        if bridge_forwarded_translation
+                        else "LOCAL_COMMAND_BRIDGE_NOT_FORWARDING"
+                    )
                     node.revoke()
                     post(
                         failed_decision,
                         NavigationStatusV2.REJECTED,
-                        "LOCAL_CHASSIS_COMMAND_NOT_EXECUTED",
+                        rejection_reason,
                         pose,
                         zero=True,
                         goal=active_goal,
@@ -5143,7 +5265,15 @@ def main() -> int:
                             f"commanded_linear_mps={node.latest_raw_cmd[0]:.3f}; "
                             f"observed_displacement_m="
                             f"{command_execution_displacement_m:.3f}; "
-                            f"timeout_s={command_execution_stalled_s:.3f}"
+                            f"timeout_s={command_execution_stalled_s:.3f}; "
+                            "bridge_forwarded_translation="
+                            f"{bridge_forwarded_translation}; "
+                            "bridge_last_output="
+                            f"{node.platform_last_output}; "
+                            "bridge_forwarded_sequence="
+                            f"{node.platform_forwarded_input_sequence}; "
+                            "bridge_ack_sequence="
+                            f"{node.platform_send_ack_sequence}"
                         ),
                         terminal=True,
                     )
@@ -5161,6 +5291,28 @@ def main() -> int:
                         stalled_s=round(command_execution_stalled_s, 3),
                         observed_displacement_m=round(
                             command_execution_displacement_m, 3
+                        ),
+                        rejection_reason=rejection_reason,
+                        bridge_forwarded_translation=(
+                            bridge_forwarded_translation
+                        ),
+                        bridge_last_output=list(
+                            node.platform_last_output
+                        ),
+                        bridge_last_ack_age_s=round(
+                            node.platform_last_ack_age_s, 3
+                        ),
+                        bridge_input_sequence=(
+                            node.platform_input_sequence
+                        ),
+                        bridge_forwarded_input_sequence=(
+                            node.platform_forwarded_input_sequence
+                        ),
+                        bridge_send_ack_sequence=(
+                            node.platform_send_ack_sequence
+                        ),
+                        bridge_executor_contract=(
+                            node.platform_executor_contract
                         ),
                         guard_reason=node.latest_guard_reason,
                     )
@@ -5465,6 +5617,27 @@ def main() -> int:
                             ),
                             raw_cmd=list(node.latest_raw_cmd),
                             guard_reason=node.latest_guard_reason,
+                            bridge_command_active=(
+                                node.platform_command_active
+                            ),
+                            bridge_last_output=list(
+                                node.platform_last_output
+                            ),
+                            bridge_last_ack_age_s=(
+                                node.platform_last_ack_age_s
+                            ),
+                            bridge_input_sequence=(
+                                node.platform_input_sequence
+                            ),
+                            bridge_forwarded_input_sequence=(
+                                node.platform_forwarded_input_sequence
+                            ),
+                            bridge_send_ack_sequence=(
+                                node.platform_send_ack_sequence
+                            ),
+                            bridge_executor_contract=(
+                                node.platform_executor_contract
+                            ),
                         )
                         post(
                             active_decision,

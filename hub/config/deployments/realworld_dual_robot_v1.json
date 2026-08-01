@@ -299,12 +299,23 @@
         "watchdog_s": 0.3,
         "max_linear_x_mps": 0.3,
         "max_angular_z_radps": 0.4,
+        "bridge_executor_contract": "parallel_io_v1",
+        "command_forwarding_evidence": [
+          "input_sequence",
+          "forwarded_input_sequence",
+          "send_ack_sequence",
+          "last_output",
+          "last_ack_age_s"
+        ],
         "physical_execution_feedback": {
           "source": "base odometry displacement",
           "authorized_command_minimum_mps": 0.25,
           "minimum_displacement_m": 0.05,
           "timeout_s": 4.0,
-          "failure_result": "LOCAL_CHASSIS_COMMAND_NOT_EXECUTED"
+          "failure_results": {
+            "forwarded_but_not_moving": "LOCAL_CHASSIS_COMMAND_NOT_EXECUTED",
+            "not_forwarded": "LOCAL_COMMAND_BRIDGE_NOT_FORWARDING"
+          }
         }
       }
     }
@@ -361,6 +372,12 @@
       "path": "hub/robot_overlay/start_yunji_v2.sh",
       "size_bytes": 27886,
       "sha256": "a0508ba448a9e6eeeee5a8ae5ce8497893af199e876beaef6089d8ee26e9d64e",
+      "classification": "source-derived"
+    },
+    {
+      "path": "hub/robot_overlay/water_cmd_vel_bridge.py",
+      "size_bytes": 25576,
+      "sha256": "bca8d99438d1c8fd888230ba774b6c95d3f408a3a97b04e146d8fc8d6d31f1fe",
       "classification": "source-derived"
     },
     {
@@ -431,8 +448,8 @@
     },
     {
       "path": "hub/robot_overlay/v2_wsj_receiver.py",
-      "size_bytes": 229945,
-      "sha256": "898af038c644ecb107ffc8ebfc06e43ef79c3ffc3eea93dc26722ebf8986171e",
+      "size_bytes": 237634,
+      "sha256": "135d1feb956bd16cd73ac8f2e016b8bc8a6531127f65b9018f41af2ff4a4fb7c",
       "classification": "source-derived"
     },
     {

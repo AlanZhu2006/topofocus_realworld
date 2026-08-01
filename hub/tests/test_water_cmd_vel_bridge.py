@@ -233,3 +233,17 @@ def test_water_bridge_source_has_no_high_level_move_endpoint() -> None:
     assert "/api/joy_control" in source
     assert '"/api/move"' not in source
     assert "OPERATOR_PRESENT_AND_YUNJI_CLEAR" in source
+
+
+def test_water_bridge_parallelizes_blocking_io_and_reports_exact_forwarding() -> None:
+    source = (OVERLAY / "water_cmd_vel_bridge.py").read_text(encoding="utf-8")
+
+    assert "MultiThreadedExecutor(num_threads=3)" in source
+    assert "self.command_callback_group" in source
+    assert "self.send_callback_group" in source
+    assert "self.status_callback_group" in source
+    assert '"input_sequence"' in source
+    assert '"forwarded_input_sequence"' in source
+    assert '"send_ack_sequence"' in source
+    assert '"last_send_latency_s"' in source
+    assert '"executor_contract": "parallel_io_v1"' in source

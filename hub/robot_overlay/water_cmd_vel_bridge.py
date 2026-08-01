@@ -21,6 +21,7 @@ import math
 from pathlib import Path
 import socket
 import sys
+import threading
 import time
 from typing import Any
 from urllib.parse import urlencode
@@ -412,15 +413,24 @@ def main() -> int:
         )
 
     import rclpy
+    from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
     from geometry_msgs.msg import Twist
     from rclpy.node import Node
-    from rclpy.executors import ExternalShutdownException
+    from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
     from rclpy.qos import DurabilityPolicy, QoSProfile
     from std_msgs.msg import String
 
     class WaterCmdVelBridge(Node):
         def __init__(self) -> None:
             super().__init__("focus_water_cmd_vel_bridge")
+            # WATER requests are synchronous and may consume their complete
+            # TCP timeout.  Keep command reception, velocity output and status
+            # polling in independent callback groups so a slow status request
+            # can never age a fresh guarded Twist past its 0.30 s watchdog.
+            self.state_lock = threading.Lock()
+            self.command_callback_group = MutuallyExclusiveCallbackGroup()
+            self.send_callback_group = MutuallyExclusiveCallbackGroup()
+            self.status_callback_group = MutuallyExclusiveCallbackGroup()
             self.joy = WaterJoyClient(
                 args.robot_host,
                 args.tcp_port,
@@ -433,6 +443,7 @@ def main() -> int:
             )
             self.command: SanitizedVelocity | None = None
             self.command_received_monotonic = 0.0
+            self.command_sequence = 0
             self.water_health: dict[str, object] = {
                 "ready": False,
                 "estop_engaged": False,
@@ -441,6 +452,9 @@ def main() -> int:
             self.water_health_monotonic = 0.0
             self.last_send_ok_monotonic = 0.0
             self.last_send_succeeded = False
+            self.last_send_latency_s = 0.0
+            self.send_ack_sequence = 0
+            self.last_forwarded_command_sequence = 0
             self.last_sent = SanitizedVelocity(
                 0.0, 0.0, True, "initial_zero"
             )
@@ -453,20 +467,33 @@ def main() -> int:
                 String, args.status_topic, status_qos
             )
             self.create_subscription(
-                Twist, args.input_topic, self.on_twist, 10
+                Twist,
+                args.input_topic,
+                self.on_twist,
+                10,
+                callback_group=self.command_callback_group,
             )
-            self.create_timer(1.0 / args.send_rate_hz, self.send_tick)
-            self.create_timer(1.0 / args.status_rate_hz, self.status_tick)
+            self.create_timer(
+                1.0 / args.send_rate_hz,
+                self.send_tick,
+                callback_group=self.send_callback_group,
+            )
+            self.create_timer(
+                1.0 / args.status_rate_hz,
+                self.status_tick,
+                callback_group=self.status_callback_group,
+            )
             self.get_logger().info(
                 "WATER cmd_vel bridge ready: "
                 f"live={live}, input={args.input_topic}, "
                 f"limits=({args.max_linear_mps:.2f}m/s,"
                 f"{args.max_angular_radps:.2f}rad/s), "
-                f"watchdog={args.input_timeout_s:.2f}s"
+                f"watchdog={args.input_timeout_s:.2f}s, "
+                "executor=parallel_io_v1"
             )
 
         def on_twist(self, message: Any) -> None:
-            self.command = sanitize_velocity(
+            command = sanitize_velocity(
                 linear_x=float(message.linear.x),
                 linear_y=float(message.linear.y),
                 linear_z=float(message.linear.z),
@@ -476,38 +503,69 @@ def main() -> int:
                 max_linear_mps=args.max_linear_mps,
                 max_angular_radps=args.max_angular_radps,
             )
-            self.command_received_monotonic = time.monotonic()
+            with self.state_lock:
+                self.command = command
+                self.command_received_monotonic = time.monotonic()
+                self.command_sequence += 1
 
-        def water_ready(self, now: float) -> bool:
+        def _water_ready_locked(self, now: float) -> bool:
             return bool(
                 self.water_health.get("ready")
                 and now - self.water_health_monotonic
                 <= max(1.0, 3.0 / args.status_rate_hz)
             )
 
+        def water_ready(self, now: float) -> bool:
+            with self.state_lock:
+                return self._water_ready_locked(now)
+
         def send_tick(self) -> None:
             now = time.monotonic()
+            with self.state_lock:
+                command = self.command
+                command_received_monotonic = (
+                    self.command_received_monotonic
+                )
+                command_sequence = self.command_sequence
+                water_ready = self._water_ready_locked(now)
             velocity, reason = effective_velocity(
-                self.command,
-                received_monotonic=self.command_received_monotonic,
+                command,
+                received_monotonic=command_received_monotonic,
                 now_monotonic=now,
                 input_timeout_s=args.input_timeout_s,
-                water_ready=self.water_ready(now),
+                water_ready=water_ready,
             )
-            self.last_reason = reason
             if not live:
-                self.last_sent = velocity
+                with self.state_lock:
+                    self.last_reason = reason
+                    self.last_sent = velocity
+                    self.last_forwarded_command_sequence = command_sequence
                 return
+            send_started = time.monotonic()
             try:
                 self.joy.send(velocity.linear_mps, velocity.angular_radps)
-                self.last_sent = velocity
-                self.last_send_ok_monotonic = time.monotonic()
-                self.last_send_succeeded = True
+                send_finished = time.monotonic()
+                with self.state_lock:
+                    self.last_reason = reason
+                    self.last_sent = velocity
+                    self.last_send_ok_monotonic = send_finished
+                    self.last_send_succeeded = True
+                    self.last_send_latency_s = max(
+                        0.0, send_finished - send_started
+                    )
+                    self.send_ack_sequence += 1
+                    self.last_forwarded_command_sequence = command_sequence
             except Exception as exc:  # noqa: BLE001 - watchdog must keep spinning
                 self.joy.close()
-                self.water_health["ready"] = False
-                self.last_send_succeeded = False
-                self.last_reason = f"water_send_failed:{type(exc).__name__}"
+                with self.state_lock:
+                    self.water_health["ready"] = False
+                    self.last_send_succeeded = False
+                    self.last_send_latency_s = max(
+                        0.0, time.monotonic() - send_started
+                    )
+                    self.last_reason = (
+                        f"water_send_failed:{type(exc).__name__}"
+                    )
                 self.get_logger().error(
                     f"WATER velocity send failed: {exc}",
                     throttle_duration_sec=2.0,
@@ -515,51 +573,83 @@ def main() -> int:
 
         def status_tick(self) -> None:
             try:
-                self.water_health = parse_water_health(
+                water_health = parse_water_health(
                     self.status_client.request("/api/robot_status")
                 )
-                self.water_health_monotonic = time.monotonic()
+                water_health_monotonic = time.monotonic()
             except Exception as exc:  # noqa: BLE001
-                self.water_health = {
+                water_health = {
                     "ready": False,
                     "estop_engaged": False,
                     "error_code": f"status_error:{type(exc).__name__}",
                 }
+                water_health_monotonic = None
             now = time.monotonic()
+            with self.state_lock:
+                self.water_health = water_health
+                if water_health_monotonic is not None:
+                    self.water_health_monotonic = water_health_monotonic
+                command_received_monotonic = (
+                    self.command_received_monotonic
+                )
+                command_sequence = self.command_sequence
+                last_forwarded_command_sequence = (
+                    self.last_forwarded_command_sequence
+                )
+                last_send_succeeded = self.last_send_succeeded
+                last_send_ok_monotonic = self.last_send_ok_monotonic
+                last_send_latency_s = self.last_send_latency_s
+                send_ack_sequence = self.send_ack_sequence
+                last_sent = self.last_sent
+                last_reason = self.last_reason
+                ready = self._water_ready_locked(now)
             command_age_s = (
                 None
-                if self.command_received_monotonic <= 0.0
-                else max(0.0, now - self.command_received_monotonic)
+                if command_received_monotonic <= 0.0
+                else max(0.0, now - command_received_monotonic)
             )
             joy_channel_ready = command_channel_ready(
                 live=live,
-                last_send_succeeded=self.last_send_succeeded,
-                last_send_ok_monotonic=self.last_send_ok_monotonic,
+                last_send_succeeded=last_send_succeeded,
+                last_send_ok_monotonic=last_send_ok_monotonic,
                 now_monotonic=now,
                 send_rate_hz=args.send_rate_hz,
             )
+            last_ack_age_s = (
+                None
+                if last_send_ok_monotonic <= 0.0
+                else max(0.0, now - last_send_ok_monotonic)
+            )
             zero_confirmed = bool(
-                self.last_sent.zero
+                last_sent.zero
                 and joy_channel_ready
             )
             payload = {
                 "schema_version": "focus-water-cmd-bridge-v1",
                 "live": live,
-                "ready": self.water_ready(now) and joy_channel_ready,
+                "ready": ready and joy_channel_ready,
                 "command_channel_ready": joy_channel_ready,
                 "input_topic": args.input_topic,
                 "command_age_s": command_age_s,
-                "command_active": not self.last_sent.zero,
+                "command_active": not last_sent.zero,
+                "input_sequence": command_sequence,
+                "forwarded_input_sequence": (
+                    last_forwarded_command_sequence
+                ),
+                "send_ack_sequence": send_ack_sequence,
+                "last_ack_age_s": last_ack_age_s,
+                "last_send_latency_s": last_send_latency_s,
                 "velocity_zero_confirmed": zero_confirmed,
-                "last_reason": self.last_reason,
+                "last_reason": last_reason,
                 "last_output": {
-                    "linear_mps": self.last_sent.linear_mps,
-                    "angular_radps": self.last_sent.angular_radps,
+                    "linear_mps": last_sent.linear_mps,
+                    "angular_radps": last_sent.angular_radps,
                 },
-                "water": self.water_health,
+                "water": water_health,
                 "provenance": {
                     "api": "/api/joy_control",
                     "vendor_command_ttl_s": 0.5,
+                    "executor_contract": "parallel_io_v1",
                     "classification": (
                         "observed_live_output" if live else "dry_run_preview"
                     ),
@@ -581,9 +671,11 @@ def main() -> int:
 
     rclpy.init()
     node = WaterCmdVelBridge()
+    executor = MultiThreadedExecutor(num_threads=3)
+    executor.add_node(node)
     exit_code = 0
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     except ExternalShutdownException:
@@ -592,7 +684,9 @@ def main() -> int:
         node.get_logger().error(str(exc))
         exit_code = 3
     finally:
+        executor.shutdown(timeout_sec=2.0)
         node.stop()
+        executor.remove_node(node)
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
