@@ -2,15 +2,16 @@
   "schema_version": "focus-scene-formal-experiments-v1",
   "scene_id": "scene04-plant",
   "target_category": "plant",
-  "campaign_status": "in_progress",
+  "campaign_status": "complete",
   "planned_formal_experiments": 5,
-  "recorded_formal_experiments": 4,
-  "successes": 0,
-  "failures": 4,
-  "sr": 0.0,
+  "recorded_formal_experiments": 5,
+  "successes": 2,
+  "failures": 3,
+  "sr": 0.4,
   "aggregate_metrics": {
-    "mean_source_compatible_spl_with_failures_zero": 0.0,
-    "mean_standard_spl_with_failures_zero": 0.0
+    "mean_source_compatible_spl_with_failures_zero": 0.3303110016759021,
+    "mean_standard_spl_with_failures_zero": 0.3614118172919945,
+    "standard_spl_status": "official; uses operator-provided approximate independently measured Scene 04 shortest feasible path L=11 m"
   },
   "experiments": [
     {
@@ -40,8 +41,8 @@
       "public_summary": "The 600-second test budget elapsed before exploration found and reached a verified plant target.",
       "record": {
         "path": "manifests/scene04_plant_formal_experiment_02_failure_20260801.json",
-        "size_bytes": 12215,
-        "sha256": "099d634c6cfbfe084303ae9e66d204fcb63c5c34c675255a9c15e0a917fd54a0",
+        "size_bytes": 13036,
+        "sha256": "cca741fe0573bcf481aefd8fd044cc20357c400f64036e1dc2e4987c9c7171a9",
         "classification": "authoritative machine-readable Scene 04 Formal 02 failure archive"
       }
     },
@@ -58,28 +59,56 @@
       "public_summary": "The 16-loop maximum exploration allowance was exhausted after the plant became visible but before either robot reached it.",
       "record": {
         "path": "manifests/scene04_plant_formal_experiment_03_failure_20260801.json",
-        "size_bytes": 6433,
-        "sha256": "ea7691a7d85d018bfac11c27afecc1d11a10386be77c03bdcdc684112775f024",
+        "size_bytes": 7260,
+        "sha256": "b256de5966b5ea8f09452aa218ceb05963d38ef3c678496e599dbc7d01326c5f",
         "classification": "authoritative machine-readable Scene 04 Formal 03 failure archive"
       }
     },
     {
       "formal_index": 4,
-      "result": "FAILURE",
-      "source_rounds_completed": 17,
-      "robot_0_actual_path_length_m": 12.917490345072398,
-      "robot_1_actual_path_length_m": 19.608722880435185,
-      "source_compatible_spl": 0.0,
-      "standard_spl": 0.0,
-      "public_summary": "The 600-second test budget elapsed before exploration found and reached a verified plant target.",
+      "result": "SUCCESS",
+      "source_rounds_completed": 4,
+      "robot_0_actual_path_length_m": 5.709166043875352,
+      "robot_1_actual_path_length_m": 12.149175813819086,
+      "arriving_robot_id": "robot-1",
+      "source_compatible_spl": 0.8221800716694592,
+      "standard_spl": 0.9054112121324349,
+      "standard_spl_status": "official; uses operator-provided approximate independently measured Scene 04 shortest feasible path L=11 m",
+      "public_summary": "Robot 0 explored its allocated route while Robot 1 advanced to the detected plant semantic region and completed an operator-confirmed physical arrival.",
       "record": {
-        "path": "manifests/scene04_plant_formal_experiment_04_failure_20260731.json",
-        "size_bytes": 8030,
-        "sha256": "d9c0d093c11e483ff6e8e104b42cd66ccaa112841a937e51e99ef053ccafc2c9",
-        "classification": "authoritative machine-readable Scene 04 Formal 04 archive"
+        "path": "manifests/scene04_plant_formal_experiment_04_success_20260801.json",
+        "size_bytes": 11117,
+        "sha256": "8e99b2464a0a746a495f2c4204f4c52aaff5f5bf2a8e30751e0647c6f1d660d7",
+        "classification": "authoritative machine-readable Scene 04 Formal 04 success archive"
+      }
+    },
+    {
+      "formal_index": 5,
+      "result": "SUCCESS",
+      "source_rounds_completed": 7,
+      "robot_0_actual_path_length_m": 3.7387390426649314,
+      "robot_1_actual_path_length_m": 12.199884581554594,
+      "arriving_robot_id": "robot-1",
+      "source_compatible_spl": 0.8293749367100514,
+      "standard_spl": 0.9016478743275376,
+      "standard_spl_status": "official; uses operator-provided approximate independently measured Scene 04 shortest feasible path L=11 m",
+      "public_summary": "Robot 0 explored its allocated routes while Robot 1 advanced through the corridor, switched to the detected plant semantic region and completed an operator-confirmed physical arrival.",
+      "record": {
+        "path": "manifests/scene04_plant_formal_experiment_05_success_20260801.json",
+        "size_bytes": 10921,
+        "sha256": "e3428ec2d08b9d014c16a1eafc3fc7b195c1a9a59b1645c6eb438c108f7b0079",
+        "classification": "authoritative machine-readable Scene 04 Formal 05 success archive"
       }
     }
   ],
+  "standard_shortest_feasible_path": {
+    "path": "manifests/scene04_plant_shortest_feasible_path_20260801.json",
+    "size_bytes": 1096,
+    "sha256": "27f2acdfbca72b6db719ceed7eb292c0d2a7ba98c1abc1ed5f7fe45a6143d7b5",
+    "shortest_feasible_path_m": 11.0,
+    "precision": "approximate",
+    "classification": "observed operator-provided independent measurement"
+  },
   "safety": {
     "hub_published_high_level_targets_only": true,
     "robot_local_stop_and_rejection_authority_retained": true,

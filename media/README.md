@@ -99,16 +99,19 @@ and its five linked per-run manifests.
 
 # Scene 04 media
 
-Scene 04 currently contains four archived failures. The media-backed Formal 01
-and Formal 04 records are listed below; Formal 02 and Formal 03 are bound to
-their runtime and metric evidence in the campaign manifest. User-provided masters are
-byte-preserved through Git LFS; browser-ready H.264 files and 64-frame inline
-GIF previews are under `media/demo/`.
+Scene 04 contains five formal episodes: three failures and two
+operator-confirmed successes. Their uploaded media are listed below and bound
+to the runtime and metric records. User-provided masters are byte-preserved
+through Git LFS; the explored map is
+[`experiment_4_map.png`](image/experiment_4_map.png).
 
 | Run | Third-view master | Dashboard master | README previews |
 | --- | --- | --- | --- |
 | Formal 01 · FAILURE | [`experiment_4_failure_1.mp4`](video/third_view/experiment_4/experiment_4_failure_1.mp4) | [`experiment_4_failure_1_dashboard.mov`](video/dashboard/experiment_4/experiment_4_failure_1_dashboard.mov) | [Third view](demo/scene04_formal_01_preview.gif) · [Dashboard](demo/scene04_formal_01_dashboard.gif) |
-| Formal 04 · FAILURE | Historical Git LFS object at `7eabe3d` | Historical Git LFS object at `7eabe3d` | [Third view](demo/scene04_formal_04_preview.gif) · [Dashboard](demo/scene04_formal_04_dashboard.gif) |
+| Formal 02 · FAILURE | [`experiment_4_failure_2.mp4`](video/third_view/experiment_4/experiment_4_failure_2.mp4) | [`experiment_4_failure_2_dashboard.mov`](video/dashboard/experiment_4/experiment_4_failure_2_dashboard.mov) | Exact runtime and metric binding in the Formal 02 record |
+| Formal 03 · FAILURE | [`experiment_4_failure_3.mp4`](video/third_view/experiment_4/experiment_4_failure_3.mp4) | [`experiment_4_failure_3_dashboard.mov`](video/dashboard/experiment_4/experiment_4_failure_3_dashboard.mov) | Exact runtime and metric binding in the Formal 03 record |
+| Formal 04 · SUCCESS | [`experiment_4_success_1.mp4`](video/third_view/experiment_4/experiment_4_success_1.mp4) | [`experiment_4_success_1_dashboard.mov`](video/dashboard/experiment_4/experiment_4_success_1_dashboard.mov) | Exact runtime and metric binding in the Formal 04 record |
+| Formal 05 · SUCCESS | [`experiment_4_success_2.mp4`](video/third_view/experiment_4/experiment_4_success_2.mp4) | [`experiment_4_success_2_dashboard.mov`](video/dashboard/experiment_4/experiment_4_success_2_dashboard.mov) | Exact runtime and metric binding in the Formal 05 record |
 
 Exact runtime binding, paths, durations and hashes are recorded in
 the linked
@@ -118,8 +121,10 @@ the linked
 ,
 [Formal 03](../manifests/scene04_plant_formal_experiment_03_failure_20260801.json)
 and
-[Formal 04](../manifests/scene04_plant_formal_experiment_04_failure_20260731.json)
+[Formal 04](../manifests/scene04_plant_formal_experiment_04_success_20260801.json)
+and
+[Formal 05](../manifests/scene04_plant_formal_experiment_05_success_20260801.json)
 records. The current `failure_1` masters are the newly uploaded Formal 01
 files; the previously committed Formal 04 masters remain recoverable at
-commit `7eabe3d`, while its browser-ready derivatives remain at their stable
-public paths.
+commit `7eabe3d` as pre-reset engineering provenance and do not enter the
+current formal metric track.

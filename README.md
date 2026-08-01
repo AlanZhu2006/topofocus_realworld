@@ -450,14 +450,24 @@ SPL uses the independently measured approximate shortest feasible path
 
 ## Scene 04 · Cooperative Plant
 
-Four formal failures are currently archived. Formal 01 ended when no remaining
-frontier had a safe executable allocation; Formal 02 and Formal 04 reached the
-600-second test limit, and Formal 03 reached its 16-loop exploration limit.
-None reached a verified plant target.
+Five formal experiments are archived. Robot 1 reached the plant in Formal 04
+and Formal 05, with Robot 0 contributing its independently allocated
+exploration routes.
 
 | Recorded trials | Success | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `4` | `0` | `0.0` | `0.0` | `0.0` |
+| `5` | `2` | `0.4` | `0.330311` | `0.361412` |
+
+The source-compatible mean counts all three failures at zero contribution.
+Standard SPL uses the operator-provided independently measured approximate
+shortest feasible path `L≈11 m`; its mean also counts the three failures at
+zero contribution.
+
+### Explored semantic map
+
+<p align="center">
+  <img src="media/image/experiment_4_map.png" width="560" alt="Experiment 4 explored semantic map and robot trajectories">
+</p>
 
 ### Real-robot rollouts
 
@@ -475,15 +485,20 @@ None reached a verified plant target.
       <a href="media/demo/scene04_formal_01_dashboard.mp4">Dashboard</a>
     </td>
     <td width="50%" align="center">
-      <strong>Formal 04 · FAILURE</strong><br>
-      <small>Third view</small><br>
-      <img src="media/demo/scene04_formal_04_preview.gif" width="440" alt="Scene 04 Formal 04 failure rollout"><br>
-      <small>Dashboard</small><br>
-      <img src="media/demo/scene04_formal_04_dashboard.gif" width="440" alt="Scene 04 Formal 04 failure dashboard"><br>
-      Exploration reached the 600-second test limit before finding and
-      reaching a verified plant target.<br>
-      <a href="media/demo/scene04_formal_04_third_view.mp4">Third view</a> ·
-      <a href="media/demo/scene04_formal_04_dashboard.mp4">Dashboard</a>
+      <strong>Formal 04 · SUCCESS</strong><br>
+      Robot 0 explores its allocated route; Robot 1 switches to the detected
+      plant semantic region, auto-ARRIVED, and both robots HOLD in sync.<br>
+      <a href="media/video/third_view/experiment_4/experiment_4_success_1.mp4">Third view</a> ·
+      <a href="media/video/dashboard/experiment_4/experiment_4_success_1_dashboard.mov">Dashboard</a>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <strong>Formal 05 · SUCCESS</strong><br>
+      Robot 0 explores its allocated routes while Robot 1 advances through the
+      corridor, switches to the detected plant semantic region and arrives.<br>
+      <a href="media/video/third_view/experiment_4/experiment_4_success_2.mp4">Third view</a> ·
+      <a href="media/video/dashboard/experiment_4/experiment_4_success_2_dashboard.mov">Dashboard</a>
     </td>
   </tr>
 </table>
@@ -495,10 +510,12 @@ None reached a verified plant target.
 | Formal 01 | FAILURE | `15` | `10.461142 m` | `14.271182 m` | `0.0` | `0.0` |
 | Formal 02 | FAILURE | `16` | `16.910834 m` | `13.391200 m` | `0.0` | `0.0` |
 | Formal 03 | FAILURE | `16` | `5.303672 m` | `8.733911 m` | `0.0` | `0.0` |
-| Formal 04 | FAILURE | `17` | `12.917490 m` | `19.608723 m` | `0.0` | `0.0` |
+| Formal 04 | SUCCESS | `4` | `5.709166 m` | `12.149176 m` | `0.822180` | `0.905411` |
+| Formal 05 | SUCCESS | `7` | `3.738739 m` | `12.199885 m` | `0.829375` | `0.901648` |
 
 [Formal 01 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260801.md)
 · [Formal 02 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260801.md)
 · [Formal 03 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_03_FAILURE_20260801.md)
-· [Formal 04 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md)
+· [Formal 04 success record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_04_SUCCESS_20260801.md)
+· [Formal 05 success record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260801.md)
 · [Machine-readable results](manifests/scene04_plant_formal_experiments_20260731.json)

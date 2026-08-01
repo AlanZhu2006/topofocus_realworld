@@ -1,0 +1,19 @@
+{
+  "schema_version": "focus-realworld-shortest-feasible-path-v1",
+  "scene_id": "scene04-plant",
+  "target_category": "plant",
+  "measurement_status": "complete",
+  "shortest_feasible_path_m": 11.0,
+  "precision": "approximate",
+  "classification": "observed operator-provided independent measurement",
+  "scope": "current Scene 04 formal experiments",
+  "measurement_protocol": [
+    "Use the fixed formal Scene 04 start placement.",
+    "Measure the shortest collision-free path feasible for the robot body independently of the executed trajectory.",
+    "End at the boundary of the declared 0.5 m valid plant goal region.",
+    "Apply the same independently measured reference to the current Scene 04 formal metric track."
+  ],
+  "operator_statement": "这次的standard距离应该大概是11m",
+  "metric_formula": "standard_spl = S * L / max(L, P)",
+  "notes": "The approximate independently measured reference is L=11 m. Formal 01-03 contribute zero because S=0; Formal 04 and Formal 05 use Robot 1's recorded 12.149175813819086 m and 12.199884581554594 m arrival paths, respectively."
+}

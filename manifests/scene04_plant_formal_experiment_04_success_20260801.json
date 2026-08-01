@@ -1,0 +1,226 @@
+{
+  "schema_version": "focus-scene-formal-experiment-v1",
+  "scene_id": "scene04-plant",
+  "target_category": "plant",
+  "formal_index": 4,
+  "result": "SUCCESS",
+  "session_id": "scene04-plant-20260801-recal10-forwardfix1-start2",
+  "episode_id": "forwardfix-rerun01",
+  "runtime_scene_id": "scene04-forwardfix-rerun01",
+  "session_git_commit": "9e6de1a31dc4b7f3881786f1268ba3ac3d352f24",
+  "protocol_version": "2.0",
+  "calibration_id": "shared-board-odin1-scene04-plant-20260801-recal10-v1",
+  "operator_evidence": {
+    "motion_authorization": "两台机器人仍在启动位置、已站立且周围净空，并允许修复后本轮真机运动",
+    "post_run_result_designation": "归档为成功",
+    "classification": "observed operator authorization and independent onsite success designation"
+  },
+  "physical_protocol_result": {
+    "success": true,
+    "success_radius_m": 0.5,
+    "arriving_robot_id": "robot-1",
+    "classification": "operator-confirmed physical plant-arrival success corroborated by automatic semantic ARRIVED and post-arrival RGB-D",
+    "counts_in_scene04_metric_track": true
+  },
+  "automatic_result": {
+    "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+    "automatic_terminal_candidate_complete": true,
+    "official_success_verified": false,
+    "official_success_verified_boundary": "The immutable automatic report cannot independently provide onsite target-region annotation; the separate operator confirmation supplies the physical-protocol classification.",
+    "target_found": true,
+    "arriving_robot_id": "robot-1",
+    "arrival_reason_code": "LOCAL_PLANNER_ARRIVED",
+    "arrival_observation_sequence": 415289,
+    "post_arrival_observation_sequence": 415345,
+    "post_arrival_capture_delay_s": 0.460867877,
+    "velocity_zero_confirmed": true
+  },
+  "metrics": {
+    "success": 1,
+    "sr": 1.0,
+    "arriving_robot_id": "robot-1",
+    "actual_path_length_m": 12.149175813819086,
+    "start_to_arrival_displacement_m": 9.988810241330636,
+    "source_compatible_spl": 0.8221800716694592,
+    "source_compatible_spl_definition": "start-to-arrival displacement divided by the arriving robot's actual path length",
+    "independently_measured_shortest_feasible_path_m": 11.0,
+    "standard_spl": 0.9054112121324349,
+    "standard_spl_status": "official; uses operator-provided approximate independently measured Scene 04 shortest feasible path L=11 m",
+    "robot_0_actual_path_length_m": 5.709166043875352,
+    "robot_0_start_to_stop_displacement_m": 1.9636214293646193,
+    "robot_1_actual_path_length_m": 12.149175813819086,
+    "robot_1_start_to_arrival_displacement_m": 9.988810241330636
+  },
+  "execution": {
+    "started_at": "2026-08-01T14:22:42.154731203+08:00",
+    "finished_at": "2026-08-01T14:25:32.797133501+08:00",
+    "observed_event_span_s": 170.642402298,
+    "source_rounds_completed": 4,
+    "source_steps": [
+      0,
+      24,
+      49,
+      74
+    ],
+    "high_level_batches_published": 23,
+    "semantic_evidence": {
+      "category": "potted plant",
+      "confidence": 0.8376813530921936,
+      "mask_cells": 130,
+      "mask_sha256": "965a25c34a713b4f3b0ee8a1bd9180cb387aa7c220aaea8dcab49e7ae093331a"
+    },
+    "robots": {
+      "robot-0": {
+        "actual_path_length_m": 5.709166043875352,
+        "start_pose": {
+          "frame_id": "robot-0/map",
+          "x": -0.6191430641261334,
+          "y": 1.026427941176799,
+          "yaw_rad": 0.5745813672726522
+        },
+        "stop_pose": {
+          "frame_id": "robot-0/map",
+          "x": -0.12008589990792562,
+          "y": 2.9255727657498043,
+          "yaw_rad": 0.5745813672726522
+        },
+        "behavior": "Robot 0 explored its allocated route and then accepted the coordinated terminal HOLD when Robot 1 completed semantic arrival.",
+        "terminal_observation_sequence": 182293,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD",
+        "velocity_zero_confirmed": true
+      },
+      "robot-1": {
+        "actual_path_length_m": 12.149175813819086,
+        "start_pose": {
+          "frame_id": "robot-1/map",
+          "x": 0.06275055669590235,
+          "y": -0.7224584763389115,
+          "yaw_rad": -0.3530921088935484
+        },
+        "arrival_pose": {
+          "frame_id": "robot-1/map",
+          "x": 1.7564522632896642,
+          "y": -10.566629572291744,
+          "yaw_rad": -0.3530921088935484
+        },
+        "behavior": "Robot 1 explored forward, switched to the detected plant semantic region, emitted LOCAL_PLANNER_ARRIVED and stopped.",
+        "arrival_observation_sequence": 415289,
+        "post_arrival_observation_sequence": 415345,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD",
+        "velocity_zero_confirmed": true
+      }
+    }
+  },
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal10-forwardfix1-start2_live_scene04-forwardfix-rerun01_20260801_142241_722401259/episode_report.json",
+      "size_bytes": 21142,
+      "sha256": "1394dfbb83e6772ce1b5b0c49d105ce35fc11fee8fddf789c11622ac4dfada46",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal10-forwardfix1-start2_live_scene04-forwardfix-rerun01_20260801_142241_722401259/controller_events.jsonl",
+      "size_bytes": 56321,
+      "sha256": "913c0dce2ceeddd52ce17160898ea065b66a5b2533ab5232ada59ee1f63361ae",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal10-forwardfix1-start2_live_scene04-forwardfix-rerun01_20260801_142241_722401259/scene_manifest.json",
+      "size_bytes": 66469,
+      "sha256": "daa9ed8283c63cbc4b891a1a950cb49cce7fc020c7654733b7783a1c1f97eed7",
+      "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal10-forwardfix1-start2_live_scene04-forwardfix-rerun01_20260801_142241_722401259/round_03_step_074/initial_batch.json",
+      "size_bytes": 6808,
+      "sha256": "a768509e51a4b5ca3c62c620dd87ad74927213db2a7c172fea8f1c3e897489f6",
+      "classification": "source-derived round input batch containing the arriving observation; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal10-forwardfix1-start2_live_scene04-forwardfix-rerun01_20260801_142241_722401259/round_03_step_074/shadow/shadow_manifest.json",
+      "size_bytes": 38447,
+      "sha256": "948e699e4c85a3dad68e198e6117e7f049a229b12c155be4b3d0ed1d81a6f9bc",
+      "classification": "source-derived semantic and decision provenance; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal10-forwardfix1-start2_live_scene04-forwardfix-rerun01_20260801_142241_722401259/round_03_step_074/shadow/source_goal_masks/yunji_plant.png",
+      "size_bytes": 1079,
+      "sha256": "965a25c34a713b4f3b0ee8a1bd9180cb387aa7c220aaea8dcab49e7ae093331a",
+      "classification": "source-derived Robot 1 plant semantic goal mask; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal10-forwardfix1-start2_live_scene04-forwardfix-rerun01_20260801_142241_722401259/batch_023_semantic_arrival_episode_complete_hold.json",
+      "size_bytes": 3768,
+      "sha256": "54df710c20c17181ce1a05df9091c6536424166eb16c580ef9964edff2969414",
+      "classification": "source-derived terminal synchronized HOLD batch; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal10-forwardfix1-start2_live_scene04-forwardfix-rerun01_20260801_142241_722401259/terminal/terminal_evidence.json",
+      "size_bytes": 10889,
+      "sha256": "9993c63fa0248052ebd1a5fc7c5ff61b2953a9d746729c346212d7a8cb3a98a8",
+      "classification": "source-derived terminal evidence index; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal10-forwardfix1-start2_live_scene04-forwardfix-rerun01_20260801_142241_722401259/terminal/robot-1/rgb.jpg",
+      "size_bytes": 120280,
+      "sha256": "869caa2fef3a6395f033eae9cb4660eeedcafcb3e6dc085f7efb6b772c6a765a",
+      "classification": "observed post-arrival Robot 1 RGB; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal10-forwardfix1-start2_live_scene04-forwardfix-rerun01_20260801_142241_722401259/terminal/robot-1/depth.png",
+      "size_bytes": 202013,
+      "sha256": "508f91548e1eab19add034492dc3f30bc103f7c48cbb5e9a4ab86adc6e4e165f",
+      "classification": "observed post-arrival Robot 1 aligned depth; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene04-plant-20260801-recal10-forwardfix1-start2/session.json",
+      "size_bytes": 4358,
+      "sha256": "45c65528f2a54a076c771cff2939110862971cde19cd203bf9efcd2e5ce140f7",
+      "classification": "source-derived exact session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene04-plant-20260801-recal10/shared_frame.json",
+      "size_bytes": 6442,
+      "sha256": "9ddc80061af595a7fafa3fd125e9d420846520b542a96f53595a6e98a1354bf7",
+      "classification": "observed and source-derived shared-frame calibration; runtime file ignored by Git"
+    }
+  ],
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_4/experiment_4_success_1.mp4",
+      "size_bytes": 8104966,
+      "duration_s": 70.4,
+      "sha256": "54939fe991abb1529d82722f6b7ac0ebb3d405821e234a6fef7b1eef2db912ec",
+      "classification": "observed user-provided external-view master; preserved byte-for-byte"
+    },
+    {
+      "path": "media/video/dashboard/experiment_4/experiment_4_success_1_dashboard.mov",
+      "size_bytes": 88953720,
+      "duration_s": 156.689,
+      "sha256": "e4371440c19ddd5b05500d1edf86dd0d5e7ef7126df9acbc6b04b899e4a9ba0b",
+      "classification": "observed user-provided Dashboard master; preserved byte-for-byte"
+    },
+    {
+      "path": "media/image/experiment_4_map.png",
+      "size_bytes": 29347,
+      "width_px": 532,
+      "height_px": 360,
+      "sha256": "f48c2936b38efe145c48820720485534daa5885fb3e0de7e9b236966ff5e1862",
+      "classification": "observed user-provided Scene 04 explored-map image; preserved byte-for-byte"
+    }
+  ],
+  "standard_shortest_feasible_path_evidence": {
+    "path": "manifests/scene04_plant_shortest_feasible_path_20260801.json",
+    "classification": "observed operator-provided approximate independent shortest-feasible-path measurement"
+  },
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_velocity_commands_sent_by_hub": false,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "terminal_hold_reason": "semantic_arrival_episode_complete_hold",
+    "both_robot_zero_velocity_acknowledged": true,
+    "post_episode_motion_authority": false
+  }
+}

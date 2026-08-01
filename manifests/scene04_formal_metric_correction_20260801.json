@@ -1,0 +1,45 @@
+{
+  "schema_version": "focus-formal-metric-correction-v1",
+  "scene_id": "scene04-plant",
+  "recorded_at": "2026-08-01",
+  "operator_clarification": "应该只有三次失败一次成功",
+  "corrected_formal_sequence": [
+    {
+      "formal_index": 1,
+      "result": "FAILURE",
+      "record": "manifests/scene04_plant_formal_experiment_01_failure_20260801.json"
+    },
+    {
+      "formal_index": 2,
+      "result": "FAILURE",
+      "record": "manifests/scene04_plant_formal_experiment_02_failure_20260801.json"
+    },
+    {
+      "formal_index": 3,
+      "result": "FAILURE",
+      "record": "manifests/scene04_plant_formal_experiment_03_failure_20260801.json"
+    },
+    {
+      "formal_index": 4,
+      "result": "SUCCESS",
+      "record": "manifests/scene04_plant_formal_experiment_04_success_20260801.json"
+    }
+  ],
+  "excluded_from_current_metric_track": [
+    {
+      "record": "manifests/scene04_plant_formal_experiment_04_failure_20260731.json",
+      "reason": "pre-reset historical run retained for provenance; excluded after the operator clarified that the current formal sequence contains three failures and one success",
+      "original_record_immutable": true
+    }
+  ],
+  "corrected_metrics": {
+    "recorded_formal_experiments": 4,
+    "successes": 1,
+    "failures": 3,
+    "sr": 0.25,
+    "mean_source_compatible_spl_with_failures_zero": 0.2055450179173648,
+    "mean_standard_spl_with_failures_zero": 0.22635280303310873,
+    "standard_spl_status": "official; uses operator-provided approximate independently measured Scene 04 shortest feasible path L=11 m"
+  },
+  "classification": "observed operator clarification applied to the formal metric index without deleting or rewriting historical runtime evidence"
+}

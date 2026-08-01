@@ -253,7 +253,28 @@
       "classification": "reused observed and source-derived shared-frame calibration; runtime file ignored by Git"
     }
   ],
-  "media": [],
+  "media": [
+    {
+      "path": "media/video/third_view/experiment_4/experiment_4_failure_2.mp4",
+      "size_bytes": 5460225,
+      "duration_s": 60.5,
+      "video_codec": "hevc",
+      "width_px": 1280,
+      "height_px": 720,
+      "sha256": "9c7f624ffd9c0be318f510a0ff8ccf2c27edc0da9bf141d9e64579fceee2bbaf",
+      "classification": "observed user-provided external-view master; preserved byte-for-byte"
+    },
+    {
+      "path": "media/video/dashboard/experiment_4/experiment_4_failure_2_dashboard.mov",
+      "size_bytes": 291782430,
+      "duration_s": 593.061,
+      "video_codec": "h264",
+      "width_px": 2496,
+      "height_px": 1080,
+      "sha256": "91ab1f89a8b6c6cb507cbf06f6197b3c97199a38516026417a725081bb270545",
+      "classification": "observed user-provided Dashboard master; preserved byte-for-byte"
+    }
+  ],
   "safety": {
     "hub_published_high_level_targets_only": true,
     "robot_local_stop_and_rejection_authority_retained": true,

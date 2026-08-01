@@ -56,12 +56,13 @@
       "classification": "Scene 03 Formal 01-02 are zero-contribution time-limit failures; Formal 03-05 are operator-confirmed physical plant-arrival successes"
     },
     "scene04_physical_0p5m_protocol": {
-      "recorded_episodes": 4,
-      "successes": 0,
-      "sr": 0.0,
-      "source_compatible_multi_spl_mean": 0.0,
-      "standard_multi_spl_mean": 0.0,
-      "classification": "Scene 04 Formal 01-04 are recorded zero-contribution failures; Formal 01 ended with no safe executable allocation, Formal 02 and Formal 04 reached the time limit, and Formal 03 reached its 16-loop exploration limit"
+      "recorded_episodes": 5,
+      "successes": 2,
+      "sr": 0.4,
+      "source_compatible_multi_spl_mean": 0.3303110016759021,
+      "standard_multi_spl_mean": 0.3614118172919945,
+      "standard_multi_spl_status": "official; uses operator-provided approximate independently measured Scene 04 shortest feasible path L=11 m",
+      "classification": "Scene 04 Formal 01-03 are zero-contribution failures; Formal 04-05 are operator-confirmed physical plant-arrival successes corroborated by automatic semantic ARRIVED and post-arrival RGB-D; the pre-reset 2026-07-31 run is retained outside this metric track"
     }
   },
   "formal_scene_results": {
@@ -96,12 +97,13 @@
     },
     "scene04-plant": {
       "path": "manifests/scene04_plant_formal_experiments_20260731.json",
-      "recorded_formal_experiments": 4,
-      "successes": 0,
-      "sr": 0.0,
-      "mean_source_compatible_spl": 0.0,
-      "mean_standard_spl": 0.0,
-      "classification": "Scene 04 campaign archive currently containing Formal 01-04"
+      "recorded_formal_experiments": 5,
+      "successes": 2,
+      "sr": 0.4,
+      "mean_source_compatible_spl": 0.3303110016759021,
+      "mean_standard_spl": 0.3614118172919945,
+      "standard_spl_status": "official; uses operator-provided approximate independently measured Scene 04 shortest feasible path L=11 m",
+      "classification": "authoritative unified Scene 04 formal archive covering experiments 01-05"
     }
   },
   "planned_scene_campaigns": {
@@ -129,10 +131,12 @@
     "scene04-plant": {
       "target_category": "plant",
       "planned_formal_experiments": 5,
-      "recorded_episodes": 4,
-      "successes": 0,
-      "metric_status": "four_recorded_failures_campaign_in_progress",
-      "classification": "Formal 01 is a no-safe-allocation failure; Formal 02 and Formal 04 are time-limit failures; Formal 03 is a 16-loop maximum-exploration failure; Formal 05 is not yet present"
+      "recorded_episodes": 5,
+      "successes": 2,
+      "metric_status": "five_recorded_episodes_two_successes_campaign_complete",
+      "standard_shortest_feasible_path_status": "complete; L=approximately 11 m",
+      "standard_shortest_feasible_path_evidence": "manifests/scene04_plant_shortest_feasible_path_20260801.json",
+      "classification": "Formal 01-03 are recorded failures; Formal 04-05 are operator-confirmed physical plant-arrival successes; see the unified archive"
     }
   },
   "attempts_not_in_metric_track": [

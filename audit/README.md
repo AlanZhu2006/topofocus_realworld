@@ -7,6 +7,14 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE04_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260801.md`](SCENE04_PLANT_FORMAL_EXPERIMENT_05_SUCCESS_20260801.md):
+  Scene 04 Formal 05 operator-confirmed success, seven exploration rounds,
+  automatic Robot 1 semantic arrival, exact dual-robot trajectories,
+  SR/SPL, terminal RGB-D and Robot 0 local-progress diagnosis.
+- [`SCENE04_PLANT_FORMAL_EXPERIMENT_04_SUCCESS_20260801.md`](SCENE04_PLANT_FORMAL_EXPERIMENT_04_SUCCESS_20260801.md):
+  Scene 04 Formal 04 operator-confirmed success, four exploration rounds,
+  automatic Robot 1 semantic arrival, exact dual-robot trajectories,
+  source-compatible SPL and post-arrival RGB-D provenance.
 - [`SCENE04_PLANT_FORMAL_EXPERIMENT_03_FAILURE_20260801.md`](SCENE04_PLANT_FORMAL_EXPERIMENT_03_FAILURE_20260801.md):
   Scene 04 Formal 03 maximum-loop failure, operator-recorded 16 exploration
   loops, exact dual-robot paths, zero-valued SR/SPL and fail-closed terminal
@@ -20,8 +28,8 @@ current. For the authoritative project state, read
   frontier-A global/local disagreement, Robot 0 launch and map-starvation
   diagnosis, zero-valued SR/SPL and fail-closed terminal state.
 - [`SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md`](SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md):
-  Scene 04 Formal 04 time-limit failure, 17 exploration rounds, exact
-  dual-robot paths, zero-valued SR/SPL and fail-closed terminal state.
+  historical pre-reset Scene 04 run retained as immutable provenance and
+  excluded from the current formal metric track after operator clarification.
 - [`SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md`](SCENE03_PLANT_FORMAL_EXPERIMENTS_01_05_20260731.md):
   complete Scene 03 five-run archive, dual-robot trajectories, SR/SPL,
   operator-provided `L≈14 m`, map and media bindings.
