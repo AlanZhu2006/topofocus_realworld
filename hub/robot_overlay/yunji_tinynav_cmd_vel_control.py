@@ -71,7 +71,13 @@ DEFAULT_ROTATE_FIRST_MAX_ANGULAR_RADPS = 0.35
 DEFAULT_ROTATE_FIRST_MIN_ANGULAR_RADPS = 0.10
 DEFAULT_ROTATE_FIRST_TIMEOUT_S = 12.0
 DEFAULT_TURN_NO_PROGRESS_TIMEOUT_S = 3.0
-DEFAULT_TURN_PROGRESS_EPSILON_RAD = math.radians(5.0)
+# The early watchdog only needs to distinguish a genuinely changing heading
+# from a frozen one.  Requiring five degrees inside three seconds rejected a
+# measured, slowly converging Go2 turn before the independent 12 s absolute
+# deadline.  One degree is above the observed path-frame quantization while
+# still allowing that absolute deadline and the receiver watchdog to bound a
+# turn whose feedback merely jitters.
+DEFAULT_TURN_PROGRESS_EPSILON_RAD = math.radians(1.0)
 DEFAULT_STABLE_TURN_LOOKAHEAD_M = 0.35
 # A collision-scored trajectory shorter than the robot-scale lookahead does
 # not carry a reliable route direction: the measured Scene 03 wall-front

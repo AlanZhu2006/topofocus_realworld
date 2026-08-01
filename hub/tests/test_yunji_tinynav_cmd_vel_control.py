@@ -470,6 +470,24 @@ def test_turn_progress_watchdog_allows_convergence_and_stops_stale_yaw():
     assert stalled
 
 
+def test_turn_progress_watchdog_accepts_slow_measurable_convergence():
+    best = math.radians(136.0)
+    last_progress = 10.0
+    for now, heading_deg in (
+        (12.5, 134.8),
+        (15.0, 133.6),
+        (17.5, 132.4),
+    ):
+        best, last_progress, stalled = MODULE.heading_recovery_progress_state(
+            best_abs_error_rad=best,
+            last_progress_monotonic=last_progress,
+            current_error_rad=math.radians(heading_deg),
+            now_monotonic=now,
+        )
+        assert not stalled
+        assert last_progress == pytest.approx(now)
+
+
 def test_collision_scored_path_heading_overrides_conflicting_router_seed():
     target_error = MODULE.world_target_heading_error(
         (2.8755, -6.0557),
@@ -864,7 +882,7 @@ def test_rotate_first_is_explicitly_opt_in():
     assert enabled.rotate_first_max_angular_radps == pytest.approx(0.30)
     assert enabled.rotate_first_timeout_s == pytest.approx(8.0)
     assert defaults.turn_no_progress_timeout_s == pytest.approx(3.0)
-    assert defaults.turn_progress_epsilon_deg == pytest.approx(5.0)
+    assert defaults.turn_progress_epsilon_deg == pytest.approx(1.0)
 
 
 def test_controller_profile_is_required_and_common_guards_are_enabled():

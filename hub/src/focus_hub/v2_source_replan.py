@@ -30,7 +30,7 @@ from typing import Mapping, Sequence
 
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
-SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v4"
+SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v5"
 SOURCE_COLLISION_THRESHOLD_M = 0.10
 SOURCE_STAGNANT_REPLAN_CELLS = 2.5
 SOURCE_MAP_RESOLUTION_M = 0.05
@@ -45,6 +45,8 @@ DEFAULT_MAX_ENTRIES_PER_ROBOT = 16
 DEFAULT_BACKTRACK_DIRECTION_UPDATE_M = 0.75
 DEFAULT_BACKTRACK_MIN_TARGET_DISTANCE_M = 2.0
 DEFAULT_BACKTRACK_ANGLE_DEG = 90.0
+DEFAULT_TRANSIENT_FAILURE_ESCALATION_COUNT = 2
+PERSISTENT_LOCAL_STACK_FAILURE_REASON = "PERSISTENT_LOCAL_STACK_FAILURE"
 
 SPATIAL_FRONTIER_FAILURE_REASONS = frozenset(
     {
@@ -52,6 +54,7 @@ SPATIAL_FRONTIER_FAILURE_REASONS = frozenset(
         "LOCAL_PLANNER_NO_PROGRESS",
         "UNREACHABLE",
         "CROSS_ROUND_SOURCE_STALL",
+        PERSISTENT_LOCAL_STACK_FAILURE_REASON,
     }
 )
 
@@ -69,6 +72,14 @@ TRANSIENT_LOCAL_STACK_FAILURE_REASONS = frozenset(
         "LOCAL_ROUTER_HOLD_TIMEOUT",
         "DISTANCE_LIMIT",
     }
+)
+
+# A repeated local geometry/controller rejection can justify choosing another
+# physical approach without claiming that one dropped hand-off blocks the
+# map. DISTANCE_LIMIT is deliberately excluded: it is an admission-contract
+# mismatch and must never be converted into spatial evidence.
+ESCALATABLE_TRANSIENT_LOCAL_STACK_FAILURE_REASONS = frozenset(
+    TRANSIENT_LOCAL_STACK_FAILURE_REASONS.difference({"DISTANCE_LIMIT"})
 )
 
 
@@ -203,6 +214,7 @@ class NavigationFailureMemory:
     same_sector_angle_deg: float = DEFAULT_SAME_SECTOR_ANGLE_DEG
     max_entries_per_robot: int = DEFAULT_MAX_ENTRIES_PER_ROBOT
     entries: list[dict[str, object]] = field(default_factory=list)
+    transient_entries: list[dict[str, object]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.scene_id or not self.episode_id:
@@ -323,9 +335,28 @@ class NavigationFailureMemory:
         failure_heading_deg: float | None = None,
         pose_classification: str = ("source_derived_frozen_round_start_pose_proxy"),
     ) -> dict[str, object]:
-        """Record one explicit failure, merging a repeated nearby approach."""
+        """Record one explicit failure, merging a repeated nearby approach.
+
+        One controller/path-stream rejection remains non-spatial.  Two
+        consecutive transient rejections near the same source target and
+        robot pose are different evidence: the physical approach has failed
+        across a fresh source boundary.  Escalate that bounded repetition to
+        spatial memory without treating a single dropped path as blocked map
+        geography.
+        """
 
         self._validate_decision_identity(decision)
+        if reason_code in ESCALATABLE_TRANSIENT_LOCAL_STACK_FAILURE_REASONS:
+            return self._record_transient_frontier_failure(
+                decision,
+                reason_code=reason_code,
+                failure_robot_xy_m=failure_robot_xy_m,
+                recorded_at_ns=recorded_at_ns,
+                source_target_xy_m=source_target_xy_m,
+                event=event,
+                failure_heading_deg=failure_heading_deg,
+                pose_classification=pose_classification,
+            )
         if reason_code not in SPATIAL_FRONTIER_FAILURE_REASONS:
             return {
                 "status": "ignored_non_spatial_failure",
@@ -364,11 +395,16 @@ class NavigationFailureMemory:
             if failure_heading_deg is None
             else ((float(failure_heading_deg) + 180.0) % 360.0 - 180.0)
         )
-        evidence_classification = (
-            "source_derived_from_observed_shared_boundary_poses"
-            if reason_code == "CROSS_ROUND_SOURCE_STALL"
-            else "observed_robot_local_rejection_event"
-        )
+        if reason_code == "CROSS_ROUND_SOURCE_STALL":
+            evidence_classification = (
+                "source_derived_from_observed_shared_boundary_poses"
+            )
+        elif reason_code == PERSISTENT_LOCAL_STACK_FAILURE_REASON:
+            evidence_classification = (
+                "source_derived_from_repeated_observed_local_rejections"
+            )
+        else:
+            evidence_classification = "observed_robot_local_rejection_event"
 
         existing: dict[str, object] | None = None
         for entry in reversed(self.entries):
@@ -472,6 +508,192 @@ class NavigationFailureMemory:
             "occurrence_count": 1,
         }
 
+    def _record_transient_frontier_failure(
+        self,
+        decision: HighLevelDecisionV2,
+        *,
+        reason_code: str,
+        failure_robot_xy_m: object,
+        recorded_at_ns: int,
+        source_target_xy_m: object | None,
+        event: Mapping[str, object] | None,
+        failure_heading_deg: float | None,
+        pose_classification: str,
+    ) -> dict[str, object]:
+        """Escalate only repeated, colocated transient frontier failures."""
+
+        execution_target = _frontier_xy(decision)
+        if execution_target is None:
+            return {
+                "status": "ignored_non_frontier_failure",
+                "robot_id": decision.robot_id,
+                "reason_code": reason_code,
+            }
+        if isinstance(recorded_at_ns, bool) or recorded_at_ns <= 0:
+            raise ValueError("failure record time must be positive")
+        failure_origin = _finite_xy(
+            failure_robot_xy_m,
+            field_name="transient failure robot position",
+        )
+        source_target = (
+            execution_target
+            if source_target_xy_m is None
+            else _finite_xy(
+                source_target_xy_m,
+                field_name="transient failure source target",
+            )
+        )
+        if failure_heading_deg is not None and (
+            isinstance(failure_heading_deg, bool)
+            or not isinstance(failure_heading_deg, (int, float))
+            or not math.isfinite(float(failure_heading_deg))
+        ):
+            raise ValueError("failure heading must be finite when supplied")
+        normalized_heading = (
+            None
+            if failure_heading_deg is None
+            else ((float(failure_heading_deg) + 180.0) % 360.0 - 180.0)
+        )
+
+        existing: dict[str, object] | None = None
+        for entry in reversed(self.transient_entries):
+            if entry.get("robot_id") != decision.robot_id:
+                continue
+            entry_target = _finite_xy(
+                entry.get("source_target_xy_m"),
+                field_name="pending transient source target",
+            )
+            entry_origin = _finite_xy(
+                entry.get("failure_robot_xy_m"),
+                field_name="pending transient failure origin",
+            )
+            if (
+                math.dist(source_target, entry_target)
+                <= self.target_match_radius_m + 1e-12
+                and math.dist(failure_origin, entry_origin)
+                <= self.origin_match_radius_m + 1e-12
+            ):
+                existing = entry
+                break
+
+        if existing is None:
+            identity = (
+                f"{self.scene_id}|{self.episode_id}|{decision.robot_id}|"
+                f"{decision.round_index}|{decision.leg_id}|{recorded_at_ns}|transient"
+            )
+            transient_id = (
+                "navtransient-"
+                + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+            )
+            existing = {
+                "transient_id": transient_id,
+                "status": "pending",
+                "robot_id": decision.robot_id,
+                "scene_id": self.scene_id,
+                "episode_id": self.episode_id,
+                "shared_frame_calibration_id": self.shared_frame_calibration_id,
+                "first_round_index": decision.round_index,
+                "last_round_index": decision.round_index,
+                "first_recorded_at_ns": recorded_at_ns,
+                "last_recorded_at_ns": recorded_at_ns,
+                "source_target_xy_m": list(source_target),
+                "execution_target_xy_m": list(execution_target),
+                "failure_robot_xy_m": list(failure_origin),
+                "failure_heading_deg": normalized_heading,
+                "reason_codes": [reason_code],
+                "occurrence_count": 1,
+                "last_event": _event_summary(event),
+                "pose_classification": pose_classification,
+            }
+            self.transient_entries.append(existing)
+            robot_entries = [
+                item
+                for item in self.transient_entries
+                if item.get("robot_id") == decision.robot_id
+            ]
+            while len(robot_entries) > self.max_entries_per_robot:
+                oldest = robot_entries.pop(0)
+                self.transient_entries.remove(oldest)
+        else:
+            reasons = list(existing["reason_codes"])
+            if reason_code not in reasons:
+                reasons.append(reason_code)
+            existing.update(
+                {
+                    "last_round_index": decision.round_index,
+                    "last_recorded_at_ns": recorded_at_ns,
+                    "source_target_xy_m": list(source_target),
+                    "execution_target_xy_m": list(execution_target),
+                    "failure_robot_xy_m": list(failure_origin),
+                    "failure_heading_deg": (
+                        normalized_heading
+                        if normalized_heading is not None
+                        else existing.get("failure_heading_deg")
+                    ),
+                    "reason_codes": reasons,
+                    "occurrence_count": int(existing["occurrence_count"]) + 1,
+                    "last_event": _event_summary(event),
+                    "pose_classification": pose_classification,
+                }
+            )
+
+        occurrence_count = int(existing["occurrence_count"])
+        if occurrence_count < DEFAULT_TRANSIENT_FAILURE_ESCALATION_COUNT:
+            return {
+                "status": "recorded_transient_failure_pending",
+                "robot_id": decision.robot_id,
+                "reason_code": reason_code,
+                "transient_id": existing["transient_id"],
+                "occurrence_count": occurrence_count,
+                "escalation_count": DEFAULT_TRANSIENT_FAILURE_ESCALATION_COUNT,
+            }
+
+        existing["status"] = "escalated_to_spatial_memory"
+        existing["escalated_at_ns"] = recorded_at_ns
+        spatial_update = self.record_frontier_failure(
+            decision,
+            reason_code=PERSISTENT_LOCAL_STACK_FAILURE_REASON,
+            failure_robot_xy_m=failure_origin,
+            recorded_at_ns=recorded_at_ns,
+            source_target_xy_m=source_target,
+            event=event,
+            failure_heading_deg=normalized_heading,
+            pose_classification=pose_classification,
+        )
+        spatial_entry_id = spatial_update.get("entry_id")
+        spatial_entry = next(
+            (
+                entry
+                for entry in self.entries
+                if entry.get("entry_id") == spatial_entry_id
+            ),
+            None,
+        )
+        if spatial_entry is None:
+            raise RuntimeError("transient escalation lost its spatial memory entry")
+        spatial_reasons = list(spatial_entry["reason_codes"])
+        for transient_reason in existing["reason_codes"]:
+            if transient_reason not in spatial_reasons:
+                spatial_reasons.append(transient_reason)
+        spatial_entry["reason_codes"] = spatial_reasons
+        spatial_entry["transient_escalation"] = {
+            "transient_id": existing["transient_id"],
+            "occurrence_count": occurrence_count,
+            "threshold": DEFAULT_TRANSIENT_FAILURE_ESCALATION_COUNT,
+            "classification": (
+                "source_derived_from_repeated_observed_local_rejections"
+            ),
+        }
+        return {
+            "status": "escalated_repeated_transient_failure",
+            "robot_id": decision.robot_id,
+            "reason_code": reason_code,
+            "transient_id": existing["transient_id"],
+            "entry_id": spatial_entry_id,
+            "occurrence_count": occurrence_count,
+            "escalation_count": DEFAULT_TRANSIENT_FAILURE_ESCALATION_COUNT,
+        }
+
     def to_dict(self) -> dict[str, object]:
         return {
             "schema_version": SOURCE_REPLAN_SCHEMA_VERSION,
@@ -494,6 +716,9 @@ class NavigationFailureMemory:
                 "same_sector_origin_radius_m": (self.same_sector_origin_radius_m),
                 "same_sector_angle_deg": self.same_sector_angle_deg,
                 "max_entries_per_robot": self.max_entries_per_robot,
+                "transient_failure_escalation_count": (
+                    DEFAULT_TRANSIENT_FAILURE_ESCALATION_COUNT
+                ),
                 "scope": (
                     "robot-local within one scene, episode and shared-frame "
                     "calibration; a materially relocated robot may approach "
@@ -501,11 +726,14 @@ class NavigationFailureMemory:
                 ),
             },
             "entries": [dict(entry) for entry in self.entries],
+            "transient_entries": [
+                dict(entry) for entry in self.transient_entries
+            ],
             "classification": (
                 "mixed provenance: observed robot-local rejection events "
-                "and source-derived stationary-boundary evidence; inspect "
-                "each entry's evidence_classifications, reason_codes and "
-                "pose_classification"
+                "plus source-derived repeated-local-rejection and stationary-"
+                "boundary evidence; inspect each entry's evidence_"
+                "classifications, reason_codes and pose_classification"
             ),
         }
 

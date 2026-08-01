@@ -204,7 +204,7 @@ def _validate_control_contract(manifest: dict[str, Any]) -> None:
     )
     _expect(
         controller.get("turn_progress_minimum_improvement_deg"),
-        5.0,
+        1.0,
         "planning.controller.turn_progress_minimum_improvement_deg",
     )
     _expect(

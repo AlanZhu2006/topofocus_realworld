@@ -251,10 +251,9 @@ def test_observed_failure_heading_defines_blocked_sector(
         "LOCAL_ROUTER_HOLD_TIMEOUT",
         "LOCAL_PLANNER_PATH_STALE",
         "LOCAL_PLANNER_TURN_STALLED",
-        "DISTANCE_LIMIT",
     ],
 )
-def test_transient_local_stack_failure_does_not_poison_spatial_target(
+def test_one_transient_local_stack_failure_does_not_poison_spatial_target(
     observation_factory,
     reason_code,
 ):
@@ -269,8 +268,96 @@ def test_transient_local_stack_failure_does_not_poison_spatial_target(
         recorded_at_ns=now,
     )
 
-    assert update["status"] == "ignored_non_spatial_failure"
+    assert update["status"] == "recorded_transient_failure_pending"
+    assert update["occurrence_count"] == 1
     assert state.entries == []
+    assert state.transient_entries[0]["status"] == "pending"
+
+
+def test_distance_limit_remains_non_spatial_even_when_reported_repeatedly(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
+    state = memory()
+
+    for offset in range(2):
+        update = state.record_frontier_failure(
+            batch.decisions[0],
+            reason_code="DISTANCE_LIMIT",
+            failure_robot_xy_m=(0.0, 1.0),
+            recorded_at_ns=now + offset,
+        )
+        assert update["status"] == "ignored_non_spatial_failure"
+
+    assert state.entries == []
+    assert state.transient_entries == []
+
+
+def test_repeated_colocated_transient_failure_escalates_to_spatial_memory(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
+    failed = batch.decisions[0]
+    state = memory()
+
+    first = state.record_frontier_failure(
+        failed,
+        reason_code="LOCAL_PLANNER_PATH_STALE",
+        failure_robot_xy_m=(0.0, 1.0),
+        recorded_at_ns=now,
+    )
+    second = state.record_frontier_failure(
+        failed,
+        reason_code="LOCAL_PLANNER_TURN_STALLED",
+        failure_robot_xy_m=(0.02, 1.01),
+        recorded_at_ns=now + 1,
+    )
+
+    assert first["status"] == "recorded_transient_failure_pending"
+    assert second["status"] == "escalated_repeated_transient_failure"
+    assert second["occurrence_count"] == 2
+    assert len(state.entries) == 1
+    assert state.entries[0]["reason_codes"] == [
+        "PERSISTENT_LOCAL_STACK_FAILURE",
+        "LOCAL_PLANNER_PATH_STALE",
+        "LOCAL_PLANNER_TURN_STALLED",
+    ]
+    target = failed.target
+    assert target is not None
+    matches = state.matching_entries(
+        robot_id=failed.robot_id,
+        target_xy_m=(target.pose.x, target.pose.y),
+        robot_xy_m=(0.02, 1.01),
+    )
+    assert matches[0]["entry_id"] == second["entry_id"]
+
+
+def test_relocated_transient_failure_starts_a_new_pending_approach(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    batch = with_source_frontiers(make_batch(observations, digests, now=now))
+    failed = batch.decisions[0]
+    state = memory()
+
+    state.record_frontier_failure(
+        failed,
+        reason_code="LOCAL_PLANNER_PATH_STALE",
+        failure_robot_xy_m=(0.0, 0.0),
+        recorded_at_ns=now,
+    )
+    update = state.record_frontier_failure(
+        failed,
+        reason_code="LOCAL_PLANNER_PATH_STALE",
+        failure_robot_xy_m=(2.0, 0.0),
+        recorded_at_ns=now + 1,
+    )
+
+    assert update["status"] == "recorded_transient_failure_pending"
+    assert state.entries == []
+    assert len(state.transient_entries) == 2
 
 
 def test_source_stationary_threshold_is_two_and_a_half_cells():
