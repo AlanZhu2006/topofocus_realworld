@@ -562,6 +562,71 @@ class GoalProgressWatchdog:
         return stalled_s >= self.timeout_s, stalled_s
 
 
+class CommandExecutionWatchdog:
+    """Detect a fresh authorized translation that the chassis did not execute.
+
+    Transport acknowledgement is not physical feedback.  This watchdog starts
+    only while a fresh nonzero command has passed every robot-local velocity
+    gate, and measures base displacement from odometry.  A zero command, a
+    closed gate, a stale command, or a new leg resets the window.
+    """
+
+    def __init__(self, *, timeout_s: float, minimum_displacement_m: float) -> None:
+        if not math.isfinite(timeout_s) or timeout_s <= 0.0:
+            raise ValueError("timeout_s must be finite and positive")
+        if (
+            not math.isfinite(minimum_displacement_m)
+            or minimum_displacement_m <= 0.0
+        ):
+            raise ValueError(
+                "minimum_displacement_m must be finite and positive"
+            )
+        self.timeout_s = timeout_s
+        self.minimum_displacement_m = minimum_displacement_m
+        self.reset()
+
+    def reset(self) -> None:
+        self.leg_id: str | None = None
+        self.started_monotonic = 0.0
+        self.anchor_xy: tuple[float, float] | None = None
+
+    def observe(
+        self,
+        *,
+        leg_id: str,
+        command_active: bool,
+        position_xy: tuple[float, float],
+        now_monotonic: float,
+    ) -> tuple[bool, float, float]:
+        if not leg_id:
+            raise ValueError("leg_id is required")
+        if (
+            len(position_xy) != 2
+            or not all(math.isfinite(value) for value in position_xy)
+        ):
+            raise ValueError("position_xy must contain two finite values")
+        if not math.isfinite(now_monotonic):
+            raise ValueError("now_monotonic must be finite")
+        if not command_active:
+            self.reset()
+            return False, 0.0, 0.0
+        if self.leg_id != leg_id or self.anchor_xy is None:
+            self.leg_id = leg_id
+            self.started_monotonic = now_monotonic
+            self.anchor_xy = position_xy
+            return False, 0.0, 0.0
+        displacement_m = math.hypot(
+            position_xy[0] - self.anchor_xy[0],
+            position_xy[1] - self.anchor_xy[1],
+        )
+        if displacement_m >= self.minimum_displacement_m:
+            self.started_monotonic = now_monotonic
+            self.anchor_xy = position_xy
+            return False, 0.0, displacement_m
+        stalled_s = max(0.0, now_monotonic - self.started_monotonic)
+        return stalled_s >= self.timeout_s, stalled_s, displacement_m
+
+
 def bounded_protocol_detail(
     value: str, *, max_length: int = ROBOT_HEALTH_DETAIL_MAX_LENGTH
 ) -> str:
@@ -1506,6 +1571,34 @@ def main() -> int:
         help="minimum remaining-distance reduction that resets the watchdog",
     )
     parser.add_argument(
+        "--command-execution-timeout-s",
+        type=float,
+        default=0.0,
+        help=(
+            "reject and zero when a fresh authorized forward command causes "
+            "no measured base displacement for this many seconds; zero "
+            "disables this platform-specific execution watchdog"
+        ),
+    )
+    parser.add_argument(
+        "--command-execution-input-timeout-s",
+        type=float,
+        default=0.5,
+        help="maximum age of a raw command counted as actively commanded",
+    )
+    parser.add_argument(
+        "--command-execution-min-linear-mps",
+        type=float,
+        default=0.25,
+        help="minimum authorized forward command counted by the watchdog",
+    )
+    parser.add_argument(
+        "--command-execution-min-displacement-m",
+        type=float,
+        default=0.05,
+        help="odometry displacement that proves a commanded start executed",
+    )
+    parser.add_argument(
         "--trajectory-start-grace-s",
         type=float,
         default=12.0,
@@ -1669,6 +1762,17 @@ def main() -> int:
             "--controller-pause-retry-s must not exceed "
             "--controller-pause-ack-timeout-s"
         )
+    if (
+        not math.isfinite(args.command_execution_timeout_s)
+        or args.command_execution_timeout_s < 0.0
+        or not math.isfinite(args.command_execution_input_timeout_s)
+        or args.command_execution_input_timeout_s <= 0.0
+        or not math.isfinite(args.command_execution_min_linear_mps)
+        or args.command_execution_min_linear_mps <= 0.0
+        or not math.isfinite(args.command_execution_min_displacement_m)
+        or args.command_execution_min_displacement_m <= 0.0
+    ):
+        parser.error("command execution watchdog limits are invalid")
     if (
         args.trajectory_recovery_timeout_s
         <= args.trajectory_stale_timeout_s
@@ -2792,6 +2896,16 @@ def main() -> int:
     progress_watchdog = GoalProgressWatchdog(
         timeout_s=args.no_progress_timeout_s,
         minimum_improvement_m=args.minimum_goal_progress_m,
+    )
+    command_execution_watchdog = (
+        CommandExecutionWatchdog(
+            timeout_s=args.command_execution_timeout_s,
+            minimum_displacement_m=(
+                args.command_execution_min_displacement_m
+            ),
+        )
+        if args.command_execution_timeout_s > 0.0
+        else None
     )
     heartbeat_result_sequence = 0
     heartbeat_delivery_ready_previous: bool | None = None
@@ -4768,6 +4882,34 @@ def main() -> int:
                     refresh_router_waypoint,
                     _refresh_router_route_length_m,
                 ) = node.router_status_snapshot()
+                command_execution_stalled = False
+                command_execution_stalled_s = 0.0
+                command_execution_displacement_m = 0.0
+                raw_command_age_s = (
+                    math.inf
+                    if node.raw_cmd_received_ns <= 0
+                    else max(
+                        0.0,
+                        (now_ns - node.raw_cmd_received_ns) / 1_000_000_000.0,
+                    )
+                )
+                if command_execution_watchdog is not None:
+                    command_execution_stalled, command_execution_stalled_s, (
+                        command_execution_displacement_m
+                    ) = command_execution_watchdog.observe(
+                        leg_id=active_decision.leg_id,
+                        command_active=bool(
+                            node.authorized
+                            and node.latest_guard_reason
+                            == "authorized_all_gates_ready"
+                            and raw_command_age_s
+                            <= args.command_execution_input_timeout_s
+                            and node.latest_raw_cmd[0]
+                            >= args.command_execution_min_linear_mps
+                        ),
+                        position_xy=(pose[0], pose[1]),
+                        now_monotonic=time.monotonic(),
+                    )
                 refresh_attempt: int | None = None
                 if (
                     now_ns < active_decision.expires_at_ns
@@ -4981,6 +5123,51 @@ def main() -> int:
                     )
                     active_decision = None
                     active_goal = None
+                    router_recovery_leg_id = None
+                    router_recovery_started_ns = 0
+                    router_recovery_reason = ""
+                elif command_execution_stalled:
+                    failed_decision = active_decision
+                    node.revoke()
+                    post(
+                        failed_decision,
+                        NavigationStatusV2.REJECTED,
+                        "LOCAL_CHASSIS_COMMAND_NOT_EXECUTED",
+                        pose,
+                        zero=True,
+                        goal=active_goal,
+                        detail=(
+                            "fresh forward commands passed every local "
+                            "velocity gate but odometry did not prove chassis "
+                            "execution; "
+                            f"commanded_linear_mps={node.latest_raw_cmd[0]:.3f}; "
+                            f"observed_displacement_m="
+                            f"{command_execution_displacement_m:.3f}; "
+                            f"timeout_s={command_execution_stalled_s:.3f}"
+                        ),
+                        terminal=True,
+                    )
+                    emit(
+                        "local_chassis_command_not_executed",
+                        decision_id=failed_decision.decision_id,
+                        leg_id=failed_decision.leg_id,
+                        commanded_linear_mps=round(
+                            node.latest_raw_cmd[0], 3
+                        ),
+                        commanded_angular_radps=round(
+                            node.latest_raw_cmd[1], 3
+                        ),
+                        raw_command_age_s=round(raw_command_age_s, 3),
+                        stalled_s=round(command_execution_stalled_s, 3),
+                        observed_displacement_m=round(
+                            command_execution_displacement_m, 3
+                        ),
+                        guard_reason=node.latest_guard_reason,
+                    )
+                    active_decision = None
+                    active_goal = None
+                    progress_watchdog.reset()
+                    command_execution_watchdog.reset()
                     router_recovery_leg_id = None
                     router_recovery_started_ns = 0
                     router_recovery_reason = ""
@@ -5306,6 +5493,8 @@ def main() -> int:
                         last_feedback_monotonic = time.monotonic()
             else:
                 progress_watchdog.reset()
+                if command_execution_watchdog is not None:
+                    command_execution_watchdog.reset()
                 occupancy_recovery_leg_id = None
                 occupancy_recovery_started_ns = 0
                 slam_recovery_leg_id = None

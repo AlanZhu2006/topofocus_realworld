@@ -210,7 +210,10 @@
       "turn_no_progress_timeout_s": 3.0,
       "turn_progress_minimum_improvement_deg": 1.0,
       "continuous_turn_timeout_result": "LOCAL_PLANNER_TURN_STALLED and fresh source replan",
-      "linear_engagement_floor_mps": 0.18,
+      "linear_engagement_floor_mps": {
+        "robot-0": 0.18,
+        "robot-1": 0.3
+      },
       "pose_timeout_s": 0.8,
       "path_timeout_s": 1.0,
       "pose_jump_freeze": {
@@ -294,8 +297,15 @@
       "robot-1": {
         "implementation": "WATER /api/joy_control",
         "watchdog_s": 0.3,
-        "max_linear_x_mps": 0.2,
-        "max_angular_z_radps": 0.4
+        "max_linear_x_mps": 0.3,
+        "max_angular_z_radps": 0.4,
+        "physical_execution_feedback": {
+          "source": "base odometry displacement",
+          "authorized_command_minimum_mps": 0.25,
+          "minimum_displacement_m": 0.05,
+          "timeout_s": 4.0,
+          "failure_result": "LOCAL_CHASSIS_COMMAND_NOT_EXECUTED"
+        }
       }
     }
   },
@@ -349,8 +359,8 @@
     },
     {
       "path": "hub/robot_overlay/start_yunji_v2.sh",
-      "size_bytes": 26842,
-      "sha256": "a8d24e894903d7f1c511fa76008459ec729a887d4b46b5124ddd09b19030b5af",
+      "size_bytes": 27886,
+      "sha256": "a0508ba448a9e6eeeee5a8ae5ce8497893af199e876beaef6089d8ee26e9d64e",
       "classification": "source-derived"
     },
     {
@@ -416,13 +426,13 @@
     {
       "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
       "size_bytes": 80533,
-      "sha256": "2b1fca95852a9f042b765bcf34387e0cfd13bcaf47c6f23b33b6ae8a9f050c8f",
+      "sha256": "1d61718b1bca15259a59e7477ba1a6d819d367ff72abde4ba8d6a7197c226fcc",
       "classification": "source-derived"
     },
     {
       "path": "hub/robot_overlay/v2_wsj_receiver.py",
-      "size_bytes": 221882,
-      "sha256": "187d158dec68e53cbb998e2d4afbe1b69f6063256cb13bed743632628c42b8bc",
+      "size_bytes": 229945,
+      "sha256": "898af038c644ecb107ffc8ebfc06e43ef79c3ffc3eea93dc26722ebf8986171e",
       "classification": "source-derived"
     },
     {

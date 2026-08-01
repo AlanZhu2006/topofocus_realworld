@@ -17,7 +17,16 @@ TINYNAV_RUNTIME="${FOCUS_YUNJI_TINYNAV_RUNTIME:-/home/nyu/.local/share/topofocus
 WATER_HOST="${FOCUS_YUNJI_WATER_HOST:-192.168.10.10}"
 WATER_PORT="${FOCUS_YUNJI_WATER_PORT:-31001}"
 MAX_CACHED_MAP_MOTION_M="${FOCUS_MAX_CACHED_MAP_MOTION_M:-0.25}"
-LINEAR_COMMAND_FLOOR_MPS="${FOCUS_YUNJI_LINEAR_COMMAND_FLOOR_MPS:-0.18}"
+# Observed on 2026-08-01 with the same WATER endpoint: 0.30 m/s executes from
+# rest, while the previous 0.18--0.20 m/s automatic path can remain physically
+# idle after an intentional zero-command boundary even though joy_control is
+# acknowledged.  This is still below WATER's documented 0.50 m/s limit; every
+# receiver, occupancy, trajectory and platform stop gate remains authoritative.
+LINEAR_COMMAND_FLOOR_MPS="${FOCUS_YUNJI_LINEAR_COMMAND_FLOOR_MPS:-0.30}"
+COMMAND_EXECUTION_TIMEOUT_S="${FOCUS_YUNJI_COMMAND_EXECUTION_TIMEOUT_S:-4.0}"
+COMMAND_EXECUTION_INPUT_TIMEOUT_S="${FOCUS_YUNJI_COMMAND_EXECUTION_INPUT_TIMEOUT_S:-0.5}"
+COMMAND_EXECUTION_MIN_LINEAR_MPS="${FOCUS_YUNJI_COMMAND_EXECUTION_MIN_LINEAR_MPS:-0.25}"
+COMMAND_EXECUTION_MIN_DISPLACEMENT_M="${FOCUS_YUNJI_COMMAND_EXECUTION_MIN_DISPLACEMENT_M:-0.05}"
 # The router uses a square cell-clearance test, while TinyNav's unchanged local
 # planner remains the final footprint/depth authority.  On the 2026-07-25 live
 # Yunji grid, 0.34 m rounded up to seven 5 cm cells and no 15x15 known-free
@@ -548,7 +557,7 @@ bridge_args=(
   --status-topic /focus/water/cmd_bridge_status
   --robot-host "$WATER_HOST"
   --tcp-port "$WATER_PORT"
-  --max-linear-mps 0.20
+  --max-linear-mps 0.30
   --max-angular-radps 0.40
 )
 if [[ "$mode" == live ]]; then
@@ -594,6 +603,11 @@ receiver_args=(
   --semantic-arrival-radius-m "$SEMANTIC_ARRIVAL_RADIUS_M"
   --no-progress-timeout-s "$NO_PROGRESS_TIMEOUT_S"
   --minimum-goal-progress-m "$MINIMUM_GOAL_PROGRESS_M"
+  --command-execution-timeout-s "$COMMAND_EXECUTION_TIMEOUT_S"
+  --command-execution-input-timeout-s "$COMMAND_EXECUTION_INPUT_TIMEOUT_S"
+  --command-execution-min-linear-mps "$COMMAND_EXECUTION_MIN_LINEAR_MPS"
+  --command-execution-min-displacement-m \
+    "$COMMAND_EXECUTION_MIN_DISPLACEMENT_M"
   --alignment-output "$alignment"
   --log "$log"
 )

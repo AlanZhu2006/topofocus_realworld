@@ -165,11 +165,16 @@ def test_small_intentional_forward_command_reaches_static_friction_floor():
     ) == pytest.approx(0.10)
 
 
-def test_deployment_linear_floor_is_bounded_to_observed_source_maximum():
+def test_deployment_linear_floor_allows_observed_water_start_speed():
     parsed = MODULE.build_parser().parse_args(_deployment_args())
+    water = MODULE.build_parser().parse_args(
+        _deployment_args("yunji-water")
+        + ["--linear-command-floor-mps", "0.30"]
+    )
 
     assert parsed.linear_command_floor_mps == pytest.approx(0.18)
-    assert MODULE.MAX_DEPLOYMENT_LINEAR_COMMAND_FLOOR_MPS == pytest.approx(0.20)
+    assert water.linear_command_floor_mps == pytest.approx(0.30)
+    assert MODULE.MAX_DEPLOYMENT_LINEAR_COMMAND_FLOOR_MPS == pytest.approx(0.30)
     assert MODULE.apply_linear_engagement_floor(
         0.10,
         engage_threshold_mps=0.04,

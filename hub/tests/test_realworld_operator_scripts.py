@@ -58,9 +58,11 @@ def test_oneclick_is_session_bound_and_has_no_forensic_bypass():
     assert "--terminal-obstacle-clearance-m" in wsj
     assert "--lookahead-m" in wsj
     assert "FOCUS_YUNJI_SEMANTIC_ARRIVAL_RADIUS_M:-0.15" in yunji
-    assert "FOCUS_YUNJI_LINEAR_COMMAND_FLOOR_MPS:-0.18" in yunji
+    assert "FOCUS_YUNJI_LINEAR_COMMAND_FLOOR_MPS:-0.30" in yunji
     assert '--linear-command-floor-mps "$LINEAR_COMMAND_FLOOR_MPS"' in yunji
-    assert "--max-linear-mps 0.20" in yunji
+    assert "--max-linear-mps 0.30" in yunji
+    assert "FOCUS_YUNJI_COMMAND_EXECUTION_TIMEOUT_S:-4.0" in yunji
+    assert '--command-execution-timeout-s "$COMMAND_EXECUTION_TIMEOUT_S"' in yunji
 
 
 def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():

@@ -1523,6 +1523,52 @@ def test_goal_progress_watchdog_accepts_bounded_detour_motion():
     assert stalled_s == pytest.approx(20.0)
 
 
+def test_command_execution_watchdog_requires_continuous_authorized_motion():
+    receiver = load_overlay("v2_wsj_receiver.py")
+    watchdog = receiver.CommandExecutionWatchdog(
+        timeout_s=4.0,
+        minimum_displacement_m=0.05,
+    )
+
+    assert watchdog.observe(
+        leg_id="leg-1",
+        command_active=True,
+        position_xy=(0.0, 0.0),
+        now_monotonic=10.0,
+    ) == (False, 0.0, 0.0)
+    stalled, stalled_s, displacement_m = watchdog.observe(
+        leg_id="leg-1",
+        command_active=True,
+        position_xy=(0.01, 0.0),
+        now_monotonic=14.0,
+    )
+    assert stalled is True
+    assert stalled_s == pytest.approx(4.0)
+    assert displacement_m == pytest.approx(0.01)
+
+    # Any zero/closed-gate interval resets the execution window. A subsequent
+    # command gets a fresh start instead of inheriting the stopped duration.
+    assert watchdog.observe(
+        leg_id="leg-1",
+        command_active=False,
+        position_xy=(0.01, 0.0),
+        now_monotonic=15.0,
+    ) == (False, 0.0, 0.0)
+    assert watchdog.observe(
+        leg_id="leg-1",
+        command_active=True,
+        position_xy=(0.01, 0.0),
+        now_monotonic=20.0,
+    ) == (False, 0.0, 0.0)
+    # Real displacement proves execution and restarts the bounded window.
+    assert watchdog.observe(
+        leg_id="leg-1",
+        command_active=True,
+        position_xy=(0.07, 0.0),
+        now_monotonic=23.0,
+    ) == pytest.approx((False, 0.0, 0.06))
+
+
 def test_external_odin_odometry_health_uses_covariance_fail_closed():
     receiver = load_overlay("v2_wsj_receiver.py")
     covariance = [0.0] * 36
