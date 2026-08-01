@@ -30,15 +30,42 @@ TinyNav local trajectory behind independent fail-closed safety checks.
 
 ## Reproduction
 
+Use the same Git revision on every host.
+
+### Repository gate
+
 ```bash
 git clone https://github.com/AlanZhu2006/topofocus_realworld.git
 cd topofocus_realworld
 python3 hub/tools/verify_public_baseline.py --workspace .
 ```
 
-This command verifies the public byte contracts without installing software or
-connecting to a robot. Host installation, Robot 0 reconstruction, Robot 1
-Odin1 setup and supervised calibration are documented below.
+Checks the public file and deployment contracts only; it installs nothing and
+does not connect to a robot.
+
+### RTX 4090 Hub
+
+```bash
+bash hub/scripts/bootstrap_gpu_hub_cleanroom.sh
+bash hub/scripts/bootstrap_gpu_hub_cleanroom.sh \
+  --apply --fetch-models --accept-model-licenses
+```
+
+The first command previews the plan. The second installs the locked runtime,
+pinned model artifacts and validation stack.
+
+### Robot 0 · Unitree Go2
+
+```bash
+bash hub/robot_overlay/bootstrap_robot0_cleanroom.sh
+bash hub/robot_overlay/bootstrap_robot0_cleanroom.sh --apply
+bash hub/robot_overlay/configure_go2_network.sh
+bash hub/robot_overlay/configure_go2_network.sh --apply
+```
+
+Commands without `--apply` preview their plans. The applied commands install
+the locked Jetson runtime and dedicated Go2 network configuration without
+starting motion.
 
 [Clean-room RTX 4090 + Unitree Go2 deployment](docs/ROBOT0_REPRODUCIBLE_BASELINE.md) ·
 [Robot 1 Odin1 deployment](hub/docs/YUNJI_ODIN1_DEPLOYMENT.md) ·
