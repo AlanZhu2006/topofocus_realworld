@@ -153,8 +153,11 @@
       "frontier_partial_progress": true,
       "robot_profiles": {
         "robot-0": {
-          "lookahead_m": 1.0,
+          "lookahead_m": 0.35,
           "clearance_m": 0.05,
+          "preferred_clearance_m": 0.2,
+          "terminal_obstacle_clearance_m": 0.5,
+          "clearance_policy": "lexicographically minimize travel below preferred clearance, then route length; minimum clearance remains the connectivity floor",
           "start_snap_radius_m": 0.75,
           "start_footprint_override_m": 0.35
         },
@@ -340,8 +343,8 @@
     },
     {
       "path": "hub/robot_overlay/start_wsj_buildmap_v2.sh",
-      "size_bytes": 40650,
-      "sha256": "9467fc1b7297f3fb93a349e2f5423a9220a551507635267b9fbf9910840d0a79",
+      "size_bytes": 41707,
+      "sha256": "460240a6dab481e822363a56f881e9f0f6002830c89c4d5a793b244cc596b37f",
       "classification": "source-derived"
     },
     {
@@ -400,8 +403,8 @@
     },
     {
       "path": "hub/robot_overlay/tinynav_buildmap_goal_router.py",
-      "size_bytes": 54285,
-      "sha256": "f251f8645f83c3be1ff89f16395321bf71a2221a2ad191f99a2e5575cdcf5b65",
+      "size_bytes": 63468,
+      "sha256": "7efea8889329f00515b31f2a6a7ca2f60c85dd90908e58f4dcd25596b31f1d0c",
       "classification": "source-derived"
     },
     {
@@ -478,8 +481,8 @@
     },
     {
       "path": "hub/tools/run_v2_source_episode.py",
-      "size_bytes": 144961,
-      "sha256": "2987be6e1d6d4d581b7e69e0807a05dd8739479e83e4c7c2caddda3c126333e3",
+      "size_bytes": 145136,
+      "sha256": "dfb0ceca2eafc47c5512762fd6367be2ad72f1f00b71a01b9ae02b832c30d2f7",
       "classification": "source-derived"
     },
     {
@@ -562,8 +565,8 @@
     },
     {
       "path": "hub/robot_overlay/start_tinynav_buildmap_online_nav.sh",
-      "size_bytes": 9333,
-      "sha256": "2dde30cd6cb19ea672dae71ac7ad010172d48b942ce16b0f6c56cca3b8b30f0b",
+      "size_bytes": 9712,
+      "sha256": "c089e45361d7b5dd0bd8446dc9b19d1480b017ecb327f83baebc4b72f7d990da",
       "classification": "source-derived"
     },
     {

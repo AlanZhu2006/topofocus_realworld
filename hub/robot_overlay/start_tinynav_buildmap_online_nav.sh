@@ -33,6 +33,9 @@ ODOMETRY_INPUT_TIMEOUT_S="${FOCUS_WSJ_ODOMETRY_INPUT_TIMEOUT_S:-3.0}"
 # TinyNav ESDF retain physical collision authority.  The bounded start search
 # returns its complete path and never overrides observed occupied cells.
 REACHABILITY_CLEARANCE_M="${FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.05}"
+PREFERRED_REACHABILITY_CLEARANCE_M="${FOCUS_WSJ_PREFERRED_REACHABILITY_CLEARANCE_M:-0.20}"
+TERMINAL_OBSTACLE_CLEARANCE_M="${FOCUS_WSJ_TERMINAL_OBSTACLE_CLEARANCE_M:-0.50}"
+LOOKAHEAD_M="${FOCUS_WSJ_LOOKAHEAD_M:-0.35}"
 START_SNAP_RADIUS_M="${FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75}"
 START_FOOTPRINT_OVERRIDE_M="${FOCUS_WSJ_START_FOOTPRINT_OVERRIDE_M:-0.35}"
 # Keep the semantic ARRIVED contract unchanged, but make online A* target its
@@ -148,7 +151,7 @@ tmux new-window -d -t "$SESSION" -n planning \
 started_windows+=("planning")
 
 tmux new-window -d -t "$SESSION" -n goal-router \
-  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id \"$FRAME_ID\" --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m \"$REACHABILITY_CLEARANCE_M\" --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\" --max-plan-expansions \"$MAX_PLAN_EXPANSIONS\" --max-plan-duration-s \"$MAX_PLAN_DURATION_S\"'"
+  "bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id \"$FRAME_ID\" --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --lookahead-m \"$LOOKAHEAD_M\" --clearance-m \"$REACHABILITY_CLEARANCE_M\" --preferred-clearance-m \"$PREFERRED_REACHABILITY_CLEARANCE_M\" --terminal-obstacle-clearance-m \"$TERMINAL_OBSTACLE_CLEARANCE_M\" --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\" --max-plan-expansions \"$MAX_PLAN_EXPANSIONS\" --max-plan-duration-s \"$MAX_PLAN_DURATION_S\"'"
 started_windows+=("goal-router")
 
 tmux new-window -d -t "$SESSION" -n control \

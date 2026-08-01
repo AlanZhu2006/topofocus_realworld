@@ -271,17 +271,22 @@ provenance are preserved as `initial_batch.json` and
 change to source VLM selection and not a certification of robot-local obstacle
 detours.
 
-Yunji's deployment controller also handles a robot-relative lookahead that
-temporarily falls behind after a local replan. Translation remains exactly
-zero while it turns in one latched direction at no more than `0.35 rad/s`.
-Both robot launchers verify the forward-only planner wrapper, so Path geometry
-alone cannot be labelled as executable reverse motion. A genuinely negative
-controller Twist still fails closed. A turn that does not converge is bounded
-by the receiver's fixed-goal progress watchdog and reported as
-`LOCAL_PLANNER_NO_PROGRESS`. Explicit frontier path/progress rejections are
-robot-local: that robot transitions to HOLD while a healthy peer retains its
-existing leg. Transform, localization, e-stop, semantic and protocol failures
-remain episode-wide fail-closed conditions.
+Both robots use a `0.35 m` robot-relative lookahead. Robot1 keeps its `0.20 m`
+graph clearance. Robot0 retains a `0.05 m` connectivity floor for genuinely
+narrow or forward-cropped online maps, but its A* lexicographically minimizes
+travel below the same `0.20 m` preferred clearance before minimizing route
+length. Robot0 additionally requires `0.50 m` from observed obstacles at a
+frontier stop, compensating its farther-forward camera while leaving unknown
+frontier space explorable. Translation remains exactly zero while either
+controller resolves a behind-heading segment in one latched direction at no
+more than `0.35 rad/s`. Both robot launchers verify the forward-only planner
+wrapper, so Path geometry alone cannot be labelled as executable reverse
+motion. A genuinely negative controller Twist still fails closed. A turn that
+does not converge is bounded by the receiver's fixed-goal progress watchdog
+and reported as `LOCAL_PLANNER_NO_PROGRESS`. Explicit frontier path/progress
+rejections are robot-local: that robot transitions to HOLD while a healthy
+peer retains its existing leg. Transform, localization, e-stop, semantic and
+protocol failures remain episode-wide fail-closed conditions.
 
 This guard was added after the 2026-07-25 physical run assigned distinct
 frontiers whose shared-frame routes nevertheless intersected. The observed

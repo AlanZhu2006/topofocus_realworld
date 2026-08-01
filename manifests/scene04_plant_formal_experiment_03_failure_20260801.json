@@ -1,0 +1,150 @@
+{
+  "schema_version": "focus-scene-formal-experiment-v1",
+  "scene_id": "scene04-plant",
+  "target_category": "plant",
+  "formal_index": 3,
+  "result": "FAILURE",
+  "session_id": "scene04-plant-20260801-recal8-direction1",
+  "episode_id": "direction-fix01-live01",
+  "session_git_commit": "60e2e2d721a3dd09645b7d444d380f6b1f84c8f3",
+  "calibration_id": "shared-board-odin1-scene04-plant-20260801-recal8-v1",
+  "operator_evidence": {
+    "post_run_result_designation": "归档为 failure Formal 3",
+    "post_run_observation": "末端看到了 plant，但没有走到。",
+    "exploration_loops": 16,
+    "classification": "observed operator result designation, onsite target-visibility report and formal loop count"
+  },
+  "failure_attribution": {
+    "category": "algorithmic_exploration_failure/maximum_loop_budget_exhausted",
+    "public_summary": "The 16-loop maximum exploration allowance was exhausted before either robot reached the observed plant target.",
+    "counts_in_scene04_metric_track": true
+  },
+  "automatic_result": {
+    "outcome": "controller_error_HTTPStatusError_holding",
+    "automatic_terminal_candidate_complete": false,
+    "official_success_verified": false,
+    "semantic_arrived": false,
+    "terminal_evidence": null,
+    "source_rounds_completed": 9,
+    "high_level_batches_published": 56,
+    "velocity_zero_confirmed": true,
+    "classification": "source-derived automatic report; source-round count is retained separately from the operator-recorded formal exploration-loop count"
+  },
+  "metrics": {
+    "success": 0,
+    "sr": 0.0,
+    "source_compatible_spl": 0.0,
+    "standard_spl": 0.0,
+    "standard_spl_status": "zero contribution because S=0; no shortest-path value is required for this failure",
+    "exploration_loops": 16,
+    "exploration_loop_count_provenance": "operator-observed formal experiment log",
+    "robot_0_actual_path_length_m": 5.303672400740497,
+    "robot_0_start_to_stop_displacement_m": 2.4594194808243364,
+    "robot_1_actual_path_length_m": 8.733911033117732,
+    "robot_1_start_to_stop_displacement_m": 7.989056975159462
+  },
+  "execution": {
+    "started_at": "2026-08-01T10:23:56.149628+08:00",
+    "finished_at": "2026-08-01T10:30:18.961002+08:00",
+    "observed_controller_event_span_s": 382.811373973,
+    "operator_recorded_exploration_loops": 16,
+    "automatic_source_rounds_completed": 9,
+    "high_level_batches_published": 56,
+    "robots": {
+      "robot-0": {
+        "actual_path_length_m": 5.303672400740497,
+        "start_pose": {
+          "frame_id": "robot-0/map",
+          "x": -2.0287771014952307,
+          "y": 2.304771079955368,
+          "yaw_rad": 2.852089786306653
+        },
+        "stop_pose": {
+          "frame_id": "robot-0/map",
+          "x": -2.2291717452924487,
+          "y": 4.756012840654551,
+          "yaw_rad": 2.852089786306653
+        },
+        "terminal_observation_sequence": 170771,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD",
+        "velocity_zero_confirmed": true
+      },
+      "robot-1": {
+        "actual_path_length_m": 8.733911033117732,
+        "start_pose": {
+          "frame_id": "robot-1/map",
+          "x": 0.22565986885835101,
+          "y": -0.14507230185995246,
+          "yaw_rad": -1.75328192737744
+        },
+        "stop_pose": {
+          "frame_id": "robot-1/map",
+          "x": -0.6393596750141757,
+          "y": -8.08716097808755,
+          "yaw_rad": -1.75328192737744
+        },
+        "terminal_observation_sequence": 403451,
+        "final_status": "HOLDING",
+        "final_reason": "HUB_HOLD",
+        "velocity_zero_confirmed": true
+      }
+    }
+  },
+  "provenance_boundary": {
+    "operator_observed": [
+      "formal index 3",
+      "failure designation",
+      "16 exploration loops",
+      "plant visible near the end but not physically reached"
+    ],
+    "source_derived": [
+      "dual-robot path lengths and poses",
+      "9 automatically completed source rounds",
+      "56 published high-level batches",
+      "no semantic ARRIVED or terminal evidence",
+      "fail-closed HOLD and zero-velocity terminal states"
+    ],
+    "note": "The operator's formal exploration-loop count and the controller's completed source-round count are distinct measures and are not substituted for one another."
+  },
+  "runtime_evidence": [
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-direction1_live_scene04-direction-fix01_20260801_102355_660281940/episode_report.json",
+      "size_bytes": 9903,
+      "sha256": "74d0baad8484183eb3f158125269bf7424277d06de20284f71dbfa9aa9f9bc78",
+      "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-direction1_live_scene04-direction-fix01_20260801_102355_660281940/controller_events.jsonl",
+      "size_bytes": 130429,
+      "sha256": "e48f8d6f06ddb37f1929ebe86eddde492c3963611be1710c6931d63e09599951",
+      "classification": "source-derived controller event log; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-direction1_live_scene04-direction-fix01_20260801_102355_660281940/scene_manifest.json",
+      "size_bytes": 110624,
+      "sha256": "302138af3a264b19a1a861b3b9566915ba36f0db8e512ce76c6d6ae53cdcb3a1",
+      "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/sessions/scene04-plant-20260801-recal8-direction1/session.json",
+      "size_bytes": 4271,
+      "sha256": "4bbc313e39f9e8ce6b283238706e4abdcc75c4d87c3acb1068813f237f3f70e9",
+      "classification": "source-derived exact session identity; runtime file ignored by Git"
+    },
+    {
+      "path": "hub/runtime/calibration_sessions/scene04-plant-20260801-recal8/shared_frame.json",
+      "size_bytes": 6457,
+      "sha256": "26b6d1533d23544f9488d770e11b7a0253f8f5bb1161fba86bfd2c09d1b14af0",
+      "classification": "reused observed and source-derived shared-frame calibration; runtime file ignored by Git"
+    }
+  ],
+  "media": [],
+  "safety": {
+    "hub_published_high_level_targets_only": true,
+    "robot_local_stop_and_rejection_authority_retained": true,
+    "terminal_hold_reason": "maximum_exploration_loop_budget_without_verified_arrival",
+    "both_robot_zero_velocity_acknowledged": true,
+    "post_episode_motion_authority": false
+  }
+}

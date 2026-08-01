@@ -7,6 +7,10 @@ current. For the authoritative project state, read
 
 ## Current physical-chain evidence
 
+- [`SCENE04_PLANT_FORMAL_EXPERIMENT_03_FAILURE_20260801.md`](SCENE04_PLANT_FORMAL_EXPERIMENT_03_FAILURE_20260801.md):
+  Scene 04 Formal 03 maximum-loop failure, operator-recorded 16 exploration
+  loops, exact dual-robot paths, zero-valued SR/SPL and fail-closed terminal
+  state.
 - [`SCENE04_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260801.md`](SCENE04_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260801.md):
   Scene 04 Formal 02 time-limit failure, exact dual-robot paths, Robot 1
   short-reverse exemption and downstream fallback-ordering diagnosis,

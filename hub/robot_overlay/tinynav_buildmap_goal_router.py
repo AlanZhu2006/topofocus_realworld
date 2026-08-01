@@ -72,6 +72,7 @@ class RoutePlan:
     remaining_goal_distance_m: float = 0.0
     expanded_cells: int = 0
     partial_termination_reason: str | None = None
+    low_preferred_clearance_length_m: float = 0.0
 
 
 class PlanningBudgetExceeded(RuntimeError):
@@ -389,6 +390,91 @@ def clearance_traversability(
     return traversable
 
 
+def obstacle_clearance_traversability(
+    grid: OccupancyGrid2D,
+    *,
+    clearance_cells: int,
+) -> np.ndarray:
+    """Known-free cells with clearance from observed obstacles only.
+
+    Route admission must continue to block unknown space, but a frontier is
+    intentionally adjacent to unknown space.  A terminal perception standoff
+    therefore treats only observed occupied cells as walls while still
+    requiring the terminal cell itself to be known free.  The outer map band
+    remains invalid because geometry beyond the map boundary is unavailable.
+    """
+
+    if clearance_cells < 0:
+        raise ValueError("clearance_cells must be non-negative")
+    data = np.asarray(grid.data, dtype=np.int16).reshape(
+        grid.height, grid.width
+    )
+    known_free = data == 0
+    if clearance_cells == 0:
+        return known_free
+    traversable = np.zeros_like(known_free, dtype=np.bool_)
+    kernel_size = 2 * clearance_cells + 1
+    if grid.height < kernel_size or grid.width < kernel_size:
+        return traversable
+    occupied = (data > 0).astype(np.int32)
+    integral = np.pad(
+        occupied,
+        ((1, 0), (1, 0)),
+        mode="constant",
+        constant_values=0,
+    ).cumsum(axis=0).cumsum(axis=1)
+    occupied_counts = (
+        integral[kernel_size:, kernel_size:]
+        - integral[:-kernel_size, kernel_size:]
+        - integral[kernel_size:, :-kernel_size]
+        + integral[:-kernel_size, :-kernel_size]
+    )
+    interior = known_free[
+        clearance_cells : grid.height - clearance_cells,
+        clearance_cells : grid.width - clearance_cells,
+    ]
+    traversable[
+        clearance_cells : grid.height - clearance_cells,
+        clearance_cells : grid.width - clearance_cells,
+    ] = interior & (occupied_counts == 0)
+    return traversable
+
+
+def point_has_obstacle_clearance(
+    grid: OccupancyGrid2D,
+    *,
+    x_m: float,
+    y_m: float,
+    clearance_cells: int,
+) -> bool:
+    """Check one known-free pose against observed obstacles and map bounds."""
+
+    if clearance_cells < 0:
+        raise ValueError("clearance_cells must be non-negative")
+    cell = grid.cell(x_m, y_m)
+    if cell is None:
+        return False
+    row, column = cell
+    if grid.data[row * grid.width + column] != 0:
+        return False
+    if (
+        row - clearance_cells < 0
+        or row + clearance_cells >= grid.height
+        or column - clearance_cells < 0
+        or column + clearance_cells >= grid.width
+    ):
+        return False
+    for check_row in range(row - clearance_cells, row + clearance_cells + 1):
+        offset = check_row * grid.width
+        for check_column in range(
+            column - clearance_cells,
+            column + clearance_cells + 1,
+        ):
+            if grid.data[offset + check_column] > 0:
+                return False
+    return True
+
+
 def plan_route(
     grid: OccupancyGrid2D,
     *,
@@ -398,6 +484,8 @@ def plan_route(
     goal_y: float,
     arrival_radius_m: float,
     clearance_cells: int,
+    preferred_clearance_cells: int | None = None,
+    terminal_obstacle_clearance_cells: int | None = None,
     start_snap_radius_m: float = 0.0,
     start_footprint_override_m: float = 0.0,
     preferred_seed_heading_rad: float | None = None,
@@ -411,6 +499,16 @@ def plan_route(
     plan_started_monotonic = time.monotonic()
     if clearance_cells < 0:
         raise ValueError("clearance_cells must be non-negative")
+    if preferred_clearance_cells is None:
+        preferred_clearance_cells = clearance_cells
+    if terminal_obstacle_clearance_cells is None:
+        terminal_obstacle_clearance_cells = clearance_cells
+    if preferred_clearance_cells < clearance_cells:
+        raise ValueError(
+            "preferred clearance cannot be smaller than route clearance"
+        )
+    if terminal_obstacle_clearance_cells < 0:
+        raise ValueError("terminal obstacle clearance must be non-negative")
     if (
         not math.isfinite(start_snap_radius_m)
         or start_snap_radius_m < 0
@@ -446,6 +544,14 @@ def plan_route(
         grid,
         clearance_cells=clearance_cells,
     )
+    preferred_traversable = clearance_traversability(
+        grid,
+        clearance_cells=preferred_clearance_cells,
+    )
+    terminal_traversable = obstacle_clearance_traversability(
+        grid,
+        clearance_cells=terminal_obstacle_clearance_cells,
+    )
 
     def is_traversable(cell: tuple[int, int]) -> bool:
         row, column = cell
@@ -477,21 +583,29 @@ def plan_route(
         start_center[0] - start_x, start_center[1] - start_y
     )
 
-    frontier: list[tuple[float, float, tuple[int, int]]] = [
+    frontier: list[
+        tuple[float, float, float, float, tuple[int, int]]
+    ] = [
         (
+            0.0,
             _heuristic_m(
                 grid, start, goal_x, goal_y, arrival_radius_m
             ),
             0.0,
+            0.0,
             start,
         )
     ]
-    best_cost = {start: 0.0}
+    best_cost = {start: (0.0, 0.0)}
     parent: dict[tuple[int, int], tuple[int, int]] = {}
     target: tuple[int, int] | None = None
-    best_partial = start
-    best_partial_distance_m = math.hypot(
-        start_center[0] - goal_x, start_center[1] - goal_y
+    best_partial: tuple[int, int] | None = (
+        start if terminal_traversable[start[0], start[1]] else None
+    )
+    best_partial_distance_m = (
+        math.hypot(start_center[0] - goal_x, start_center[1] - goal_y)
+        if best_partial is not None
+        else math.inf
     )
     reaches_arrival_region = False
     partial_termination_reason: str | None = None
@@ -509,12 +623,30 @@ def plan_route(
     )
 
     while frontier:
-        _score, cost, current = heapq.heappop(frontier)
-        if cost > best_cost.get(current, math.inf) + 1e-12:
+        (
+            _preferred_score,
+            _distance_score,
+            low_preferred_cost,
+            cost,
+            current,
+        ) = heapq.heappop(frontier)
+        current_best = best_cost.get(current)
+        if current_best is None or (
+            low_preferred_cost > current_best[0] + 1e-12
+            or (
+                math.isclose(
+                    low_preferred_cost, current_best[0], abs_tol=1e-12
+                )
+                and cost > current_best[1] + 1e-12
+            )
+        ):
             continue
         expanded_cells += 1
-        if _is_arrival_cell(
-            grid, current, goal_x, goal_y, arrival_radius_m
+        if (
+            terminal_traversable[current[0], current[1]]
+            and _is_arrival_cell(
+                grid, current, goal_x, goal_y, arrival_radius_m
+            )
         ):
             target = current
             reaches_arrival_region = True
@@ -523,7 +655,7 @@ def plan_route(
         current_distance_m = math.hypot(
             current_center[0] - goal_x, current_center[1] - goal_y
         )
-        if (
+        if terminal_traversable[current[0], current[1]] and (
             current_distance_m < best_partial_distance_m - 1e-12
             or (
                 math.isclose(
@@ -531,7 +663,8 @@ def plan_route(
                     best_partial_distance_m,
                     abs_tol=1e-12,
                 )
-                and cost > best_cost.get(best_partial, 0.0)
+                and best_partial is not None
+                and cost > best_cost.get(best_partial, (0.0, 0.0))[1]
             )
         ):
             best_partial = current
@@ -546,6 +679,7 @@ def plan_route(
         if (
             allow_partial_progress
             and current != start
+            and terminal_traversable[current[0], current[1]]
             and progress_m >= minimum_progress_m
             and _is_known_free_map_edge(
                 grid,
@@ -578,14 +712,41 @@ def plan_route(
                 ) or not is_traversable((row, column + delta_column)):
                     continue
             candidate_cost = cost + step_cells * grid.resolution_m
-            if candidate_cost >= best_cost.get(candidate, math.inf) - 1e-12:
+            candidate_low_preferred_cost = low_preferred_cost + (
+                0.0
+                if preferred_traversable[candidate[0], candidate[1]]
+                else step_cells * grid.resolution_m
+            )
+            candidate_pair = (
+                candidate_low_preferred_cost,
+                candidate_cost,
+            )
+            previous_pair = best_cost.get(candidate)
+            if previous_pair is not None and not (
+                candidate_pair[0] < previous_pair[0] - 1e-12
+                or (
+                    math.isclose(
+                        candidate_pair[0], previous_pair[0], abs_tol=1e-12
+                    )
+                    and candidate_pair[1] < previous_pair[1] - 1e-12
+                )
+            ):
                 continue
-            best_cost[candidate] = candidate_cost
+            best_cost[candidate] = candidate_pair
             parent[candidate] = current
             estimate = candidate_cost + _heuristic_m(
                 grid, candidate, goal_x, goal_y, arrival_radius_m
             )
-            heapq.heappush(frontier, (estimate, candidate_cost, candidate))
+            heapq.heappush(
+                frontier,
+                (
+                    candidate_low_preferred_cost,
+                    estimate,
+                    candidate_low_preferred_cost,
+                    candidate_cost,
+                    candidate,
+                ),
+            )
 
     if target is None:
         start_distance_m = math.hypot(
@@ -594,6 +755,7 @@ def plan_route(
         progress_m = start_distance_m - best_partial_distance_m
         if (
             not allow_partial_progress
+            or best_partial is None
             or best_partial == start
             or progress_m < minimum_progress_m
         ):
@@ -619,13 +781,17 @@ def plan_route(
     if start_escape_path:
         cells = [*start_escape_path[:-1], *cells]
     length_m = 0.0
+    low_preferred_clearance_length_m = 0.0
     for first, second in zip(cells, cells[1:]):
         first_xy = grid.cell_center(*first)
         second_xy = grid.cell_center(*second)
-        length_m += math.hypot(
+        segment_length_m = math.hypot(
             second_xy[0] - first_xy[0],
             second_xy[1] - first_xy[1],
         )
+        length_m += segment_length_m
+        if not preferred_traversable[second[0], second[1]]:
+            low_preferred_clearance_length_m += segment_length_m
     return RoutePlan(
         cells=tuple(cells),
         target_cell=target,
@@ -642,6 +808,9 @@ def plan_route(
         ),
         expanded_cells=expanded_cells,
         partial_termination_reason=partial_termination_reason,
+        low_preferred_clearance_length_m=float(
+            low_preferred_clearance_length_m
+        ),
     )
 
 
@@ -1151,15 +1320,59 @@ def run_ros(
             using_cached_map = map_age_s > args.map_timeout_s
             distance = math.hypot(base_x - goal.x, base_y - goal.y)
             if distance <= goal.arrival_radius_m:
-                self.clear_target("ARRIVED", discard_goal=True)
-                self.nav_done_publisher.publish(Bool(data=True))
-                self.publish_status("ARRIVED", "ARRIVAL_RADIUS_REACHED")
-                return
+                arrival_terminal_clearance_m = (
+                    args.clearance_m
+                    if args.terminal_obstacle_clearance_m is None
+                    else args.terminal_obstacle_clearance_m
+                )
+                arrival_terminal_clearance_cells = max(
+                    0,
+                    math.ceil(
+                        arrival_terminal_clearance_m / grid.resolution_m
+                    ),
+                )
+                terminal_clear = point_has_obstacle_clearance(
+                    grid,
+                    x_m=base_x,
+                    y_m=base_y,
+                    clearance_cells=arrival_terminal_clearance_cells,
+                )
+                if terminal_clear:
+                    self.clear_target("ARRIVED", discard_goal=True)
+                    self.nav_done_publisher.publish(Bool(data=True))
+                    self.publish_status(
+                        "ARRIVED",
+                        "ARRIVAL_RADIUS_AND_TERMINAL_CLEARANCE_REACHED",
+                        terminal_obstacle_clearance_m=round(
+                            arrival_terminal_clearance_m, 3
+                        ),
+                    )
+                    return
             if now - self.last_plan_monotonic < args.plan_period_s:
                 return
             self.last_plan_monotonic = now
             clearance_cells = max(
                 0, math.ceil(args.clearance_m / grid.resolution_m)
+            )
+            preferred_clearance_m = (
+                args.clearance_m
+                if args.preferred_clearance_m is None
+                else args.preferred_clearance_m
+            )
+            preferred_clearance_cells = max(
+                clearance_cells,
+                math.ceil(preferred_clearance_m / grid.resolution_m),
+            )
+            terminal_obstacle_clearance_m = (
+                args.clearance_m
+                if args.terminal_obstacle_clearance_m is None
+                else args.terminal_obstacle_clearance_m
+            )
+            terminal_obstacle_clearance_cells = max(
+                0,
+                math.ceil(
+                    terminal_obstacle_clearance_m / grid.resolution_m
+                ),
             )
             route_arrival_radius_m = planning_arrival_radius_m(
                 target_kind=goal.target_kind,
@@ -1187,6 +1400,10 @@ def run_ros(
                     goal_y=goal.y,
                     arrival_radius_m=route_arrival_radius_m,
                     clearance_cells=clearance_cells,
+                    preferred_clearance_cells=preferred_clearance_cells,
+                    terminal_obstacle_clearance_cells=(
+                        terminal_obstacle_clearance_cells
+                    ),
                     start_snap_radius_m=args.start_snap_radius_m,
                     start_footprint_override_m=(
                         args.start_footprint_override_m
@@ -1238,6 +1455,14 @@ def run_ros(
                     + ("_CACHED_MAP" if using_cached_map else "")
                 ),
                 route_length_m=round(plan.length_m, 3),
+                route_clearance_m=round(args.clearance_m, 3),
+                preferred_clearance_m=round(preferred_clearance_m, 3),
+                terminal_obstacle_clearance_m=round(
+                    terminal_obstacle_clearance_m, 3
+                ),
+                low_preferred_clearance_length_m=round(
+                    plan.low_preferred_clearance_length_m, 3
+                ),
                 remaining_goal_distance_m=round(
                     plan.remaining_goal_distance_m, 3
                 ),
@@ -1343,6 +1568,25 @@ def main() -> int:
     parser.add_argument("--lookahead-m", type=float, default=1.0)
     parser.add_argument("--clearance-m", type=float, default=0.05)
     parser.add_argument(
+        "--preferred-clearance-m",
+        type=float,
+        default=None,
+        help=(
+            "lexicographically prefer paths with this known-free clearance, "
+            "while retaining --clearance-m as the bounded connectivity floor"
+        ),
+    )
+    parser.add_argument(
+        "--terminal-obstacle-clearance-m",
+        type=float,
+        default=None,
+        help=(
+            "require this distance from observed occupied cells at an arrival "
+            "or partial-progress stop; unknown frontier space remains blocked "
+            "for routing but is not treated as a physical wall here"
+        ),
+    )
+    parser.add_argument(
         "--semantic-terminal-planning-margin-m",
         type=float,
         default=0.15,
@@ -1409,6 +1653,14 @@ def main() -> int:
     if (
         args.lookahead_m <= 0
         or args.clearance_m < 0
+        or (
+            args.preferred_clearance_m is not None
+            and args.preferred_clearance_m < args.clearance_m
+        )
+        or (
+            args.terminal_obstacle_clearance_m is not None
+            and args.terminal_obstacle_clearance_m < 0
+        )
         or args.semantic_terminal_planning_margin_m < 0
         or args.minimum_partial_progress_m < 0
         or args.start_snap_radius_m < 0

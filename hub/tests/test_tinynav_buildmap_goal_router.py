@@ -276,6 +276,119 @@ def test_precomputed_clearance_mask_matches_original_cell_predicate():
                 )
 
 
+def test_terminal_obstacle_clearance_does_not_treat_frontier_unknown_as_wall():
+    router = load_router()
+    data = [0] * (7 * 7)
+    data[3 * 7 + 4] = -1
+    occupancy = grid(data, width=7, height=7)
+
+    route_clearance = router.clearance_traversability(
+        occupancy,
+        clearance_cells=1,
+    )
+    terminal_clearance = router.obstacle_clearance_traversability(
+        occupancy,
+        clearance_cells=1,
+    )
+
+    assert not route_clearance[3, 3]
+    assert terminal_clearance[3, 3]
+    assert not terminal_clearance[3, 4]
+    assert router.point_has_obstacle_clearance(
+        occupancy,
+        x_m=3.5,
+        y_m=3.5,
+        clearance_cells=1,
+    )
+
+    data[3 * 7 + 2] = 100
+    occupancy_with_wall = grid(data, width=7, height=7)
+    assert not router.point_has_obstacle_clearance(
+        occupancy_with_wall,
+        x_m=3.5,
+        y_m=3.5,
+        clearance_cells=1,
+    )
+
+
+def test_a_star_prefers_robot1_clearance_but_retains_narrow_connectivity():
+    router = load_router()
+    data = [0] * (9 * 7)
+    for row in range(7):
+        data[row * 9 + 4] = 100
+    data[3 * 9 + 4] = 0
+    occupancy = grid(data, width=9, height=7)
+
+    plan = router.plan_route(
+        occupancy,
+        start_x=1.5,
+        start_y=3.5,
+        goal_x=7.5,
+        goal_y=3.5,
+        arrival_radius_m=0.1,
+        clearance_cells=0,
+        preferred_clearance_cells=1,
+    )
+
+    assert plan is not None
+    assert (3, 4) in plan.cells
+    assert plan.low_preferred_clearance_length_m > 0.0
+
+
+def test_a_star_chooses_longer_centered_route_when_preferred_route_exists():
+    router = load_router()
+    data = [0] * (15 * 15)
+    for column in range(6, 9):
+        data[7 * 15 + column] = 100
+    occupancy = grid(data, width=15, height=15)
+
+    plan = router.plan_route(
+        occupancy,
+        start_x=2.5,
+        start_y=7.5,
+        goal_x=12.5,
+        goal_y=7.5,
+        arrival_radius_m=0.1,
+        clearance_cells=0,
+        preferred_clearance_cells=2,
+    )
+
+    assert plan is not None
+    assert plan.low_preferred_clearance_length_m == pytest.approx(0.0)
+    preferred = router.clearance_traversability(
+        occupancy,
+        clearance_cells=2,
+    )
+    assert all(preferred[row, column] for row, column in plan.cells)
+
+
+def test_terminal_obstacle_clearance_stops_before_observed_wall():
+    router = load_router()
+    data = [0] * (9 * 7)
+    for row in range(7):
+        data[row * 9 + 6] = 100
+    occupancy = grid(data, width=9, height=7)
+
+    plan = router.plan_route(
+        occupancy,
+        start_x=1.5,
+        start_y=3.5,
+        goal_x=5.5,
+        goal_y=3.5,
+        arrival_radius_m=0.1,
+        clearance_cells=0,
+        preferred_clearance_cells=1,
+        terminal_obstacle_clearance_cells=2,
+        allow_partial_progress=True,
+        minimum_progress_m=0.1,
+    )
+
+    assert plan is not None
+    assert plan.reaches_arrival_region is False
+    assert plan.target_cell == (3, 3)
+    assert occupancy.cell_center(*plan.target_cell)[0] == pytest.approx(3.5)
+
+
 def test_a_star_uses_known_free_gap_and_never_crosses_unknown():
     router = load_router()
     data = [0] * (7 * 5)

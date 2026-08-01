@@ -90,9 +90,21 @@ MINIMUM_GOAL_PROGRESS_M="${FOCUS_WSJ_MINIMUM_GOAL_PROGRESS_M:-0.05}"
 # /slam/data is optimizer diagnostics rather than the controller's odometry
 # input.  Its observed interval can also exceed 2 s under live perception load.
 SLAM_DATA_TIMEOUT_S="${FOCUS_WSJ_SLAM_DATA_TIMEOUT_S:-3.0}"
-# The global graph supplies only a known-free centreline.  The independent
-# 0.35 m endpoint guard and TinyNav ESDF lattice retain footprint authority.
+# Keep the one-cell graph floor that recovered connectivity in narrow or
+# forward-cropped online maps, but prefer the same four-cell (0.20 m) corridor
+# used by Robot1 whenever it exists.  The router minimizes distance travelled
+# below the preferred clearance before minimizing route length, so this is not
+# a hard gate and cannot recreate the disconnected-corridor failure.
 REACHABILITY_CLEARANCE_M="${FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.05}"
+PREFERRED_REACHABILITY_CLEARANCE_M="${FOCUS_WSJ_PREFERRED_REACHABILITY_CLEARANCE_M:-0.20}"
+# Robot0's observed camera origin is about 0.155 m farther forward than
+# Robot1's.  Robot1's 0.34 m terminal footprint clearance plus that measured
+# offset difference rounds to a 0.50 m obstacle-only stop clearance.  Unknown
+# frontier space stays explorable; only observed walls enforce this standoff.
+TERMINAL_OBSTACLE_CLEARANCE_M="${FOCUS_WSJ_TERMINAL_OBSTACLE_CLEARANCE_M:-0.50}"
+# Match Robot1's bounded waypoint horizon so an otherwise safe global path
+# cannot ask the local controller to cut across a corner toward a wall.
+LOOKAHEAD_M="${FOCUS_WSJ_LOOKAHEAD_M:-0.35}"
 # A forward camera leaves the base behind the first clearance-safe map cell.
 # Search this bounded radius, but require the router's complete cell-by-cell
 # escape path; observed occupied cells and unknown cells outside the measured
@@ -799,7 +811,7 @@ if [[ "$mode" == live ]] \
   exit 1
 fi
 
-goal_router_command="bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id world --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --clearance-m \"$REACHABILITY_CLEARANCE_M\" --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\" --max-plan-expansions \"$MAX_PLAN_EXPANSIONS\" --max-plan-duration-s \"$MAX_PLAN_DURATION_S\"'"
+goal_router_command="bash -lc 'source \"$SETUP_FILE\"; export PYTHONPATH=\"$SCRIPT_DIR/../src\":\${PYTHONPATH:-}; \"$PYTHON_BIN\" -u \"$SCRIPT_DIR/tinynav_buildmap_goal_router.py\" --frame-id world --occupancy-topic /semantic_mapping/occupancy_bev --base-camera-calibration-file \"$BASE_CAMERA_CALIBRATION_FILE\" --lookahead-m \"$LOOKAHEAD_M\" --clearance-m \"$REACHABILITY_CLEARANCE_M\" --preferred-clearance-m \"$PREFERRED_REACHABILITY_CLEARANCE_M\" --terminal-obstacle-clearance-m \"$TERMINAL_OBSTACLE_CLEARANCE_M\" --semantic-terminal-planning-margin-m \"$SEMANTIC_TERMINAL_PLANNING_MARGIN_M\" --start-snap-radius-m \"$START_SNAP_RADIUS_M\" --start-footprint-override-m \"$START_FOOTPRINT_OVERRIDE_M\" --input-timeout-s \"$ODOMETRY_INPUT_TIMEOUT_S\" --map-timeout-s \"$MAP_TIMEOUT_S\" --max-cached-map-motion-m \"$MAX_CACHED_MAP_MOTION_M\" --max-plan-expansions \"$MAX_PLAN_EXPANSIONS\" --max-plan-duration-s \"$MAX_PLAN_DURATION_S\"'"
 if [[ "$reuse_verified_debug_core" == true ]]; then
   component_contract_matches \
     goal-router "$goal_router_command" "tinynav_buildmap_goal_router.py" || {

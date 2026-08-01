@@ -1638,8 +1638,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--robot-0-frontier-clearance-m",
         type=float,
-        default=0.35,
-        help="WSJ footprint clearance required inside a frontier arrival disk",
+        default=0.50,
+        help=(
+            "Robot0 frontier stop clearance: its 0.35 m measured footprint "
+            "plus the observed forward-camera offset difference relative to "
+            "Robot1, rounded to preserve forward RGB-D ground visibility"
+        ),
     )
     parser.add_argument(
         "--robot-1-frontier-clearance-m",

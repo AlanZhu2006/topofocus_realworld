@@ -4,9 +4,9 @@
   "target_category": "plant",
   "campaign_status": "in_progress",
   "planned_formal_experiments": 5,
-  "recorded_formal_experiments": 3,
+  "recorded_formal_experiments": 4,
   "successes": 0,
-  "failures": 3,
+  "failures": 4,
   "sr": 0.0,
   "aggregate_metrics": {
     "mean_source_compatible_spl_with_failures_zero": 0.0,
@@ -43,6 +43,24 @@
         "size_bytes": 12215,
         "sha256": "099d634c6cfbfe084303ae9e66d204fcb63c5c34c675255a9c15e0a917fd54a0",
         "classification": "authoritative machine-readable Scene 04 Formal 02 failure archive"
+      }
+    },
+    {
+      "formal_index": 3,
+      "result": "FAILURE",
+      "exploration_rounds": 16,
+      "exploration_round_count_provenance": "operator-observed formal experiment log",
+      "automatic_source_rounds_completed": 9,
+      "robot_0_actual_path_length_m": 5.303672400740497,
+      "robot_1_actual_path_length_m": 8.733911033117732,
+      "source_compatible_spl": 0.0,
+      "standard_spl": 0.0,
+      "public_summary": "The 16-loop maximum exploration allowance was exhausted after the plant became visible but before either robot reached it.",
+      "record": {
+        "path": "manifests/scene04_plant_formal_experiment_03_failure_20260801.json",
+        "size_bytes": 6433,
+        "sha256": "ea7691a7d85d018bfac11c27afecc1d11a10386be77c03bdcdc684112775f024",
+        "classification": "authoritative machine-readable Scene 04 Formal 03 failure archive"
       }
     },
     {

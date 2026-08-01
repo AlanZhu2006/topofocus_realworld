@@ -49,8 +49,14 @@ def test_oneclick_is_session_bound_and_has_no_forensic_bypass():
         in wsj
     )
     assert "FOCUS_WSJ_REACHABILITY_CLEARANCE_M:-0.05" in wsj
+    assert "FOCUS_WSJ_PREFERRED_REACHABILITY_CLEARANCE_M:-0.20" in wsj
+    assert "FOCUS_WSJ_TERMINAL_OBSTACLE_CLEARANCE_M:-0.50" in wsj
+    assert "FOCUS_WSJ_LOOKAHEAD_M:-0.35" in wsj
     assert "FOCUS_WSJ_START_SNAP_RADIUS_M:-0.75" in wsj
     assert '--reachability-clearance-m "$REACHABILITY_CLEARANCE_M"' in wsj
+    assert "--preferred-clearance-m" in wsj
+    assert "--terminal-obstacle-clearance-m" in wsj
+    assert "--lookahead-m" in wsj
     assert "FOCUS_YUNJI_SEMANTIC_ARRIVAL_RADIUS_M:-0.15" in yunji
     assert "FOCUS_YUNJI_LINEAR_COMMAND_FLOOR_MPS:-0.18" in yunji
     assert '--linear-command-floor-mps "$LINEAR_COMMAND_FLOOR_MPS"' in yunji
@@ -79,6 +85,7 @@ def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():
     assert "wait_and_seal_terminal_evidence(" in runner
     assert "semantic_arrival_episode_complete_hold" in runner
     assert 'default=0.05' in runner
+    assert 'default=0.50' in runner
     assert 'default=0.75' in runner
     assert "robot-0 frontier start snap radius must equal" not in runner
     assert "previous_execution_lineage=" in runner

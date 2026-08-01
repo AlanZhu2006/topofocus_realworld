@@ -99,9 +99,9 @@ and its five linked per-run manifests.
 
 # Scene 04 media
 
-Scene 04 currently contains three archived failures. The media-backed Formal 01
-and Formal 04 records are listed below; Formal 02 is bound to its runtime and
-metric evidence in the campaign manifest. User-provided masters are
+Scene 04 currently contains four archived failures. The media-backed Formal 01
+and Formal 04 records are listed below; Formal 02 and Formal 03 are bound to
+their runtime and metric evidence in the campaign manifest. User-provided masters are
 byte-preserved through Git LFS; browser-ready H.264 files and 64-frame inline
 GIF previews are under `media/demo/`.
 
@@ -115,6 +115,8 @@ the linked
 [Formal 01](../manifests/scene04_plant_formal_experiment_01_failure_20260801.json)
 ,
 [Formal 02](../manifests/scene04_plant_formal_experiment_02_failure_20260801.json)
+,
+[Formal 03](../manifests/scene04_plant_formal_experiment_03_failure_20260801.json)
 and
 [Formal 04](../manifests/scene04_plant_formal_experiment_04_failure_20260731.json)
 records. The current `failure_1` masters are the newly uploaded Formal 01
