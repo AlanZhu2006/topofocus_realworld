@@ -20,7 +20,7 @@ from scipy import ndimage
 from .map_snapshot import MapSnapshot
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
-FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v8"
+FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v9"
 MINIMUM_PROJECTED_TRAVEL_M = 0.10
 MINIMUM_SOURCE_PROGRESS_M = 0.25
 DEFAULT_MAXIMUM_EXECUTION_LEG_DISTANCE_M = 7.50
@@ -653,6 +653,18 @@ def _normalize_fallback_frontiers(
             record["execution_priority_rank"] = (
                 execution_priority_rank
             )
+        backtrack_priority_rank = frontier.get("backtrack_priority_rank")
+        if backtrack_priority_rank is not None:
+            if (
+                isinstance(backtrack_priority_rank, bool)
+                or not isinstance(backtrack_priority_rank, int)
+                or backtrack_priority_rank not in {0, 1}
+            ):
+                raise ValueError(
+                    f"remaining frontier {frontier_id!r} has invalid "
+                    "backtrack priority rank"
+                )
+            record["backtrack_priority_rank"] = backtrack_priority_rank
         for optional in (
             "source_probability",
             "history_score",
@@ -674,6 +686,19 @@ def _execution_priority_rank(candidate: Mapping[str, object]) -> int:
     )
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError("fallback candidate has invalid execution priority")
+    return value
+
+
+def _backtrack_priority_rank(candidate: Mapping[str, object]) -> int:
+    """Resolve the absolute forward/rear class for global matching."""
+
+    value = candidate.get("backtrack_priority_rank", 0)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value not in {0, 1}
+    ):
+        raise ValueError("fallback candidate has invalid backtrack priority")
     return value
 
 
@@ -1002,8 +1027,11 @@ def apply_frontier_clearance_guard(
     # A source-ranked greedy pass can consume the only safe frontier of the
     # next robot even when the first robot has another valid fallback.  Choose
     # the deterministic maximum-cardinality matching first, then minimize the
-    # total physical execution-priority rank and finally source rank and robot
-    # order as tie-breaks.  Source rank remains unchanged provenance.  The
+    # number of rearward assignments, then total physical execution-priority
+    # rank and finally source rank and robot order as tie-breaks.  This lets a
+    # robot with another forward option yield a shared forward frontier to a
+    # peer whose alternatives all require retracing.  Source rank remains
+    # unchanged provenance.  The
     # candidate set is tiny (two robots in the real-world contract), and every
     # selected edge has independently passed the unchanged physical guard.
     best_matching: dict[
@@ -1061,6 +1089,10 @@ def apply_frontier_clearance_guard(
             key: tuple[object, ...] = (
                 -len(current),
                 sum(
+                    _backtrack_priority_rank(option[0])
+                    for option in current.values()
+                ),
+                sum(
                     _execution_priority_rank(option[0])
                     for option in current.values()
                 ),
@@ -1109,6 +1141,10 @@ def apply_frontier_clearance_guard(
         if "execution_priority_rank" in candidate:
             assignment["execution_priority_rank"] = candidate[
                 "execution_priority_rank"
+            ]
+        if "backtrack_priority_rank" in candidate:
+            assignment["backtrack_priority_rank"] = candidate[
+                "backtrack_priority_rank"
             ]
         assignments.append(assignment)
 

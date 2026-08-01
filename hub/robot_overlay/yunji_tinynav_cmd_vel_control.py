@@ -94,6 +94,7 @@ DEFAULT_STABLE_TURN_EXIT_RAD = math.radians(35.0)
 # matches the source controller's yaw deadband and prevents successive local
 # trajectory samples from alternating the turn sign.
 DEFAULT_PATH_TURN_ENTER_RAD = math.radians(15.0)
+DEFAULT_PATH_COMBINED_TURN_ENTER_RAD = math.radians(30.0)
 DEFAULT_PATH_TURN_EXIT_RAD = math.radians(8.0)
 DEFAULT_TINY_REVERSE_ALIGNMENT_ENTER_RAD = math.radians(15.0)
 DEFAULT_TINY_REVERSE_ALIGNMENT_EXIT_RAD = math.radians(8.0)
@@ -668,7 +669,7 @@ def large_turn_stabilization_required(
     enter_rad: float = DEFAULT_STABLE_TURN_ENTER_RAD,
     exit_rad: float = DEFAULT_STABLE_TURN_EXIT_RAD,
 ) -> bool:
-    """Return whether an existing pinned in-place turn needs sign latching."""
+    """Return whether a path turn should be serialized before translation."""
 
     values = (
         requested_linear_mps,
@@ -694,8 +695,7 @@ def large_turn_stabilization_required(
     if abs(requested_linear_mps) <= 1e-9 and abs(requested_angular_radps) <= 1e-9:
         return False
     return bool(
-        abs(requested_linear_mps) <= 1e-9
-        and abs(requested_angular_radps) > 1e-9
+        abs(requested_angular_radps) > 1e-9
         and abs(heading_error_rad) >= enter_rad
     )
 
@@ -719,12 +719,23 @@ def path_turn_recovery_required(
         raise ValueError(f"unknown segment action: {segment_action}")
     if segment_action in {"reject_reverse", "zero_tiny_reverse"}:
         return False
+    # Preserve smooth source-controller arcs for ordinary bends.  A combined
+    # translation/yaw command only enters rotate-first recovery when the
+    # authoritative collision-scored path is materially off-axis.  This
+    # avoids repeatedly driving a short, high-curvature WATER arc after its
+    # initial progress has stopped, while pure-yaw commands retain the tighter
+    # 15-degree direction latch used to suppress left/right oscillation.
+    enter_rad = (
+        DEFAULT_PATH_COMBINED_TURN_ENTER_RAD
+        if abs(requested_linear_mps) > 1e-9
+        else DEFAULT_PATH_TURN_ENTER_RAD
+    )
     return large_turn_stabilization_required(
         heading_error_rad,
         recovery_active=recovery_active,
         requested_linear_mps=requested_linear_mps,
         requested_angular_radps=requested_angular_radps,
-        enter_rad=DEFAULT_PATH_TURN_ENTER_RAD,
+        enter_rad=enter_rad,
         exit_rad=DEFAULT_PATH_TURN_EXIT_RAD,
     )
 

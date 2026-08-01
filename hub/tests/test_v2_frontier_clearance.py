@@ -909,6 +909,94 @@ def test_fallback_matching_uses_execution_priority_before_source_rank(
     assert guarded.decisions[1].target.frontier_id == "forward"
 
 
+def test_fallback_matching_avoids_global_backtrack_before_robot_order(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (3.0, 3.0),
+            "robot-1": (3.5, 3.5),
+        },
+    )
+    free = np.ones((100, 100), dtype=bool)
+    execution = snapshot_from_free_mask(
+        free,
+        transform_version="robot-execution-v1",
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        fallback_frontiers_by_robot={
+            "robot-0": [
+                {
+                    "frontier_id": "shared-forward",
+                    "x_m": 4.0,
+                    "y_m": 4.0,
+                    "source_rank": 1,
+                    "execution_priority_rank": 0,
+                    "backtrack_priority_rank": 0,
+                },
+                {
+                    "frontier_id": "robot-0-forward",
+                    "x_m": 4.5,
+                    "y_m": 4.0,
+                    "source_rank": 2,
+                    "execution_priority_rank": 1,
+                    "backtrack_priority_rank": 0,
+                },
+            ],
+            "robot-1": [
+                {
+                    "frontier_id": "shared-forward",
+                    "x_m": 4.0,
+                    "y_m": 4.0,
+                    "source_rank": 2,
+                    "execution_priority_rank": 0,
+                    "backtrack_priority_rank": 0,
+                },
+                {
+                    "frontier_id": "robot-1-rear",
+                    "x_m": 1.5,
+                    "y_m": 1.5,
+                    "source_rank": 3,
+                    "execution_priority_rank": 1,
+                    "backtrack_priority_rank": 1,
+                },
+            ],
+        },
+        pre_rejected_robot_ids=frozenset({"robot-0", "robot-1"}),
+        robot_xy_by_robot={
+            "robot-0": (0.75, 0.75),
+            "robot-1": (0.75, 0.75),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+    )
+
+    assert [
+        item["fallback_frontier_id"]
+        for item in report["fallback_assignments"]
+    ] == ["robot-0-forward", "shared-forward"]
+    assert [
+        item["backtrack_priority_rank"]
+        for item in report["fallback_assignments"]
+    ] == [0, 0]
+    assert [
+        item.target.frontier_id if item.target is not None else None
+        for item in guarded.decisions
+    ] == ["robot-0-forward", "shared-forward"]
+
+
 def test_clear_frontiers_ignore_fallback_candidates(observation_factory):
     observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(

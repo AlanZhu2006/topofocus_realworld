@@ -31,7 +31,7 @@ from typing import Mapping, Sequence
 
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
-SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v6"
+SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v7"
 SOURCE_COLLISION_THRESHOLD_M = 0.10
 SOURCE_STAGNANT_REPLAN_CELLS = 2.5
 SOURCE_MAP_RESOLUTION_M = 0.05
@@ -1120,6 +1120,15 @@ def evaluate_source_replan(
         ):
             candidate["execution_priority_rank"] = (
                 execution_priority_rank
+            )
+            # Keep an absolute direction class in addition to the per-robot
+            # execution rank.  The downstream two-robot matching cannot infer
+            # where one robot's forward candidates end from a relative rank
+            # alone; without this field it can give a shared forward frontier
+            # to one robot and force the other onto a rear history point even
+            # when a fully non-backtracking matching exists.
+            candidate["backtrack_priority_rank"] = int(
+                bool(candidate["backtrack_check"]["severe_backtrack"])
             )
         if backtrack_redirected:
             rejected.add(robot_id)

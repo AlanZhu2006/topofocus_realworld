@@ -772,4 +772,8 @@ def test_failure_fallback_preserves_source_rank_but_tries_forward_first(
         0,
         1,
     ]
+    assert [item["backtrack_priority_rank"] for item in candidates] == [
+        0,
+        1,
+    ]
     assert report["checks"]["robot-1"]["direction_priority_applied"] is True

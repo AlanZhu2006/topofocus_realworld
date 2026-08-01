@@ -442,8 +442,8 @@
     },
     {
       "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
-      "size_bytes": 80533,
-      "sha256": "1d61718b1bca15259a59e7477ba1a6d819d367ff72abde4ba8d6a7197c226fcc",
+      "size_bytes": 81130,
+      "sha256": "766a498d699e6ca4c62d7a21c02073ded173f432dd20e47ccebfadab57bbdbb8",
       "classification": "source-derived"
     },
     {
@@ -472,8 +472,8 @@
     },
     {
       "path": "hub/src/focus_hub/v2_frontier_clearance.py",
-      "size_bytes": 52007,
-      "sha256": "e465d39612cbc853d4280e6f716482fe854b2b5d3882ec46586f9527215afd94",
+      "size_bytes": 53496,
+      "sha256": "2b27455869f7f268ee57554d40867c7bae65a972956aeb9f959838bfc015cf1e",
       "classification": "source-derived"
     },
     {
@@ -490,8 +490,8 @@
     },
     {
       "path": "hub/src/focus_hub/v2_source_replan.py",
-      "size_bytes": 51845,
-      "sha256": "14ea95fa057132a8c27cdc7dcbee10f5892f0b28763ab910f13e75a3ebfc6c4e",
+      "size_bytes": 52433,
+      "sha256": "eed7497aed02975c6b1609de82f5b649364c29b8168ad59d3263ea31ed8b8e23",
       "classification": "source-derived"
     },
     {

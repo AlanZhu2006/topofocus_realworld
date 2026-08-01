@@ -608,6 +608,12 @@ def test_large_turn_latch_uses_hysteresis_only_after_explicit_entry():
         requested_angular_radps=0.7,
     )
     assert MODULE.large_turn_stabilization_required(
+        math.radians(76.0),
+        recovery_active=False,
+        requested_linear_mps=0.3,
+        requested_angular_radps=-0.7,
+    )
+    assert MODULE.large_turn_stabilization_required(
         math.radians(40.0),
         recovery_active=True,
         requested_linear_mps=0.0,
@@ -697,6 +703,13 @@ def test_traversable_moderate_turn_latches_direction_until_yaw_deadband():
         recovery_active=False,
         requested_linear_mps=0.1,
         requested_angular_radps=0.3,
+    )
+    assert MODULE.path_turn_recovery_required(
+        "allow",
+        math.radians(31.0),
+        recovery_active=False,
+        requested_linear_mps=0.3,
+        requested_angular_radps=-0.7,
     )
 
 
