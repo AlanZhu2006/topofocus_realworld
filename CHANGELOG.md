@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Scene 04 dual-route coordination correction (2026-08-01)
+
+- Do not serialize a robot pair merely because its already-clear starting
+  separation is below the conservative route buffer when both complete
+  straight route segments never become any closer.
+- Carry cross-round progress evidence only for robots that actually received
+  GOAL authority; coordination/readiness HOLDs can no longer reject a fresh,
+  unattempted frontier as stationary.
+- Add a regression using the observed Scene 04 Formal 02 poses and targets,
+  while retaining fail-closed serialization for crossing routes, missing
+  shared poses and starts below the footprint-derived separation floor.
+
 ### Scene 03 complete formal archive (2026-07-31)
 
 - Finalize the five-run long-range cooperative plant campaign with two

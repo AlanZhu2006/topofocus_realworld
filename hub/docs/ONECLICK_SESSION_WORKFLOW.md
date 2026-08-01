@@ -253,17 +253,23 @@ local-planner rejection is not counted as ordinary stagnation: it records a
 robot-local failed approach and tries the remaining candidates in the source
 VLM/history score order. A live failure pose is accepted only when its
 timestamp is no earlier than the rejection; otherwise the round-start pose is
-preserved and labelled as a source-derived proxy.
+preserved and labelled as a source-derived proxy. Cross-round displacement is
+compared only for robots that actually received GOAL authority in the previous
+published batch; a robot suppressed by route coordination or readiness remains
+HOLD and cannot create stationary evidence against an unattempted target.
 
 The subsequent real-world route guard reads the two frozen
 `shared_world` base poses and compares the straight start-to-target segments.
-If their predicted separation is below 0.9 m, or either shared pose is
-unavailable, it reduces physical authority to one deterministic active robot
-and holds the other. The unmodified two-robot VLM candidate is preserved as
-`vlm_candidate_batch.json`; the applied decision and guard provenance are
-preserved as `initial_batch.json` and `route_conflict_guard.json`. This is a
-conservative execution adapter, not a change to source VLM selection and not
-a certification of robot-local obstacle detours.
+It serializes routes that introduce a separation below 0.9 m, or when either
+shared pose is unavailable. When the robots already exceed the sum of their
+footprint-clearance radii and the complete route segments never become closer
+than the observed starting separation, initial proximity alone is not treated
+as a future route conflict. The unmodified two-robot VLM candidate is
+preserved as `vlm_candidate_batch.json`; the applied decision and guard
+provenance are preserved as `initial_batch.json` and
+`route_conflict_guard.json`. This is a conservative execution adapter, not a
+change to source VLM selection and not a certification of robot-local obstacle
+detours.
 
 Yunji's deployment controller also handles a robot-relative lookahead that
 temporarily falls behind after a local replan. Translation remains exactly

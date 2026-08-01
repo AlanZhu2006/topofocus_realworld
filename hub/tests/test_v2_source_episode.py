@@ -931,6 +931,28 @@ def test_cross_round_progress_guard_resets_after_real_progress_or_inactivity():
     assert counts == {"robot-1": 0}
 
 
+def test_coordination_hold_is_not_cross_round_stall_evidence():
+    module = load_module()
+
+    report, counts = module.cross_round_progress_guard(
+        previous_positions={"robot-1": (0.0, 0.0)},
+        current_positions={"robot-1": (0.0, 0.0)},
+        # The source allocated robot-1, but the published execution batch
+        # held it.  Only the effective execution set belongs here.
+        previous_active_robot_ids=set(),
+        current_active_robot_ids={"robot-1"},
+        previous_stagnant_intervals={"robot-1": 1},
+    )
+
+    assert report["status"] == "pass"
+    assert report["blocked_robot_ids"] == []
+    assert report["robots"]["robot-1"] == {
+        "status": "baseline_only",
+        "consecutive_stagnant_intervals": 0,
+    }
+    assert counts == {"robot-1": 0}
+
+
 def test_semantic_path_replan_does_not_charge_peer_stagnation():
     module = load_module()
     result = module.RoundResult(

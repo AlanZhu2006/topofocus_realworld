@@ -1812,10 +1812,18 @@ def main() -> int:
             "operator_confirmation": LIVE_CONFIRMATION,
             "route_conflict_guard": {
                 "minimum_separation_m": (args.route_conflict_min_separation_m),
+                "minimum_current_separation_m": (
+                    args.robot_0_frontier_clearance_m
+                    + args.robot_1_frontier_clearance_m
+                ),
                 "policy": (
                     "preserve source-derived VLM allocations; serialize "
-                    "physical execution when straight shared-frame route "
-                    "corridors overlap or a shared pose is unavailable; "
+                    "physical execution when straight shared-frame routes "
+                    "introduce a closer-than-required approach, the current "
+                    "pose is below the footprint-derived floor, or a shared "
+                    "pose is unavailable; an already-clear pair whose full "
+                    "routes never get closer than its starting separation "
+                    "may proceed concurrently; "
                     "current goal-class detector confidence chooses which "
                     "already-guarded robot moves first"
                 ),
@@ -2721,6 +2729,10 @@ def main() -> int:
                 clearance_guarded_batch,
                 shared_start_xy=shared_positions,
                 minimum_separation_m=args.route_conflict_min_separation_m,
+                minimum_current_separation_m=(
+                    args.robot_0_frontier_clearance_m
+                    + args.robot_1_frontier_clearance_m
+                ),
                 priority_index=requested_round,
                 goal_evidence_by_robot=goal_evidence,
             )
@@ -2901,12 +2913,11 @@ def main() -> int:
                 outcome = "failed_no_runtime_ready_robot_holding"
                 break
             previous_shared_positions = dict(shared_positions)
-            # Preserve source-level activity across round boundaries.  A
-            # robot held by an execution guard is still an active source
-            # allocation; dropping it here reset its stationary evidence to
-            # ``baseline_only`` every round and allowed a relabelled frontier
-            # at the same XY coordinate to recur forever.
-            previous_active_robot_ids = set(raw_active)
+            # Compare progress only for robots that will actually receive a
+            # GOAL in this published batch.  A route/readiness HOLD has no
+            # opportunity to move and must never become source-stall evidence
+            # against a fresh, unattempted frontier in the next round.
+            previous_active_robot_ids = set(active)
             publish(
                 guarded_batch,
                 f"round_{requested_round}_goal",

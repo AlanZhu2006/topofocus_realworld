@@ -3,8 +3,10 @@
 The immutable source still selects one target per agent.  This module is a
 real-world execution adapter: it compares buffered straight-line corridors
 from the frozen robot poses to those targets and serializes an unsafe pair
-before either high-level GOAL is published.  It does not claim to know the
-robot-local planner paths.
+before either high-level GOAL is published.  A pair that is already above its
+footprint-derived current-pose floor may proceed when neither complete route
+segment ever brings it closer than the observed starting separation.  It does
+not claim to know the robot-local planner paths.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ from typing import Mapping
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
 
-ROUTE_CONFLICT_SCHEMA_VERSION = "focus-v2-route-conflict-guard-v2"
+ROUTE_CONFLICT_SCHEMA_VERSION = "focus-v2-route-conflict-guard-v3"
 Point2 = tuple[float, float]
 
 
@@ -156,6 +158,7 @@ def apply_route_conflict_guard(
     *,
     shared_start_xy: Mapping[str, object],
     minimum_separation_m: float,
+    minimum_current_separation_m: float | None = None,
     priority_index: int = 0,
     goal_evidence_by_robot: Mapping[str, object] | None = None,
 ) -> tuple[DecisionBatchV2, dict[str, object]]:
@@ -172,6 +175,17 @@ def apply_route_conflict_guard(
         or minimum_separation_m <= 0.0
     ):
         raise ValueError("minimum route separation must be positive and finite")
+    if minimum_current_separation_m is None:
+        minimum_current_separation_m = minimum_separation_m
+    if (
+        not math.isfinite(minimum_current_separation_m)
+        or minimum_current_separation_m <= 0.0
+        or minimum_current_separation_m > minimum_separation_m
+    ):
+        raise ValueError(
+            "minimum current separation must be positive, finite, and no "
+            "greater than the route separation"
+        )
     if priority_index < 0:
         raise ValueError("priority_index must be non-negative")
     normalized_evidence: dict[str, float] = {}
@@ -222,17 +236,41 @@ def apply_route_conflict_guard(
                 tuple(second_route["start_xy_m"]),
                 tuple(second_route["goal_xy_m"]),
             )
+            start_distance = math.dist(
+                first_route["start_xy_m"],
+                second_route["start_xy_m"],
+            )
             minimum_observed = (
                 distance
                 if minimum_observed is None
                 else min(minimum_observed, distance)
             )
-            pair_conflict = distance < minimum_separation_m
+            route_introduces_closer_approach = (
+                distance < start_distance - 1e-9
+            )
+            current_separation_clear = (
+                start_distance >= minimum_current_separation_m - 1e-12
+            )
+            initial_proximity_only = bool(
+                distance < minimum_separation_m
+                and current_separation_clear
+                and not route_introduces_closer_approach
+            )
+            pair_conflict = bool(
+                distance < minimum_separation_m
+                and not initial_proximity_only
+            )
             conflict = conflict or pair_conflict
             pairwise.append(
                 {
                     "robot_ids": [first.robot_id, second.robot_id],
+                    "start_separation_m": start_distance,
                     "straight_segment_separation_m": distance,
+                    "route_introduces_closer_approach": (
+                        route_introduces_closer_approach
+                    ),
+                    "current_separation_clear": current_separation_clear,
+                    "initial_proximity_only": initial_proximity_only,
                     "conflict": pair_conflict,
                 }
             )
@@ -293,6 +331,8 @@ def apply_route_conflict_guard(
         status = "serialized_missing_shared_pose"
     elif conflict:
         status = "serialized_route_corridor_conflict"
+    elif any(item["initial_proximity_only"] for item in pairwise):
+        status = "concurrent_routes_separating_from_clear_start"
     else:
         status = "concurrent_corridors_clear"
     effective = list(
@@ -304,14 +344,16 @@ def apply_route_conflict_guard(
         "schema_version": ROUTE_CONFLICT_SCHEMA_VERSION,
         "status": status,
         "method": (
-            "buffered straight shared-frame start-to-target segment "
-            "separation; robot-local detours are not certified"
+            "closed straight shared-frame start-to-target segment separation "
+            "with a footprint-derived current-pose floor; robot-local detours "
+            "are not certified"
         ),
         "classification": (
             "source-derived conservative execution guard from observed "
             "frozen shared-frame poses and source-derived VLM targets"
         ),
         "minimum_required_separation_m": minimum_separation_m,
+        "minimum_current_separation_m": minimum_current_separation_m,
         "minimum_predicted_separation_m": minimum_observed,
         "original_active_robot_ids": active_ids,
         "effective_active_robot_ids": effective,
@@ -327,7 +369,10 @@ def apply_route_conflict_guard(
             "preserved separately; this guard does not retarget a robot and "
             "current detector evidence only chooses which already-guarded "
             "robot moves first when physical concurrency authority must be "
-            "reduced"
+            "reduced; a pair already above the footprint-derived current "
+            "separation floor is not serialized when the complete pair of "
+            "straight route segments never comes closer than that observed "
+            "starting separation"
         ),
     }
     return guarded, report

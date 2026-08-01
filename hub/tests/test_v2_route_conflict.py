@@ -111,6 +111,76 @@ def test_well_separated_parallel_routes_remain_concurrent(observation_factory):
     assert guarded == candidate
 
 
+def test_clear_close_start_with_strictly_diverging_routes_remains_concurrent(
+    observation_factory,
+):
+    """Reproduce Scene 04 Formal 02's false route-conflict classification."""
+
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_route_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (-1.5358560621465678, 2.041995729863027),
+            "robot-1": (6.1641439378534315, 0.7419957298630262),
+        },
+    )
+
+    guarded, report = apply_route_conflict_guard(
+        candidate,
+        shared_start_xy={
+            "robot-0": (0.15844079826624444, -0.28401190831029444),
+            "robot-1": (0.9333089424626231, -0.01714636231466149),
+        },
+        minimum_separation_m=0.9,
+        minimum_current_separation_m=0.69,
+    )
+
+    pair = report["pairwise"][0]
+    assert report["status"] == (
+        "concurrent_routes_separating_from_clear_start"
+    )
+    assert report["minimum_predicted_separation_m"] == pytest.approx(
+        0.8195351490509037
+    )
+    assert pair["start_separation_m"] == pytest.approx(
+        report["minimum_predicted_separation_m"]
+    )
+    assert pair["current_separation_clear"] is True
+    assert pair["route_introduces_closer_approach"] is False
+    assert pair["initial_proximity_only"] is True
+    assert pair["conflict"] is False
+    assert report["effective_active_robot_ids"] == ["robot-0", "robot-1"]
+    assert guarded == candidate
+
+
+def test_diverging_routes_still_serialize_when_current_pose_is_too_close(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    candidate = with_route_targets(
+        make_batch(observations, digests, now=now),
+        {"robot-0": (-3.0, 0.0), "robot-1": (3.2, 0.0)},
+    )
+
+    guarded, report = apply_route_conflict_guard(
+        candidate,
+        shared_start_xy={"robot-0": (0.0, 0.0), "robot-1": (0.2, 0.0)},
+        minimum_separation_m=0.9,
+        minimum_current_separation_m=0.69,
+    )
+
+    pair = report["pairwise"][0]
+    assert report["status"] == "serialized_route_corridor_conflict"
+    assert pair["current_separation_clear"] is False
+    assert pair["initial_proximity_only"] is False
+    assert pair["conflict"] is True
+    assert [item.mode.value for item in guarded.decisions] == ["GOAL", "HOLD"]
+
+
 def test_missing_shared_pose_fails_closed_to_serial_execution(
     observation_factory,
 ):
