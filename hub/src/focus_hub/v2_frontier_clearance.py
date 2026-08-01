@@ -20,7 +20,7 @@ from scipy import ndimage
 from .map_snapshot import MapSnapshot
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
-FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v7"
+FRONTIER_CLEARANCE_SCHEMA_VERSION = "focus-v2-frontier-clearance-guard-v8"
 MINIMUM_PROJECTED_TRAVEL_M = 0.10
 MINIMUM_SOURCE_PROGRESS_M = 0.25
 DEFAULT_MAXIMUM_EXECUTION_LEG_DISTANCE_M = 7.50
@@ -637,6 +637,22 @@ def _normalize_fallback_frontiers(
             "x_m": float(x_m),
             "y_m": float(y_m),
         }
+        execution_priority_rank = frontier.get(
+            "execution_priority_rank"
+        )
+        if execution_priority_rank is not None:
+            if (
+                isinstance(execution_priority_rank, bool)
+                or not isinstance(execution_priority_rank, int)
+                or execution_priority_rank < 0
+            ):
+                raise ValueError(
+                    f"remaining frontier {frontier_id!r} has invalid "
+                    "execution priority rank"
+                )
+            record["execution_priority_rank"] = (
+                execution_priority_rank
+            )
         for optional in (
             "source_probability",
             "history_score",
@@ -648,6 +664,17 @@ def _normalize_fallback_frontiers(
                 record[optional] = value
         normalized.append(record)
     return normalized
+
+
+def _execution_priority_rank(candidate: Mapping[str, object]) -> int:
+    """Resolve physical rank while retaining source rank as provenance."""
+
+    value = candidate.get(
+        "execution_priority_rank", candidate["source_rank"]
+    )
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError("fallback candidate has invalid execution priority")
+    return value
 
 
 def _rewrite_batch(
@@ -962,6 +989,10 @@ def apply_frontier_clearance_guard(
                 ),
             )
             report["source_rank"] = candidate["source_rank"]
+            if "execution_priority_rank" in candidate:
+                report["execution_priority_rank"] = candidate[
+                    "execution_priority_rank"
+                ]
             robot_reports.append(report)
             if report["passed"] is True:
                 robot_options.append((candidate, replacement, report))
@@ -971,7 +1002,8 @@ def apply_frontier_clearance_guard(
     # A source-ranked greedy pass can consume the only safe frontier of the
     # next robot even when the first robot has another valid fallback.  Choose
     # the deterministic maximum-cardinality matching first, then minimize the
-    # total source rank and finally preserve robot order as a tie-break.  The
+    # total physical execution-priority rank and finally source rank and robot
+    # order as tie-breaks.  Source rank remains unchanged provenance.  The
     # candidate set is tiny (two robots in the real-world contract), and every
     # selected edge has independently passed the unchanged physical guard.
     best_matching: dict[
@@ -998,24 +1030,46 @@ def apply_frontier_clearance_guard(
     ) -> None:
         nonlocal best_matching, best_key
         if index >= len(rejected_decisions):
-            all_ranks = [
-                int(candidate["source_rank"])
+            all_execution_ranks = [
+                _execution_priority_rank(candidate)
                 for options in candidates_by_robot.values()
                 for candidate in options
             ]
-            sentinel = (max(all_ranks) + 1) if all_ranks else 1
-            ranks = tuple(
+            execution_sentinel = (
+                max(all_execution_ranks) + 1
+                if all_execution_ranks
+                else 1
+            )
+            execution_ranks = tuple(
+                (
+                    _execution_priority_rank(
+                        current[decision.robot_id][0]
+                    )
+                    if decision.robot_id in current
+                    else execution_sentinel
+                )
+                for decision in rejected_decisions
+            )
+            source_ranks = tuple(
                 (
                     int(current[decision.robot_id][0]["source_rank"])
                     if decision.robot_id in current
-                    else sentinel
+                    else execution_sentinel
                 )
                 for decision in rejected_decisions
             )
             key: tuple[object, ...] = (
                 -len(current),
-                sum(int(option[0]["source_rank"]) for option in current.values()),
-                ranks,
+                sum(
+                    _execution_priority_rank(option[0])
+                    for option in current.values()
+                ),
+                execution_ranks,
+                sum(
+                    int(option[0]["source_rank"])
+                    for option in current.values()
+                ),
+                source_ranks,
             )
             if best_key is None or key < best_key:
                 best_key = key
@@ -1046,14 +1100,17 @@ def apply_frontier_clearance_guard(
             source="source_ranked_fallback_frontier",
         )
         replacements[decision.robot_id] = replacement
-        assignments.append(
-            {
-                "robot_id": decision.robot_id,
-                "rejected_frontier_id": checks[decision.robot_id]["frontier_id"],
-                "fallback_frontier_id": candidate["frontier_id"],
-                "source_rank": candidate["source_rank"],
-            }
-        )
+        assignment = {
+            "robot_id": decision.robot_id,
+            "rejected_frontier_id": checks[decision.robot_id]["frontier_id"],
+            "fallback_frontier_id": candidate["frontier_id"],
+            "source_rank": candidate["source_rank"],
+        }
+        if "execution_priority_rank" in candidate:
+            assignment["execution_priority_rank"] = candidate[
+                "execution_priority_rank"
+            ]
+        assignments.append(assignment)
 
     held = rejected - replacements.keys()
     guarded = (

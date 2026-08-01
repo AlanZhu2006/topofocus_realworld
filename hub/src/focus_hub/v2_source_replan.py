@@ -13,8 +13,9 @@ This module carries the equivalent *high-level* evidence across boundaries:
 * an explicitly rejected physical approach is remembered by robot, scene,
   calibration, position and direction;
 * the same nearby approach is not immediately republished;
-* alternatives retain the source robot's score order (or source history
-  score order) and still need the unchanged physical clearance guard; and
+* alternatives preserve the source robot's score rank (or source history
+  score rank), while physical execution tries the observed forward
+  hemisphere before rearward alternatives; and
 * memory ceases to apply after material robot relocation, allowing a
   different approach to the same frontier.
 
@@ -30,7 +31,7 @@ from typing import Mapping, Sequence
 
 from .transport_v2 import DecisionBatchV2, HighLevelDecisionV2
 
-SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v5"
+SOURCE_REPLAN_SCHEMA_VERSION = "focus-v2-source-replan-v6"
 SOURCE_COLLISION_THRESHOLD_M = 0.10
 SOURCE_STAGNANT_REPLAN_CELLS = 2.5
 SOURCE_MAP_RESOLUTION_M = 0.05
@@ -43,7 +44,7 @@ DEFAULT_SAME_SECTOR_ORIGIN_RADIUS_M = 0.75
 DEFAULT_SAME_SECTOR_ANGLE_DEG = 20.0
 DEFAULT_MAX_ENTRIES_PER_ROBOT = 16
 DEFAULT_BACKTRACK_DIRECTION_UPDATE_M = 0.75
-DEFAULT_BACKTRACK_MIN_TARGET_DISTANCE_M = 2.0
+DEFAULT_BACKTRACK_MIN_TARGET_DISTANCE_M = SOURCE_FRONTIER_ARRIVAL_RADIUS_M
 DEFAULT_BACKTRACK_ANGLE_DEG = 90.0
 DEFAULT_TRANSIENT_FAILURE_ESCALATION_COUNT = 2
 PERSISTENT_LOCAL_STACK_FAILURE_REASON = "PERSISTENT_LOCAL_STACK_FAILURE"
@@ -902,11 +903,12 @@ def evaluate_source_replan(
 
     The first return value tells the physical clearance guard which current
     frontier inputs must be treated as rejected.  The second contains
-    unoccupied, memory-clear alternatives in each robot's own source score
-    order.  A long frontier in the rear hemisphere of the last observed
-    progress direction is redirected only when the same frozen source batch
-    contains a non-reversing alternative; necessary backtracking therefore
-    remains possible.  No target is published here.
+    unoccupied, memory-clear alternatives with both their immutable source
+    rank and their physical execution priority.  Any frontier outside the
+    source arrival disk and in the rear hemisphere of the last observed
+    progress direction is attempted after non-reversing alternatives;
+    necessary backtracking therefore remains available when no forward
+    candidate can execute.  No target is published here.
     """
 
     decisions = {item.robot_id: item for item in batch.decisions}
@@ -1104,12 +1106,22 @@ def evaluate_source_replan(
             and current_backtrack["severe_backtrack"]
             and non_backtracking_candidates
         )
+        # Preserve the source rank on every artifact, but expose a separate
+        # physical execution rank.  This grouping must also run when the
+        # current target was rejected for another reason: otherwise a
+        # high-scoring rear fallback can beat a lower-scoring forward point
+        # in the downstream clearance matching and make the robot retrace a
+        # clear corridor.
+        accepted_candidates = (
+            non_backtracking_candidates + backtracking_candidates
+        )
+        for execution_priority_rank, candidate in enumerate(
+            accepted_candidates
+        ):
+            candidate["execution_priority_rank"] = (
+                execution_priority_rank
+            )
         if backtrack_redirected:
-            # Preserve source score order within each group.  A non-reversing
-            # source candidate is attempted first; reverse candidates remain
-            # available only if the physical clearance guard rejects every
-            # non-reversing option, so exploration completeness is retained.
-            accepted_candidates = non_backtracking_candidates + backtracking_candidates
             rejected.add(robot_id)
         # A no-allocation/HOLD robot is intentionally absent from the
         # coordination active set.  Preserve its source result in ``checks``
@@ -1146,6 +1158,9 @@ def evaluate_source_replan(
             ),
             "current_backtrack_check": current_backtrack,
             "backtrack_redirected": backtrack_redirected,
+            "direction_priority_applied": bool(
+                progress_vector is not None and backtracking_candidates
+            ),
             "non_backtracking_fallback_count": len(non_backtracking_candidates),
             "backtracking_fallback_count": len(backtracking_candidates),
             "fallback_ranking_source": ranking_source,
@@ -1170,9 +1185,11 @@ def evaluate_source_replan(
             "minimum_target_distance_m": (backtrack_min_target_distance_m),
             "minimum_reversal_angle_deg": backtrack_angle_deg,
             "fallback_policy": (
-                "redirect only when a non-reversing source-ranked candidate "
-                "exists; retain reverse candidates after non-reversing "
-                "candidates for clearance fallback"
+                "outside the source arrival disk, reject a rear current "
+                "target when a non-reversing candidate exists; for every "
+                "other replan cause, preserve source rank as provenance but "
+                "give all non-reversing candidates physical execution "
+                "priority before rear candidates"
             ),
         },
         "checks": checks,
@@ -1183,10 +1200,11 @@ def evaluate_source_replan(
             "after observed local path failure, the source 2.5-cell "
             "stationary rule, or spatially entering the source 10-cell "
             "frontier arrival disk even when A-D labels are regenerated; "
-            "a long target "
-            "in the prior-progress rear hemisphere is grouped behind "
+            "a target outside the source arrival disk in the prior-progress "
+            "rear hemisphere is grouped behind "
             "non-reversing candidates while source score order is preserved "
-            "inside each group; when every source frontier is physically "
+            "inside each group and recorded separately from physical "
+            "execution priority; when every source frontier is physically "
             "unusable, the source's own frozen history nodes remain available "
             "after all frontiers in descending source history-score order "
             "only when the same frozen source batch provides one, while "

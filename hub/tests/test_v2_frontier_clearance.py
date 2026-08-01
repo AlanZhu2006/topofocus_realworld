@@ -842,6 +842,73 @@ def test_fallback_matching_maximizes_safe_active_robots(
     ] == ["C", "A"]
 
 
+def test_fallback_matching_uses_execution_priority_before_source_rank(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    candidate = with_targets(
+        make_batch(observations, digests, now=now),
+        {
+            "robot-0": (3.5, 3.5),
+            "robot-1": (3.0, 3.0),
+        },
+    )
+    free = np.ones((100, 100), dtype=bool)
+    execution = snapshot_from_free_mask(
+        free,
+        transform_version="robot-execution-v1",
+    )
+
+    guarded, report = apply_frontier_clearance_guard(
+        candidate,
+        execution,
+        clearance_by_robot_m={"robot-0": 0.35, "robot-1": 0.34},
+        fallback_frontiers_by_robot={
+            "robot-1": [
+                {
+                    "frontier_id": "rear",
+                    "x_m": 1.5,
+                    "y_m": 1.5,
+                    "source_rank": 0,
+                    "execution_priority_rank": 1,
+                },
+                {
+                    "frontier_id": "forward",
+                    "x_m": 4.0,
+                    "y_m": 3.5,
+                    "source_rank": 2,
+                    "execution_priority_rank": 0,
+                },
+            ]
+        },
+        pre_rejected_robot_ids=frozenset({"robot-1"}),
+        robot_xy_by_robot={
+            "robot-0": (0.75, 0.75),
+            "robot-1": (0.75, 0.75),
+        },
+        execution_snapshots_by_robot={
+            "robot-0": execution,
+            "robot-1": execution,
+        },
+        start_seed_snap_radius_by_robot_m={
+            "robot-0": 0.75,
+            "robot-1": 1.0,
+        },
+    )
+
+    assert report["fallback_assignments"] == [
+        {
+            "robot_id": "robot-1",
+            "rejected_frontier_id": "frontier-1",
+            "fallback_frontier_id": "forward",
+            "source_rank": 2,
+            "execution_priority_rank": 0,
+        }
+    ]
+    assert guarded.decisions[1].target is not None
+    assert guarded.decisions[1].target.frontier_id == "forward"
+
+
 def test_clear_frontiers_ignore_fallback_candidates(observation_factory):
     observations, _registry, digests, now = ready_registries(observation_factory)
     candidate = with_targets(

@@ -237,6 +237,23 @@
       "long_frontier_policy": "project to the closest start-connected footprint-clear point within the robot-local admission distance and retain the original source frontier",
       "runtime_handoff_failure_policy": "break adjacent-round continuity after every explicit robot-local rejection; only spatial reachability or measured no-progress evidence may poison an approach sector",
       "policy": "retain the exact accepted frontier until its arrival disk, local ARRIVED, or explicit robot-local rejection"
+    },
+    "high_level_direction_commitment": {
+      "applies_identically_to": [
+        "robot-0",
+        "robot-1"
+      ],
+      "observed_progress_update_minimum_m": 0.75,
+      "rear_hemisphere_angle_deg": 90.0,
+      "arrival_exemption_m": 0.5,
+      "policy": "after material observed progress, retain an unfinished forward frontier over a fresh rear candidate and try every executable non-reversing fallback before rear fallbacks",
+      "release_conditions": [
+        "semantic target confirmation",
+        "source arrival disk reached",
+        "explicit robot-local rejection",
+        "no executable non-reversing source candidate"
+      ],
+      "source_fidelity": "preserve the immutable VLM choice and source score rank in artifacts; record a separate physical execution-priority rank"
     }
   },
   "control_contract": {
@@ -407,8 +424,8 @@
     },
     {
       "path": "hub/src/focus_hub/v2_goal_continuity.py",
-      "size_bytes": 20038,
-      "sha256": "dc95993ac7dd4b0119db27019c8d4ed0e74292e3746f3c59614f747850b16600",
+      "size_bytes": 25701,
+      "sha256": "2366435fd87e841006877b8cdbc0192478d7a8044e3bbf459470cf72e15ca3f8",
       "classification": "source-derived"
     },
     {
@@ -425,8 +442,8 @@
     },
     {
       "path": "hub/src/focus_hub/v2_frontier_clearance.py",
-      "size_bytes": 49834,
-      "sha256": "1657a78726b3098085ab43a754e63834401319f753d09c07a6fbcae459b00058",
+      "size_bytes": 52007,
+      "sha256": "e465d39612cbc853d4280e6f716482fe854b2b5d3882ec46586f9527215afd94",
       "classification": "source-derived"
     },
     {
@@ -443,8 +460,8 @@
     },
     {
       "path": "hub/src/focus_hub/v2_source_replan.py",
-      "size_bytes": 51005,
-      "sha256": "737fefa32adbb1d1d8f24e02147803436cc62242f71327a8645a3cedb73d0d2a",
+      "size_bytes": 51845,
+      "sha256": "14ea95fa057132a8c27cdc7dcbee10f5892f0b28763ab910f13e75a3ebfc6c4e",
       "classification": "source-derived"
     },
     {
@@ -461,8 +478,8 @@
     },
     {
       "path": "hub/tools/run_v2_source_episode.py",
-      "size_bytes": 136221,
-      "sha256": "a85e66bff1716714aa6303e1e745faeee77bc6b57aeea7a040f18be72ae1f936",
+      "size_bytes": 136289,
+      "sha256": "e61ae4072f05e1d506dcfd5fcc46d6223e4c20e6566e6eb3733abaa663bc85d5",
       "classification": "source-derived"
     },
     {

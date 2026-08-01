@@ -234,6 +234,81 @@ def test_projected_previous_leg_cannot_override_fresh_source_frontier(
     ]
 
 
+def test_projected_forward_leg_is_retained_over_archived_rear_switch(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(
+        observation_factory
+    )
+    base = make_batch(observations, digests, now=now)
+    previous = with_round_and_targets(
+        base,
+        round_index=0,
+        source_step=0,
+        targets={
+            "robot-0": (4.0, 4.0),
+            # Scene 04 Formal 02 round 0 source frontier A.
+            "robot-1": (5.154013017306905, 1.0299803988202036),
+        },
+    )
+    current = with_round_and_targets(
+        base,
+        round_index=1,
+        source_step=24,
+        targets={
+            "robot-0": (4.0, 4.0),
+            # Observed fresh C was 173.683 degrees behind progress.
+            "robot-1": (1.5040130173069066, -0.070019601179796),
+        },
+    )
+
+    guarded, report = apply_frontier_goal_continuity(
+        current,
+        previous_batch=previous,
+        current_shared_positions={
+            "robot-0": (4.0, 4.0),
+            "robot-1": (2.38309953367759, -0.17436832368643604),
+        },
+        progress_vector_by_robot={
+            "robot-1": (0.9452138248707731, -0.007465883484528452),
+        },
+        previous_execution_lineage={
+            "robot-1": {
+                "source_target_xy_m": [
+                    5.154013017306905,
+                    1.0299803988202036,
+                ],
+                "execution_target_xy_m": [
+                    5.146684416096054,
+                    0.1299803988202033,
+                ],
+                "execution_mode": "GOAL",
+            },
+        },
+    )
+
+    robot_1 = next(
+        decision
+        for decision in guarded.decisions
+        if decision.robot_id == "robot-1"
+    )
+    assert robot_1.target is not None
+    assert robot_1.target.pose.x == pytest.approx(5.154013017306905)
+    assert robot_1.target.pose.y == pytest.approx(1.0299803988202036)
+    check = report["checks"]["robot-1"]
+    assert check["retention_authority"] == (
+        "realworld_forward_direction_commitment"
+    )
+    assert check["previous_target_angle_from_progress_deg"] < 90.0
+    assert check["candidate_target_angle_from_progress_deg"] == pytest.approx(
+        173.6831389957877
+    )
+    assert report["direction_commitment_retained_robot_ids"] == [
+        "robot-1"
+    ]
+    assert report["projected_previous_legs_released_robot_ids"] == []
+
+
 def test_unfinished_previous_goal_is_retained_through_source_switch_band(
     observation_factory,
 ):

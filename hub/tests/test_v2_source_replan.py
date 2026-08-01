@@ -680,3 +680,96 @@ def test_backtracking_remains_available_when_source_has_no_forward_alternative(
     check = report["checks"]["robot-1"]
     assert check["current_backtrack_check"]["severe_backtrack"] is True
     assert check["backtrack_redirected"] is False
+
+
+def test_rear_target_outside_arrival_disk_has_no_two_meter_exemption(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    raw = with_source_frontiers(make_batch(observations, digests, now=now)).model_dump(
+        mode="json"
+    )
+    robot_1 = next(item for item in raw["decisions"] if item["robot_id"] == "robot-1")
+    robot_1["target"]["pose"]["x"] = -0.9
+    robot_1["target"]["pose"]["y"] = 0.0
+    batch = DecisionBatchV2.model_validate(raw)
+    manifest = shadow_manifest()
+    result = manifest["robots"][1]
+    result["candidate_frontiers"] = [
+        frontier("B", -0.9, 0.0),
+        frontier("C", 2.0, 0.0),
+    ]
+    result["choice_probabilities"] = {"B": 0.8, "C": 0.2}
+
+    rejected, fallbacks, report = evaluate_source_replan(
+        batch,
+        shadow_manifest=manifest,
+        memory=memory(),
+        robot_xy_by_robot={
+            "robot-0": (0.0, 1.0),
+            "robot-1": (0.0, 0.0),
+        },
+        progress_vector_by_robot={"robot-1": (1.0, 0.0)},
+    )
+
+    assert rejected == frozenset({"robot-1"})
+    assert [item["frontier_id"] for item in fallbacks["robot-1"]] == [
+        "C"
+    ]
+    check = report["checks"]["robot-1"]
+    assert check["current_backtrack_check"]["target_distance_m"] == pytest.approx(
+        0.9
+    )
+    assert check["current_backtrack_check"]["severe_backtrack"] is True
+    assert report["backtrack_policy"]["minimum_target_distance_m"] == pytest.approx(
+        0.5
+    )
+
+
+def test_failure_fallback_preserves_source_rank_but_tries_forward_first(
+    observation_factory,
+):
+    observations, _registry, digests, now = ready_registries(observation_factory)
+    raw = with_source_frontiers(make_batch(observations, digests, now=now)).model_dump(
+        mode="json"
+    )
+    robot_1 = next(item for item in raw["decisions"] if item["robot_id"] == "robot-1")
+    robot_1["target"]["pose"]["x"] = 2.0
+    robot_1["target"]["pose"]["y"] = 0.0
+    batch = DecisionBatchV2.model_validate(raw)
+    manifest = shadow_manifest()
+    result = manifest["robots"][1]
+    result["candidate_frontiers"] = [
+        frontier("B", 2.0, 0.0),
+        frontier("rear", -3.0, 0.0),
+        frontier("forward", 3.0, 0.5),
+    ]
+    result["choice_probabilities"] = {
+        "B": 0.6,
+        "rear": 0.3,
+        "forward": 0.1,
+    }
+    rejected, fallbacks, report = evaluate_source_replan(
+        batch,
+        shadow_manifest=manifest,
+        memory=memory(),
+        robot_xy_by_robot={
+            "robot-0": (0.0, 1.0),
+            "robot-1": (0.0, 0.0),
+        },
+        source_stationary_robot_ids=frozenset({"robot-1"}),
+        progress_vector_by_robot={"robot-1": (1.0, 0.0)},
+    )
+
+    assert rejected == frozenset({"robot-1"})
+    candidates = fallbacks["robot-1"]
+    assert [item["frontier_id"] for item in candidates] == [
+        "forward",
+        "rear",
+    ]
+    assert [item["source_rank"] for item in candidates] == [2, 1]
+    assert [item["execution_priority_rank"] for item in candidates] == [
+        0,
+        1,
+    ]
+    assert report["checks"]["robot-1"]["direction_priority_applied"] is True

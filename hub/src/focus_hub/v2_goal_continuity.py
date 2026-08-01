@@ -29,7 +29,7 @@ from .transport_v2 import (
 )
 
 
-GOAL_CONTINUITY_SCHEMA_VERSION = "focus-v2-goal-continuity-guard-v4"
+GOAL_CONTINUITY_SCHEMA_VERSION = "focus-v2-goal-continuity-guard-v5"
 SOURCE_CONTINUITY_RETAIN_DISTANCE_CELLS = 25.0
 SOURCE_MAP_RESOLUTION_M = 0.05
 SOURCE_CONTINUITY_RETAIN_DISTANCE_M = (
@@ -39,6 +39,7 @@ SOURCE_FRONTIER_COMPLETION_DISTANCE_CELLS = 10.0
 SOURCE_FRONTIER_COMPLETION_DISTANCE_M = (
     SOURCE_FRONTIER_COMPLETION_DISTANCE_CELLS * SOURCE_MAP_RESOLUTION_M
 )
+DEFAULT_DIRECTION_COMMITMENT_ANGLE_DEG = 90.0
 Point2 = tuple[float, float]
 
 
@@ -68,6 +69,31 @@ def _frontier_xy(decision: HighLevelDecisionV2) -> Point2 | None:
     if target is None or target.kind != "FRONTIER_POINT":
         return None
     return (float(target.pose.x), float(target.pose.y))
+
+
+def _angle_from_progress_deg(
+    *,
+    origin_xy: Point2,
+    target_xy: Point2,
+    progress_vector: Point2 | None,
+) -> float | None:
+    """Return the unsigned target angle from observed travel direction."""
+
+    if progress_vector is None:
+        return None
+    progress_norm = math.hypot(*progress_vector)
+    target_vector = (
+        target_xy[0] - origin_xy[0],
+        target_xy[1] - origin_xy[1],
+    )
+    target_norm = math.hypot(*target_vector)
+    if progress_norm <= 1e-12 or target_norm <= 1e-12:
+        return None
+    cosine = (
+        progress_vector[0] * target_vector[0]
+        + progress_vector[1] * target_vector[1]
+    ) / (progress_norm * target_norm)
+    return math.degrees(math.acos(max(-1.0, min(1.0, cosine))))
 
 
 def _retained_decision(
@@ -204,6 +230,10 @@ def apply_frontier_goal_continuity(
     ),
     previous_rejected_robot_ids: frozenset[str] = frozenset(),
     previous_execution_lineage: Mapping[str, object] | None = None,
+    progress_vector_by_robot: Mapping[str, object] | None = None,
+    direction_commitment_angle_deg: float = (
+        DEFAULT_DIRECTION_COMMITMENT_ANGLE_DEG
+    ),
 ) -> tuple[DecisionBatchV2, dict[str, object]]:
     """Retain an unfinished source frontier until its arrival disk.
 
@@ -213,8 +243,11 @@ def apply_frontier_goal_continuity(
     switch condition remains explicit in the report; the narrower 10-cell
     physical completion condition only stabilizes real execution.  When the
     previous source point was not itself published because the clearance
-    guard projected it, that memory-only point cannot override a different
-    fresh source/VLM selection at the next boundary.
+    guard projected it, a fresh forward source target normally replaces that
+    memory-only point.  The exception is an unfinished source target still in
+    the observed forward hemisphere when the fresh candidate is behind the
+    robot: in that case the forward leg remains committed and is checked
+    again by the current physical clearance guard.
     """
 
     if (
@@ -242,10 +275,26 @@ def apply_frontier_goal_continuity(
         previous_execution_lineage, Mapping
     ):
         raise ValueError("previous execution lineage must be an object")
+    if progress_vector_by_robot is None:
+        progress_vector_by_robot = {}
+    if not isinstance(progress_vector_by_robot, Mapping):
+        raise ValueError("progress direction must be an object")
+    if (
+        not math.isfinite(direction_commitment_angle_deg)
+        or not 90.0 <= direction_commitment_angle_deg <= 180.0
+    ):
+        raise ValueError("direction commitment angle must be in [90, 180]")
 
     current_by_robot = {
         decision.robot_id: decision for decision in batch.decisions
     }
+    unknown_progress_robot_ids = set(progress_vector_by_robot).difference(
+        current_by_robot
+    )
+    if unknown_progress_robot_ids:
+        raise ValueError(
+            "progress direction contains robots outside the current batch"
+        )
     previous_by_robot = (
         {
             decision.robot_id: decision
@@ -270,6 +319,7 @@ def apply_frontier_goal_continuity(
     replacements: dict[str, HighLevelDecisionV2] = {}
     source_rule_retained: list[str] = []
     physical_completion_retained: list[str] = []
+    direction_commitment_retained: list[str] = []
     projected_previous_legs_released: list[str] = []
     checks: dict[str, dict[str, object]] = {}
     for robot_id, current in current_by_robot.items():
@@ -340,6 +390,27 @@ def apply_frontier_goal_continuity(
         distance_to_previous_target_m = math.dist(
             current_xy, previous_target_xy
         )
+        raw_progress_vector = progress_vector_by_robot.get(robot_id)
+        progress_vector = (
+            None
+            if raw_progress_vector is None
+            else _finite_point(raw_progress_vector)
+        )
+        if raw_progress_vector is not None and progress_vector is None:
+            raise ValueError(
+                f"progress direction for {robot_id} must contain two finite "
+                "numbers"
+            )
+        previous_target_angle_deg = _angle_from_progress_deg(
+            origin_xy=current_xy,
+            target_xy=previous_target_xy,
+            progress_vector=progress_vector,
+        )
+        candidate_target_angle_deg = _angle_from_progress_deg(
+            origin_xy=current_xy,
+            target_xy=current_target_xy,
+            progress_vector=progress_vector,
+        )
         check.update(
             {
                 "current_position_xy_m": list(current_xy),
@@ -356,6 +427,18 @@ def apply_frontier_goal_continuity(
                 ),
                 "previous_frontier_id": previous.target.frontier_id,
                 "candidate_frontier_id": current.target.frontier_id,
+                "observed_progress_vector_xy_m": (
+                    None if progress_vector is None else list(progress_vector)
+                ),
+                "previous_target_angle_from_progress_deg": (
+                    previous_target_angle_deg
+                ),
+                "candidate_target_angle_from_progress_deg": (
+                    candidate_target_angle_deg
+                ),
+                "direction_commitment_angle_deg": (
+                    direction_commitment_angle_deg
+                ),
             }
         )
         if math.dist(current_target_xy, previous_target_xy) <= 1e-9:
@@ -365,6 +448,47 @@ def apply_frontier_goal_continuity(
             previous_projection_distance_m is not None
             and previous_projection_distance_m > 1e-9
         ):
+            direction_commitment_applies = bool(
+                distance_to_previous_target_m
+                > minimum_completion_distance_m + 1e-12
+                and previous_target_angle_deg is not None
+                and candidate_target_angle_deg is not None
+                and previous_target_angle_deg
+                < direction_commitment_angle_deg - 1e-12
+                and candidate_target_angle_deg
+                >= direction_commitment_angle_deg - 1e-12
+            )
+            if direction_commitment_applies:
+                retained = _retained_decision(
+                    current,
+                    previous,
+                    current_xy=current_xy,
+                )
+                replacements[robot_id] = retained
+                direction_commitment_retained.append(robot_id)
+                check.update(
+                    {
+                        "retained": True,
+                        "reason": (
+                            "unfinished_projected_forward_frontier_retained_"
+                            "over_fresh_rear_candidate"
+                        ),
+                        "previous_execution_target_xy_m": list(
+                            previous_execution_xy
+                        ),
+                        "previous_projection_distance_m": (
+                            previous_projection_distance_m
+                        ),
+                        "retention_authority": (
+                            "realworld_forward_direction_commitment"
+                        ),
+                        "execution_frontier_id": (
+                            retained.target.frontier_id
+                        ),
+                        "execution_target_xy_m": list(previous_target_xy),
+                    }
+                )
+                continue
             projected_previous_legs_released.append(robot_id)
             check.update(
                 {
@@ -440,12 +564,16 @@ def apply_frontier_goal_continuity(
     return guarded, {
         "schema_version": GOAL_CONTINUITY_SCHEMA_VERSION,
         "status": (
-            "distant_previous_frontiers_retained"
-            if retained_robot_ids
+            "direction_committed_frontiers_retained"
+            if direction_commitment_retained
             else (
-                "initial_round_no_continuity_candidate"
-                if previous_batch is None
-                else "source_targets_accepted"
+                "distant_previous_frontiers_retained"
+                if retained_robot_ids
+                else (
+                    "initial_round_no_continuity_candidate"
+                    if previous_batch is None
+                    else "source_targets_accepted"
+                )
             )
         ),
         "classification": (
@@ -458,12 +586,17 @@ def apply_frontier_goal_continuity(
             "the real-world handoff band until the base enters its source "
             "10-cell arrival disk; the independent 2.5-cell stationary rule "
             "runs afterward in source order; semantic targets and rejected "
-            "prior legs pass through"
+            "prior legs pass through; after material observed travel, an "
+            "unfinished projected forward source leg is retained over a "
+            "fresh rear-hemisphere frontier"
         ),
         "retained_robot_ids": retained_robot_ids,
         "source_rule_retained_robot_ids": sorted(source_rule_retained),
         "physical_completion_retained_robot_ids": sorted(
             physical_completion_retained
+        ),
+        "direction_commitment_retained_robot_ids": sorted(
+            direction_commitment_retained
         ),
         "projected_previous_legs_released_robot_ids": sorted(
             projected_previous_legs_released
@@ -472,6 +605,7 @@ def apply_frontier_goal_continuity(
         "minimum_completion_distance_m": (
             minimum_completion_distance_m
         ),
+        "direction_commitment_angle_deg": direction_commitment_angle_deg,
         "source_retain_distance_cells": (
             SOURCE_CONTINUITY_RETAIN_DISTANCE_CELLS
         ),
@@ -490,10 +624,11 @@ def apply_frontier_goal_continuity(
             "current-position-to-previous-goal distance exactly as "
             "source/Focus_realworld/main.py:1833, not inter-round motion; "
             "physical execution continues the same accepted leg between "
-            "that switch boundary and the source 0.50 m arrival disk; the "
-            "rule never lets a memory-only raw source point override a "
-            "different fresh source/VLM choice when the prior physical leg "
-            "was instead projected to another coordinate; the "
+            "that switch boundary and the source 0.50 m arrival disk; a "
+            "projected memory-only raw source point overrides a different "
+            "fresh source/VLM choice only when observed progress proves the "
+            "unfinished source point remains forward and the fresh point is "
+            "rearward; all raw source choices remain in their artifacts; the "
             "retained target must pass the current robot-local frozen-map "
             "clearance guard before publication"
         ),

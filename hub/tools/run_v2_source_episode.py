@@ -2628,6 +2628,7 @@ def main() -> int:
                             "execution_lineage"
                         )
                     ),
+                    progress_vector_by_robot=last_progress_vectors,
                 )
             )
             atomic_write_json(

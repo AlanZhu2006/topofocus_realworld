@@ -82,6 +82,7 @@ def test_live_arming_precedes_continuous_runner_and_has_exit_disarm():
     assert 'default=0.75' in runner
     assert "robot-0 frontier start snap radius must equal" not in runner
     assert "previous_execution_lineage=" in runner
+    assert "progress_vector_by_robot=last_progress_vectors" in runner
     assert "LIVE_RECEIVERS_READY_NO_GOAL" in source
     assert "--round-input-timeout-s 45" in source
     assert 'expected_ready = robot_id in active' in source
