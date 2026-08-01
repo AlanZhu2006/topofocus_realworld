@@ -4,51 +4,71 @@
   "target_category": "plant",
   "formal_index": 2,
   "result": "FAILURE",
-  "session_id": "scene04-plant-20260801-recal8-navfix1",
-  "episode_id": "navfix1-live01",
-  "session_git_commit": "3474a20f8897f4c93c4a3b6126cf0e417a01a0bd",
-  "calibration_id": "shared-board-odin1-scene04-plant-20260801-recal8-v1",
+  "session_id": "scene04-plant-20260801-recal11-formal06-start1",
+  "episode_id": "formal06",
+  "session_git_commit": "12e95447207ffbae453837afda6e9c258c5c9016",
+  "calibration_id": "shared-board-odin1-scene04-plant-20260801-recal11-v1",
   "operator_evidence": {
-    "motion_authorization": "当前操作者在场，两台机器人已站立且周围净空，允许本轮真机运动。",
-    "post_run_result_designation": "归档为failure",
-    "post_run_observation": "Robot 1 did not continue forward along the corridor; it turned back and later returned, producing repeated turning and retracing.",
-    "classification": "observed operator authorization, failure designation and onsite behavior report"
+    "motion_authorization_verbatim": "操作者在场、双机站立、周围净空、允许本轮运",
+    "motion_authorization_scope": "one Scene 04 live physical run",
+    "post_run_result_designation": "这次归档为失败；替换 Formal 02 的记录",
+    "post_run_observation": "Robot 1 saw the physical plant but remained visibly short of it and made no further approach motion.",
+    "classification": "observed operator authorization, onsite physical-distance observation and post-run failure designation"
+  },
+  "physical_protocol_result": {
+    "success": 0,
+    "sr": 0.0,
+    "source_compatible_spl": 0.0,
+    "standard_spl": 0.0,
+    "counts_in_scene04_metric_track": true,
+    "classification": "operator-designated physical failure overriding an unverified automatic semantic-arrival candidate",
+    "reason": "The physical plant remained unreached even though the robot-local semantic approach point was automatically reported ARRIVED."
   },
   "failure_attribution": {
-    "category": "execution_engineering_failure/high_level_frontier_direction_oscillation",
-    "public_summary": "The 600-second test budget elapsed before exploration found and reached a verified plant target.",
-    "automatic_outcome": "failed_robot_or_controller_holding",
-    "counts_in_scene04_metric_track": true
+    "category": "perception_mapping_failure/semantic_spatial_misprojection_premature_arrival",
+    "direct_cause": "A six-cell plant component was spatially projected near Robot 1; the nearest point on its source-compatible 0.50 m approach dilation was already only 0.073286 m from the robot, inside the 0.15 m local arrival radius.",
+    "likely_projection_mechanism": "The frozen RGB shows the plant partially occluded by a close foreground pillar. Depth inside the same-frame YOLO plant box is strongly bimodal, with 40.40% of valid pixels below 1 m and 59.60% above 3 m. This supports foreground-depth contamination or segmentation leakage into the close surface.",
+    "evidence_boundary": "The exact direct cause—an incorrectly near semantic component and premature local arrival—is observed/source-derived. The split between segmentation leakage and RGB-depth association error is an inference because the per-frame backend segmentation mask was not sealed separately.",
+    "not_attributed_to": [
+      "VLM category selection",
+      "Hub target delivery failure",
+      "stale nav_done from a previous decision",
+      "chassis command rejection"
+    ],
+    "public_summary": "Robot 1 detected the plant in RGB, but an incorrectly near semantic-map projection placed the approach region at the current pose and terminated the run before physical arrival; frozen RGB-D evidence is consistent with foreground-depth contamination."
   },
   "automatic_result": {
-    "outcome": "failed_robot_or_controller_holding",
-    "automatic_terminal_candidate_complete": false,
+    "outcome": "completed_semantic_arrival_terminal_evidence_captured_unverified",
+    "automatic_terminal_candidate_complete": true,
     "official_success_verified": false,
-    "target_found": false,
-    "terminal_evidence": null,
-    "source_rounds_completed": 16,
-    "terminal_source_step": 374,
-    "high_level_batches_published": 92,
-    "velocity_zero_confirmed": true
+    "source_target_found": true,
+    "automatic_target_found": true,
+    "automatic_arriving_robot_id": "robot-1",
+    "automatic_arrival_reason_code": "LOCAL_PLANNER_ARRIVED",
+    "automatic_arrival_detail": "TinyNav /mapping/nav_done reported true",
+    "terminal_hold_acknowledged": true,
+    "source_rounds_completed": 13,
+    "terminal_source_step": 299,
+    "high_level_batches_published": 69,
+    "velocity_zero_confirmed": true,
+    "interpretation": "automatic semantic ARRIVED is only a candidate; the onsite physical verification failed"
   },
   "metrics": {
     "success": 0,
     "sr": 0.0,
     "source_compatible_spl": 0.0,
     "standard_spl": 0.0,
-    "standard_spl_status": "zero contribution because S=0; no shortest-path value is required for this failure",
-    "robot_0_actual_path_length_m": 16.910833517018126,
-    "robot_0_start_to_stop_displacement_m": 2.6555495258473307,
-    "robot_1_actual_path_length_m": 13.391199814904782,
-    "robot_1_start_to_stop_displacement_m": 1.2184782892282262,
-    "robot_1_path_to_net_displacement_ratio": 10.99010128722659
+    "standard_spl_status": "zero contribution because S=0; Scene 04 independently measured approximate shortest feasible path remains L=11 m",
+    "robot_0_actual_path_length_m": 12.313734514627367,
+    "robot_0_start_to_stop_displacement_m": 2.6320819623606346,
+    "robot_1_actual_path_length_m": 6.8584078400736646,
+    "robot_1_start_to_stop_displacement_m": 5.928786461122852
   },
   "execution": {
-    "started_at": "2026-08-01T09:41:10.738805+08:00",
-    "finished_at": "2026-08-01T09:51:25.098798+08:00",
-    "observed_event_span_s": 614.359993286,
-    "configured_runtime_limit_s": 600,
-    "source_rounds_completed": 16,
+    "started_at": "2026-08-01T16:19:17.936217+08:00",
+    "finished_at": "2026-08-01T16:27:04.535814+08:00",
+    "observed_controller_event_span_s": 466.599596832,
+    "source_rounds_completed": 13,
     "source_steps": [
       0,
       24,
@@ -62,47 +82,44 @@
       224,
       249,
       274,
-      299,
-      324,
-      349,
-      374
+      299
     ],
-    "high_level_batches_published": 92,
+    "high_level_batches_published": 69,
     "robots": {
       "robot-0": {
-        "actual_path_length_m": 16.910833517018126,
+        "actual_path_length_m": 12.313734514627367,
         "start_pose": {
           "frame_id": "robot-0/map",
-          "x": -1.5865718828892175,
-          "y": 2.50001020015729,
-          "yaw_rad": -2.9375878787074496
+          "x": -1.2983468978214137,
+          "y": -1.260645616396563,
+          "yaw_rad": 1.97755926001679
         },
         "stop_pose": {
           "frame_id": "robot-0/map",
-          "x": -0.8930722865008573,
-          "y": 5.063406695831957,
-          "yaw_rad": -2.9375878787074496
+          "x": -0.5423698050583954,
+          "y": 1.2605354742436523,
+          "yaw_rad": 1.97755926001679
         },
-        "terminal_observation_sequence": 168397,
+        "terminal_observation_sequence": 187709,
         "final_status": "HOLDING",
         "final_reason": "HUB_HOLD",
         "velocity_zero_confirmed": true
       },
       "robot-1": {
-        "actual_path_length_m": 13.391199814904782,
+        "actual_path_length_m": 6.8584078400736646,
         "start_pose": {
           "frame_id": "robot-1/map",
-          "x": 0.009672970128362683,
-          "y": -0.5243310284420113,
-          "yaw_rad": -1.5337146904383803
+          "x": -1.9441235048562926,
+          "y": 0.7437939518953074,
+          "yaw_rad": 0.13560752517928418
         },
         "stop_pose": {
           "frame_id": "robot-1/map",
-          "x": -0.46326203567776253,
-          "y": -1.6472833077503108,
-          "yaw_rad": -1.5337146904383803
+          "x": 3.5921042243721524,
+          "y": -1.3776893574228875,
+          "yaw_rad": 0.13560752517928418
         },
-        "terminal_observation_sequence": 401152,
+        "terminal_observation_sequence": 421545,
         "final_status": "HOLDING",
         "final_reason": "HUB_HOLD",
         "velocity_zero_confirmed": true
@@ -110,176 +127,231 @@
     }
   },
   "diagnostics": {
-    "robot_1_corridor_retracing": {
-      "classification": "source-derived from frozen shared-frame poses, preserved VLM selections, execution guards and observed navigation feedback",
-      "localization_and_map_health": {
-        "pose_jump_events": 0,
-        "mapping_blocked_reason": null,
-        "robot_local_failed_or_rejected_event_count": 0,
-        "conclusion": "the observed retracing is not explained by a recorded pose jump, map latch or robot-local navigation rejection"
+    "robot_1_semantic_premature_arrival": {
+      "classification": "observed frozen RGB-D and navigation feedback plus source-derived geometry",
+      "frozen_observation_sequence": 421545,
+      "same_frame_yolo": {
+        "class_name": "potted plant",
+        "confidence": 0.886242151260376,
+        "xyxy_px": [
+          239.12213134765625,
+          220.77264404296875,
+          284.44696044921875,
+          350.8568115234375
+        ],
+        "role": "2D category-presence confirmation only; no 3D position authority and no semantic-map reinforcement"
       },
-      "first_reversal": {
-        "round_1": {
-          "source_step": 24,
-          "frontier_id": "C",
-          "target_distance_m": 0.8852580184067874,
-          "angle_from_observed_progress_deg": 173.6831389957877,
-          "guard_reason": "target_within_direction_guard",
-          "severe_backtrack": false
-        },
-        "round_2": {
-          "source_step": 49,
-          "frontier_id": "D",
-          "target_distance_m": 1.7401685876253852,
-          "angle_from_observed_progress_deg": 179.77530674303054,
-          "guard_reason": "target_within_direction_guard",
-          "severe_backtrack": false
-        },
-        "policy_boundary": {
-          "minimum_target_distance_m": 2.0,
-          "minimum_reversal_angle_deg": 90.0,
-          "effect": "near reverse goals below 2 m were deliberately exempted and started the first corridor reversal"
-        }
+      "semantic_region": {
+        "component_size_cells": 6,
+        "resolution_m": 0.05,
+        "display_centroid_shared_xy_m": [
+          7.69582438663198,
+          1.1424353783029009
+        ],
+        "robot_shared_xy_m": [
+          7.303714636823428,
+          0.6334153224556857
+        ],
+        "robot_to_raw_component_centroid_m": 0.6425351921487469,
+        "source_goal_dilation_cells": 10,
+        "source_goal_dilation_m": 0.5
       },
-      "second_reversal": {
-        "round_index": 10,
-        "source_step": 249,
-        "original_frontier": {
-          "frontier_id": "B",
-          "source_target_xy_m": [-3.795986982693094, 2.2799803988202036],
-          "angle_from_observed_progress_deg": 27.591536785051805,
-          "severe_backtrack": false,
-          "execution_rejection": "navigation_failure_memory_match after a CROSS_ROUND_SOURCE_STALL record"
-        },
-        "selected_fallback": {
-          "frontier_id": "A",
-          "source_target_xy_m": [7.504013017306907, -0.2700196011797953],
-          "execution_target_xy_m": [5.846684416096057, -0.2700196011797953],
-          "angle_from_observed_progress_deg": 170.55120972359543,
-          "severe_backtrack": true,
-          "selection_source": "source_ranked_fallback"
-        },
-        "ordering_gap": "non-reversing fallbacks are moved ahead of reversing fallbacks only when the original current target is itself a severe backtrack; B was forward, so backtrack_redirected remained false and reverse A retained its earlier source rank when B was rejected downstream"
+      "resolved_local_approach": {
+        "robot_local_pose_xy_m": [
+          3.5921985249931345,
+          -1.3777033212120962
+        ],
+        "selected_approach_xy_m": [
+          3.6565043837298226,
+          -1.3425532724867195
+        ],
+        "remaining_distance_m": 0.07328553331496762,
+        "arrival_radius_m": 0.15,
+        "poi_to_arrived_event_delay_s": 0.286760429,
+        "conclusion": "the new semantic goal was received and freshly evaluated, but it was already inside the arrival disk before any meaningful approach motion"
       },
-      "return_reinforcement": {
-        "round_index": 12,
-        "source_step": 299,
-        "frontier_b_angle_from_new_progress_deg": 154.9280872491081,
-        "frontier_b_guard_reason": "long_target_reverses_observed_progress",
-        "backtrack_redirected": true,
-        "retained_direction": "frontier A",
-        "effect": "after the second reversal, the guard rejected a return to B and continued driving Robot 1 back along A"
+      "frozen_depth_box_analysis": {
+        "depth_scale_m": 0.001,
+        "valid_pixel_count": 4441,
+        "quantiles_m": {
+          "q10": 0.391,
+          "q25": 0.489,
+          "q50": 5.3,
+          "q75": 6.548,
+          "q90": 6.764
+        },
+        "fraction_below_1m": 0.4039630713803197,
+        "fraction_above_3m": 0.5960369286196803,
+        "interpretation": "the same 2D detection window mixes a close foreground surface with the distant plant/background, matching the near semantic-map projection failure mode"
       },
-      "causal_conclusion": "the VLM supplied changing frontiers, but the physical execution adapter converted them into repeated direction reversals through the short-range reversal exemption and downstream fallback ordering; the corridor itself remained physically traversable"
+      "freshness_check": {
+        "decision_received": true,
+        "local_goal_accepted": true,
+        "poi_published": true,
+        "arrival_bound_to_same_decision_id": true,
+        "conclusion": "not a latched nav_done event from the preceding frontier"
+      }
     },
-    "robot_0_local_results": {
-      "local_planner_turn_stalled_count": 5,
-      "repeated_same_source_target_escalation_observed": true,
-      "peer_execution_continued_after_isolation": true,
-      "classification": "observed robot-local rejection events plus source-derived isolation behavior"
+    "recoverable_local_navigation_events": {
+      "robot_0_LOCAL_PLANNER_TURN_STALLED": 6,
+      "robot_1_LOCAL_PLANNER_PATH_STALE": 4,
+      "effect": "each was isolated and followed by a fresh source replan; neither is the terminal failure cause"
+    },
+    "mapping_health": {
+      "robot_1_pose_jump_events": 0,
+      "robot_1_mapping_blocked_reason": null,
+      "interpretation": "no recorded global pose jump or map latch explains the near semantic component"
     }
   },
   "runtime_evidence": [
     {
-      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-navfix1_live_scene04_20260801_094110_284492569/episode_report.json",
-      "size_bytes": 9766,
-      "sha256": "53c0340251e50b9965972dd642a511182d5a63667ed778d616693189fc401bf1",
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal11-formal06-start1_live_scene04_20260801_161917_324159904/episode_report.json",
+      "size_bytes": 20550,
+      "sha256": "e72a431a77cb5a8a77a96dfb0d3b492e2b9e6e11144a75b1c431d391c8874eb4",
       "classification": "source-derived from observed robot navigation feedback; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-navfix1_live_scene04_20260801_094110_284492569/controller_events.jsonl",
-      "size_bytes": 230249,
-      "sha256": "412886c11daf5da2ff6c80f6cd7c7082828bbf1ab9d358ee097da694a434bcb1",
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal11-formal06-start1_live_scene04_20260801_161917_324159904/controller_events.jsonl",
+      "size_bytes": 220071,
+      "sha256": "28ace9a700b4e57a820d04903118e6ed91b864cae0ec5789edc15a798240c1b8",
       "classification": "source-derived controller event log; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-navfix1_live_scene04_20260801_094110_284492569/scene_manifest.json",
-      "size_bytes": 193191,
-      "sha256": "fafd0819bbb9212faba5e1078be69014e8c4dafe733bede2323af2cfab31072c",
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal11-formal06-start1_live_scene04_20260801_161917_324159904/scene_manifest.json",
+      "size_bytes": 217300,
+      "sha256": "8a922634bafd4427cd66c2a9487a8fe2988f0d5543faeadd4369b4d155b9f3f1",
       "classification": "source-derived continuous scene manifest; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-navfix1_live_scene04_20260801_094110_284492569/navigation_failure_memory.json",
-      "size_bytes": 25563,
-      "sha256": "366f1f702bf260c59f7c35866f175d5408bc54e47c50d42740d3ca640428059d",
-      "classification": "source-derived bounded navigation-failure memory; runtime file ignored by Git"
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal11-formal06-start1_live_scene04_20260801_161917_324159904/terminal/terminal_evidence.json",
+      "size_bytes": 10510,
+      "sha256": "65adde94c2614dd5b39edd918bb11f0d5132ea73780834250da6de439ca09d9f",
+      "classification": "source-derived terminal RGB-D and map evidence index; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-navfix1_live_scene04_20260801_094110_284492569/round_01_step_024/source_replan_guard.json",
-      "size_bytes": 9298,
-      "sha256": "a1a6f65cfa021a8548fe85c35717ee8cea0b6bfeb9f8e812f54e7836c9e096e9",
-      "classification": "source-derived first short-range reverse-goal evidence; runtime file ignored by Git"
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal11-formal06-start1_live_scene04_20260801_161917_324159904/round_12_step_299/vlm_candidate_batch.json",
+      "size_bytes": 6451,
+      "sha256": "a7e8aa333443a99918b034503a57bd0c7ea2a419e15cba825454ddd3b7f49243",
+      "classification": "source-derived unmodified VLM candidate batch with the six-cell plant region; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-navfix1_live_scene04_20260801_094110_284492569/round_02_step_049/source_replan_guard.json",
-      "size_bytes": 10434,
-      "sha256": "600686d0f518921927455d1802606f628d0eb279f9894a8a441c191aa272d8ee",
-      "classification": "source-derived continued short-range reverse-goal evidence; runtime file ignored by Git"
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal11-formal06-start1_live_scene04_20260801_161917_324159904/round_12_step_299/semantic_execution_guard.json",
+      "size_bytes": 2184,
+      "sha256": "5f5153b424803c156ad09bcd3eb5af1fbfed0b494667effe3ea86fc5286fd17f",
+      "classification": "source-derived same-frame detector confirmation record; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-navfix1_live_scene04_20260801_094110_284492569/round_10_step_249/source_replan_guard.json",
-      "size_bytes": 36910,
-      "sha256": "05779d5c4450f8d8459eddbbf10778c6eebe2e2c88ba7552314610274b8401d1",
-      "classification": "source-derived fallback direction and ranking evidence; runtime file ignored by Git"
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal11-formal06-start1_live_scene04_20260801_161917_324159904/round_12_step_299/accepted/yunji/live_status.json",
+      "size_bytes": 11362,
+      "sha256": "fc424e15d9ec37a7637ea2d8e54f31f03b2715b6329e4c48904376540c88e8a0",
+      "classification": "observed frozen Robot 1 mapping, pose and detector status; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-navfix1_live_scene04_20260801_094110_284492569/round_10_step_249/frontier_clearance_guard.json",
-      "size_bytes": 39617,
-      "sha256": "f28882888a53ed4f36eea06f6e0895ac5c1938969ef0395d9164e6c3ccb1ab07",
-      "classification": "source-derived reverse A execution-selection evidence; runtime file ignored by Git"
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal11-formal06-start1_live_scene04_20260801_161917_324159904/round_12_step_299/shadow/inputs/yunji/source_421545_metadata.json",
+      "size_bytes": 3275,
+      "sha256": "357124688366714391edf89bf2171056f8ef9b80c2a591c353cfb0274807ae01",
+      "classification": "observed frozen Robot 1 RGB-D metadata and calibrated pose; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-navfix1_live_scene04_20260801_094110_284492569/round_12_step_299/source_replan_guard.json",
-      "size_bytes": 38167,
-      "sha256": "71ddb3c140a85434a4e1884eff9d283b469de685bb7b2f332ae79f5bdf64b638",
-      "classification": "source-derived return-direction retention evidence; runtime file ignored by Git"
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal11-formal06-start1_live_scene04_20260801_161917_324159904/round_12_step_299/shadow/inputs/yunji/source_421545.jpg",
+      "size_bytes": 109635,
+      "sha256": "25236a59337d7e397e7b396acdfb5cc4b0e25867a227085394aa99cf95ce83c6",
+      "classification": "observed frozen Robot 1 RGB frame showing partial foreground occlusion; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal8-navfix1_live_scene04_20260801_094110_284492569/round_15_step_374/accepted/yunji/live_status.json",
-      "size_bytes": 15979,
-      "sha256": "9be964f30282fde163f8cd1d57429a2edf10029825b5cd837eba94194f3f82ed",
-      "classification": "observed Robot 1 terminal mapping and tracking health; runtime file ignored by Git"
+      "path": "hub/runtime/oneclick_scene04-plant-20260801-recal11-formal06-start1_live_scene04_20260801_161917_324159904/round_12_step_299/shadow/inputs/yunji/source_421545_depth.png",
+      "size_bytes": 198241,
+      "sha256": "0082c1d7adf58232f72715834b3e7d5e036169d9ff063b007c939866a073a384",
+      "classification": "observed frozen aligned depth used for bimodal-depth diagnosis; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/sessions/scene04-plant-20260801-recal8-navfix1/session.json",
-      "size_bytes": 4266,
-      "sha256": "01f4f80bc296d073d3243093a755e9c8f536fdc6fbb4a9be6c5534a3c439cc96",
+      "path": "hub/runtime/sessions/scene04-plant-20260801-recal11-formal06-start1/session.json",
+      "size_bytes": 4324,
+      "sha256": "83d5f323ae4f79a057d37c8decdfb8ef8cd87748d037fd7beb8a2de0ba36eb81",
       "classification": "source-derived exact session identity; runtime file ignored by Git"
     },
     {
-      "path": "hub/runtime/calibration_sessions/scene04-plant-20260801-recal8/shared_frame.json",
-      "size_bytes": 6457,
-      "sha256": "26b6d1533d23544f9488d770e11b7a0253f8f5bb1161fba86bfd2c09d1b14af0",
+      "path": "hub/runtime/calibration_sessions/scene04-plant-20260801-recal11/shared_frame.json",
+      "size_bytes": 6445,
+      "sha256": "b91fa62a5f27929876397faad2700b9c230397aa4db64745f6cc02b947665d0a",
       "classification": "reused observed and source-derived shared-frame calibration; runtime file ignored by Git"
     }
   ],
   "media": [
     {
       "path": "media/video/third_view/experiment_4/experiment_4_failure_2.mp4",
-      "size_bytes": 5460225,
-      "duration_s": 60.5,
+      "size_bytes": 9666415,
+      "duration_s": 149.966667,
       "video_codec": "hevc",
-      "width_px": 1280,
-      "height_px": 720,
-      "sha256": "9c7f624ffd9c0be318f510a0ff8ccf2c27edc0da9bf141d9e64579fceee2bbaf",
-      "classification": "observed user-provided external-view master; preserved byte-for-byte"
+      "audio_codec": "aac",
+      "width_px": 960,
+      "height_px": 544,
+      "sha256": "0605b0711577c96d0d15ff21da030a9c516d89a5551b4070ac61057ce690c131",
+      "classification": "observed user-provided replacement-run external-view master; preserved byte-for-byte through Git LFS"
     },
     {
       "path": "media/video/dashboard/experiment_4/experiment_4_failure_2_dashboard.mov",
-      "size_bytes": 291782430,
-      "duration_s": 593.061,
+      "size_bytes": 156999685,
+      "duration_s": 302.719,
       "video_codec": "h264",
+      "audio_codec": "aac",
       "width_px": 2496,
       "height_px": 1080,
-      "sha256": "91ab1f89a8b6c6cb507cbf06f6197b3c97199a38516026417a725081bb270545",
-      "classification": "observed user-provided Dashboard master; preserved byte-for-byte"
+      "sha256": "6c234a01d4c57e72ef921da85202e551160249d1f5795c578cd1e86c77f5c0ba",
+      "classification": "observed user-provided replacement-run Dashboard master; preserved byte-for-byte through Git LFS"
+    },
+    {
+      "path": "media/demo/scene04_formal_02_third_view.mp4",
+      "size_bytes": 6649851,
+      "duration_s": 149.977,
+      "video_codec": "h264",
+      "sha256": "88f99897f36381f278323674b37e9d17b2063f575018470f4aa1c7854c488005",
+      "classification": "source-derived browser-compatible H.264 external-view derivative"
+    },
+    {
+      "path": "media/demo/scene04_formal_02_dashboard.mp4",
+      "size_bytes": 2542802,
+      "duration_s": 302.719,
+      "video_codec": "h264",
+      "sha256": "ec53911386a56d072a396a428d5e89d20be83f90c626dd8f8df90588d3f760a2",
+      "classification": "source-derived browser-compatible H.264 Dashboard derivative"
+    },
+    {
+      "path": "media/demo/scene04_formal_02_preview.gif",
+      "size_bytes": 2748688,
+      "duration_s": 8.01,
+      "sha256": "f560e4355678d4969ea7f77042bc73e1ac2594359a956ad45416e71986e18d83",
+      "classification": "source-derived 64-frame inline external-view preview"
+    },
+    {
+      "path": "media/demo/scene04_formal_02_dashboard.gif",
+      "size_bytes": 197779,
+      "duration_s": 8.01,
+      "sha256": "5f8640102358fd67a8cce8841191ca24e614373b6cf4ea0c117a3bcb07ee6d35",
+      "classification": "source-derived 64-frame inline Dashboard preview"
     }
   ],
+  "media_status": "Replacement Formal 02 external-view and Dashboard masters are both bound. The superseded-run masters remain recoverable from Git history and are excluded from this record.",
+  "supersedes": {
+    "session_id": "scene04-plant-20260801-recal8-navfix1",
+    "episode_id": "navfix1-live01",
+    "archive_commit": "12e95447207ffbae453837afda6e9c258c5c9016",
+    "previous_manifest_sha256": "cca741fe0573bcf481aefd8fd044cc20357c400f64036e1dc2e4987c9c7171a9",
+    "classification": "previous Formal 02 identity retained in Git history and excluded from the current five-run metric track by operator replacement instruction"
+  },
   "safety": {
     "hub_published_high_level_targets_only": true,
     "robot_local_stop_and_rejection_authority_retained": true,
-    "terminal_hold_reason": "episode_runtime_limit_without_verified_target",
-    "both_robot_zero_velocity_acknowledged": true,
-    "post_episode_motion_authority": false
+    "terminal_hold_acknowledged": true,
+    "post_exit_hub_goal_output_enabled": {
+      "robot-0": false,
+      "robot-1": false
+    },
+    "post_exit_robot_command_paths": {
+      "robot-0": "STOPPED",
+      "robot-1": "STOPPED"
+    },
+    "post_episode_motion_authority": false,
+    "classification": "observed fail-closed cleanup and read-only post-exit verification"
   }
 }

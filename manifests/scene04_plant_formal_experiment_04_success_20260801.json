@@ -209,6 +209,36 @@
       "height_px": 360,
       "sha256": "f48c2936b38efe145c48820720485534daa5885fb3e0de7e9b236966ff5e1862",
       "classification": "observed user-provided Scene 04 explored-map image; preserved byte-for-byte"
+    },
+    {
+      "path": "media/demo/scene04_formal_04_third_view.mp4",
+      "size_bytes": 10243561,
+      "duration_s": 70.402,
+      "video_codec": "h264",
+      "sha256": "e6246312d94a52a6babb1c8ea03535118469b2fd95b6f5436302f9974b88eb00",
+      "classification": "source-derived browser-compatible H.264 external-view derivative"
+    },
+    {
+      "path": "media/demo/scene04_formal_04_dashboard.mp4",
+      "size_bytes": 1562818,
+      "duration_s": 156.689,
+      "video_codec": "h264",
+      "sha256": "f1df1fb7dbe87c95c2a91fb6a8f3690a4340c4a809155f196c8223c471b28b6e",
+      "classification": "source-derived browser-compatible H.264 Dashboard derivative"
+    },
+    {
+      "path": "media/demo/scene04_formal_04_preview.gif",
+      "size_bytes": 10810145,
+      "duration_s": 8.01,
+      "sha256": "e0128446972e431e479955ce0c9b701bd90835ada37ef8d04e19072b6e1255a3",
+      "classification": "source-derived 64-frame inline external-view preview"
+    },
+    {
+      "path": "media/demo/scene04_formal_04_dashboard.gif",
+      "size_bytes": 211278,
+      "duration_s": 8.01,
+      "sha256": "c86ba43d900827ccc96d080aca80ddcfb267834900bab54eba61567d9c1e7e8c",
+      "classification": "source-derived 64-frame inline Dashboard preview"
     }
   ],
   "standard_shortest_feasible_path_evidence": {

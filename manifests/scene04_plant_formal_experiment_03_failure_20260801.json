@@ -159,6 +159,36 @@
       "height_px": 1080,
       "sha256": "87c70a1b833948d777cc6d5a179d22e82dee03c0f8b4fc637802064f800c5c2d",
       "classification": "observed user-provided Dashboard master; preserved byte-for-byte"
+    },
+    {
+      "path": "media/demo/scene04_formal_03_third_view.mp4",
+      "size_bytes": 7615314,
+      "duration_s": 170.367,
+      "video_codec": "h264",
+      "sha256": "26666dffbbe8bbf7c5e4484fcae3a017e5fa3042e67094eca8779eb03c4c79fa",
+      "classification": "source-derived browser-compatible H.264 external-view derivative"
+    },
+    {
+      "path": "media/demo/scene04_formal_03_dashboard.mp4",
+      "size_bytes": 3176582,
+      "duration_s": 400.521,
+      "video_codec": "h264",
+      "sha256": "8dca9c334cd1aa8bcc1ed8dbb798f60da799207c18b5cf882f25419632235267",
+      "classification": "source-derived browser-compatible H.264 Dashboard derivative"
+    },
+    {
+      "path": "media/demo/scene04_formal_03_preview.gif",
+      "size_bytes": 3181499,
+      "duration_s": 8.01,
+      "sha256": "8a536ca32f4b1d7a91c4f987830a69bf621aaf2f12a144ff33d7e12625005b63",
+      "classification": "source-derived 64-frame inline external-view preview"
+    },
+    {
+      "path": "media/demo/scene04_formal_03_dashboard.gif",
+      "size_bytes": 191443,
+      "duration_s": 8.01,
+      "sha256": "2ca52c7e837c6933fa0ca636cb22bad8b81d0e31bb93589a4d6405a3d96f4c7c",
+      "classification": "source-derived 64-frame inline Dashboard preview"
     }
   ],
   "safety": {

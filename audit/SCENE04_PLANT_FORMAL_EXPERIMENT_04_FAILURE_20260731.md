@@ -40,16 +40,13 @@ source-compatible SPL 和 Standard SPL 均为 `0`。
 机器可读归档：
 [`scene04_plant_formal_experiment_04_failure_20260731.json`](../manifests/scene04_plant_formal_experiment_04_failure_20260731.json)。
 
-## 媒体
+## 历史媒体
 
-[第三视角原片](../media/video/third_view/experiment_4/experiment_4_failure_1.mp4)
-和
-[Dashboard 原片](../media/video/dashboard/experiment_4/experiment_4_failure_1.mov)
-按用户上传字节原样保留于 Git LFS。README 使用的
-[第三视角 H.264](../media/demo/scene04_formal_04_third_view.mp4)、
-[Dashboard H.264](../media/demo/scene04_formal_04_dashboard.mp4)及两个 64 帧
-GIF 均为 source-derived 展示副本；精确大小、时长和 SHA-256 记录在
-机器可读归档中。
+本条目是已被当前五轮正式记录替代的工程调试归档，不计入当前 Scene 04
+指标。其原片及展示副本在当前工作区中的文件名已被正式轮次复用；历史字节、
+大小和 SHA-256 仍完整记录在机器可读归档中，并可从 Git revision
+`7eabe3d` 及对应 Git LFS object 恢复。当前 README 只展示现行五轮正式实验，
+不会把这些历史媒体误绑定到新的 Formal 04。
 
 ## 安全终态
 

@@ -4,6 +4,7 @@
   "target_category": "plant",
   "formal_index": 4,
   "result": "FAILURE",
+  "archive_status": "superseded engineering record; excluded from the current five-run Scene 04 metric track",
   "session_id": "scene04-plant-20260731-recalibration8-start1",
   "episode_id": "formal04",
   "session_git_commit": "3ce688b96669c1b203c38b6a46940ae620f7c043",
@@ -144,50 +145,56 @@
       "classification": "observed and source-derived shared-frame calibration; runtime file ignored by Git"
     }
   ],
-  "media": [
+  "historical_media": [
     {
-      "path": "media/video/third_view/experiment_4/experiment_4_failure_1.mp4",
+      "path_at_revision": "media/video/third_view/experiment_4/experiment_4_failure_1.mp4",
+      "git_revision": "7eabe3d",
       "size_bytes": 20048932,
       "duration_s": 327.733333,
       "sha256": "5a3bce0cccfb1056bdba49c3e2742dc0061ade31afd1dfed2c34917772c1d4d5",
-      "classification": "observed user-provided external-view master; committed byte-for-byte through Git LFS"
+      "classification": "observed user-provided external-view master; superseded at the current workspace path and recoverable through the recorded Git revision and Git LFS object"
     },
     {
-      "path": "media/video/dashboard/experiment_4/experiment_4_failure_1.mov",
+      "path_at_revision": "media/video/dashboard/experiment_4/experiment_4_failure_1.mov",
+      "git_revision": "7eabe3d",
       "size_bytes": 298412393,
       "duration_s": 441.249,
       "sha256": "41778ac1c33a13d9156dfa4b91433cfb004110ecabc7e9960eb3cf771a24d9ff",
-      "classification": "observed user-provided Dashboard master; committed byte-for-byte through Git LFS"
+      "classification": "observed user-provided Dashboard master; superseded at the current workspace path and recoverable through the recorded Git revision and Git LFS object"
     },
     {
-      "path": "media/demo/scene04_formal_04_third_view.mp4",
+      "path_at_revision": "media/demo/scene04_formal_04_third_view.mp4",
+      "git_revision": "7eabe3d",
       "size_bytes": 26293785,
       "duration_s": 327.734,
       "sha256": "2687f46470b0974cbaf2b24342a7c17cc64bdd2943102b0e2e7db4068f288520",
-      "classification": "source-derived H.264 yuv420p browser-ready third view"
+      "classification": "historical source-derived H.264 yuv420p browser-ready third view; superseded at the current workspace path"
     },
     {
-      "path": "media/demo/scene04_formal_04_dashboard.mp4",
+      "path_at_revision": "media/demo/scene04_formal_04_dashboard.mp4",
+      "git_revision": "7eabe3d",
       "size_bytes": 5001383,
       "duration_s": 441.2,
       "sha256": "81e657eade443f37763e71e1962a40366b387eda2712cee0fb8548044d401089",
-      "classification": "source-derived H.264 yuv420p browser-ready Dashboard scaled to 1280 pixels wide"
+      "classification": "historical source-derived H.264 yuv420p browser-ready Dashboard scaled to 1280 pixels wide; superseded at the current workspace path"
     },
     {
-      "path": "media/demo/scene04_formal_04_preview.gif",
+      "path_at_revision": "media/demo/scene04_formal_04_preview.gif",
+      "git_revision": "7eabe3d",
       "size_bytes": 5792348,
       "duration_s": 8.01,
       "frames": 64,
       "sha256": "0ae072af9459116981e05a6fa3f8626397616a19003c3b8d90e48b5a85575f7e",
-      "classification": "source-derived full-clip time-lapse third-view preview"
+      "classification": "historical source-derived full-clip time-lapse third-view preview; superseded at the current workspace path"
     },
     {
-      "path": "media/demo/scene04_formal_04_dashboard.gif",
+      "path_at_revision": "media/demo/scene04_formal_04_dashboard.gif",
+      "git_revision": "7eabe3d",
       "size_bytes": 1227049,
       "duration_s": 8.01,
       "frames": 64,
       "sha256": "a143055f5860ca7dc2b9400160a7203466c1018c869aa296c516f44fb3b0c02a",
-      "classification": "source-derived full-clip time-lapse Dashboard preview"
+      "classification": "historical source-derived full-clip time-lapse Dashboard preview; superseded at the current workspace path"
     }
   ],
   "safety": {

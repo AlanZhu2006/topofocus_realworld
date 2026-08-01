@@ -485,20 +485,52 @@ zero contribution.
       <a href="media/demo/scene04_formal_01_dashboard.mp4">Dashboard</a>
     </td>
     <td width="50%" align="center">
+      <strong>Formal 02 · FAILURE</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene04_formal_02_preview.gif" width="440" alt="Scene 04 Formal 02 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene04_formal_02_dashboard.gif" width="440" alt="Scene 04 Formal 02 failure dashboard"><br>
+      Robot 1 detects the plant, but the projected semantic approach region
+      is satisfied before physical arrival; both robots HOLD safely.<br>
+      <a href="media/demo/scene04_formal_02_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene04_formal_02_dashboard.mp4">Dashboard</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Formal 03 · FAILURE</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene04_formal_03_preview.gif" width="440" alt="Scene 04 Formal 03 failure rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene04_formal_03_dashboard.gif" width="440" alt="Scene 04 Formal 03 failure dashboard"><br>
+      The exploration budget is exhausted after the plant becomes visible but
+      before either robot reaches the target region.<br>
+      <a href="media/demo/scene04_formal_03_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene04_formal_03_dashboard.mp4">Dashboard</a>
+    </td>
+    <td width="50%" align="center">
       <strong>Formal 04 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene04_formal_04_preview.gif" width="440" alt="Scene 04 Formal 04 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene04_formal_04_dashboard.gif" width="440" alt="Scene 04 Formal 04 dashboard"><br>
       Robot 0 explores its allocated route; Robot 1 switches to the detected
-      plant semantic region, auto-ARRIVED, and both robots HOLD in sync.<br>
-      <a href="media/video/third_view/experiment_4/experiment_4_success_1.mp4">Third view</a> ·
-      <a href="media/video/dashboard/experiment_4/experiment_4_success_1_dashboard.mov">Dashboard</a>
+      plant semantic region, arrives, and both robots HOLD in sync.<br>
+      <a href="media/demo/scene04_formal_04_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene04_formal_04_dashboard.mp4">Dashboard</a>
     </td>
   </tr>
   <tr>
     <td colspan="2" align="center">
       <strong>Formal 05 · SUCCESS</strong><br>
+      <small>Third view</small><br>
+      <img src="media/demo/scene04_formal_05_preview.gif" width="440" alt="Scene 04 Formal 05 rollout"><br>
+      <small>Dashboard</small><br>
+      <img src="media/demo/scene04_formal_05_dashboard.gif" width="440" alt="Scene 04 Formal 05 dashboard"><br>
       Robot 0 explores its allocated routes while Robot 1 advances through the
       corridor, switches to the detected plant semantic region and arrives.<br>
-      <a href="media/video/third_view/experiment_4/experiment_4_success_2.mp4">Third view</a> ·
-      <a href="media/video/dashboard/experiment_4/experiment_4_success_2_dashboard.mov">Dashboard</a>
+      <a href="media/demo/scene04_formal_05_third_view.mp4">Third view</a> ·
+      <a href="media/demo/scene04_formal_05_dashboard.mp4">Dashboard</a>
     </td>
   </tr>
 </table>
@@ -508,7 +540,7 @@ zero contribution.
 | Run | Result | Exploration rounds | Robot 0 trajectory | Robot 1 trajectory | Source-compatible SPL | Standard SPL |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | Formal 01 | FAILURE | `15` | `10.461142 m` | `14.271182 m` | `0.0` | `0.0` |
-| Formal 02 | FAILURE | `16` | `16.910834 m` | `13.391200 m` | `0.0` | `0.0` |
+| Formal 02 | FAILURE | `13` | `12.313735 m` | `6.858408 m` | `0.0` | `0.0` |
 | Formal 03 | FAILURE | `16` | `5.303672 m` | `8.733911 m` | `0.0` | `0.0` |
 | Formal 04 | SUCCESS | `4` | `5.709166 m` | `12.149176 m` | `0.822180` | `0.905411` |
 | Formal 05 | SUCCESS | `7` | `3.738739 m` | `12.199885 m` | `0.829375` | `0.901648` |

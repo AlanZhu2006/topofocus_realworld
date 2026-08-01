@@ -110,14 +110,27 @@ are in
 | `scene04_formal_01_dashboard.gif` | 612,855 | 8.010 s | `723b5ff7d85d844a62f38e48606235fa5cf796f3874756c8d1f58dcfc0d83339` |
 | `scene04_formal_01_third_view.mp4` | 9,290,988 | 181.934 s | `9ddc2d015557604a4204151b2498ac844cfa5fd22b18840ca348febbb78cce8a` |
 | `scene04_formal_01_dashboard.mp4` | 4,027,535 | 349.948 s | `6d6a3ee924ba87a07c02f597e46f069d93a8e2d424379e581c886f5eece647e4` |
-| `scene04_formal_04_preview.gif` | 5,792,348 | 8.010 s | `0ae072af9459116981e05a6fa3f8626397616a19003c3b8d90e48b5a85575f7e` |
-| `scene04_formal_04_dashboard.gif` | 1,227,049 | 8.010 s | `a143055f5860ca7dc2b9400160a7203466c1018c869aa296c516f44fb3b0c02a` |
-| `scene04_formal_04_third_view.mp4` | 26,293,785 | 327.734 s | `2687f46470b0974cbaf2b24342a7c17cc64bdd2943102b0e2e7db4068f288520` |
-| `scene04_formal_04_dashboard.mp4` | 5,001,383 | 441.200 s | `81e657eade443f37763e71e1962a40366b387eda2712cee0fb8548044d401089` |
+| `scene04_formal_02_preview.gif` | 2,748,688 | 8.010 s | `f560e4355678d4969ea7f77042bc73e1ac2594359a956ad45416e71986e18d83` |
+| `scene04_formal_02_dashboard.gif` | 197,779 | 8.010 s | `5f8640102358fd67a8cce8841191ca24e614373b6cf4ea0c117a3bcb07ee6d35` |
+| `scene04_formal_02_third_view.mp4` | 6,649,851 | 149.977 s | `88f99897f36381f278323674b37e9d17b2063f575018470f4aa1c7854c488005` |
+| `scene04_formal_02_dashboard.mp4` | 2,542,802 | 302.719 s | `ec53911386a56d072a396a428d5e89d20be83f90c626dd8f8df90588d3f760a2` |
+| `scene04_formal_03_preview.gif` | 3,181,499 | 8.010 s | `8a536ca32f4b1d7a91c4f987830a69bf621aaf2f12a144ff33d7e12625005b63` |
+| `scene04_formal_03_dashboard.gif` | 191,443 | 8.010 s | `2ca52c7e837c6933fa0ca636cb22bad8b81d0e31bb93589a4d6405a3d96f4c7c` |
+| `scene04_formal_03_third_view.mp4` | 7,615,314 | 170.367 s | `26666dffbbe8bbf7c5e4484fcae3a017e5fa3042e67094eca8779eb03c4c79fa` |
+| `scene04_formal_03_dashboard.mp4` | 3,176,582 | 400.521 s | `8dca9c334cd1aa8bcc1ed8dbb798f60da799207c18b5cf882f25419632235267` |
+| `scene04_formal_04_preview.gif` | 10,810,145 | 8.010 s | `e0128446972e431e479955ce0c9b701bd90835ada37ef8d04e19072b6e1255a3` |
+| `scene04_formal_04_dashboard.gif` | 211,278 | 8.010 s | `c86ba43d900827ccc96d080aca80ddcfb267834900bab54eba61567d9c1e7e8c` |
+| `scene04_formal_04_third_view.mp4` | 10,243,561 | 70.402 s | `e6246312d94a52a6babb1c8ea03535118469b2fd95b6f5436302f9974b88eb00` |
+| `scene04_formal_04_dashboard.mp4` | 1,562,818 | 156.689 s | `f1df1fb7dbe87c95c2a91fb6a8f3690a4340c4a809155f196c8223c471b28b6e` |
+| `scene04_formal_05_preview.gif` | 2,470,647 | 8.010 s | `92e57f550a052613050a25791205ae373ceebdc58e77e36af8598b4038bbd919` |
+| `scene04_formal_05_dashboard.gif` | 208,289 | 8.010 s | `de87f08b9ae4a682a54fd197fc24450ae58e0d0b7f87b842e45272c1d1f51fca` |
+| `scene04_formal_05_third_view.mp4` | 3,190,346 | 35.600 s | `846adf49f2b14262b2f322212cec91b8e1ed44c8bb40b8c971d0d0a65a5a4012` |
+| `scene04_formal_05_dashboard.mp4` | 2,342,492 | 284.399 s | `e4b03ee11df363d8e152d23ec21e4e3194a61e74e3b19917bb5cf241939fa762` |
 
-All GIFs contain 64 frames at 8 fps and cover the complete corresponding
-display clip. Runtime and master-video provenance are in the linked
-[Formal 01](../../manifests/scene04_plant_formal_experiment_01_failure_20260801.json)
-and
-[Formal 04](../../manifests/scene04_plant_formal_experiment_04_failure_20260731.json)
+All GIFs contain 64 frames at 8 fps. Runtime and master-video provenance are
+in the linked [Formal 01](../../manifests/scene04_plant_formal_experiment_01_failure_20260801.json),
+[Formal 02](../../manifests/scene04_plant_formal_experiment_02_failure_20260801.json),
+[Formal 03](../../manifests/scene04_plant_formal_experiment_03_failure_20260801.json),
+[Formal 04](../../manifests/scene04_plant_formal_experiment_04_success_20260801.json)
+and [Formal 05](../../manifests/scene04_plant_formal_experiment_05_success_20260801.json)
 records.

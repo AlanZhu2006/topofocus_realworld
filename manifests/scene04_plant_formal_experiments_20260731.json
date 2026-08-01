@@ -33,16 +33,16 @@
     {
       "formal_index": 2,
       "result": "FAILURE",
-      "source_rounds_completed": 16,
-      "robot_0_actual_path_length_m": 16.910833517018126,
-      "robot_1_actual_path_length_m": 13.391199814904782,
+      "source_rounds_completed": 13,
+      "robot_0_actual_path_length_m": 12.313734514627367,
+      "robot_1_actual_path_length_m": 6.8584078400736646,
       "source_compatible_spl": 0.0,
       "standard_spl": 0.0,
-      "public_summary": "The 600-second test budget elapsed before exploration found and reached a verified plant target.",
+      "public_summary": "Robot 1 detected the plant in RGB, but an incorrectly near semantic-map projection placed the approach region at the current pose and terminated the run before physical arrival; frozen RGB-D evidence is consistent with foreground-depth contamination.",
       "record": {
         "path": "manifests/scene04_plant_formal_experiment_02_failure_20260801.json",
-        "size_bytes": 13036,
-        "sha256": "cca741fe0573bcf481aefd8fd044cc20357c400f64036e1dc2e4987c9c7171a9",
+        "size_bytes": 16723,
+        "sha256": "cc4bde1d75d7a84320e7905ecdf4c3128ab98968339f49b9edb0745358085168",
         "classification": "authoritative machine-readable Scene 04 Formal 02 failure archive"
       }
     },
@@ -59,8 +59,8 @@
       "public_summary": "The 16-loop maximum exploration allowance was exhausted after the plant became visible but before either robot reached it.",
       "record": {
         "path": "manifests/scene04_plant_formal_experiment_03_failure_20260801.json",
-        "size_bytes": 7260,
-        "sha256": "b256de5966b5ea8f09452aa218ceb05963d38ef3c678496e599dbc7d01326c5f",
+        "size_bytes": 8502,
+        "sha256": "da0e41fa89612678f80a20e928826eb98612f1d24b3c357585f65c1341aa4ecc",
         "classification": "authoritative machine-readable Scene 04 Formal 03 failure archive"
       }
     },
@@ -77,8 +77,8 @@
       "public_summary": "Robot 0 explored its allocated route while Robot 1 advanced to the detected plant semantic region and completed an operator-confirmed physical arrival.",
       "record": {
         "path": "manifests/scene04_plant_formal_experiment_04_success_20260801.json",
-        "size_bytes": 11117,
-        "sha256": "8e99b2464a0a746a495f2c4204f4c52aaff5f5bf2a8e30751e0647c6f1d660d7",
+        "size_bytes": 12360,
+        "sha256": "0dfc1ecd34857d6d2e2dcc0561a42f1b9b3b489d4335104a97b55b36abd1c051",
         "classification": "authoritative machine-readable Scene 04 Formal 04 success archive"
       }
     },
@@ -95,8 +95,8 @@
       "public_summary": "Robot 0 explored its allocated routes while Robot 1 advanced through the corridor, switched to the detected plant semantic region and completed an operator-confirmed physical arrival.",
       "record": {
         "path": "manifests/scene04_plant_formal_experiment_05_success_20260801.json",
-        "size_bytes": 10921,
-        "sha256": "e3428ec2d08b9d014c16a1eafc3fc7b195c1a9a59b1645c6eb438c108f7b0079",
+        "size_bytes": 12160,
+        "sha256": "a11a87fa6320ae7e7dbdaefee884b2045cf0ba516f49fdbe2d4eec26955c6591",
         "classification": "authoritative machine-readable Scene 04 Formal 05 success archive"
       }
     }
