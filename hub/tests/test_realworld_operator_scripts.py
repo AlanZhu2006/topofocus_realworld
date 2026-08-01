@@ -722,8 +722,8 @@ def test_dual_robot_persistent_collision_verdict_has_recovery_window():
     wsj = (OVERLAY / "start_wsj_buildmap_v2.sh").read_text()
     yunji = (OVERLAY / "start_yunji_v2.sh").read_text()
 
-    assert 'FOCUS_WSJ_PLANNER_COLLISION_REJECTION_S:-7.0' in wsj
-    assert 'FOCUS_YUNJI_PLANNER_COLLISION_REJECTION_S:-7.0' in yunji
+    assert 'FOCUS_WSJ_PLANNER_COLLISION_REJECTION_S:-12.0' in wsj
+    assert 'FOCUS_YUNJI_PLANNER_COLLISION_REJECTION_S:-12.0' in yunji
     for launcher in (wsj, yunji):
         assert (
             '--planner-collision-rejection-s '

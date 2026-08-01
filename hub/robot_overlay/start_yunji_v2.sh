@@ -56,11 +56,11 @@ RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_YUNJI_RECEIVER_OCCUPANCY_RECOVERY_G
 # Match Robot 0: heartbeat delivery still closes physical output immediately,
 # while one already accepted leg gets a bounded stopped transport-recovery wait.
 HEARTBEAT_DELIVERY_RECOVERY_GRACE_S="${FOCUS_YUNJI_HEARTBEAT_DELIVERY_RECOVERY_GRACE_S:-3.0}"
-# Robot 1 normally refreshes occupancy every 2.7--3.1 s and an observed local
-# collision state recovered after about 5.9 s.  Keep immediate zero velocity,
-# but wait seven continuous seconds of fresh all-collision evidence before a
-# terminal LOCAL_GOAL_UNREACHABLE verdict.
-PLANNER_COLLISION_REJECTION_S="${FOCUS_YUNJI_PLANNER_COLLISION_REJECTION_S:-7.0}"
+# Robot 1 normally refreshes occupancy every 2.7--3.1 s. Scene 04 observed a
+# valid corridor recover 8.58 s after a transient all-collision state, 0.7 s
+# after the previous verdict. Keep immediate zero velocity, but align the
+# terminal verdict with the existing twelve-second local recovery contract.
+PLANNER_COLLISION_REJECTION_S="${FOCUS_YUNJI_PLANNER_COLLISION_REJECTION_S:-12.0}"
 # Match Robot 0's common TinyNav receiver contract: immediately zero after one
 # second without a fresh collision-free path, while allowing twelve seconds
 # for a terminal first-path or transient-republish verdict. The router's

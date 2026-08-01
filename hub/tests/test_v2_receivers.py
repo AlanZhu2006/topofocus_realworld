@@ -803,35 +803,35 @@ def test_all_collision_gate_is_authority_scoped_fresh_and_bounded():
     ) == (False, False, pytest.approx(8.1), True)
 
 
-def test_observed_six_second_collision_recovery_is_not_terminal():
+def test_observed_eight_second_collision_recovery_is_not_terminal():
     wsj = load_overlay("v2_wsj_receiver.py")
 
     # The physical gate remains closed throughout the observed transient, but
     # the leg is not permanently rejected before a new finite candidate set
-    # arrives.  This covers the 5.85 s and 5.94 s live recoveries.
+    # arrives. This reproduces Scene 04's observed 8.58 s recovery.
     gate_closed, terminal, age_s, observed = (
         wsj.planner_collision_gate_state(
-            now_ns=6_940_000_000,
+            now_ns=9_580_000_000,
             authority_started_ns=500_000_000,
-            status_received_ns=6_900_000_000,
+            status_received_ns=9_540_000_000,
             collision_since_ns=1_000_000_000,
             all_candidates_in_collision=True,
             status_timeout_s=1.0,
-            rejection_timeout_s=7.0,
+            rejection_timeout_s=12.0,
         )
     )
     assert gate_closed is True
     assert terminal is False
-    assert age_s == pytest.approx(5.94)
+    assert age_s == pytest.approx(8.58)
     assert observed is True
     assert wsj.planner_collision_gate_state(
-        now_ns=6_950_000_000,
+        now_ns=9_590_000_000,
         authority_started_ns=500_000_000,
-        status_received_ns=6_950_000_000,
+        status_received_ns=9_590_000_000,
         collision_since_ns=0,
         all_candidates_in_collision=False,
         status_timeout_s=1.0,
-        rejection_timeout_s=7.0,
+        rejection_timeout_s=12.0,
     ) == (False, False, 0.0, False)
 
 

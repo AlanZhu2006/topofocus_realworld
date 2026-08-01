@@ -360,6 +360,71 @@ def test_current_circle_clear_rejects_invalid_geometry(
         )
 
 
+def test_current_rectangle_clear_matches_source_current_pose_samples():
+    mask = np.zeros((7, 7), dtype=bool)
+    # Forward is +world-y; these are the centre/front/rear scorer cells.
+    for index in ((3, 3), (3, 4), (4, 3), (4, 4)):
+        mask[index] = True
+    mask[2, 4] = True  # Outside the left body boundary.
+    mask[3, 5] = True  # Beyond the front body boundary.
+    mask[0, 0] = True
+
+    cleared, summary = MODULE.clear_current_rectangular_footprint(
+        mask,
+        origin=[0.0, 0.0, -1.0],
+        resolution=1.0,
+        center_xy=[3.5, 3.5],
+        forward_xy=[0.0, 2.0],
+        front_m=1.0,
+        rear_m=0.5,
+        half_width_m=0.5,
+    )
+
+    assert summary == {
+        "current_footprint_clearing": True,
+        "current_footprint_cleared_cell_count": 4,
+        "current_footprint_center_xy": [3.5, 3.5],
+        "current_footprint_shape": "rectangle",
+        "current_footprint_front_m": 1.0,
+        "current_footprint_rear_m": 0.5,
+        "current_footprint_half_width_m": 0.5,
+    }
+    for index in ((3, 3), (3, 4), (4, 3), (4, 4)):
+        assert not cleared[index]
+        assert mask[index]
+    assert cleared[2, 4]
+    assert cleared[3, 5]
+    assert cleared[0, 0]
+
+
+@pytest.mark.parametrize(
+    ("forward_xy", "front_m", "rear_m", "half_width_m"),
+    [
+        ([0.0, 0.0], 0.2, 0.2, 0.15),
+        ([1.0, 0.0], 0.0, 0.2, 0.15),
+        ([1.0, 0.0], 0.2, float("nan"), 0.15),
+        ([1.0, 0.0], 0.2, 0.2, 0.0),
+    ],
+)
+def test_current_rectangle_clear_rejects_invalid_geometry(
+    forward_xy,
+    front_m,
+    rear_m,
+    half_width_m,
+):
+    with pytest.raises(ValueError):
+        MODULE.clear_current_rectangular_footprint(
+            np.zeros((4, 7), dtype=bool),
+            origin=[0.0, 0.0],
+            resolution=0.1,
+            center_xy=[0.0, 0.0],
+            forward_xy=forward_xy,
+            front_m=front_m,
+            rear_m=rear_m,
+            half_width_m=half_width_m,
+        )
+
+
 def test_circular_scorer_uses_measured_radius_not_square_corner_radius():
     rows, columns = np.indices((20, 20))
     # Put one obstacle exactly at the square scorer's front-left corner.
@@ -543,6 +608,12 @@ def test_planner_publishes_collision_scored_candidate_status():
     assert 'summary["evaluated_at_ns"] = time.time_ns()' in source
     assert 'summary["schema_version"]' in source
     assert 'summary["all_candidates_in_collision"]' in source
+    assert "clear_current_rectangular_footprint(" in source
+    assert (
+        "planning_node.build_obstacle_map = "
+        "build_obstacle_map_with_current_footprint_clear"
+        in source
+    )
 
 
 def test_planner_source_provenance_is_observed(tmp_path):

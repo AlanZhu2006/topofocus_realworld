@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Scene 04 local-planner recovery correction (2026-08-01)
+
+- Apply the same current-footprint clearing contract to both robot-local
+  TinyNav planners. Robot0 now clears only the pinned 0.4 x 0.3 m rectangle
+  occupied by its current body before ESDF scoring; cells that do not
+  intersect that body, the source obstacle dilation and the source rectangle
+  scorer are unchanged.
+- Keep guarded velocity at zero immediately while all local trajectories are
+  in collision, but extend the terminal verdict to the existing 12 s recovery
+  bound on both robots. This covers the observed Scene 04 corridor recovery
+  at 8.58 s without weakening the continuous collision stop.
+- Add regression coverage for oriented rectangular footprint clearing and the
+  observed delayed recovery, and refresh the public deployment checksums.
+
 ### Scene 04 dual-route coordination correction (2026-08-01)
 
 - Do not serialize a robot pair merely because its already-clear starting

@@ -70,11 +70,11 @@ RECEIVER_OCCUPANCY_RECOVERY_GRACE_S="${FOCUS_WSJ_RECEIVER_OCCUPANCY_RECOVERY_GRA
 # unchanged 1.5 s delivery gate.  Keep an existing immutable leg stopped for a
 # further bounded interval so one HTTP timing gap is not an episode verdict.
 HEARTBEAT_DELIVERY_RECOVERY_GRACE_S="${FOCUS_WSJ_HEARTBEAT_DELIVERY_RECOVERY_GRACE_S:-3.0}"
-# A collision report still zeros guarded velocity immediately.  The shared
-# local occupancy/planner contract recovered from a live collision state after
-# roughly six seconds on Robot 1; use the same bounded seven-second verdict on
-# both platforms before the Hub permanently rejects the immutable leg.
-PLANNER_COLLISION_REJECTION_S="${FOCUS_WSJ_PLANNER_COLLISION_REJECTION_S:-7.0}"
+# A collision report still zeros guarded velocity immediately. Scene 04
+# observed a valid corridor recover after 8.58 s, just after the old verdict.
+# Use the same bounded twelve-second local-recovery verdict on both platforms
+# before the Hub permanently rejects the immutable leg.
+PLANNER_COLLISION_REJECTION_S="${FOCUS_WSJ_PLANNER_COLLISION_REJECTION_S:-12.0}"
 # The guarded velocity output is zeroed after one second without a fresh path.
 # Physical legs observed a 1.900-1.921 s first-path delay and later 1.016 s and
 # 3.365 s planner publication gaps while the router was still producing an

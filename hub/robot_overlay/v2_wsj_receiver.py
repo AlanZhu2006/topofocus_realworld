@@ -1346,7 +1346,7 @@ def main() -> int:
     parser.add_argument(
         "--planner-collision-rejection-s",
         type=float,
-        default=7.0,
+        default=12.0,
         help=(
             "continuous fresh all-collision duration before rejecting the "
             "leg as LOCAL_GOAL_UNREACHABLE; velocity remains closed "
