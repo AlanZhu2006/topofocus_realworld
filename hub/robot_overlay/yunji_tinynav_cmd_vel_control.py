@@ -402,27 +402,39 @@ def classify_verified_reverse_command_recovery(
 
 def controller_recovery_timeout_is_terminal(
     *,
-    expired: bool,
+    absolute_timeout_expired: bool,
+    convergence_stalled: bool,
     verified_forward_only_planner: bool,
     source_reverse_command: bool = False,
 ) -> bool:
-    """Bound every continuous in-place recovery without mislabelling it.
+    """Resolve turn timeouts without trusting a replanning path as a clock.
 
-    The receiver still owns translational goal-progress authority.  The local
-    controller independently owns continuous yaw recovery: a turn that cannot
-    converge inside its explicit lease is a turn stall even when the verified
-    planner never requested reverse motion.  ``source_reverse_command`` and
-    ``verified_forward_only_planner`` remain in the signature so old call
-    sites cannot silently lose their declared contract.
+    The collision-scored path is allowed to change while the robot turns, so
+    its instantaneous heading error can grow even while odometry is rotating
+    correctly.  For the verified forward-only planner this makes the short
+    convergence watchdog diagnostic only; the independent absolute 12-second
+    turn bound and receiver progress watchdog remain terminal.  This includes
+    the pinned controller's synthetic negative command for a behind lookahead:
+    the verified planner has no reverse trajectory vocabulary, so that command
+    is still only a changing path representation.  An unverified planner
+    retains the early convergence failure.
     """
 
-    if not isinstance(expired, bool):
-        raise ValueError("expired must be boolean")
-    if not isinstance(verified_forward_only_planner, bool):
-        raise ValueError("verified_forward_only_planner must be boolean")
-    if not isinstance(source_reverse_command, bool):
-        raise ValueError("source_reverse_command must be boolean")
-    return expired
+    values = (
+        absolute_timeout_expired,
+        convergence_stalled,
+        verified_forward_only_planner,
+        source_reverse_command,
+    )
+    if not all(isinstance(value, bool) for value in values):
+        raise ValueError("controller recovery timeout inputs must be boolean")
+    return bool(
+        absolute_timeout_expired
+        or (
+            convergence_stalled
+            and not verified_forward_only_planner
+        )
+    )
 
 
 def bounded_rotate_first_angular(
@@ -1712,7 +1724,8 @@ def main(args: list[str] | None = None) -> None:
                     timeout_s=deployment_args.rotate_first_timeout_s,
                 )
                 expired = controller_recovery_timeout_is_terminal(
-                    expired=bool(absolute_timeout_expired or convergence_stalled),
+                    absolute_timeout_expired=absolute_timeout_expired,
+                    convergence_stalled=convergence_stalled,
                     verified_forward_only_planner=(
                         deployment_args.verified_forward_only_planner
                     ),

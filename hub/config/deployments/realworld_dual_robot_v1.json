@@ -218,7 +218,7 @@
         "duration_s": 0.6
       },
       "verified_forward_only_path_geometry": "zero-linear bounded heading alignment",
-      "turn_no_progress_authority": "3 s path-frame heading convergence watchdog, 12 s absolute timeout, plus receiver fixed-goal progress watchdog",
+      "turn_no_progress_authority": "3 s path-frame heading convergence diagnostic for the verified forward-only planner, 12 s absolute timeout, plus receiver fixed-goal progress watchdog",
       "path_heading_reference": "planner path frame for local path; raw odometry frame only for router fallback",
       "negative_twist_policy": "never forward; use stable-heading zero-linear alignment or reject on missing authority/timeout"
     },
@@ -415,8 +415,8 @@
     },
     {
       "path": "hub/robot_overlay/yunji_tinynav_cmd_vel_control.py",
-      "size_bytes": 80122,
-      "sha256": "34ec60ab3f75f2e00c04bc684144485a90fa85fb5194422a30bf4f8f92349181",
+      "size_bytes": 80533,
+      "sha256": "2b1fca95852a9f042b765bcf34387e0cfd13bcaf47c6f23b33b6ae8a9f050c8f",
       "classification": "source-derived"
     },
     {
@@ -469,8 +469,8 @@
     },
     {
       "path": "hub/tools/freeze_realworld_inputs.py",
-      "size_bytes": 18971,
-      "sha256": "306be9f57ecbcd4e42be260da513a1e38f33b4d536269f32c7447cd29ed96af6",
+      "size_bytes": 20352,
+      "sha256": "95fb0e9714c283ccd76f53bfda304f956c343a666fb9b8259a07a5befaad0d16",
       "classification": "source-derived"
     },
     {

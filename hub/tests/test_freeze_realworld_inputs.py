@@ -209,7 +209,7 @@ def test_frozen_input_records_current_perception_over_last_accepted_bev(
     )
 
 
-def test_frozen_input_rejects_sustained_ground_geometry_starvation(
+def test_frozen_input_reuses_last_bev_when_ground_is_not_observable(
     tmp_path, observation_factory
 ):
     module = load_module()
@@ -228,6 +228,48 @@ def test_frozen_input_rejects_sustained_ground_geometry_starvation(
             "ground_rejection_streak": 51,
             "ground_rejection_duration_s": 5.1,
             "last_ground_reason": "insufficient_candidates",
+        }
+    )
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+
+    record, _, _ = module.validate_frozen_robot(
+        session,
+        "robot-0",
+        frozen,
+        tmp_path / "accepted/wsj",
+        spool,
+        now_ns=now_ns,
+        max_input_age_s=1.0,
+        minimum_source_sequence=10,
+    )
+
+    assert record["ground_geometry_health"]["status"] == (
+        "ground_unobservable_reuse_last_accepted_bev"
+    )
+    assert record["ground_geometry_health"]["motion_authority"] == (
+        "robot_local_current_depth_esdf"
+    )
+
+
+def test_frozen_input_rejects_repeated_plane_outside_calibrated_limits(
+    tmp_path, observation_factory
+):
+    module = load_module()
+    now_ns = 100_000_000_000
+    observation = observation_factory(
+        sequence=10,
+        now_ns=now_ns,
+        mapping_only=False,
+        health_ready=True,
+    )
+    session, frozen, spool = build_inputs(tmp_path, observation)
+    status_path = frozen / "live_status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status.update(
+        {
+            "ground_rejection_streak": 51,
+            "ground_rejection_duration_s": 5.1,
+            "last_ground_reason": "plane_outside_limits",
         }
     )
     status_path.write_text(json.dumps(status), encoding="utf-8")

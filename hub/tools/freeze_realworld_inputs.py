@@ -64,14 +64,30 @@ WSJ_RECOVERED_MAPPING_HEALTH = re.compile(
 )
 MAX_SUSTAINED_GROUND_REJECTION_S = 5.0
 MIN_SUSTAINED_GROUND_REJECTION_FRAMES = 3
+GROUND_UNOBSERVABLE_REASONS = frozenset(
+    {
+        "insufficient_candidates",
+        "no_valid_plane",
+        "insufficient_inliers",
+        "degenerate_refinement",
+    }
+)
 
 
 def reject_sustained_stale_geometry(
     robot_id: str,
     summary: dict[str, object],
     status: dict[str, object],
-) -> None:
-    """Reject current perception paired with a persistently frozen BEV."""
+) -> dict[str, object]:
+    """Classify a skipped-floor interval without confusing a wall with drift.
+
+    A close wall or furniture-only view contains no observable horizontal
+    plane.  The mapper correctly skips such a frame, but absence of a plane is
+    not evidence that the already accepted static BEV became geometrically
+    invalid.  Keep that provenance explicit and let the robot-local current
+    depth/ESDF retain final motion authority.  A repeatedly fitted plane which
+    is outside the calibrated limits remains a hard failure.
+    """
 
     # live_status is written on the fast camera/status cadence.  Fall back to
     # the atomic map summary only for fixtures or a status writer from the
@@ -83,6 +99,7 @@ def reject_sustained_stale_geometry(
     )
     streak = source.get("ground_rejection_streak", 0)
     duration_s = source.get("ground_rejection_duration_s", 0.0)
+    reason = source.get("last_ground_reason")
     if (
         isinstance(streak, bool)
         or not isinstance(streak, int)
@@ -97,10 +114,24 @@ def reject_sustained_stale_geometry(
         streak >= MIN_SUSTAINED_GROUND_REJECTION_FRAMES
         and float(duration_s) > MAX_SUSTAINED_GROUND_REJECTION_S
     ):
+        if reason in GROUND_UNOBSERVABLE_REASONS:
+            return {
+                "status": "ground_unobservable_reuse_last_accepted_bev",
+                "last_ground_reason": reason,
+                "rejection_streak": streak,
+                "rejection_duration_s": float(duration_s),
+                "motion_authority": "robot_local_current_depth_esdf",
+            }
         raise ValueError(
             f"{robot_id} map geometry stale after sustained ground "
             f"rejection: frames={streak}, duration_s={float(duration_s):.3f}"
         )
+    return {
+        "status": "ground_observable_or_transiently_unobservable",
+        "last_ground_reason": reason,
+        "rejection_streak": streak,
+        "rejection_duration_s": float(duration_s),
+    }
 
 
 def mapping_health_classification(
@@ -246,7 +277,9 @@ def validate_frozen_robot(
                 f"{robot_id} frozen map blocked: "
                 f"{payload.get('mapping_blocked_reason')}"
             )
-    reject_sustained_stale_geometry(robot_id, summary, status)
+    ground_geometry_health = reject_sustained_stale_geometry(
+        robot_id, summary, status
+    )
     if snapshot.frame_id != "shared_world":
         raise ValueError(f"{robot_id} map snapshot frame mismatch")
     if snapshot.transform_version != robot.transform_version:
@@ -341,6 +374,7 @@ def validate_frozen_robot(
             if map_sequence == sequence
             else "current_stage1_with_last_geometry_accepted_bev"
         ),
+        "ground_geometry_health": ground_geometry_health,
         "yolo_detection_count": len(detections),
         "yolo_model_provenance": yolo_model_provenance,
         "source_mapping_health": {

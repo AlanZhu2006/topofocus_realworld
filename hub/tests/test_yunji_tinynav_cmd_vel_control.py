@@ -316,27 +316,32 @@ def test_unverified_planner_retains_legacy_geometry_rejection():
     ) == ("reject_reverse", False)
 
 
-def test_every_continuous_turn_has_a_local_bounded_timeout():
+def test_forward_only_turn_uses_absolute_bound_not_replanning_error_clock():
     assert MODULE.controller_recovery_timeout_is_terminal(
-        expired=True,
+        absolute_timeout_expired=True,
+        convergence_stalled=False,
         verified_forward_only_planner=True,
     )
     assert MODULE.controller_recovery_timeout_is_terminal(
-        expired=True,
+        absolute_timeout_expired=False,
+        convergence_stalled=True,
         verified_forward_only_planner=False,
     )
     assert not MODULE.controller_recovery_timeout_is_terminal(
-        expired=False,
-        verified_forward_only_planner=False,
+        absolute_timeout_expired=False,
+        convergence_stalled=True,
+        verified_forward_only_planner=True,
     )
-    assert MODULE.controller_recovery_timeout_is_terminal(
-        expired=True,
+    assert not MODULE.controller_recovery_timeout_is_terminal(
+        absolute_timeout_expired=False,
+        convergence_stalled=True,
         verified_forward_only_planner=True,
         source_reverse_command=True,
     )
     with pytest.raises(ValueError):
         MODULE.controller_recovery_timeout_is_terminal(
-            expired=1,
+            absolute_timeout_expired=1,
+            convergence_stalled=False,
             verified_forward_only_planner=True,
         )
 
