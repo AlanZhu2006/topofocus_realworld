@@ -135,14 +135,16 @@ def command_channel_ready(
     last_send_ok_monotonic: float,
     now_monotonic: float,
     send_rate_hz: float,
+    output_zero: bool = False,
 ) -> bool:
     """Require a recent acknowledged joy command before advertising ready.
 
     ``/api/robot_status`` and ``/api/joy_control`` are independent WATER
     requests.  A healthy status response therefore cannot prove that the
-    velocity command connection is usable.  In live mode, fail closed until
-    at least one joy command has been acknowledged, immediately close on a
-    send failure, and close again if acknowledgements stop arriving.
+    velocity command connection is usable.  Active output requires current
+    acknowledgements.  An acknowledged zero remains a valid idle latch because
+    WATER expires velocity authority after 0.5 seconds and the next nonzero
+    edge always opens a fresh command connection.
     """
 
     values = (
@@ -162,6 +164,8 @@ def command_channel_ready(
         or now_monotonic < last_send_ok_monotonic
     ):
         return False
+    if output_zero:
+        return True
     return (
         now_monotonic - last_send_ok_monotonic
         <= max(0.5, 2.0 / send_rate_hz)
@@ -474,6 +478,7 @@ def main() -> int:
             self.last_forwarded_command_sequence = 0
             self.connection_rearm_sequence = 0
             self.last_connection_rearm_command_sequence = 0
+            self.idle_zero_suppressed_ticks = 0
             self.last_sent = SanitizedVelocity(
                 0.0, 0.0, True, "initial_zero"
             )
@@ -548,6 +553,7 @@ def main() -> int:
                 command_sequence = self.command_sequence
                 water_ready = self._water_ready_locked(now)
                 previous_sent = self.last_sent
+                previous_send_succeeded = self.last_send_succeeded
             velocity, reason = effective_velocity(
                 command,
                 received_monotonic=command_received_monotonic,
@@ -572,6 +578,20 @@ def main() -> int:
                     self.last_connection_rearm_command_sequence = (
                         command_sequence
                     )
+            elif (
+                velocity.zero
+                and previous_sent.zero
+                and previous_send_succeeded
+            ):
+                # The proven manual WATER path sends one acknowledged zero and
+                # then remains silent while idle.  Repeating zero at 5 Hz can
+                # leave the chassis in an acknowledged but inert state when a
+                # later nonzero command arrives.  The vendor's 0.5 s TTL keeps
+                # the base stopped; shutdown still sends three explicit zeros.
+                with self.state_lock:
+                    self.last_reason = reason
+                    self.idle_zero_suppressed_ticks += 1
+                return
             send_started = time.monotonic()
             try:
                 self.joy.send(velocity.linear_mps, velocity.angular_radps)
@@ -637,6 +657,9 @@ def main() -> int:
                 last_connection_rearm_command_sequence = (
                     self.last_connection_rearm_command_sequence
                 )
+                idle_zero_suppressed_ticks = (
+                    self.idle_zero_suppressed_ticks
+                )
                 last_sent = self.last_sent
                 last_reason = self.last_reason
                 ready = self._water_ready_locked(now)
@@ -651,6 +674,7 @@ def main() -> int:
                 last_send_ok_monotonic=last_send_ok_monotonic,
                 now_monotonic=now,
                 send_rate_hz=args.send_rate_hz,
+                output_zero=last_sent.zero,
             )
             last_ack_age_s = (
                 None
@@ -678,6 +702,7 @@ def main() -> int:
                 "last_connection_rearm_command_sequence": (
                     last_connection_rearm_command_sequence
                 ),
+                "idle_zero_suppressed_ticks": idle_zero_suppressed_ticks,
                 "last_ack_age_s": last_ack_age_s,
                 "last_send_latency_s": last_send_latency_s,
                 "velocity_zero_confirmed": zero_confirmed,
@@ -692,6 +717,7 @@ def main() -> int:
                     "vendor_command_ttl_s": 0.5,
                     "executor_contract": "parallel_io_v1",
                     "zero_to_active_connection_rearm": True,
+                    "idle_zero_policy": "single_ack_then_vendor_ttl",
                     "classification": (
                         "observed_live_output" if live else "dry_run_preview"
                     ),

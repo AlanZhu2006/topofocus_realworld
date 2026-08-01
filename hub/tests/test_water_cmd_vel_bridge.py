@@ -123,6 +123,22 @@ def test_live_water_readiness_requires_current_joy_acknowledgements() -> None:
         now_monotonic=10.0,
         send_rate_hz=5.0,
     )
+    assert bridge.command_channel_ready(
+        live=True,
+        last_send_succeeded=True,
+        last_send_ok_monotonic=1.0,
+        now_monotonic=10.0,
+        send_rate_hz=5.0,
+        output_zero=True,
+    )
+    assert not bridge.command_channel_ready(
+        live=True,
+        last_send_succeeded=False,
+        last_send_ok_monotonic=1.0,
+        now_monotonic=10.0,
+        send_rate_hz=5.0,
+        output_zero=True,
+    )
 
 
 def test_water_command_session_rearms_only_on_zero_to_active_edge() -> None:
@@ -262,3 +278,5 @@ def test_water_bridge_parallelizes_blocking_io_and_reports_exact_forwarding() ->
     assert '"executor_contract": "parallel_io_v1"' in source
     assert '"connection_rearm_sequence"' in source
     assert '"zero_to_active_connection_rearm": True' in source
+    assert '"idle_zero_suppressed_ticks"' in source
+    assert '"idle_zero_policy": "single_ack_then_vendor_ttl"' in source

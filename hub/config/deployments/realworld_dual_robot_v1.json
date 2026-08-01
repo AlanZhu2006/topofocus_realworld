@@ -300,6 +300,8 @@
         "max_linear_x_mps": 0.3,
         "max_angular_z_radps": 0.4,
         "bridge_executor_contract": "parallel_io_v1",
+        "idle_zero_policy": "one acknowledged zero per idle boundary, then vendor 0.5-second TTL; three explicit zeros on shutdown",
+        "zero_to_active_connection_rearm": true,
         "command_forwarding_evidence": [
           "input_sequence",
           "forwarded_input_sequence",
