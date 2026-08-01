@@ -4,9 +4,9 @@
   "target_category": "plant",
   "campaign_status": "in_progress",
   "planned_formal_experiments": 5,
-  "recorded_formal_experiments": 2,
+  "recorded_formal_experiments": 3,
   "successes": 0,
-  "failures": 2,
+  "failures": 3,
   "sr": 0.0,
   "aggregate_metrics": {
     "mean_source_compatible_spl_with_failures_zero": 0.0,
@@ -27,6 +27,22 @@
         "size_bytes": 13374,
         "sha256": "5532bf3e956be2487b2c7ad214a4b593f10b2d78179cb5645b6fa2abadb4f360",
         "classification": "authoritative machine-readable Scene 04 Formal 01 failure archive"
+      }
+    },
+    {
+      "formal_index": 2,
+      "result": "FAILURE",
+      "source_rounds_completed": 16,
+      "robot_0_actual_path_length_m": 16.910833517018126,
+      "robot_1_actual_path_length_m": 13.391199814904782,
+      "source_compatible_spl": 0.0,
+      "standard_spl": 0.0,
+      "public_summary": "The 600-second test budget elapsed before exploration found and reached a verified plant target.",
+      "record": {
+        "path": "manifests/scene04_plant_formal_experiment_02_failure_20260801.json",
+        "size_bytes": 12215,
+        "sha256": "099d634c6cfbfe084303ae9e66d204fcb63c5c34c675255a9c15e0a917fd54a0",
+        "classification": "authoritative machine-readable Scene 04 Formal 02 failure archive"
       }
     },
     {

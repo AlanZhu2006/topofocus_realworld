@@ -56,12 +56,12 @@
       "classification": "Scene 03 Formal 01-02 are zero-contribution time-limit failures; Formal 03-05 are operator-confirmed physical plant-arrival successes"
     },
     "scene04_physical_0p5m_protocol": {
-      "recorded_episodes": 2,
+      "recorded_episodes": 3,
       "successes": 0,
       "sr": 0.0,
       "source_compatible_multi_spl_mean": 0.0,
       "standard_multi_spl_mean": 0.0,
-      "classification": "Scene 04 Formal 01 and Formal 04 are recorded zero-contribution failures; Formal 01 ended with no safe executable allocation and Formal 04 reached the time limit"
+      "classification": "Scene 04 Formal 01, Formal 02 and Formal 04 are recorded zero-contribution failures; Formal 01 ended with no safe executable allocation, while Formal 02 and Formal 04 reached the time limit"
     }
   },
   "formal_scene_results": {
@@ -96,12 +96,12 @@
     },
     "scene04-plant": {
       "path": "manifests/scene04_plant_formal_experiments_20260731.json",
-      "recorded_formal_experiments": 2,
+      "recorded_formal_experiments": 3,
       "successes": 0,
       "sr": 0.0,
       "mean_source_compatible_spl": 0.0,
       "mean_standard_spl": 0.0,
-      "classification": "Scene 04 campaign archive currently containing Formal 01 and Formal 04"
+      "classification": "Scene 04 campaign archive currently containing Formal 01, Formal 02 and Formal 04"
     }
   },
   "planned_scene_campaigns": {
@@ -129,10 +129,10 @@
     "scene04-plant": {
       "target_category": "plant",
       "planned_formal_experiments": 5,
-      "recorded_episodes": 2,
+      "recorded_episodes": 3,
       "successes": 0,
-      "metric_status": "two_recorded_failures_campaign_in_progress",
-      "classification": "Formal 01 is archived as a 15-round no-safe-allocation failure and Formal 04 as a 17-round time-limit failure; the other Scene 04 formal records are not yet present"
+      "metric_status": "three_recorded_failures_campaign_in_progress",
+      "classification": "Formal 01 is archived as a 15-round no-safe-allocation failure; Formal 02 and Formal 04 are time-limit failures; the other Scene 04 formal records are not yet present"
     }
   },
   "attempts_not_in_metric_track": [

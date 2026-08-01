@@ -450,13 +450,13 @@ SPL uses the independently measured approximate shortest feasible path
 
 ## Scene 04 · Cooperative Plant
 
-Two formal failures are currently archived. Formal 01 ended when no remaining
-frontier had a safe executable allocation; Formal 04 reached the 600-second
-test limit. Neither run reached a verified plant target.
+Three formal failures are currently archived. Formal 01 ended when no remaining
+frontier had a safe executable allocation; Formal 02 and Formal 04 reached the
+600-second test limit. None reached a verified plant target.
 
 | Recorded trials | Success | SR | Mean source-compatible SPL | Mean Standard SPL |
 | ---: | ---: | ---: | ---: | ---: |
-| `2` | `0` | `0.0` | `0.0` | `0.0` |
+| `3` | `0` | `0.0` | `0.0` | `0.0` |
 
 ### Real-robot rollouts
 
@@ -492,8 +492,10 @@ test limit. Neither run reached a verified plant target.
 | Run | Result | Exploration rounds | Robot 0 trajectory | Robot 1 trajectory | Source-compatible SPL | Standard SPL |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | Formal 01 | FAILURE | `15` | `10.461142 m` | `14.271182 m` | `0.0` | `0.0` |
+| Formal 02 | FAILURE | `16` | `16.910834 m` | `13.391200 m` | `0.0` | `0.0` |
 | Formal 04 | FAILURE | `17` | `12.917490 m` | `19.608723 m` | `0.0` | `0.0` |
 
 [Formal 01 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_01_FAILURE_20260801.md)
+· [Formal 02 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_02_FAILURE_20260801.md)
 · [Formal 04 failure record](audit/SCENE04_PLANT_FORMAL_EXPERIMENT_04_FAILURE_20260731.md)
 · [Machine-readable results](manifests/scene04_plant_formal_experiments_20260731.json)
