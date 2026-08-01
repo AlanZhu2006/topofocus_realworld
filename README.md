@@ -1,8 +1,8 @@
 # TopoFocus Real-World
 
-TopoFocus's real-world dual-robot system: a GPU hub handles online mapping,
-semantic understanding, VLM decisions and high-level coordination, while
-Robot 0 and Robot 1 handle planning, control and safety stops locally.
+Real-world dual-robot implementation of TopoFocus. An RTX 4090 Hub builds the
+shared semantic map and coordinates VLM-selected goals; both robots plan,
+control and stop locally.
 
 ## Reference deployment
 
@@ -12,13 +12,9 @@ Robot 0 and Robot 1 handle planning, control and safety stops locally.
 
 | Role | Compute | Platform and sensing | Primary runtime |
 | --- | --- | --- | --- |
-| GPU Hub | Intel Core i9-14900K, 64 GB RAM, NVIDIA GeForce RTX 4090 | ASUS workstation, Ubuntu 22.04 | Semantic inference, shared-map fusion, VLM decisions and route coordination |
-| Robot 0 | NVIDIA Jetson Orin NX, JetPack 6.2.1 | Unitree Go2 + Intel RealSense D435i | TinyNav perception, online occupancy, planning/control and guarded Unitree SDK2 output |
-| Robot 1 | ASUS NUC 12 Pro NUC12WSK-B, Core i7-1260P, 16 GB RAM | Wheeled chassis + [Manifold Tech Odin1](https://www.manifoldtech.cn/) | Odin localization, TinyNav planning/control and guarded WATER output |
-
-These are the observed reference machines. The Hub publishes only versioned,
-expiring high-level targets; each robot retains final stop and target-rejection
-authority.
+| GPU Hub | Intel Core i9-14900K, 64 GB RAM, NVIDIA GeForce RTX 4090 | ASUS workstation, Ubuntu 22.04 | Semantics, fusion and VLM coordination |
+| Robot 0 | NVIDIA Jetson Orin NX, JetPack 6.2.1 | Unitree Go2 + Intel RealSense D435i | TinyNav + guarded Unitree control |
+| Robot 1 | ASUS NUC 12 Pro NUC12WSK-B, Core i7-1260P, 16 GB RAM | Wheeled chassis + [Manifold Tech Odin1](https://www.manifoldtech.cn/) | Odin, TinyNav + guarded WATER control |
 
 ## System architecture
 
@@ -28,82 +24,24 @@ authority.
   </a>
 </p>
 
-## Real-world deployment
+The Hub fuses online maps and applies the source-compatible A–D VLM decision
+cascade. Each robot routes an expiring goal with known-free A*, then follows a
+TinyNav local trajectory behind independent fail-closed safety checks.
 
-The physical system follows the main method's two-agent navigation pipeline:
-shared semantic mapping, source-compatible frontier and history candidates,
-and a Perception–Judgment–Decision VLM cascade over one shared A–D candidate
-set. The Hub runs RedNet and Detectron2 semantics, map fusion, VLM decisions
-and route coordination.
-
-Each robot routes an expiring target with bounded known-free A*, then uses
-TinyNav's ESDF-scored local planner and path follower. Lease, calibration,
-reachability and data-freshness checks gate raw `/cmd_vel` before an
-independent Unitree SDK2 or WATER watchdog. Any invalid or all-collision state
-stops locally.
-
-### Clean-room deployment
-
-The Hub and Go2 Jetson use different operating systems and architectures, so
-deployment is one reviewed command per host rather than one command that
-silently changes every machine. Clone the same Git revision on both hosts:
+## Reproduction
 
 ```bash
 git clone https://github.com/AlanZhu2006/topofocus_realworld.git
 cd topofocus_realworld
-git rev-parse HEAD
-```
-
-First run the repository-only gate. It checks the deployment contract and
-file hashes; it does not install software or connect to a robot:
-
-```bash
 python3 hub/tools/verify_public_baseline.py --workspace .
 ```
 
-On the Ubuntu 22.04 RTX 4090 Hub, the first command prints the complete plan
-and the second creates the locked Python/CUDA environment, obtains the pinned
-real-world models after license acknowledgement, builds Detectron2 and runs
-the Hub tests:
-
-```bash
-bash hub/scripts/bootstrap_gpu_hub_cleanroom.sh
-bash hub/scripts/bootstrap_gpu_hub_cleanroom.sh \
-  --apply \
-  --fetch-models \
-  --accept-model-licenses
-```
-
-On Robot 0, first flash the recorded JetPack 6.2.1/L4T 36.4.7 image. From the
-same repository revision on the Jetson Orin NX, review and apply the software
-and dedicated Go2 Ethernet plans:
-
-```bash
-bash hub/robot_overlay/bootstrap_robot0_cleanroom.sh
-bash hub/robot_overlay/bootstrap_robot0_cleanroom.sh --apply
-
-bash hub/robot_overlay/configure_go2_network.sh
-bash hub/robot_overlay/configure_go2_network.sh --apply
-```
-
-Then run the no-motion hardware gate:
-
-```bash
-config_root="${XDG_CONFIG_HOME:-$HOME/.config}/topofocus"
-set -a
-source "$config_root/robot-0.env"
-set +a
-source "$TINYNAV_SETUP"
-"$TINYNAV_PYTHON" hub/robot_overlay/verify_robot0_cleanroom.py \
-  --level hardware
-```
-
-The installers do not start ROS, planning, DDS actuation or robot motion.
-Provision the runtime token separately as a mode-600 file, then create a fresh
-cross-robot calibration/session and obtain explicit per-run motion
-authorization through the linked operator workflow.
+This command verifies the public byte contracts without installing software or
+connecting to a robot. Host installation, Robot 0 reconstruction, Robot 1
+Odin1 setup and supervised calibration are documented below.
 
 [Clean-room RTX 4090 + Unitree Go2 deployment](docs/ROBOT0_REPRODUCIBLE_BASELINE.md) ·
+[Robot 1 Odin1 deployment](hub/docs/YUNJI_ODIN1_DEPLOYMENT.md) ·
 [Calibration and supervised-run workflow](hub/docs/ONECLICK_SESSION_WORKFLOW.md) ·
 [Reproduction levels](docs/REPRODUCE.md) ·
 [Machine-readable deployment contract](hub/config/deployments/realworld_dual_robot_v1.json)
@@ -114,13 +52,9 @@ authorization through the linked operator workflow.
   <img src="media/image/calibration_annotated.jpg" width="900" alt="Shared cross-robot calibration using a circle-grid board">
 </p>
 
-With both robots stationary, each robot's own camera captures one shared
-7×10 symmetric circle-grid board (40 mm spacing) and solves its pose by
-PnP; the two per-camera poses compose into a fixed transform between the
-robots' camera frames, registering their local odometry into one shared
-frame. The board is then moved by at least 10 cm or rotated by at least 5°
-and re-observed as an independent holdout — the calibration is accepted
-only if it also explains this second, independently moved observation.
+Both stationary robots observe the same 7×10 circle-grid board to register
+their local odometry in one shared frame. A moved-board holdout independently
+validates the fitted transform before use.
 
 > **Note:** Glass, mirrors, low-texture surfaces and extreme lighting can degrade depth sensing and localization; adjust the viewing direction or use another scene, then revalidate tracking before a run.
 
