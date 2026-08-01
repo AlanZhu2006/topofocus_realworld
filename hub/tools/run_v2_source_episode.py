@@ -113,6 +113,12 @@ FAILURE_FEEDBACK = {
     "HOLDING",
 }
 HOLD_FEEDBACK = {"HOLDING"}
+LOCAL_RECOVERY_WAIT_REASONS = {
+    "LOCAL_OCCUPANCY_RECOVERY_WAIT",
+    "LOCAL_SLAM_RECOVERY_WAIT",
+    "LOCAL_SENSOR_RECOVERY_WAIT",
+    "LOCAL_ODOMETRY_RECOVERY_WAIT",
+}
 SAFE_REASON = re.compile(r"[^a-zA-Z0-9_.-]+")
 DEFAULT_CROSS_ROUND_MIN_PROGRESS_M = SOURCE_STAGNANT_REPLAN_M
 DEFAULT_MAX_CONSECUTIVE_STAGNANT_INTERVALS = 1
@@ -140,6 +146,10 @@ class RoundResult:
     feedback_counts: dict[str, int]
     recoverable_failures: dict[str, dict[str, object]] = field(default_factory=dict)
     interrupted_robot_ids: frozenset[str] = frozenset()
+
+
+class GoalHealthConflict(RuntimeError):
+    """A GOAL publication raced a fresh robot-local fail-closed health gate."""
 
 
 def progress_memory_after_round(
@@ -590,6 +600,16 @@ class EpisodeClient:
             "/v2/admin/decision-batches",
             json=batch.model_dump(mode="json"),
         )
+        if response.status_code == 409:
+            try:
+                detail = response.json().get("detail", "")
+            except (TypeError, ValueError):
+                detail = ""
+            if (
+                isinstance(detail, str)
+                and "health does not permit a GOAL" in detail
+            ):
+                raise GoalHealthConflict(detail)
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
@@ -644,6 +664,126 @@ def transient_slam_readiness_waitable(report: dict[str, object]) -> bool:
     )
 
 
+def transient_occupancy_readiness_waitable(report: dict[str, object]) -> bool:
+    """Recognize only the receiver's fail-stopped occupancy refresh HOLD."""
+
+    blockers = report.get("blockers")
+    health = report.get("health")
+    if blockers != ["HEALTH_NOT_READY"] or not isinstance(health, dict):
+        return False
+    detail = health.get("detail")
+    return bool(
+        health.get("safety_state") == "HOLD"
+        and health.get("localization_state") == "TRACKING"
+        and health.get("estop_engaged") is False
+        and health.get("collision_avoidance_ready") is False
+        and health.get("motor_controller_ready") is True
+        and isinstance(detail, str)
+        and "occupancy_age=" in detail
+    )
+
+
+def transient_readiness_waitable(report: dict[str, object]) -> bool:
+    """Return true only for bounded receiver-owned sensor recovery gates."""
+
+    return transient_slam_readiness_waitable(
+        report
+    ) or transient_occupancy_readiness_waitable(report)
+
+
+def recovery_renewal_feedback_ready(
+    state: dict[str, object],
+    decision: HighLevelDecisionV2,
+) -> bool:
+    """Match the registry's zero-motion same-leg recovery precondition."""
+
+    event = state.get("latest_event")
+    return bool(
+        isinstance(event, dict)
+        and event.get("decision_id") == decision.decision_id
+        and event.get("leg_id") == decision.leg_id
+        and event.get("lease_sequence") == decision.lease_sequence
+        and event.get("status") == "ACCEPTED"
+        and event.get("reason_code") in LOCAL_RECOVERY_WAIT_REASONS
+        and event.get("velocity_zero_confirmed") is True
+    )
+
+
+def active_renewal_feedback_ready(
+    state: dict[str, object],
+    decision: HighLevelDecisionV2,
+) -> bool:
+    """Require an exact current-lease active receipt for a healthy renewal."""
+
+    event = state.get("latest_event")
+    return bool(
+        isinstance(event, dict)
+        and event.get("decision_id") == decision.decision_id
+        and event.get("leg_id") == decision.leg_id
+        and event.get("lease_sequence") == decision.lease_sequence
+        and event.get("status") in ACTIVE_FEEDBACK
+    )
+
+
+def partition_renewal_readiness(
+    client: EpisodeClient,
+    current: DecisionBatchV2,
+    active: set[str],
+    *,
+    timeout_s: float,
+    poll_s: float,
+) -> tuple[
+    dict[str, dict[str, object]],
+    set[str],
+    set[str],
+    float,
+]:
+    """Wait out a bounded health/event race before renewing an active leg.
+
+    A robot is renewable only when it is fully GOAL-ready, or when its exact
+    current lease has emitted the zero-motion recovery receipt required by
+    the registry. This does not bypass a robot-local gate.
+    """
+
+    if timeout_s <= 0.0 or poll_s <= 0.0:
+        raise ValueError("renewal readiness recovery bounds must be positive")
+    decisions = {item.robot_id: item for item in current.decisions}
+    started = time.monotonic()
+    reports: dict[str, dict[str, object]] = {}
+    while True:
+        reports = {
+            robot_id: client.readiness(robot_id) for robot_id in sorted(active)
+        }
+        states = {robot_id: client.state(robot_id) for robot_id in sorted(active)}
+        renewable = {
+            robot_id
+            for robot_id in active
+            if (
+                (
+                    reports[robot_id].get("ready_for_goal") is True
+                    and active_renewal_feedback_ready(
+                        states[robot_id], decisions[robot_id]
+                    )
+                )
+                or recovery_renewal_feedback_ready(
+                    states[robot_id], decisions[robot_id]
+                )
+            )
+        }
+        blocked = set(active).difference(renewable)
+        elapsed_s = max(0.0, time.monotonic() - started)
+        if not blocked:
+            return reports, renewable, set(), elapsed_s
+        waitable = {
+            robot_id
+            for robot_id in blocked
+            if transient_readiness_waitable(reports[robot_id])
+        }
+        if waitable != blocked or elapsed_s >= timeout_s:
+            return reports, renewable, blocked, elapsed_s
+        time.sleep(min(poll_s, max(0.0, timeout_s - elapsed_s)))
+
+
 def partition_goal_readiness(
     client: EpisodeClient,
     active: set[str],
@@ -658,7 +798,7 @@ def partition_goal_readiness(
 ]:
     """Partition independently ready and fail-closed robots before a GOAL.
 
-    An exact transient-SLAM HOLD gets the existing bounded zero-motion wait.
+    An exact transient sensor-recovery HOLD gets a bounded zero-motion wait.
     Every other local blocker remains blocked immediately.  The caller may
     then preserve that robot as an explicit HOLD while allowing a ready peer
     to continue; this function never weakens or bypasses a robot-local gate.
@@ -680,7 +820,7 @@ def partition_goal_readiness(
         waitable = {
             robot_id
             for robot_id in blocked
-            if transient_slam_readiness_waitable(reports[robot_id])
+            if transient_readiness_waitable(reports[robot_id])
         }
         if waitable != blocked or elapsed_s >= timeout_s:
             return reports, set(active).difference(blocked), blocked, elapsed_s
@@ -694,7 +834,7 @@ def wait_for_goal_readiness(
     timeout_s: float,
     poll_s: float,
 ) -> tuple[dict[str, dict[str, object]], float]:
-    """Wait briefly for a transient SLAM HOLD before publishing any GOAL."""
+    """Wait briefly for a bounded sensor-recovery HOLD before a GOAL."""
 
     reports, _ready, blocked_ids, elapsed_s = partition_goal_readiness(
         client,
@@ -705,9 +845,9 @@ def wait_for_goal_readiness(
     if not blocked_ids:
         return reports, elapsed_s
     blocked = {robot_id: reports[robot_id] for robot_id in sorted(blocked_ids)}
-    if all(transient_slam_readiness_waitable(report) for report in blocked.values()):
+    if all(transient_readiness_waitable(report) for report in blocked.values()):
         raise RuntimeError(
-            "transient robot-local SLAM readiness did not recover before "
+            "transient robot-local readiness did not recover before "
             f"the {timeout_s:.3f}s zero-motion deadline: "
             + json.dumps(blocked, sort_keys=True)
         )
@@ -1479,8 +1619,8 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=3.0,
         help=(
-            "zero-motion wait for a transient receiver SLAM HOLD immediately "
-            "before a GOAL publication"
+            "zero-motion wait for a bounded receiver sensor-recovery HOLD "
+            "immediately before a GOAL publication or renewal"
         ),
     )
     parser.add_argument("--terminal-evidence-timeout-s", type=float, default=10.0)
@@ -2342,7 +2482,85 @@ def main() -> int:
                         recoverable_failures=recoverable_failures_all,
                         interrupted_robot_ids=frozenset(recoverable_failures_all),
                     )
-                transition(active, "lease_renewal")
+                (
+                    renewal_readiness,
+                    renewable_robot_ids,
+                    renewal_blocked_robot_ids,
+                    renewal_wait_s,
+                ) = partition_renewal_readiness(
+                    client,
+                    current,
+                    active,
+                    timeout_s=args.runtime_readiness_recovery_s,
+                    poll_s=args.poll_s,
+                )
+                if renewal_wait_s >= args.poll_s:
+                    emit(
+                        "lease_renewal_readiness_wait",
+                        active_robot_ids=sorted(active),
+                        zero_motion_wait_s=round(renewal_wait_s, 3),
+                        blocked_robot_ids=sorted(renewal_blocked_robot_ids),
+                    )
+                if renewal_blocked_robot_ids:
+                    emit(
+                        "lease_renewal_readiness_isolation",
+                        original_active_robot_ids=sorted(active),
+                        renewable_robot_ids=sorted(renewable_robot_ids),
+                        blocked_robot_ids=sorted(renewal_blocked_robot_ids),
+                        readiness=renewal_readiness,
+                    )
+                    if target_found and not (
+                        semantic_robot_ids.intersection(renewable_robot_ids)
+                    ):
+                        final_states = hold_and_confirm(
+                            "semantic_owner_renewal_unready_replan_hold"
+                        )
+                        return RoundResult(
+                            "replan",
+                            "semantic owner paused by a robot-local runtime "
+                            "gate; continue with fresh observations",
+                            final_states,
+                            {},
+                            round_latest,
+                            feedback_counts,
+                            recoverable_failures=recoverable_failures_all,
+                            interrupted_robot_ids=frozenset(
+                                recoverable_failures_all
+                            ),
+                        )
+                    active = set(renewable_robot_ids)
+                    if not active:
+                        final_states = hold_and_confirm(
+                            "lease_renewal_unready_replan_hold"
+                        )
+                        return RoundResult(
+                            "replan",
+                            "active legs paused by robot-local runtime gates; "
+                            "continue with fresh observations",
+                            final_states,
+                            {},
+                            round_latest,
+                            feedback_counts,
+                            recoverable_failures=recoverable_failures_all,
+                            interrupted_robot_ids=frozenset(
+                                recoverable_failures_all
+                            ),
+                        )
+                try:
+                    transition(active, "lease_renewal")
+                except GoalHealthConflict as conflict:
+                    # Heartbeats and navigation receipts are independent
+                    # streams. A fresh fail-closed heartbeat can therefore
+                    # arrive between the readiness read and atomic publish.
+                    # Keep the current lease, wait for the receiver's exact
+                    # zero-motion recovery receipt, and retry; never turn the
+                    # health gate into an episode-wide controller fault.
+                    emit(
+                        "lease_renewal_health_race_deferred",
+                        active_robot_ids=sorted(active),
+                        error=str(conflict)[:500],
+                    )
+                    time.sleep(args.poll_s)
                 continue
             time.sleep(args.poll_s)
         raise RuntimeError("round active set became empty without a terminal result")

@@ -608,6 +608,29 @@ def transient_slam_readiness(*, ready: bool = False) -> dict[str, object]:
     }
 
 
+def transient_occupancy_readiness(*, ready: bool = False) -> dict[str, object]:
+    return {
+        "ready_for_goal": ready,
+        "blockers": [] if ready else ["HEALTH_NOT_READY"],
+        "health": {
+            "safety_state": "READY" if ready else "HOLD",
+            "localization_state": "TRACKING",
+            "estop_engaged": False,
+            "collision_avoidance_ready": ready,
+            "motor_controller_ready": True,
+            "detail": (
+                "occupancy_current"
+                if ready
+                else (
+                    "external_odometry_covariance_tracking; "
+                    "occupancy_age=9.138s/5.000s; "
+                    "cached_occupancy_motion=0.436m/0.250m; alignment_shift"
+                )
+            ),
+        },
+    }
+
+
 def test_pre_goal_readiness_waits_only_for_transient_slam_hold(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -640,6 +663,143 @@ def test_pre_goal_readiness_waits_only_for_transient_slam_hold(
     assert reports["robot-0"]["ready_for_goal"] is True
     assert client.calls == 2
     assert waited_s >= 0.0
+
+
+def test_pre_goal_readiness_waits_for_exact_occupancy_refresh_hold(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = load_module()
+
+    report = transient_occupancy_readiness()
+    assert module.transient_occupancy_readiness_waitable(report)
+    hard = transient_occupancy_readiness()
+    hard["health"]["motor_controller_ready"] = False
+    assert not module.transient_occupancy_readiness_waitable(hard)
+
+    class RecoveringClient:
+        calls = 0
+
+        def readiness(self, _robot_id: str) -> dict[str, object]:
+            self.calls += 1
+            return transient_occupancy_readiness(ready=self.calls >= 2)
+
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    client = RecoveringClient()
+    reports, waited_s = module.wait_for_goal_readiness(
+        client,
+        {"robot-1"},
+        timeout_s=1.0,
+        poll_s=0.01,
+    )
+
+    assert reports["robot-1"]["ready_for_goal"] is True
+    assert client.calls == 2
+    assert waited_s >= 0.0
+
+
+def test_renewal_waits_for_exact_zero_motion_recovery_receipt(
+    tmp_path,
+    observation_factory,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = load_module()
+    now, manifest, registry, config = prepare_round(tmp_path, observation_factory)
+    built = build_batch_from_shadow_manifest(
+        manifest,
+        registry,
+        scene_id="scene-1",
+        episode_id="scene-1-trial-1",
+        execution_epoch=0,
+        now_ns=now,
+        robot_config_path=config,
+    )
+    decision = next(
+        item for item in built.batch.decisions if item.robot_id == "robot-1"
+    )
+    navigating = navigation_event(decision, "NAVIGATING", event_id="moving")
+    navigating["lease_sequence"] = decision.lease_sequence
+    recovery = navigation_event(decision, "ACCEPTED", event_id="recovery")
+    recovery.update(
+        {
+            "lease_sequence": decision.lease_sequence,
+            "reason_code": "LOCAL_OCCUPANCY_RECOVERY_WAIT",
+            "velocity_zero_confirmed": True,
+        }
+    )
+
+    assert not module.recovery_renewal_feedback_ready(
+        {"latest_event": navigating}, decision
+    )
+    assert module.active_renewal_feedback_ready(
+        {"latest_event": navigating}, decision
+    )
+    assert module.recovery_renewal_feedback_ready(
+        {"latest_event": recovery}, decision
+    )
+
+    class RecoveringClient:
+        state_calls = 0
+
+        def readiness(self, _robot_id: str) -> dict[str, object]:
+            return transient_occupancy_readiness()
+
+        def state(self, _robot_id: str) -> dict[str, object]:
+            self.state_calls += 1
+            return {
+                "latest_event": recovery if self.state_calls >= 2 else navigating
+            }
+
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    client = RecoveringClient()
+    reports, renewable, blocked, waited_s = module.partition_renewal_readiness(
+        client,
+        built.batch,
+        {"robot-1"},
+        timeout_s=1.0,
+        poll_s=0.01,
+    )
+
+    assert reports["robot-1"]["ready_for_goal"] is False
+    assert renewable == {"robot-1"}
+    assert blocked == set()
+    assert client.state_calls == 2
+    assert waited_s >= 0.0
+
+
+def test_episode_client_classifies_only_goal_health_409_as_recoverable(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module = load_module()
+
+    class ConflictResponse:
+        status_code = 409
+
+        @staticmethod
+        def json() -> dict[str, str]:
+            return {
+                "detail": (
+                    "robot-1 health does not permit a GOAL: "
+                    "safety=HOLD localization=TRACKING"
+                )
+            }
+
+        @staticmethod
+        def raise_for_status() -> None:
+            raise AssertionError("classified health conflicts must not escape")
+
+    class HttpClient:
+        def post(self, *_args, **_kwargs):
+            return ConflictResponse()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(module.httpx, "Client", lambda **_kwargs: HttpClient())
+    client = module.EpisodeClient("http://hub.invalid", "token")
+    batch = SimpleNamespace(model_dump=lambda **_kwargs: {})
+
+    with pytest.raises(module.GoalHealthConflict, match="robot-1 health"):
+        client.publish(batch)
 
 
 def test_pre_goal_readiness_rejects_nontransient_gate_immediately():
