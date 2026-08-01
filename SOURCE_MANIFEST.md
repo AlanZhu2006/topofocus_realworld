@@ -45,7 +45,10 @@ The upstream `requirements.txt` is incomplete; the overlay is the actual depende
 
 ## Deliberate exclusions
 
-No large simulator corpus, SIF, overlay, or unused HF CLIP-L/14 cache is copied.  See [CENTRAL_DEPLOYMENT.md](CENTRAL_DEPLOYMENT.md) for rationale.
+No large simulator corpus, SIF, overlay, or unused HF CLIP-L/14 cache is copied.
+See the
+[initial deployment rationale](docs/archive/CENTRAL_DEPLOYMENT_RATIONALE_20260721.md)
+for provenance.
 
 ## Target-machine verification (2026-07-18)
 

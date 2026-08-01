@@ -67,11 +67,10 @@ Commands without `--apply` preview their plans. The applied commands install
 the locked Jetson runtime and dedicated Go2 network configuration without
 starting motion.
 
-[Clean-room RTX 4090 + Unitree Go2 deployment](docs/ROBOT0_REPRODUCIBLE_BASELINE.md) ·
-[Robot 1 Odin1 deployment](hub/docs/YUNJI_ODIN1_DEPLOYMENT.md) ·
-[Calibration and supervised-run workflow](hub/docs/ONECLICK_SESSION_WORKFLOW.md) ·
-[Reproduction levels](docs/REPRODUCE.md) ·
-[Machine-readable deployment contract](hub/config/deployments/realworld_dual_robot_v1.json)
+[Full reproduction guide](docs/REPRODUCE.md) ·
+[Robot 0 clean-room deployment](docs/ROBOT0_REPRODUCIBLE_BASELINE.md) ·
+[Supervised workflow](hub/docs/ONECLICK_SESSION_WORKFLOW.md) ·
+[Documentation index](docs/README.md)
 
 ## Cross-robot calibration
 

@@ -1,8 +1,9 @@
 # Local two-robot hub: required assets and boundary
 
 > Historical design decision from the initial migration. For the current
-> implemented state and reproducible commands, start with `README.md` and
-> `docs/REPRODUCE.md`; this file remains as source-derived rationale.
+> implemented state and reproducible commands, start with the repository
+> `README.md` and `docs/REPRODUCE.md`; this file remains as source-derived
+> rationale.
 
 ## Decision
 
@@ -58,7 +59,7 @@ Two selected minival scenes were measured only to scope optional simulator smoke
 
 That adapter now exists under `hub/`. The following subsections remain the
 source-derived contract; current implementation and physical-test status are
-tracked in [`CURRENT_STATUS.md`](CURRENT_STATUS.md).
+tracked in [`CURRENT_STATUS.md`](../../CURRENT_STATUS.md).
 
 ### Inbound message per robot
 

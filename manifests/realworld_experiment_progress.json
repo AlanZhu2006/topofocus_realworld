@@ -1,7 +1,7 @@
 {
   "schema_version": "focus-realworld-demo-progress-v1",
   "experiment_id": "triple-ai-realworld-20260725",
-  "status": "incomplete",
+  "status": "complete",
   "expected_shape": {
     "scenes": 4,
     "trials_per_scene": 5,
