@@ -143,8 +143,9 @@ def command_channel_ready(
     requests.  A healthy status response therefore cannot prove that the
     velocity command connection is usable.  Active output requires current
     acknowledgements.  An acknowledged zero remains a valid idle latch because
-    WATER expires velocity authority after 0.5 seconds and the next nonzero
-    edge always opens a fresh command connection.
+    WATER expires velocity authority after 0.5 seconds.  The command connection
+    remains persistent across that idle boundary, matching the proven manual
+    teleoperation client, and reconnects only after an I/O error.
     """
 
     values = (
@@ -172,21 +173,21 @@ def command_channel_ready(
     )
 
 
-def command_transition_requires_rearm(
+def redundant_idle_zero_can_be_suppressed(
     previous: SanitizedVelocity,
     requested: SanitizedVelocity,
+    *,
+    last_send_succeeded: bool,
 ) -> bool:
-    """Rearm WATER's velocity session at every zero-to-active boundary.
+    """Keep one acknowledged zero without continuously refreshing it.
 
-    The vendor endpoint can acknowledge a resumed command on an old TCP
-    session without physically executing it after a sustained zero-command
-    interval.  Closing the command-only socket before the first resumed
-    nonzero command gives the endpoint the same fresh-session boundary as the
-    proven manual teleoperation path.  The status connection is independent,
-    and all normal freshness, health and explicit-zero gates remain in force.
+    This matches the proven manual teleoperation path: one zero terminates an
+    active pulse, WATER's 0.5-second TTL keeps the chassis stopped, and the same
+    persistent command session carries the next pulse.  A failed send is never
+    suppressed and follows the normal close-and-retry path.
     """
 
-    return previous.zero and not requested.zero
+    return bool(last_send_succeeded and previous.zero and requested.zero)
 
 
 def joy_command_line(
@@ -476,8 +477,6 @@ def main() -> int:
             self.last_send_latency_s = 0.0
             self.send_ack_sequence = 0
             self.last_forwarded_command_sequence = 0
-            self.connection_rearm_sequence = 0
-            self.last_connection_rearm_command_sequence = 0
             self.idle_zero_suppressed_ticks = 0
             self.last_sent = SanitizedVelocity(
                 0.0, 0.0, True, "initial_zero"
@@ -567,21 +566,10 @@ def main() -> int:
                     self.last_sent = velocity
                     self.last_forwarded_command_sequence = command_sequence
                 return
-            if command_transition_requires_rearm(previous_sent, velocity):
-                # WATER's command response is only transport acknowledgement;
-                # it does not prove the chassis left idle.  A fresh command
-                # socket on every zero-to-active edge avoids reusing the
-                # intermittently inert vendor session observed in live runs.
-                self.joy.close()
-                with self.state_lock:
-                    self.connection_rearm_sequence += 1
-                    self.last_connection_rearm_command_sequence = (
-                        command_sequence
-                    )
-            elif (
-                velocity.zero
-                and previous_sent.zero
-                and previous_send_succeeded
+            if redundant_idle_zero_can_be_suppressed(
+                previous_sent,
+                velocity,
+                last_send_succeeded=previous_send_succeeded,
             ):
                 # The proven manual WATER path sends one acknowledged zero and
                 # then remains silent while idle.  Repeating zero at 5 Hz can
@@ -651,12 +639,6 @@ def main() -> int:
                 last_send_ok_monotonic = self.last_send_ok_monotonic
                 last_send_latency_s = self.last_send_latency_s
                 send_ack_sequence = self.send_ack_sequence
-                connection_rearm_sequence = (
-                    self.connection_rearm_sequence
-                )
-                last_connection_rearm_command_sequence = (
-                    self.last_connection_rearm_command_sequence
-                )
                 idle_zero_suppressed_ticks = (
                     self.idle_zero_suppressed_ticks
                 )
@@ -698,10 +680,6 @@ def main() -> int:
                     last_forwarded_command_sequence
                 ),
                 "send_ack_sequence": send_ack_sequence,
-                "connection_rearm_sequence": connection_rearm_sequence,
-                "last_connection_rearm_command_sequence": (
-                    last_connection_rearm_command_sequence
-                ),
                 "idle_zero_suppressed_ticks": idle_zero_suppressed_ticks,
                 "last_ack_age_s": last_ack_age_s,
                 "last_send_latency_s": last_send_latency_s,
@@ -716,8 +694,10 @@ def main() -> int:
                     "api": "/api/joy_control",
                     "vendor_command_ttl_s": 0.5,
                     "executor_contract": "parallel_io_v1",
-                    "zero_to_active_connection_rearm": True,
                     "idle_zero_policy": "single_ack_then_vendor_ttl",
+                    "command_session_policy": (
+                        "persistent_across_idle_reconnect_on_error_only"
+                    ),
                     "classification": (
                         "observed_live_output" if live else "dry_run_preview"
                     ),
