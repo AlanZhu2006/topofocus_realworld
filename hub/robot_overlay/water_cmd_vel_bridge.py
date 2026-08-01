@@ -168,6 +168,23 @@ def command_channel_ready(
     )
 
 
+def command_transition_requires_rearm(
+    previous: SanitizedVelocity,
+    requested: SanitizedVelocity,
+) -> bool:
+    """Rearm WATER's velocity session at every zero-to-active boundary.
+
+    The vendor endpoint can acknowledge a resumed command on an old TCP
+    session without physically executing it after a sustained zero-command
+    interval.  Closing the command-only socket before the first resumed
+    nonzero command gives the endpoint the same fresh-session boundary as the
+    proven manual teleoperation path.  The status connection is independent,
+    and all normal freshness, health and explicit-zero gates remain in force.
+    """
+
+    return previous.zero and not requested.zero
+
+
 def joy_command_line(
     linear_mps: float,
     angular_radps: float,
@@ -455,6 +472,8 @@ def main() -> int:
             self.last_send_latency_s = 0.0
             self.send_ack_sequence = 0
             self.last_forwarded_command_sequence = 0
+            self.connection_rearm_sequence = 0
+            self.last_connection_rearm_command_sequence = 0
             self.last_sent = SanitizedVelocity(
                 0.0, 0.0, True, "initial_zero"
             )
@@ -528,6 +547,7 @@ def main() -> int:
                 )
                 command_sequence = self.command_sequence
                 water_ready = self._water_ready_locked(now)
+                previous_sent = self.last_sent
             velocity, reason = effective_velocity(
                 command,
                 received_monotonic=command_received_monotonic,
@@ -541,6 +561,17 @@ def main() -> int:
                     self.last_sent = velocity
                     self.last_forwarded_command_sequence = command_sequence
                 return
+            if command_transition_requires_rearm(previous_sent, velocity):
+                # WATER's command response is only transport acknowledgement;
+                # it does not prove the chassis left idle.  A fresh command
+                # socket on every zero-to-active edge avoids reusing the
+                # intermittently inert vendor session observed in live runs.
+                self.joy.close()
+                with self.state_lock:
+                    self.connection_rearm_sequence += 1
+                    self.last_connection_rearm_command_sequence = (
+                        command_sequence
+                    )
             send_started = time.monotonic()
             try:
                 self.joy.send(velocity.linear_mps, velocity.angular_radps)
@@ -600,6 +631,12 @@ def main() -> int:
                 last_send_ok_monotonic = self.last_send_ok_monotonic
                 last_send_latency_s = self.last_send_latency_s
                 send_ack_sequence = self.send_ack_sequence
+                connection_rearm_sequence = (
+                    self.connection_rearm_sequence
+                )
+                last_connection_rearm_command_sequence = (
+                    self.last_connection_rearm_command_sequence
+                )
                 last_sent = self.last_sent
                 last_reason = self.last_reason
                 ready = self._water_ready_locked(now)
@@ -637,6 +674,10 @@ def main() -> int:
                     last_forwarded_command_sequence
                 ),
                 "send_ack_sequence": send_ack_sequence,
+                "connection_rearm_sequence": connection_rearm_sequence,
+                "last_connection_rearm_command_sequence": (
+                    last_connection_rearm_command_sequence
+                ),
                 "last_ack_age_s": last_ack_age_s,
                 "last_send_latency_s": last_send_latency_s,
                 "velocity_zero_confirmed": zero_confirmed,
@@ -650,6 +691,7 @@ def main() -> int:
                     "api": "/api/joy_control",
                     "vendor_command_ttl_s": 0.5,
                     "executor_contract": "parallel_io_v1",
+                    "zero_to_active_connection_rearm": True,
                     "classification": (
                         "observed_live_output" if live else "dry_run_preview"
                     ),

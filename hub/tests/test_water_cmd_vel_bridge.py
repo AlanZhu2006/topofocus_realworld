@@ -125,6 +125,19 @@ def test_live_water_readiness_requires_current_joy_acknowledgements() -> None:
     )
 
 
+def test_water_command_session_rearms_only_on_zero_to_active_edge() -> None:
+    bridge = load_bridge()
+    zero = bridge.SanitizedVelocity(0.0, 0.0, True, "guarded_zero")
+    forward = bridge.SanitizedVelocity(0.3, 0.0, True, "active")
+    turn = bridge.SanitizedVelocity(0.0, 0.4, True, "active")
+
+    assert bridge.command_transition_requires_rearm(zero, forward)
+    assert bridge.command_transition_requires_rearm(zero, turn)
+    assert not bridge.command_transition_requires_rearm(zero, zero)
+    assert not bridge.command_transition_requires_rearm(forward, forward)
+    assert not bridge.command_transition_requires_rearm(forward, zero)
+
+
 @pytest.mark.parametrize(
     ("now_monotonic", "send_rate_hz"),
     [(float("nan"), 5.0), (10.0, 0.0)],
@@ -247,3 +260,5 @@ def test_water_bridge_parallelizes_blocking_io_and_reports_exact_forwarding() ->
     assert '"send_ack_sequence"' in source
     assert '"last_send_latency_s"' in source
     assert '"executor_contract": "parallel_io_v1"' in source
+    assert '"connection_rearm_sequence"' in source
+    assert '"zero_to_active_connection_rearm": True' in source
